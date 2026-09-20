@@ -397,6 +397,7 @@ function buildRawAccount(
       tls: server.imapTls,
       starttls: !server.imapTls,
       verify_ssl: true,
+      disable_imap4rev2: false,
     },
     smtp: {
       host: server.smtpHost,
@@ -499,6 +500,7 @@ async function addAccount(): Promise<void> {
         settings: {
           rate_limit: 10,
           read_only: false,
+          save_to_sent: true,
           watcher: {
             enabled: false,
             folders: ['INBOX'],

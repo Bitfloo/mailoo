@@ -20,6 +20,44 @@ type SmtpAuth =
   | { user: string; pass?: string }
   | { type: string; user: string; accessToken: string };
 
+export function buildImapFlowOptions(
+  account: AccountConfig,
+  extra: Record<string, unknown> = {},
+): ConstructorParameters<typeof ImapFlow>[0] {
+  return {
+    host: account.imap.host,
+    port: account.imap.port,
+    secure: account.imap.tls,
+    tls: {
+      rejectUnauthorized: account.imap.verifySsl,
+    },
+    logger: false,
+    ...(account.imap.disableImap4rev2 ? { disableIMAP4rev2: true } : {}),
+    ...extra,
+  } as ConstructorParameters<typeof ImapFlow>[0];
+}
+
+export function bindImapLifecycle(
+  accountName: string,
+  client: ImapFlow,
+  forgetIfCurrent: () => void,
+): void {
+  client.on('error', (err: Error) => {
+    mcpLog(
+      'warning',
+      'imap',
+      `ImapFlow error for "${accountName}": ${err instanceof Error ? err.message : String(err)}`,
+    ).catch(() => {});
+    forgetIfCurrent();
+    try {
+      client.close();
+    } catch {
+      /* ignore */
+    }
+  });
+  client.on('close', forgetIfCurrent);
+}
+
 export default class ConnectionManager implements IConnectionManager {
   private imapClients = new Map<string, ImapFlow>();
 
@@ -86,14 +124,13 @@ export default class ConnectionManager implements IConnectionManager {
     }
 
     const client = new ImapFlow({
-      host: account.imap.host,
-      port: account.imap.port,
-      secure: account.imap.tls,
-      tls: {
-        rejectUnauthorized: account.imap.verifySsl,
-      },
+      ...buildImapFlowOptions(account),
       auth,
-      logger: false,
+    });
+    bindImapLifecycle(accountName, client, () => {
+      if (this.imapClients.get(accountName) === client) {
+        this.imapClients.delete(accountName);
+      }
     });
 
     await client.connect();
@@ -215,15 +252,10 @@ export default class ConnectionManager implements IConnectionManager {
       }
 
       client = new ImapFlow({
-        host: account.imap.host,
-        port: account.imap.port,
-        secure: account.imap.tls,
-        tls: {
-          rejectUnauthorized: account.imap.verifySsl,
-        },
+        ...buildImapFlowOptions(account),
         auth,
-        logger: false,
       });
+      client.on('error', () => {});
       await client.connect();
 
       const mailboxes = await client.list();

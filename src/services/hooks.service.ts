@@ -313,6 +313,10 @@ export default class HooksService {
       account: email.account,
       sender: email.meta.from,
       subject: email.meta.subject,
+      uid: email.meta.id,
+      messageId: email.meta.messageId,
+      folder: email.mailbox,
+      hasAttachments: email.meta.hasAttachments,
       priority: actions.flag ? 'high' : 'normal',
       labels: actions.labels,
       ruleName: rule.name,
@@ -365,6 +369,10 @@ export default class HooksService {
         account: e.account,
         sender: e.meta.from,
         subject: e.meta.subject,
+        uid: e.meta.id,
+        messageId: e.meta.messageId,
+        folder: e.mailbox,
+        hasAttachments: e.meta.hasAttachments,
         priority: 'normal',
       };
       return this.notifier.alert(payload);
@@ -475,6 +483,10 @@ export default class HooksService {
       account: email.account,
       sender: email.meta.from,
       subject: email.meta.subject,
+      uid: email.meta.id,
+      messageId: email.meta.messageId,
+      folder: email.mailbox,
+      hasAttachments: email.meta.hasAttachments,
       priority,
       labels: triage.labels,
     };

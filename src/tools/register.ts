@@ -13,6 +13,7 @@ import type ImapService from '../services/imap.service.js';
 import type LocalCalendarService from '../services/local-calendar.service.js';
 import type RemindersService from '../services/reminders.service.js';
 import type SchedulerService from '../services/scheduler.service.js';
+import sieveService from '../services/sieve.service.js';
 import type SmtpService from '../services/smtp.service.js';
 import type TemplateService from '../services/template.service.js';
 import type WatcherService from '../services/watcher.service.js';
@@ -32,7 +33,9 @@ import registerLocateTools from './locate.tool.js';
 import registerMailboxesTools from './mailboxes.tool.js';
 import registerManageTools from './manage.tool.js';
 import registerSchedulerTools from './scheduler.tool.js';
+import registerSecurityTools from './security.tool.js';
 import registerSendTools from './send.tool.js';
+import { registerSieveReadTools, registerSieveWriteTools } from './sieve.tool.js';
 import { registerTemplateReadTools, registerTemplateWriteTools } from './templates.tool.js';
 import registerThreadTools from './thread.tool.js';
 import registerWatcherTools from './watcher.tool.js';
@@ -72,6 +75,8 @@ export default function registerAllTools(
   registerHealthTools(server, connections, imapService);
   registerLocateTools(server, imapService);
   registerWatcherTools(server, watcherService, hooksService);
+  registerSecurityTools(server, imapService);
+  registerSieveReadTools(server, connections, sieveService);
 
   // Write tools — skipped in read-only mode
   if (!readOnly) {
@@ -83,5 +88,6 @@ export default function registerAllTools(
     registerFolderTools(server, imapService);
     registerTemplateWriteTools(server, templateService, imapService, smtpService);
     registerSchedulerTools(server, schedulerService);
+    registerSieveWriteTools(server, connections, sieveService);
   }
 }

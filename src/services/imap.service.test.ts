@@ -1,5 +1,5 @@
 import type { IConnectionManager } from '../connections/types.js';
-import ImapService from './imap.service.js';
+import ImapService, { findTextMimeParts } from './imap.service.js';
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -18,6 +18,9 @@ function createMockImapClient() {
     messageDelete: vi.fn().mockResolvedValue(true),
     messageFlagsAdd: vi.fn().mockResolvedValue(true),
     messageFlagsRemove: vi.fn().mockResolvedValue(true),
+    append: vi.fn().mockResolvedValue({ uid: 7 }),
+    download: vi.fn(),
+    fetchOne: vi.fn(),
     _releaseFn: releaseFn,
   };
 }
@@ -163,6 +166,137 @@ describe('ImapService', () => {
       await service.setFlags('test', '10', 'INBOX', 'flag');
 
       expect(client.messageFlagsAdd).toHaveBeenCalledWith('10', ['\\Flagged'], { uid: true });
+    });
+  });
+
+  describe('findTextMimeParts', () => {
+    it('selects leaf 1.1/1.2 instead of container part 1', () => {
+      const parts = findTextMimeParts({
+        type: 'multipart/related',
+        part: '1',
+        childNodes: [
+          {
+            type: 'multipart/alternative',
+            part: '1',
+            childNodes: [
+              { type: 'text/plain', part: '1.1' },
+              { type: 'text/html', part: '1.2' },
+            ],
+          },
+        ],
+      });
+      expect(parts).toEqual({ plain: '1.1', html: '1.2' });
+    });
+
+    it('skips attachment and message/rfc822 subtrees', () => {
+      const parts = findTextMimeParts({
+        type: 'multipart/mixed',
+        childNodes: [
+          { type: 'text/plain', part: '1' },
+          { type: 'text/plain', part: '2', disposition: 'attachment' },
+          { type: 'message/rfc822', part: '3', childNodes: [{ type: 'text/html', part: '3.1' }] },
+        ],
+      });
+      expect(parts.plain).toBe('1');
+      expect(parts.html).toBeUndefined();
+    });
+  });
+
+  describe('getEmail', () => {
+    it('downloads leaf text parts rather than hardcoded part 1, and keeps Original Message', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 10,
+        envelope: {
+          subject: 'Hi',
+          from: [{ address: 'a@example.com' }],
+          to: [{ address: 'b@example.com' }],
+          messageId: '<mid@example.com>',
+        },
+        flags: new Set(),
+        bodyStructure: {
+          type: 'multipart/alternative',
+          part: '1',
+          childNodes: [
+            { type: 'text/plain', part: '1.1' },
+            { type: 'text/html', part: '1.2' },
+          ],
+        },
+        source: Buffer.from('From: a@example.com\r\n\r\nplaceholder-source'),
+      });
+      const quoted = 'Hello\n\n-----Original Message-----\nFrom: Bob\nHi';
+      async function* chunksOf(text: string) {
+        yield Buffer.from(text);
+      }
+      client.download.mockImplementation(async (_uid: string, part: string) => ({
+        content: chunksOf(part === '1.1' ? quoted : '<p>Hello</p>'),
+      }));
+
+      const email = await service.getEmail('test', '10');
+      const parts = client.download.mock.calls.map((call) => call[1]);
+      expect(parts).toContain('1.1');
+      expect(parts).toContain('1.2');
+      expect(parts).not.toContain('1');
+      expect(email.bodyText).toContain('-----Original Message-----');
+    });
+  });
+
+  describe('listEmails ordering', () => {
+    it('pages by date newest-first, not by UID', async () => {
+      client.search.mockResolvedValue([1, 2]);
+      const older = {
+        uid: 2,
+        envelope: { date: new Date('2020-01-01'), subject: 'old', from: [], to: [] },
+        flags: new Set(),
+      };
+      const newer = {
+        uid: 1,
+        envelope: { date: new Date('2026-01-01'), subject: 'new', from: [], to: [] },
+        flags: new Set(),
+      };
+      let fetchCalls = 0;
+      client.fetch.mockImplementation(() => {
+        fetchCalls += 1;
+        const rows = fetchCalls === 1 ? [older, newer] : [newer];
+        async function* fetchMock() {
+          for (const row of rows) yield row;
+        }
+        return fetchMock();
+      });
+
+      const result = await service.listEmails('test', { pageSize: 1 });
+      expect(result.items[0].subject).toBe('new');
+      expect(result.items[0].id).toBe('1');
+    });
+  });
+
+  describe('searchEmails', () => {
+    it('passes since and before as IMAP date criteria', async () => {
+      client.search.mockResolvedValue([]);
+      await service.searchEmails('test', 'invoice', {
+        since: '2026-01-01',
+        before: '2026-02-01',
+      });
+      expect(client.search).toHaveBeenCalledWith(
+        expect.objectContaining({
+          since: expect.any(Date),
+          before: expect.any(Date),
+        }),
+        { uid: true },
+      );
+    });
+  });
+
+  describe('saveDraft', () => {
+    it('RFC-2047 encodes a non-ASCII subject', async () => {
+      client.list.mockResolvedValue([{ name: 'Drafts', path: 'Drafts', specialUse: '\\Drafts' }]);
+      await service.saveDraft('test', {
+        to: ['a@example.com'],
+        subject: 'Ünïcode – Test',
+        body: 'Body',
+      });
+      expect(client.append).toHaveBeenCalledOnce();
+      const raw = client.append.mock.calls[0][1] as Buffer;
+      expect(raw.toString('utf8')).toMatch(/Subject:\s*=\?UTF-8\?[BQ]\?/i);
     });
   });
 });

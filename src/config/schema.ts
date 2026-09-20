@@ -10,6 +10,9 @@ export const ImapConfigSchema = z.object({
   tls: z.boolean().default(true),
   starttls: z.boolean().default(false),
   verify_ssl: z.boolean().default(true),
+  disable_imap4rev2: z.boolean().default(false),
+  sieve_host: z.string().optional(),
+  sieve_port: z.number().int().min(1).max(65535).optional(),
 });
 
 export const SmtpConfigSchema = z.object({
@@ -118,6 +121,7 @@ export const HooksConfigSchema = z.object({
 export const SettingsSchema = z.object({
   rate_limit: z.number().int().min(1).default(10),
   read_only: z.boolean().default(false),
+  save_to_sent: z.boolean().default(true),
   watcher: WatcherConfigSchema.default({
     enabled: false,
     folders: ['INBOX'],
@@ -148,6 +152,7 @@ export const AppConfigFileSchema = z.object({
   settings: SettingsSchema.default({
     rate_limit: 10,
     read_only: false,
+    save_to_sent: true,
     watcher: {
       enabled: false,
       folders: ['INBOX'],

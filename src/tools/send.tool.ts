@@ -5,9 +5,22 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import audit from '../safety/audit.js';
-import { validateInputLength } from '../safety/validation.js';
+import { recipientEmail, validateInputLength } from '../safety/validation.js';
 
 import type SmtpService from '../services/smtp.service.js';
+
+const outgoingAttachment = z
+  .object({
+    filename: z.string().optional().describe('Attachment filename'),
+    path: z.string().optional().describe('Local file path'),
+    base64: z.string().optional().describe('Inline base64 content'),
+    contentType: z.string().optional().describe('MIME type'),
+    emailId: z.string().optional().describe('Copy this attachment from another message (UID)'),
+    mailbox: z.string().optional().describe('Mailbox of emailId (default INBOX)'),
+  })
+  .refine((a) => [a.path, a.base64, a.emailId && a.filename].some(Boolean), {
+    message: 'Each attachment needs path, base64, or emailId+filename',
+  });
 
 export default function registerSendTools(server: McpServer, smtpService: SmtpService): void {
   // ---------------------------------------------------------------------------
@@ -15,15 +28,21 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
   // ---------------------------------------------------------------------------
   server.tool(
     'send_email',
-    'Send a new email. Supports plain text or HTML body, CC, and BCC.',
+    'Send a new email. Supports plain text or HTML body, CC, BCC, and attachments. ' +
+      'Optional messageId lets a retried call reuse the same Message-ID.',
     {
       account: z.string().describe('Account name from list_accounts'),
-      to: z.array(z.string().email()).min(1).describe('Recipient email addresses'),
+      to: z.array(recipientEmail).min(1).describe('Recipient email addresses'),
       subject: z.string().describe('Email subject'),
       body: z.string().describe('Email body content'),
-      cc: z.array(z.string().email()).optional().describe('CC recipients'),
-      bcc: z.array(z.string().email()).optional().describe('BCC recipients'),
+      cc: z.array(recipientEmail).optional().describe('CC recipients'),
+      bcc: z.array(recipientEmail).optional().describe('BCC recipients'),
       html: z.boolean().default(false).describe('Send as HTML (default: plain text)'),
+      attachments: z.array(outgoingAttachment).optional().describe('File attachments'),
+      messageId: z
+        .string()
+        .optional()
+        .describe('Stable RFC 5322 Message-ID for retries (receivers can dedupe)'),
     },
     { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     async (params) => {
@@ -34,7 +53,7 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
         await audit.log(
           'send_email',
           params.account,
-          { to: params.to, subject: params.subject },
+          { to: params.to, subject: params.subject, messageId: params.messageId },
           'ok',
         );
         return {
@@ -80,6 +99,7 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
       body: z.string().describe('Reply body content'),
       replyAll: z.boolean().default(false).describe('Reply to all recipients'),
       html: z.boolean().default(false).describe('Send as HTML'),
+      messageId: z.string().optional().describe('Stable RFC 5322 Message-ID for retries'),
     },
     { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     async (params) => {
@@ -131,9 +151,15 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
       account: z.string().describe('Account name from list_accounts'),
       emailId: z.string().describe('Email ID to forward (from list_emails or get_email)'),
       mailbox: z.string().default('INBOX').describe('Mailbox where the original email is'),
-      to: z.array(z.string().email()).min(1).describe('Forward to these recipients'),
+      to: z.array(recipientEmail).min(1).describe('Forward to these recipients'),
       body: z.string().optional().describe('Additional message above the forwarded content'),
-      cc: z.array(z.string().email()).optional().describe('CC recipients'),
+      cc: z.array(recipientEmail).optional().describe('CC recipients'),
+      html: z
+        .boolean()
+        .default(false)
+        .describe('Send the additional message + forwarded quote as HTML (default: plain text)'),
+      attachments: z.array(outgoingAttachment).optional().describe('Extra file attachments'),
+      messageId: z.string().optional().describe('Stable RFC 5322 Message-ID for retries'),
     },
     { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     async (params) => {

@@ -24,7 +24,10 @@ import ConnectionManager from './connections/manager.js';
 import { bindServer, markInitialized, mcpLog } from './logging.js';
 import registerAllPrompts from './prompts/register.js';
 import registerAllResources from './resources/register.js';
+import HttpSessionStore from './safety/http-sessions.js';
 import RateLimiter from './safety/rate-limiter.js';
+import attachStdioShutdown from './safety/stdio-lifecycle.js';
+import { maybeStartMailboxWriters } from './safety/write-side-effects.js';
 import createServer, { PKG_VERSION } from './server.js';
 import CalendarService from './services/calendar.service.js';
 import HooksService from './services/hooks.service.js';
@@ -87,7 +90,12 @@ async function runServer(): Promise<void> {
   const connections = new ConnectionManager(config.accounts, oauthService);
   const rateLimiter = new RateLimiter(config.settings.rateLimit);
   const imapService = new ImapService(connections);
-  const smtpService = new SmtpService(connections, rateLimiter, imapService);
+  const smtpService = new SmtpService(
+    connections,
+    rateLimiter,
+    imapService,
+    config.settings.saveToSent,
+  );
   const templateService = new TemplateService();
   const calendarService = new CalendarService();
   const localCalendarService = new LocalCalendarService();
@@ -131,37 +139,54 @@ async function runServer(): Promise<void> {
 
   const lowLevelServer = server.server;
 
+  const canWrite = !config.settings.readOnly;
+
   lowLevelServer.oninitialized = () => {
     markInitialized();
 
     // eslint-disable-next-line no-void
     void (async () => {
       try {
-        const clientCaps = lowLevelServer.getClientCapabilities?.() ?? {};
-        hooksService.start(lowLevelServer, { sampling: clientCaps.sampling != null });
+        const started = await maybeStartMailboxWriters(canWrite, {
+          startHooks: () => {
+            const clientCaps = lowLevelServer.getClientCapabilities?.() ?? {};
+            hooksService.start(lowLevelServer, { sampling: clientCaps.sampling != null });
+          },
+          startWatcher: async () => watcherService.start(),
+          startScheduler: async () => {
+            try {
+              const result = await schedulerService.checkAndSend();
+              if (result.sent > 0) {
+                await mcpLog(
+                  'info',
+                  'scheduler',
+                  `Sent ${result.sent} overdue email(s) on startup`,
+                );
+              }
+            } catch {
+              // Non-fatal: scheduler check failure shouldn't prevent server start
+            }
 
-        await watcherService.start();
+            schedulerInterval = setInterval(async () => {
+              try {
+                await schedulerService.checkAndSend();
+              } catch {
+                // Silent — don't spam logs
+              }
+            }, 60_000);
+            schedulerInterval.unref();
+          },
+        });
 
-        await mcpLog('info', 'server', 'Mailoo started');
-
-        // Check for overdue scheduled emails on startup
-        try {
-          const result = await schedulerService.checkAndSend();
-          if (result.sent > 0) {
-            await mcpLog('info', 'scheduler', `Sent ${result.sent} overdue email(s) on startup`);
-          }
-        } catch {
-          // Non-fatal: scheduler check failure shouldn't prevent server start
+        if (!started) {
+          await mcpLog(
+            'info',
+            'server',
+            'read_only: skipping hooks, watcher, and scheduler (no mailbox writes)',
+          );
         }
 
-        // Periodic scheduler check every 60 seconds
-        schedulerInterval = setInterval(async () => {
-          try {
-            await schedulerService.checkAndSend();
-          } catch {
-            // Silent — don't spam logs
-          }
-        }, 60_000);
+        await mcpLog('info', 'server', 'Mailoo started');
       } catch (err) {
         // Log to stderr — mcpLog may not be safe if init itself errored
         process.stderr.write(
@@ -172,16 +197,22 @@ async function runServer(): Promise<void> {
   };
 
   // Graceful shutdown
+  let shuttingDown = false;
   const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     if (schedulerInterval) clearInterval(schedulerInterval);
     hooksService.stop();
     await watcherService.stop();
     await connections.closeAll();
     await server.close();
+    process.exit(0); // eslint-disable-line n/no-process-exit -- stdio EOF must terminate; IMAP handles would pin the loop
   };
 
+  attachStdioShutdown(process.stdin, shutdown);
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  process.on('SIGHUP', shutdown);
 }
 
 async function readBody(req: IncomingMessage): Promise<Buffer> {
@@ -201,7 +232,12 @@ async function runHttpServer(port: number): Promise<void> {
   const connections = new ConnectionManager(config.accounts, oauthService);
   const rateLimiter = new RateLimiter(config.settings.rateLimit);
   const imapService = new ImapService(connections);
-  const smtpService = new SmtpService(connections, rateLimiter, imapService);
+  const smtpService = new SmtpService(
+    connections,
+    rateLimiter,
+    imapService,
+    config.settings.saveToSent,
+  );
   const templateService = new TemplateService();
   const calendarService = new CalendarService();
   const localCalendarService = new LocalCalendarService();
@@ -234,7 +270,8 @@ async function runHttpServer(port: number): Promise<void> {
     return server;
   }
 
-  const transports = new Map<string, StreamableHTTPServerTransport>();
+  const sessions = new HttpSessionStore<StreamableHTTPServerTransport>();
+  const canWrite = !config.settings.readOnly;
 
   const httpServer = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
     if (req.url === '/health') {
@@ -272,35 +309,42 @@ async function runHttpServer(port: number): Promise<void> {
     const sessionIdHeader = req.headers['mcp-session-id'];
     const sessionId = Array.isArray(sessionIdHeader) ? sessionIdHeader[0] : sessionIdHeader;
     let transport: StreamableHTTPServerTransport;
+    let trackedId = sessionId;
 
-    const existing = sessionId ? transports.get(sessionId) : undefined;
-    if (existing) {
+    const existing = sessionId ? sessions.get(sessionId) : undefined;
+    if (existing && sessionId) {
       transport = existing;
+      sessions.touch(sessionId);
     } else if (!sessionId && req.method === 'POST' && isInitializeRequest(body)) {
       const newTransport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (sid) => {
-          transports.set(sid, newTransport);
+          sessions.set(sid, newTransport);
         },
       });
       newTransport.onclose = () => {
         const sid = newTransport.sessionId;
-        if (sid) transports.delete(sid);
+        if (sid) sessions.delete(sid);
       };
       const mcpServer = buildMcpSession();
       await mcpServer.connect(newTransport);
 
-      // Register hooks on the *first* client init for this session so the
-      // HTTP path also wires up email:new → sampling/createMessage. Without
-      // this, only stdio mode triggered the hooks (see 36eb8ca on main).
       const ls = mcpServer.server;
       ls.oninitialized = () => {
         markInitialized();
         // eslint-disable-next-line no-void
         void (async () => {
           try {
-            const clientCaps = ls.getClientCapabilities?.() ?? {};
-            hooksService.start(ls, { sampling: clientCaps.sampling != null });
+            const started = await maybeStartMailboxWriters(canWrite, {
+              startHooks: () => {
+                const clientCaps = ls.getClientCapabilities?.() ?? {};
+                hooksService.start(ls, { sampling: clientCaps.sampling != null });
+              },
+            });
+            if (!started) {
+              await mcpLog('info', 'server', 'read_only: skipping hooks (HTTP mode)');
+              return;
+            }
             await mcpLog('info', 'server', 'Mailoo ready (HTTP mode)');
           } catch (err) {
             process.stderr.write(
@@ -311,6 +355,7 @@ async function runHttpServer(port: number): Promise<void> {
       };
 
       transport = newTransport;
+      trackedId = newTransport.sessionId;
     } else {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(
@@ -326,27 +371,38 @@ async function runHttpServer(port: number): Promise<void> {
       return;
     }
 
-    await transport.handleRequest(req, res, body);
+    if (trackedId) sessions.beginRequest(trackedId);
+    try {
+      await transport.handleRequest(req, res, body);
+    } finally {
+      if (trackedId) sessions.endRequest(trackedId);
+      sessions.evict();
+    }
   });
 
-  await watcherService.start();
+  let checkInterval: ReturnType<typeof setInterval> | undefined;
+  await maybeStartMailboxWriters(canWrite, {
+    startWatcher: async () => watcherService.start(),
+    startScheduler: async () => {
+      checkInterval = setInterval(async () => {
+        try {
+          await schedulerService.checkAndSend();
+        } catch {
+          // Silent
+        }
+      }, 60_000);
+      checkInterval.unref();
 
-  const checkInterval = setInterval(async () => {
-    try {
-      await schedulerService.checkAndSend();
-    } catch {
-      // Silent
-    }
-  }, 60_000);
-
-  try {
-    const result = await schedulerService.checkAndSend();
-    if (result.sent > 0) {
-      process.stderr.write(`[scheduler] Sent ${result.sent} overdue email(s) on startup\n`);
-    }
-  } catch {
-    // Non-fatal
-  }
+      try {
+        const result = await schedulerService.checkAndSend();
+        if (result.sent > 0) {
+          process.stderr.write(`[scheduler] Sent ${result.sent} overdue email(s) on startup\n`);
+        }
+      } catch {
+        // Non-fatal
+      }
+    },
+  });
 
   await new Promise<void>((resolve, reject) => {
     httpServer.listen(port, () => {
@@ -359,11 +415,10 @@ async function runHttpServer(port: number): Promise<void> {
   });
 
   const shutdown = async () => {
-    clearInterval(checkInterval);
+    if (checkInterval) clearInterval(checkInterval);
     hooksService.stop();
     await watcherService.stop();
-    // Close all transports concurrently; errors are ignored individually.
-    await Promise.allSettled(Array.from(transports.values(), async (t) => t.close()));
+    await Promise.allSettled(sessions.values().map(async (t) => t.close()));
     await connections.closeAll();
     httpServer.close();
   };

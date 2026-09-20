@@ -4,7 +4,39 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { dateToAppleScriptLines, escapeAS } from './local-calendar.service.js';
+const { execFileMock } = vi.hoisted(() => {
+  const mock = vi.fn(
+    (
+      _file: string,
+      _args: unknown,
+      options: unknown,
+      callback?: (err: Error | null, stdout: string, stderr: string) => void,
+    ) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (typeof cb === 'function') {
+        cb(null, '[]', '');
+      }
+    },
+  );
+  const custom = Symbol.for('nodejs.util.promisify.custom');
+  Object.assign(mock, {
+    [custom]: async (file: string, args: unknown, options: unknown) => {
+      mock(file, args, options);
+      return { stdout: '[]', stderr: '' };
+    },
+  });
+  return { execFileMock: mock };
+});
+
+vi.mock('node:child_process', () => ({
+  execFile: execFileMock,
+}));
+
+import LocalCalendarService, {
+  dateToAppleScriptLines,
+  escapeAS,
+  LIST_EVENTS_TIMEOUT_MS,
+} from './local-calendar.service.js';
 
 // ---------------------------------------------------------------------------
 // escapeAS
@@ -102,5 +134,27 @@ describe('dateToAppleScriptLines', () => {
 
     // The hour must match the local hour we set (16), regardless of UTC offset
     expect(lines).toContain('set hours of ev to 16');
+  });
+});
+
+describe('listEvents timeout', () => {
+  it('uses a 90s osascript timeout so multi-calendar whose-queries can finish', () => {
+    expect(LIST_EVENTS_TIMEOUT_MS).toBe(90_000);
+  });
+
+  it('passes timeout 90000 into execFile, not only the exported constant', async () => {
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+    execFileMock.mockClear();
+    try {
+      const svc = new LocalCalendarService();
+      await svc.listEvents({ limit: 1 });
+      expect(execFileMock).toHaveBeenCalled();
+      const optionsArg = execFileMock.mock.calls[0].find(
+        (arg) => arg !== null && typeof arg === 'object' && 'timeout' in arg,
+      ) as { timeout?: number } | undefined;
+      expect(optionsArg?.timeout).toBe(90_000);
+    } finally {
+      platform.mockRestore();
+    }
   });
 });

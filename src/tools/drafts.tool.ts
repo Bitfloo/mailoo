@@ -5,6 +5,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import audit from '../safety/audit.js';
+import { recipientEmail } from '../safety/validation.js';
 
 import type ImapService from '../services/imap.service.js';
 import type SmtpService from '../services/smtp.service.js';
@@ -23,18 +24,29 @@ export default function registerDraftTools(
     {
       account: z.string().describe('Account name from list_accounts'),
       to: z
-        .array(z.string().email())
+        .array(recipientEmail)
         .default([])
         .describe('Recipient email addresses (can be empty for drafts)'),
       subject: z.string().describe('Email subject'),
       body: z.string().describe('Email body content'),
-      cc: z.array(z.string().email()).optional().describe('CC recipients'),
-      bcc: z.array(z.string().email()).optional().describe('BCC recipients'),
+      cc: z.array(recipientEmail).optional().describe('CC recipients'),
+      bcc: z.array(recipientEmail).optional().describe('BCC recipients'),
       html: z.boolean().default(false).describe('Send as HTML (default: plain text)'),
       in_reply_to: z.string().optional().describe('Message-ID for threading (from get_email)'),
+      attachments: z
+        .array(
+          z.object({
+            filename: z.string().optional(),
+            path: z.string().optional(),
+            base64: z.string().optional(),
+            contentType: z.string().optional(),
+          }),
+        )
+        .optional()
+        .describe('Draft attachments (path or base64)'),
     },
     { readOnlyHint: false, destructiveHint: false },
-    async ({ account, to, subject, body, cc, bcc, html, in_reply_to: inReplyTo }) => {
+    async ({ account, to, subject, body, cc, bcc, html, in_reply_to: inReplyTo, attachments }) => {
       try {
         const result = await imapService.saveDraft(account, {
           to,
@@ -44,6 +56,7 @@ export default function registerDraftTools(
           bcc,
           html,
           inReplyTo,
+          attachments,
         });
 
         await audit.log('save_draft', account, { to, subject }, 'ok');

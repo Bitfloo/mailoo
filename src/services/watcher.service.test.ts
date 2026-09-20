@@ -1,5 +1,5 @@
 import type { AccountConfig, WatcherConfig } from '../types/index.js';
-import WatcherService from './watcher.service.js';
+import WatcherService, { buildEmailMeta } from './watcher.service.js';
 
 // Mock imapflow module
 vi.mock('imapflow', () => {
@@ -68,5 +68,21 @@ describe('WatcherService', () => {
     const status = watcher.getStatus();
     expect(status).toHaveLength(2);
     await watcher.stop();
+  });
+
+  it('sets messageId from the envelope', () => {
+    const meta = buildEmailMeta({
+      uid: 9,
+      envelope: {
+        subject: 'Hello',
+        messageId: '<id@example.com>',
+        from: [{ name: 'Ada', address: 'ada@example.com' }],
+        to: [{ address: 'bob@example.com' }],
+        date: new Date('2026-01-02T00:00:00.000Z'),
+      },
+    });
+    expect(meta.messageId).toBe('<id@example.com>');
+    expect(meta.id).toBe('9');
+    expect(meta.subject).toBe('Hello');
   });
 });

@@ -29,6 +29,10 @@ export interface AlertPayload {
   priority: UrgencyLevel;
   labels?: string[];
   ruleName?: string;
+  uid?: string;
+  messageId?: string;
+  folder?: string;
+  hasAttachments?: boolean;
 }
 
 export interface PlatformDiagnostics {
@@ -382,8 +386,12 @@ export default class NotifierService {
     const body = JSON.stringify({
       event: `email.${payload.priority}`,
       account: payload.account,
+      uid: payload.uid ?? null,
+      messageId: payload.messageId ?? null,
+      folder: payload.folder ?? null,
       sender: payload.sender,
       subject: payload.subject,
+      hasAttachments: payload.hasAttachments ?? false,
       priority: payload.priority,
       labels: payload.labels ?? [],
       rule: payload.ruleName ?? null,

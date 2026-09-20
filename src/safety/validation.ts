@@ -1,5 +1,13 @@
 /** Input validation and sanitization utilities. */
 
+import { z } from 'zod';
+
+/**
+ * HTML5 email production — no regex lookaheads.
+ * Zod's default `.email()` emits a lookahead pattern that llama.cpp GBNF cannot compile.
+ */
+export const recipientEmail = z.string().regex(z.regexes.html5Email);
+
 /**
  * Validate and sanitize an IMAP mailbox name.
  * Rejects names containing IMAP wildcard characters (`*`, `%`) or empty strings.

@@ -27,6 +27,12 @@ export interface ImapConfig {
   tls: boolean;
   starttls: boolean;
   verifySsl: boolean;
+  /** Opt out of IMAP4rev2 (broken SEARCH/ESEARCH on some hosts, e.g. Strato). */
+  disableImap4rev2?: boolean;
+  /** ManageSieve host (defaults to IMAP host). */
+  sieveHost?: string;
+  /** ManageSieve port (defaults to 4190). */
+  sievePort?: number;
 }
 
 export interface SmtpConfig {
@@ -141,6 +147,8 @@ export interface AppConfig {
   settings: {
     rateLimit: number;
     readOnly: boolean;
+    /** After SMTP send, APPEND a copy to the \\Sent mailbox (default true). */
+    saveToSent: boolean;
     watcher: WatcherConfig;
     hooks: HooksConfig;
   };
@@ -175,12 +183,23 @@ export interface EmailMeta {
   hasAttachments: boolean;
   labels: string[];
   preview?: string;
+  messageId?: string;
 }
 
 export interface AttachmentMeta {
   filename: string;
   mimeType: string;
   size: number;
+}
+
+/** Input for send_email / save_draft attachments. */
+export interface OutgoingAttachment {
+  filename?: string;
+  path?: string;
+  base64?: string;
+  contentType?: string;
+  emailId?: string;
+  mailbox?: string;
 }
 
 export interface Email extends EmailMeta {
@@ -202,6 +221,8 @@ export interface Email extends EmailMeta {
 export interface SendResult {
   messageId: string;
   status: 'sent' | 'failed';
+  /** False when SMTP succeeded but IMAP APPEND to Sent failed. */
+  savedToSent: boolean;
 }
 
 export interface PaginatedResult<T> {

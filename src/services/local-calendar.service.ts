@@ -18,6 +18,8 @@ import { promisify } from 'node:util';
 
 const execFile = promisify(execFileCb);
 
+export const LIST_EVENTS_TIMEOUT_MS = 90_000;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -545,9 +547,13 @@ return jsonResult
 `;
 
   try {
-    const { stdout } = await execFile('osascript', ['-e', script], { timeout: 15_000 });
+    const { stdout } = await execFile('osascript', ['-e', script], {
+      timeout: LIST_EVENTS_TIMEOUT_MS,
+    });
     return JSON.parse(stdout.trim()) as CalendarEventSummary[];
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[mailoo] listEventsMacOS failed: ${msg}\n`);
     return [];
   }
 }

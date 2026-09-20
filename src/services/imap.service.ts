@@ -18,10 +18,14 @@ import type {
   EmailStats,
   LabelInfo,
   Mailbox,
+  OutgoingAttachment,
   PaginatedResult,
   QuotaInfo,
   SenderStat,
 } from '../types/index.js';
+import { parseSenderAuth } from '../utils/auth-headers.js';
+import { looksLikeRawMime } from '../utils/email-body.js';
+import compileRfc822 from '../utils/mail-compose.js';
 import type { LabelStrategy } from './label-strategy.js';
 import { detectLabelStrategy } from './label-strategy.js';
 
@@ -104,6 +108,92 @@ function findMimePartByFilename(
   return undefined;
 }
 
+export interface TextMimeParts {
+  plain?: string;
+  html?: string;
+}
+
+function mimeTypeOf(bs: Record<string, unknown>): string {
+  const raw = String(bs.type ?? '');
+  if (raw.includes('/')) return raw.toLowerCase();
+  const subtype = String(bs.subtype ?? '');
+  if (raw && subtype) return `${raw.toLowerCase()}/${subtype.toLowerCase()}`;
+  return raw.toLowerCase();
+}
+
+/**
+ * Walk ImapFlow bodyStructure and return the first non-attachment text/plain
+ * and text/html leaf part numbers. Skips message/rfc822 subtrees.
+ */
+export function findTextMimeParts(bodyStructure: unknown, partPath = ''): TextMimeParts {
+  if (!bodyStructure || typeof bodyStructure !== 'object') return {};
+  const bs = bodyStructure as Record<string, unknown>;
+  const mime = mimeTypeOf(bs);
+  if (bs.disposition === 'attachment') return {};
+  if (mime === 'message/rfc822' || mime.startsWith('message/')) return {};
+
+  const currentPart = (typeof bs.part === 'string' && bs.part ? bs.part : partPath) || '1';
+  const here: TextMimeParts = {};
+  if (mime === 'text/plain') here.plain = currentPart;
+  if (mime === 'text/html') here.html = currentPart;
+
+  if (!Array.isArray(bs.childNodes)) return here;
+
+  return bs.childNodes.reduce<TextMimeParts>((acc, child: unknown, i: number) => {
+    const childRecord = child as Record<string, unknown> | undefined;
+    const childPart =
+      (typeof childRecord?.part === 'string' && childRecord.part) ||
+      (currentPart && currentPart !== '1' ? `${currentPart}.${i + 1}` : String(i + 1));
+    const nested = findTextMimeParts(child, childPart);
+    return {
+      plain: acc.plain ?? nested.plain,
+      html: acc.html ?? nested.html,
+    };
+  }, here);
+}
+
+async function downloadMimePart(
+  client: ImapFlow,
+  uid: number,
+  part: string,
+): Promise<string | undefined> {
+  try {
+    const downloaded = await client.download(String(uid), part, { uid: true });
+    if (!downloaded?.content) return undefined;
+    const chunks: Buffer[] = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for await (const chunk of downloaded.content) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    const text = Buffer.concat(chunks).toString('utf-8');
+    if (looksLikeRawMime(text)) return undefined;
+    return text;
+  } catch {
+    return undefined;
+  }
+}
+
+async function orderUidsByDate(client: ImapFlow, uids: number[]): Promise<number[]> {
+  if (uids.length === 0) return [];
+  const dated: { uid: number; t: number }[] = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for await (const msg of client.fetch(
+    uids.join(','),
+    { uid: true, envelope: true },
+    { uid: true },
+  )) {
+    const raw = msg as unknown as Record<string, unknown>;
+    const envelope = (raw.envelope ?? {}) as Record<string, unknown>;
+    const parsed = envelope.date ? new Date(envelope.date as string).getTime() : Number.NaN;
+    dated.push({
+      uid: raw.uid as number,
+      t: Number.isNaN(parsed) ? (raw.uid as number) : parsed,
+    });
+  }
+  dated.sort((a, b) => b.t - a.t || b.uid - a.uid);
+  return dated.map((d) => d.uid);
+}
+
 function messageToEmailMeta(msg: Record<string, unknown>): EmailMeta {
   const envelope = (msg.envelope ?? {}) as Record<string, unknown>;
   const flags = new Set((msg.flags ?? []) as string[]);
@@ -139,6 +229,7 @@ function messageToEmailMeta(msg: Record<string, unknown>): EmailMeta {
     hasAttachments: hasAttachments(msg.bodyStructure),
     labels,
     preview,
+    messageId: (envelope.messageId as string) ?? undefined,
   };
 }
 
@@ -171,9 +262,10 @@ async function messageToEmail(
       });
 
       const body = raw.slice(headerEnd + 4);
-      // Simple content type detection
-      const contentType = headers['content-type'] ?? '';
-      if (contentType.includes('text/html')) {
+      const contentType = (headers['content-type'] ?? '').toLowerCase();
+      if (contentType.includes('multipart/')) {
+        // Container — leaf parts are downloaded below.
+      } else if (contentType.includes('text/html')) {
         bodyHtml = body;
       } else {
         bodyText = body;
@@ -181,19 +273,14 @@ async function messageToEmail(
     }
   }
 
-  // Try to get text/html parts via download if body parsing was simple
-  try {
-    const textPart = await client.download(String(uid), '1', { uid: true });
-    if (textPart?.content) {
-      const chunks: Buffer[] = [];
-      // eslint-disable-next-line no-restricted-syntax
-      for await (const chunk of textPart.content) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-      }
-      bodyText = Buffer.concat(chunks).toString('utf-8');
-    }
-  } catch {
-    // Part may not exist
+  const parts = findTextMimeParts(msg.bodyStructure);
+  if (parts.plain) {
+    const plain = await downloadMimePart(client, uid, parts.plain);
+    if (plain !== undefined) bodyText = plain;
+  }
+  if (parts.html) {
+    const html = await downloadMimePart(client, uid, parts.html);
+    if (html !== undefined) bodyHtml = html;
   }
 
   return {
@@ -349,8 +436,8 @@ export default class ImapService {
         };
       }
 
-      // Sort descending (newest first) and paginate
-      uids.sort((a, b) => b - a);
+      // Sort by date (newest first), then paginate — UID order is not date order
+      uids = await orderUidsByDate(client, uids);
       const total = uids.length;
       const start = (page - 1) * pageSize;
       const pageUids = uids.slice(start, start + pageSize);
@@ -505,6 +592,8 @@ export default class ImapService {
       largerThan?: number;
       smallerThan?: number;
       answered?: boolean;
+      since?: string;
+      before?: string;
     } = {},
   ): Promise<PaginatedResult<EmailMeta>> {
     const client = await this.connections.getImapClient(accountName);
@@ -536,6 +625,12 @@ export default class ImapService {
         andConditions.push({ answered: true });
       } else if (options.answered === false) {
         andConditions.push({ answered: false });
+      }
+      if (options.since) {
+        andConditions.push({ since: new Date(options.since) });
+      }
+      if (options.before) {
+        andConditions.push({ before: new Date(options.before) });
       }
 
       // Use the combined criteria or just the base
@@ -576,7 +671,7 @@ export default class ImapService {
         };
       }
 
-      uids.sort((a, b) => b - a);
+      uids = await orderUidsByDate(client, uids);
       const total = uids.length;
       const start = (page - 1) * pageSize;
       const pageUids = uids.slice(start, start + pageSize);
@@ -1014,43 +1109,93 @@ export default class ImapService {
       bcc?: string[];
       html?: boolean;
       inReplyTo?: string;
+      attachments?: OutgoingAttachment[];
     },
   ): Promise<{ id: number; mailbox: string }> {
     const client = await this.connections.getImapClient(accountName);
     const account = this.connections.getAccount(accountName);
 
-    // Find the Drafts folder
     const mailboxes = await client.list();
     const drafts = mailboxes.find((mb) => mb.specialUse === '\\Drafts');
     const draftsPath = drafts?.path ?? 'Drafts';
 
-    // Construct RFC 822 message
-    const headers = [
-      `From: ${account.fullName ? `"${account.fullName}" <${account.email}>` : account.email}`,
-      `To: ${options.to.join(', ')}`,
-      `Subject: ${options.subject}`,
-      `Date: ${new Date().toUTCString()}`,
-      `MIME-Version: 1.0`,
-    ];
+    const nodemailerAttachments = (options.attachments ?? [])
+      .map((att) => {
+        if (att.path) {
+          return {
+            filename: att.filename ?? att.path.split(/[/\\]/).pop(),
+            path: att.path,
+            contentType: att.contentType,
+          };
+        }
+        if (att.base64) {
+          return {
+            filename: att.filename ?? 'attachment',
+            content: Buffer.from(att.base64, 'base64'),
+            contentType: att.contentType,
+          };
+        }
+        return null;
+      })
+      .filter((a): a is NonNullable<typeof a> => a !== null);
 
-    if (options.cc?.length) headers.push(`Cc: ${options.cc.join(', ')}`);
-    if (options.bcc?.length) headers.push(`Bcc: ${options.bcc.join(', ')}`);
-    if (options.inReplyTo) headers.push(`In-Reply-To: ${options.inReplyTo}`);
+    const rawMessage = await compileRfc822({
+      from: account.fullName ? `"${account.fullName}" <${account.email}>` : account.email,
+      to: options.to.join(', '),
+      cc: options.cc?.join(', '),
+      bcc: options.bcc?.join(', '),
+      subject: options.subject,
+      inReplyTo: options.inReplyTo,
+      attachments: nodemailerAttachments,
+      ...(options.html ? { html: options.body } : { text: options.body }),
+    });
 
-    const contentType = options.html ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8';
-    headers.push(`Content-Type: ${contentType}`);
-
-    const rawMessage = `${headers.join('\r\n')}\r\n\r\n${options.body}`;
-
-    const appendResult = await client.append(draftsPath, Buffer.from(rawMessage), [
-      '\\Draft',
-      '\\Seen',
-    ]);
+    const appendResult = await client.append(draftsPath, rawMessage, ['\\Draft', '\\Seen']);
 
     return {
       id: (appendResult as unknown as { uid?: number }).uid ?? 0,
       mailbox: draftsPath,
     };
+  }
+
+  /**
+   * Best-effort APPEND of a sent message to the \\Sent mailbox.
+   */
+  async appendSentMessage(accountName: string, raw: Buffer): Promise<void> {
+    const client = await this.connections.getImapClient(accountName);
+    const mailboxes = await client.list();
+    const sent = mailboxes.find((mb) => mb.specialUse === '\\Sent');
+    const sentPath = sent?.path ?? 'Sent';
+    await client.append(sentPath, raw, ['\\Seen']);
+  }
+
+  async getEmailSecurity(
+    accountName: string,
+    emailId: string,
+    mailbox = 'INBOX',
+  ): Promise<ReturnType<typeof parseSenderAuth> & { uid: string; mailbox: string }> {
+    const client = await this.connections.getImapClient(accountName);
+    const uid = parseInt(emailId, 10);
+    const safeMailbox = sanitizeMailboxName(mailbox);
+    const lock = await client.getMailboxLock(safeMailbox, { readOnly: true });
+    try {
+      const msg = await client.fetchOne(
+        String(uid),
+        { uid: true, envelope: true, headers: true },
+        { uid: true },
+      );
+      if (!msg) {
+        throw new Error(`Email ${emailId} not found in ${mailbox}`);
+      }
+      const raw = msg as unknown as Record<string, unknown>;
+      const headerBuf = raw.headers;
+      const headerText = Buffer.isBuffer(headerBuf)
+        ? headerBuf.toString('utf-8')
+        : String(headerBuf ?? '');
+      return { ...parseSenderAuth(headerText), uid: String(uid), mailbox: safeMailbox };
+    } finally {
+      lock.release();
+    }
   }
 
   /**

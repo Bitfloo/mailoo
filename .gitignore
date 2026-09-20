@@ -345,3 +345,4 @@ config.toml
 .config/mailoo/
 .config/email-mcp/
 package-lock.json
+.tmp-mailoo-att-*

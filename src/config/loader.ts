@@ -46,6 +46,7 @@ function loadFromEnv(): RawAppConfig | null {
     settings: {
       rate_limit: parseInt(process.env.MCP_EMAIL_RATE_LIMIT ?? '10', 10),
       read_only: process.env.MCP_EMAIL_READ_ONLY === 'true',
+      save_to_sent: process.env.MCP_EMAIL_SAVE_TO_SENT !== 'false',
       watcher: {
         enabled: process.env.MCP_EMAIL_WATCHER_ENABLED === 'true',
         folders: (process.env.MCP_EMAIL_WATCHER_FOLDERS ?? 'INBOX')
@@ -104,6 +105,11 @@ function loadFromEnv(): RawAppConfig | null {
           tls: process.env.MCP_EMAIL_IMAP_TLS !== 'false',
           starttls: process.env.MCP_EMAIL_IMAP_STARTTLS === 'true',
           verify_ssl: process.env.MCP_EMAIL_IMAP_VERIFY_SSL !== 'false',
+          disable_imap4rev2: process.env.MCP_EMAIL_IMAP_DISABLE_IMAP4REV2 === 'true',
+          sieve_host: process.env.MCP_EMAIL_SIEVE_HOST,
+          sieve_port: process.env.MCP_EMAIL_SIEVE_PORT
+            ? parseInt(process.env.MCP_EMAIL_SIEVE_PORT, 10)
+            : undefined,
         },
         smtp: {
           host: smtpHost,
@@ -166,6 +172,9 @@ function normalizeAccount(raw: RawAccountConfig): AccountConfig {
       tls: raw.imap.tls,
       starttls: raw.imap.starttls,
       verifySsl: raw.imap.verify_ssl,
+      disableImap4rev2: raw.imap.disable_imap4rev2,
+      sieveHost: raw.imap.sieve_host,
+      sievePort: raw.imap.sieve_port,
     },
     smtp: {
       host: raw.smtp.host,
@@ -210,6 +219,7 @@ function normalizeConfig(raw: RawAppConfig): AppConfig {
     settings: {
       rateLimit: raw.settings.rate_limit,
       readOnly: raw.settings.read_only,
+      saveToSent: raw.settings.save_to_sent,
       watcher: {
         enabled: raw.settings.watcher.enabled,
         folders: raw.settings.watcher.folders,
@@ -309,6 +319,7 @@ export function generateTemplate(): string {
 [settings]
 rate_limit = 10  # max emails per minute per account
 read_only = false  # set to true to disable all write operations
+save_to_sent = true  # IMAP APPEND to \\Sent after SMTP send (set false for Gmail)
 
 # [settings.watcher]
 # enabled = false        # enable IMAP IDLE real-time monitoring
@@ -356,6 +367,9 @@ port = 993
 tls = true
 starttls = false
 verify_ssl = true
+# disable_imap4rev2 = true  # set for hosts with broken IMAP4rev2 SEARCH (e.g. Strato)
+# sieve_host = "imap.example.com"
+# sieve_port = 4190
 
 [accounts.smtp]
 host = "smtp.example.com"

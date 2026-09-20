@@ -17,7 +17,12 @@ vi.mock('./locate.tool.js', () => ({ default: vi.fn() }));
 vi.mock('./mailboxes.tool.js', () => ({ default: vi.fn() }));
 vi.mock('./manage.tool.js', () => ({ default: vi.fn() }));
 vi.mock('./scheduler.tool.js', () => ({ default: vi.fn() }));
+vi.mock('./security.tool.js', () => ({ default: vi.fn() }));
 vi.mock('./send.tool.js', () => ({ default: vi.fn() }));
+vi.mock('./sieve.tool.js', () => ({
+  registerSieveReadTools: vi.fn(),
+  registerSieveWriteTools: vi.fn(),
+}));
 vi.mock('./templates.tool.js', () => ({
   registerTemplateReadTools: vi.fn(),
   registerTemplateWriteTools: vi.fn(),
@@ -33,7 +38,9 @@ import registerFolderTools from './folders.tool.js';
 import registerLabelTools from './label.tool.js';
 import registerManageTools from './manage.tool.js';
 import registerSchedulerTools from './scheduler.tool.js';
+import registerSecurityTools from './security.tool.js';
 import registerSendTools from './send.tool.js';
+import { registerSieveReadTools, registerSieveWriteTools } from './sieve.tool.js';
 import { registerTemplateWriteTools } from './templates.tool.js';
 
 function createConfig(readOnly: boolean): AppConfig {
@@ -41,6 +48,7 @@ function createConfig(readOnly: boolean): AppConfig {
     settings: {
       rateLimit: 10,
       readOnly,
+      saveToSent: true,
       watcher: { enabled: false, folders: ['INBOX'], idleTimeout: 1740 },
       hooks: {
         onNewEmail: 'notify',
@@ -85,6 +93,8 @@ describe('registerAllTools', () => {
     // Read tools should always be registered
     expect(registerAccountsTools).toHaveBeenCalled();
     expect(registerEmailsTools).toHaveBeenCalled();
+    expect(registerSecurityTools).toHaveBeenCalled();
+    expect(registerSieveReadTools).toHaveBeenCalled();
     // Write tools should be registered when NOT read-only
     expect(registerSendTools).toHaveBeenCalled();
     expect(registerManageTools).toHaveBeenCalled();
@@ -94,6 +104,7 @@ describe('registerAllTools', () => {
     expect(registerFolderTools).toHaveBeenCalled();
     expect(registerTemplateWriteTools).toHaveBeenCalled();
     expect(registerSchedulerTools).toHaveBeenCalled();
+    expect(registerSieveWriteTools).toHaveBeenCalled();
   });
 
   it('skips write tools when readOnly is true', () => {
@@ -114,6 +125,8 @@ describe('registerAllTools', () => {
     // Read tools should still be registered
     expect(registerAccountsTools).toHaveBeenCalled();
     expect(registerEmailsTools).toHaveBeenCalled();
+    expect(registerSecurityTools).toHaveBeenCalled();
+    expect(registerSieveReadTools).toHaveBeenCalled();
     // Write tools should NOT be registered
     expect(registerSendTools).not.toHaveBeenCalled();
     expect(registerManageTools).not.toHaveBeenCalled();
@@ -123,5 +136,6 @@ describe('registerAllTools', () => {
     expect(registerFolderTools).not.toHaveBeenCalled();
     expect(registerTemplateWriteTools).not.toHaveBeenCalled();
     expect(registerSchedulerTools).not.toHaveBeenCalled();
+    expect(registerSieveWriteTools).not.toHaveBeenCalled();
   });
 });

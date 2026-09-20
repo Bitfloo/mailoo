@@ -11,6 +11,7 @@
  */
 
 import { ImapFlow } from 'imapflow';
+import { buildImapFlowOptions } from '../connections/manager.js';
 import { mcpLog } from '../logging.js';
 import type { AccountConfig, EmailMeta, WatcherConfig } from '../types/index.js';
 import eventBus from './event-bus.js';
@@ -50,6 +51,48 @@ const SYSTEM_FLAGS = new Set([
   '\\Recent',
   '\\*',
 ]);
+
+export interface WatcherFetchMessage {
+  uid: number;
+  flags?: Set<string>;
+  envelope?: {
+    subject?: string;
+    from?: { name?: string; address?: string }[];
+    to?: { name?: string; address?: string }[];
+    date?: Date;
+    messageId?: string;
+  };
+  bodyStructure?: unknown;
+}
+
+function structureHasAttachments(bodyStructure: unknown): boolean {
+  if (!bodyStructure || typeof bodyStructure !== 'object') return false;
+  const bs = bodyStructure as { disposition?: string; childNodes?: unknown[] };
+  if (bs.disposition === 'attachment') return true;
+  return bs.childNodes?.some((child) => structureHasAttachments(child)) ?? false;
+}
+
+export function buildEmailMeta(msg: WatcherFetchMessage): EmailMeta {
+  const flags = msg.flags ?? new Set<string>();
+  const labels = [...flags].filter((f) => !SYSTEM_FLAGS.has(f));
+
+  const from = msg.envelope?.from?.[0];
+  const to = msg.envelope?.to ?? [];
+
+  return {
+    id: String(msg.uid),
+    subject: msg.envelope?.subject ?? '(no subject)',
+    from: { name: from?.name, address: from?.address ?? '' },
+    to: to.map((a) => ({ name: a.name, address: a.address ?? '' })),
+    date: msg.envelope?.date?.toISOString() ?? new Date().toISOString(),
+    seen: flags.has('\\Seen'),
+    flagged: flags.has('\\Flagged'),
+    answered: flags.has('\\Answered'),
+    hasAttachments: structureHasAttachments(msg.bodyStructure),
+    labels,
+    messageId: msg.envelope?.messageId,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // WatcherService
@@ -149,13 +192,8 @@ export default class WatcherService {
         : { user: state.account.username, pass: state.account.password };
 
       const client = new ImapFlow({
-        host: state.account.imap.host,
-        port: state.account.imap.port,
-        secure: state.account.imap.tls,
-        tls: { rejectUnauthorized: state.account.imap.verifySsl },
+        ...buildImapFlowOptions(state.account, { maxIdleTime: this.config.idleTimeout * 1000 }),
         auth,
-        logger: false,
-        maxIdleTime: this.config.idleTimeout * 1000,
       });
 
       await client.connect();
@@ -225,6 +263,7 @@ export default class WatcherService {
       this.updateState(key, { backoffMs: Math.min(backoffMs * 2, MAX_BACKOFF_MS) });
       this.connectIdle(key).catch(() => {});
     }, backoffMs);
+    timer.unref();
 
     this.updateState(key, { reconnectTimer: timer });
   }
@@ -250,7 +289,7 @@ export default class WatcherService {
         bodyStructure: true,
       })) {
         if (msg.uid > state.lastSeenUid) {
-          emails.push(WatcherService.buildEmailMeta(msg));
+          emails.push(buildEmailMeta(msg));
           maxUid = Math.max(maxUid, msg.uid);
         }
       }
@@ -276,47 +315,5 @@ export default class WatcherService {
       const errMsg = err instanceof Error ? err.message : String(err);
       await mcpLog('warning', 'watcher', `Failed to fetch new emails: ${errMsg}`);
     }
-  }
-
-  // -------------------------------------------------------------------------
-  // Helpers
-  // -------------------------------------------------------------------------
-
-  private static buildEmailMeta(msg: {
-    uid: number;
-    flags?: Set<string>;
-    envelope?: {
-      subject?: string;
-      from?: { name?: string; address?: string }[];
-      to?: { name?: string; address?: string }[];
-      date?: Date;
-    };
-    bodyStructure?: unknown;
-  }): EmailMeta {
-    const flags = msg.flags ?? new Set<string>();
-    const labels = [...flags].filter((f) => !SYSTEM_FLAGS.has(f));
-
-    const from = msg.envelope?.from?.[0];
-    const to = msg.envelope?.to ?? [];
-
-    return {
-      id: String(msg.uid),
-      subject: msg.envelope?.subject ?? '(no subject)',
-      from: { name: from?.name, address: from?.address ?? '' },
-      to: to.map((a) => ({ name: a.name, address: a.address ?? '' })),
-      date: msg.envelope?.date?.toISOString() ?? new Date().toISOString(),
-      seen: flags.has('\\Seen'),
-      flagged: flags.has('\\Flagged'),
-      answered: flags.has('\\Answered'),
-      hasAttachments: WatcherService.hasAttachments(msg.bodyStructure),
-      labels,
-    };
-  }
-
-  private static hasAttachments(bodyStructure: unknown): boolean {
-    if (!bodyStructure || typeof bodyStructure !== 'object') return false;
-    const bs = bodyStructure as { disposition?: string; childNodes?: unknown[] };
-    if (bs.disposition === 'attachment') return true;
-    return bs.childNodes?.some((child) => WatcherService.hasAttachments(child)) ?? false;
   }
 }

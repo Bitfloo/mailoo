@@ -34,9 +34,14 @@ describe('ImapConfigSchema', () => {
     expect(() => ImapConfigSchema.parse({ host: 'imap.example.com', port: 65536 })).toThrow();
   });
 
-  it('accepts valid port', () => {
+  it('accepts port 143 for STARTTLS IMAP', () => {
     const result = ImapConfigSchema.parse({ host: 'imap.example.com', port: 143 });
     expect(result.port).toBe(143);
+  });
+
+  it('accepts disable_imap4rev2', () => {
+    const result = ImapConfigSchema.parse({ host: 'imap.strato.de', disable_imap4rev2: true });
+    expect(result.disable_imap4rev2).toBe(true);
   });
 });
 
@@ -115,9 +120,13 @@ describe('SettingsSchema', () => {
     expect(result.rate_limit).toBe(10);
   });
 
-  it('applies default read_only of false', () => {
+  it('applies default save_to_sent of true', () => {
     const result = SettingsSchema.parse({});
-    expect(result.read_only).toBe(false);
+    expect(result.save_to_sent).toBe(true);
+  });
+
+  it('defaults read_only to false', () => {
+    expect(SettingsSchema.parse({}).read_only).toBe(false);
   });
 
   it('accepts custom values', () => {

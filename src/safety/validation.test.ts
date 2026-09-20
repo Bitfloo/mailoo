@@ -1,4 +1,5 @@
 import {
+  recipientEmail,
   sanitizeMailboxName,
   sanitizeSearchQuery,
   sanitizeTemplateVariable,
@@ -171,5 +172,16 @@ describe('validateInputLength', () => {
 
   it('allows under max length', () => {
     expect(() => validateInputLength('ab', 5, 'name')).not.toThrow();
+  });
+});
+
+describe('recipientEmail', () => {
+  it('accepts a normal address', () => {
+    expect(recipientEmail.parse('user@example.com')).toBe('user@example.com');
+  });
+
+  it('emits a JSON Schema pattern without regex lookaheads', () => {
+    const schema = recipientEmail.toJSONSchema();
+    expect(JSON.stringify(schema)).not.toMatch(/\(\?[!<=]/);
   });
 });
