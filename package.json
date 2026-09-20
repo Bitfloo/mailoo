@@ -13,7 +13,8 @@
     "dist",
     "LICENSE",
     "COPYING",
-    "NOTICE"
+    "NOTICE",
+    "README.md"
   ],
   "scripts": {
     "dev": "tsx watch src/main.ts",

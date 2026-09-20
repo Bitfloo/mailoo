@@ -94,6 +94,8 @@ release:
     name: mailoo
   make_latest: true
   draft: false
+  # Replace notes if a GitHub Release for this tag already exists.
+  mode: replace
 
 # GitHub-generated release notes (not the cocogitto CHANGELOG).
 # npm publish and MCP registry stay in release.yml.
