@@ -44,6 +44,7 @@ jobs:
 
   integration:
     name: Integration tests
+    # GreenMail/testcontainers: manual only. Unit tests already run on push/PR.
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:

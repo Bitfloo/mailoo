@@ -28,6 +28,6 @@ Mailoo handles sensitive email credentials and message content. The project incl
 
 - Use app-specific passwords instead of your main account password
 - Enable OAuth2 authentication where supported (Gmail, Outlook)
-- Review the audit log at `~/.local/share/mailoo/audit.jsonl`
+- Review the audit log at `~/.local/share/mailoo/audit.log`
 - Use `read_only: true` in config if you only need read access
 - Keep Mailoo updated to the latest version

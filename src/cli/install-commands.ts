@@ -10,6 +10,7 @@
  */
 
 import fs from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -114,20 +115,25 @@ interface ServerEntry {
   args: string[];
 }
 
+const esmRequire = createRequire(import.meta.url);
+const pkg = esmRequire('../../package.json') as { name: string; bin?: Record<string, string> };
+const PKG_NPM = pkg.name;
+const PKG_BIN = Object.keys(pkg.bin ?? { mailoo: true })[0] ?? 'mailoo';
+
 function buildServerEntry(transport: Transport): ServerEntry {
   switch (transport) {
     case 'npx':
-      return { command: 'npx', args: ['@bitfloo/mailoo', 'stdio'] };
+      return { command: 'npx', args: [PKG_NPM, 'stdio'] };
     case 'pnpm':
-      return { command: 'pnpm', args: ['dlx', '@bitfloo/mailoo', 'stdio'] };
+      return { command: 'pnpm', args: ['dlx', PKG_NPM, 'stdio'] };
     case 'global':
-      return { command: 'mailoo', args: ['stdio'] };
+      return { command: PKG_BIN, args: ['stdio'] };
     case 'node': {
       const mainJs = path.resolve(process.argv[1] ?? 'dist/main.js');
       return { command: process.execPath, args: [mainJs, 'stdio'] };
     }
     default:
-      return { command: 'npx', args: ['@bitfloo/mailoo', 'stdio'] };
+      return { command: 'npx', args: [PKG_NPM, 'stdio'] };
   }
 }
 
@@ -240,7 +246,7 @@ async function runInstall(): Promise<void> {
       {
         value: 'global' as Transport,
         label: 'Global install (mailoo on PATH)',
-        hint: 'requires: npm i -g @bitfloo/mailoo',
+        hint: `requires: npm i -g ${PKG_NPM}`,
       },
       {
         value: 'node' as Transport,

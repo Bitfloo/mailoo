@@ -6,6 +6,7 @@
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { TEMPLATES_DIR } from '../config/xdg.js';
 import audit from '../safety/audit.js';
 
 import type ImapService from '../services/imap.service.js';
@@ -18,7 +19,7 @@ export function registerTemplateReadTools(
 ): void {
   server.tool(
     'list_templates',
-    'List all available email templates. Templates are TOML files in ~/.config/mailoo/templates/ with {{variable}} placeholders for subject and body.',
+    `List all available email templates. Templates are TOML files in ${TEMPLATES_DIR}/ with {{variable}} placeholders for subject and body.`,
     {},
     { readOnlyHint: true, destructiveHint: false },
     async () => {

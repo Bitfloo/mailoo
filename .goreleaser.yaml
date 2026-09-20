@@ -95,6 +95,8 @@ release:
   make_latest: true
   draft: false
 
+# GitHub-generated release notes (not the cocogitto CHANGELOG).
+# npm publish and MCP registry stay in release.yml.
 changelog:
   use: github
   sort: asc

@@ -35,8 +35,8 @@ dockers_v2:
       - linux/amd64
       - linux/arm64
     labels:
-      org.opencontainers.image.title: mailoo
-      org.opencontainers.image.description: "IMAP/SMTP email MCP server — 47 tools, IMAP IDLE push, multi-account, AI triage"
+      org.opencontainers.image.title: Mailoo
+      org.opencontainers.image.description: "Mailoo — IMAP/SMTP MCP server. Multi-account, per-folder profiles."
       org.opencontainers.image.url: "https://github.com/bitfloo/mailoo"
       org.opencontainers.image.source: "https://github.com/bitfloo/mailoo"
       org.opencontainers.image.version: "{{ .Version }}"
@@ -71,8 +71,8 @@ dockers_v2:
       - linux/amd64
       - linux/arm64
     labels:
-      org.opencontainers.image.title: mailoo
-      org.opencontainers.image.description: "IMAP/SMTP email MCP server — 47 tools, IMAP IDLE push, multi-account, AI triage"
+      org.opencontainers.image.title: Mailoo
+      org.opencontainers.image.description: "Mailoo — IMAP/SMTP MCP server. Multi-account, per-folder profiles."
       org.opencontainers.image.url: "https://github.com/bitfloo/mailoo"
       org.opencontainers.image.source: "https://github.com/bitfloo/mailoo"
       org.opencontainers.image.version: "{{ .Version }}"
