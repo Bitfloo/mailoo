@@ -44,8 +44,8 @@ jobs:
 
   integration:
     name: Integration tests
-    # GreenMail/testcontainers: manual only. Unit tests already run on push/PR.
-    if: github.event_name == 'workflow_dispatch'
+    # GreenMail via testcontainers. ubuntu-latest has Docker; leftover
+    # workflow_dispatch-only gating hid IMAP/SMTP regressions from PR CI.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

@@ -29,14 +29,16 @@ See `README.md` for the feature list and `docs/` for deeper guides.
 | Type-check | `pnpm typecheck` |
 | Unit tests | Vitest (`pnpm test`) — include list in `vitest.config.ts` |
 | Integration tests | Vitest with `vitest.config.integration.ts` (`pnpm test:integration`) — uses testcontainers |
-| Test agents | Project `test-auditor` / `test-smith` in `.claude/agents/` (Claude Code, `model: sonnet`) and `.cursor/agents/` (Cursor, `model: cursor-grok-4.6-xhigh` minimum). Same body; rubric: `.claude/rules/testing-doctrine.md`. After new or changed tests, run `test-auditor` in a **fresh** session on the same files (not the author). |
+| Test agents | Project `test-auditor` / `test-smith` in `.claude/agents/` (Claude Code, `model: sonnet`) and `.cursor/agents/` (Cursor, `model: cursor-grok-4.6-xhigh` minimum). Same body; rubric: `.claude/rules/testing-doctrine.md`. After new or changed tests, run `test-auditor` in a **fresh** session on the same files (not the author). **Do not** dispatch `cbc:test-auditor` or `cbc:test-smith` in this repo — those read Bitfloo `_knowledge/testing-doctrine.md`, which is not Mailoo's rubric. |
 | Pre-commit hooks | lefthook |
 | Versioning / changelog | cocogitto (`cog`) |
 | Release | goreleaser |
 
 Always run `pnpm check && pnpm typecheck && pnpm test` before declaring
-work done. For changes touching IMAP/SMTP behaviour, run
-`pnpm test:integration` as well.
+work done. For changes touching IMAP/SMTP behaviour, watcher, scheduler, or
+transport, run `pnpm test:integration` as well (needs a container runtime;
+CI runs this job with Docker). `pnpm test:all` is unit plus integration.
+Lefthook pre-push stays unit-only so a machine without Docker can still push.
 
 ## Conventions to follow
 
@@ -77,7 +79,9 @@ work done. For changes touching IMAP/SMTP behaviour, run
 1. `pnpm check` — Biome + ESLint clean.
 2. `pnpm typecheck` — no type errors.
 3. `pnpm test` — unit tests green.
-4. `pnpm test:integration` — only if touching IMAP/SMTP, watcher,
-   scheduler, or transport code.
+4. `pnpm test:integration` — required for IMAP/SMTP, watcher,
+   scheduler, or transport changes. CI runs this job on every push
+   and pull request (Docker). Locally it needs a container runtime;
+   lefthook pre-push does not run it.
 5. For Docker-affecting changes: `pnpm docker:build` succeeds.
 6. For workflow changes: `actionlint` clean (`pnpm report` includes it).

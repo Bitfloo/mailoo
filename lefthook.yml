@@ -4,6 +4,10 @@
 # Docs: https://lefthook.dev/configuration/
 #
 # Install hooks: pnpm lefthook install
+#
+# pre-push runs unit tests only (`pnpm test`). Integration
+# (`pnpm test:integration` / `pnpm test:all`) needs a container runtime and
+# runs in CI, not here.
 # ==============================================================================
 
 pre-commit:
