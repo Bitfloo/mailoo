@@ -66,4 +66,28 @@ describe('applyBodyFormat', () => {
     );
     expect(stripHtml('<p>Hello</p>')).toBe('Hello');
   });
+
+  it('truncates the body and reports remaining characters when maxLength is exceeded', () => {
+    const bodyText =
+      'Offer expires 2026-04-01. Terms apply. More details in the full campaign follow-up including eligibility, refund windows, and the activation steps for each recipient.';
+    const maxLength = 100;
+    const remaining = bodyText.length - maxLength;
+    expect(applyBodyFormat(bodyText, undefined, 'full', maxLength)).toBe(
+      `${bodyText.slice(0, maxLength)}\n\n… (${remaining} more characters — increase maxLength to read the full body)`,
+    );
+  });
+
+  it('leaves the body intact when its length equals maxLength', () => {
+    const maxLength = 100;
+    const source =
+      'Offer expires 2026-04-01. Terms apply. More details in the full campaign follow-up including eligibility, refund windows, and the activation steps for each recipient.';
+    const bodyText = source.slice(0, maxLength);
+    expect(applyBodyFormat(bodyText, undefined, 'full', maxLength)).toBe(bodyText);
+  });
+
+  it('leaves the body intact when maxLength is not positive', () => {
+    const bodyText =
+      'Offer expires 2026-04-01. Terms apply. More details in the full campaign follow-up including eligibility, refund windows, and the activation steps for each recipient.';
+    expect(applyBodyFormat(bodyText, undefined, 'full', 0)).toBe(bodyText);
+  });
 });
