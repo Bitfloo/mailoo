@@ -1,6 +1,6 @@
 services:
   mailoo:
-    # ghcr.io/bitfloo/mailoo:latest is not published yet. Build locally until GHCR exists.
+    # ghcr.io/bitfloo/mailoo is not published for anonymous pull. Build locally.
     build: .
     # image: ghcr.io/bitfloo/mailoo:latest
     stdin_open: true # required for stdio transport

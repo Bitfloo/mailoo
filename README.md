@@ -112,7 +112,7 @@ pnpm add -g @bitfloo/mailoo
 
 ### Docker
 
-No Node.js required — just Docker. **`ghcr.io/bitfloo/mailoo` is not published yet.** Build locally (`docker-compose.yml` uses `build: .` until GHCR exists):
+No Node.js required — just Docker. **`ghcr.io/bitfloo/mailoo` is not published for anonymous pull.** Build locally (`docker-compose.yml` uses `build: .`):
 
 ```bash
 docker build -t ghcr.io/bitfloo/mailoo .
@@ -125,7 +125,7 @@ Intended image name: `ghcr.io/bitfloo/mailoo`. When images are published, tags w
 
 ## Usage
 
-Until npm publish, commands below are `node dist/main.js <subcommand>` from a local clone. After `@bitfloo/mailoo` is on npmjs (or a global install), use `mailoo <subcommand>`.
+Until npm publish, commands below are `node dist/main.js <subcommand>` from a local clone (or `mailoo <subcommand>` if that bin is on your PATH from the clone). After `@bitfloo/mailoo` is on npmjs, `npx @bitfloo/mailoo` / a global `mailoo` will work the same way.
 
 ### Setup
 
@@ -151,21 +151,15 @@ node dist/main.js test personal   # specific account
 
 ### Configure Your MCP Client
 
-**Recommended — use the guided installer** (auto-detects Claude Desktop, VS Code, Cursor, Windsurf):
+**Working path today:** [clone and build](#install), then either run the guided installer and choose **Direct node**, or paste a local-`node` snippet below. There is no VS Code / MCP gallery listing. `npx @bitfloo/mailoo` is not an easy path until the package is on npmjs.
 
 ```bash
 node dist/main.js install
-# after npm publish: mailoo install
 ```
 
-Or add manually using the snippets below.
+The installer also offers `npx`, `pnpm dlx`, and a global `mailoo` binary. Those need `@bitfloo/mailoo` on npmjs — skip them until then.
 
-> **Until npm publish:** `@bitfloo/mailoo` is not on npmjs. The `npx @bitfloo/mailoo` snippets below work **after** the package is published. Until then, point the client at your local build:
->
-> ```json
-> "command": "node",
-> "args": ["/absolute/path/to/mailoo/dist/main.js", "stdio"]
-> ```
+Or add the server manually. Replace `/absolute/path/to/mailoo` with your clone (the directory that contains `dist/main.js` after `pnpm build`). If the clone’s `mailoo` bin is already on your `PATH`, you can use `"command": "mailoo"` with `"args": ["stdio"]` instead of `node` + `dist/main.js`.
 
 <details>
 <summary><strong>Claude Desktop</strong></summary>
@@ -176,8 +170,8 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 {
   "mcpServers": {
     "mailoo": {
-      "command": "npx",
-      "args": ["-y", "@bitfloo/mailoo", "stdio"]
+      "command": "node",
+      "args": ["/absolute/path/to/mailoo/dist/main.js", "stdio"]
     }
   }
 }
@@ -187,26 +181,23 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 <details>
 <summary><strong>VS Code (GitHub Copilot)</strong></summary>
 
-**Option 1 — Extensions gallery (easiest):**
-1. Open the Extensions view (<kbd>⇧⌘X</kbd> / <kbd>Ctrl+Shift+X</kbd>)
-2. Search `@mcp mailoo`
-3. Click **Install** (user-wide) or right-click → **Install in Workspace**
+Mailoo is not in the VS Code Extensions gallery. Point Copilot at your local build.
 
-**Option 2 — Workspace config** (`.vscode/mcp.json`, committed to source control):
+**Workspace** (`.vscode/mcp.json`):
 
 ```json
 {
   "servers": {
     "mailoo": {
       "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@bitfloo/mailoo", "stdio"]
+      "command": "node",
+      "args": ["/absolute/path/to/mailoo/dist/main.js", "stdio"]
     }
   }
 }
 ```
 
-**Option 3 — User config** (`settings.json`, applies to all workspaces):
+**User config** (`settings.json`, all workspaces):
 
 Open the Command Palette → **Preferences: Open User Settings (JSON)** and add:
 
@@ -216,8 +207,8 @@ Open the Command Palette → **Preferences: Open User Settings (JSON)** and add:
     "servers": {
       "mailoo": {
         "type": "stdio",
-        "command": "npx",
-        "args": ["-y", "@bitfloo/mailoo", "stdio"]
+        "command": "node",
+        "args": ["/absolute/path/to/mailoo/dist/main.js", "stdio"]
       }
     }
   }
@@ -234,8 +225,8 @@ Edit `~/.cursor/mcp.json`:
 {
   "mcpServers": {
     "mailoo": {
-      "command": "npx",
-      "args": ["-y", "@bitfloo/mailoo", "stdio"]
+      "command": "node",
+      "args": ["/absolute/path/to/mailoo/dist/main.js", "stdio"]
     }
   }
 }
@@ -251,8 +242,8 @@ Edit `~/.codeium/windsurf/mcp_config.json`:
 {
   "mcpServers": {
     "mailoo": {
-      "command": "npx",
-      "args": ["-y", "@bitfloo/mailoo", "stdio"]
+      "command": "node",
+      "args": ["/absolute/path/to/mailoo/dist/main.js", "stdio"]
     }
   }
 }
@@ -269,8 +260,8 @@ Edit `~/.config/zed/settings.json`:
   "context_servers": {
     "mailoo": {
       "command": {
-        "path": "npx",
-        "args": ["-y", "@bitfloo/mailoo", "stdio"]
+        "path": "node",
+        "args": ["/absolute/path/to/mailoo/dist/main.js", "stdio"]
       }
     }
   }
@@ -287,8 +278,8 @@ Add to `~/.vibe/config.toml`:
 [[mcp_servers]]
 name = "mailoo"
 transport = "stdio"
-command = "npx"
-args = ["-y", "@bitfloo/mailoo", "stdio"]
+command = "node"
+args = ["/absolute/path/to/mailoo/dist/main.js", "stdio"]
 ```
 
 To pass credentials directly instead of using a config file, use the `env` field:
@@ -297,8 +288,8 @@ To pass credentials directly instead of using a config file, use the `env` field
 [[mcp_servers]]
 name = "mailoo"
 transport = "stdio"
-command = "npx"
-args = ["-y", "@bitfloo/mailoo", "stdio"]
+command = "node"
+args = ["/absolute/path/to/mailoo/dist/main.js", "stdio"]
 env = { "EMAIL_ACCOUNTS" = "<your-accounts-json>" }
 ```
 
@@ -309,7 +300,7 @@ MCP tools are exposed as `mailoo_<tool_name>` (e.g. `mailoo_list_emails`). Resta
 <details>
 <summary><strong>Docker (any MCP client)</strong></summary>
 
-Run the server in a container — mount your config directory read-only. **GHCR is not published yet**, so build first (`docker build -t ghcr.io/bitfloo/mailoo .`):
+Run the server in a container — mount your config directory read-only. **`ghcr.io/bitfloo/mailoo` is not published for anonymous pull**, so build first (`docker build -t ghcr.io/bitfloo/mailoo .`):
 
 ```bash
 docker run --rm -i \
@@ -342,8 +333,8 @@ For MCP client configuration (e.g. Claude Desktop):
 {
   "mcpServers": {
     "mailoo": {
-      "command": "npx",
-      "args": ["-y", "@bitfloo/mailoo", "stdio"],
+      "command": "node",
+      "args": ["/absolute/path/to/mailoo/dist/main.js", "stdio"],
       "env": {
         "MCP_EMAIL_ADDRESS": "you@gmail.com",
         "MCP_EMAIL_PASSWORD": "your-app-password",
@@ -354,6 +345,20 @@ For MCP client configuration (e.g. Claude Desktop):
   }
 }
 ```
+</details>
+
+<details>
+<summary><strong>After npm publish — <code>npx @bitfloo/mailoo</code></strong></summary>
+
+Once `@bitfloo/mailoo` is on npmjs, you can swap the local `node` / `dist/main.js` launch for:
+
+```json
+"command": "npx",
+"args": ["-y", "@bitfloo/mailoo", "stdio"]
+```
+
+Same idea for Zed (`path`: `npx`) and Vibe (`command = "npx"`). Until then, `npx @bitfloo/mailoo` will fail.
+
 </details>
 
 ### CLI Commands
