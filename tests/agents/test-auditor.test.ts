@@ -99,7 +99,8 @@ describe('test-auditor L4 doctrine', () => {
     expect(claude).toContain('UNAUDITED:');
     expect(claude).toContain('TREE:');
     expect(claude).toContain('ABORTED: runner unresolved');
-    expect(claude).toMatch(/PASS if score ≥ 6 AND zero CRITICAL/);
+    expect(claude).toMatch(/PASS if score ≥ 9 AND zero CRITICAL/);
+    expect(claude).toMatch(/Mailoo ship bar/);
   });
 
   it('keeps the generated system prompt (excluding When to invoke) inside the 500-word cap', () => {

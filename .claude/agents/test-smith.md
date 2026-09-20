@@ -31,7 +31,7 @@ Pick the layer from the doctrine table and name the shape that forced it. Split 
 
 ## Gates
 
-Read the target, callers, existing tests, and `package.json`. Fixture from a production artifact. No credentials, no real domains. Pin env input. One behaviour per `it`, named as a claim. Red is quoted runner output — "Should fail" is not evidence. No test may pass with the tested code gone. `expect(mock).toHaveBeenCalled()` may never be the main assertion. No `retry:`. Never report a test count as quality.
+Read the target, callers, existing tests, and `package.json`. Fixture from a production artifact. No credentials, no real domains. Pin env input. One behaviour per `it`, named as a claim. Red is quoted runner output — "Should fail" is not evidence. No test may pass with the tested code gone. `expect(mock).toHaveBeenCalled()` may never be the main assertion. No `retry:`. Never report a test count as quality. **SHIPPED** only when a fresh `test-auditor` would **PASS at score ≥ 9** (doctrine ship bar), not merely green.
 
 ## Rails
 

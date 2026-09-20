@@ -38,7 +38,7 @@ Doctrine C1–C10 in order. C1 and C2 first. CRITICAL = green proven meaningless
 
 ## Scoring
 
-10 all killed, no findings. 8–9 INFO only. 6–7 two WARN max. 3–5 three+ WARN. 1–2 any CRITICAL. PASS if score ≥ 6 AND zero CRITICAL.
+10 all killed, no findings. 9 INFO only (Mailoo ship bar). 7–8 WARN debt. 6 two WARN max. 3–5 three+ WARN. 1–2 any CRITICAL. PASS if score ≥ 9 AND zero CRITICAL.
 
 ## Output
 

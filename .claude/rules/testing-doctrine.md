@@ -11,6 +11,9 @@ Never report a test count, a coverage percentage, or a green badge as evidence.
 Detection rate after hand-mutation: **<60%** weak, **60–80%** needs work, **>80%**
 target. Never publish a rate without the survivor list.
 
+Mailoo ship bar: `test-auditor` **PASS** requires **score ≥ 9** and zero CRITICAL
+(INFO-only findings allowed). Scores 6–8 are improvement debt, not done.
+
 ## Two lanes
 
 Read `package.json` before any runner command. The lanes are disjoint.

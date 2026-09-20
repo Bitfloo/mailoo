@@ -1,8 +1,15 @@
 import { applyBodyFormat, looksLikeRawMime, preferRicherPlain, stripHtml } from './email-body.js';
 
+const mimeBoundaryDump =
+  '--_000_BE0\r\nContent-Type: text/plain; charset="utf-8"\r\n\r\nSGkgSmFrb2I=';
+
 describe('looksLikeRawMime', () => {
   it('detects multipart boundary dumps', () => {
     expect(looksLikeRawMime('--_000_ABC\r\nContent-Type: text/plain')).toBe(true);
+  });
+
+  it('detects boundary dumps used in full-format fixtures', () => {
+    expect(looksLikeRawMime(mimeBoundaryDump)).toBe(true);
   });
 
   it('does not flag ordinary prose', () => {
@@ -22,13 +29,24 @@ describe('preferRicherPlain', () => {
     expect(preferRicherPlain(plain, html)).toBe(plain);
   });
 
-  it('uses HTML when the plain part is a tiny fallback', () => {
+  it('uses HTML-derived text when the plain part is a tiny fallback', () => {
     const plain = 'View this email in your browser.';
     const html =
       '<html><body><p>Full message content including important details and an expiry date of 2026-04-01.</p></body></html>';
-    const chosen = preferRicherPlain(plain, html);
-    expect(chosen).toContain('expiry date of 2026-04-01');
-    expect(chosen).not.toBe(plain);
+    expect(preferRicherPlain(plain, html)).toContain('expiry date of 2026-04-01');
+  });
+
+  it('does not keep the stub plain when HTML carries the message', () => {
+    const plain = 'View this email in your browser.';
+    const html =
+      '<html><body><p>Full message content including important details and an expiry date of 2026-04-01.</p></body></html>';
+    expect(preferRicherPlain(plain, html)).not.toBe(plain);
+  });
+});
+
+describe('stripHtml', () => {
+  it('removes tags and keeps text content', () => {
+    expect(stripHtml('<p>Hello</p>')).toBe('Hello');
   });
 });
 
@@ -43,15 +61,17 @@ describe('applyBodyFormat', () => {
   });
 
   it('for full format, skips raw MIME dumps in favour of HTML', () => {
-    const raw = '--_000_BE0\r\nContent-Type: text/plain; charset="utf-8"\r\n\r\nSGkgSmFrb2I=';
     const html = '<p>Hi Jakob, please activate the account.</p>';
-    expect(applyBodyFormat(raw, html, 'full')).toBe(html);
-    expect(looksLikeRawMime(raw)).toBe(true);
+    expect(applyBodyFormat(mimeBoundaryDump, html, 'full')).toBe(html);
   });
 
-  it('keeps a text/plain body that quotes Original Message', () => {
+  it('for full format, keeps a text/plain body that quotes Original Message', () => {
     const body = 'See below.\n\n-----Original Message-----\nFrom: Alice\nCan we meet?';
     expect(applyBodyFormat(body, undefined, 'full')).toBe(body);
+  });
+
+  it('for text format, keeps Original Message separator in the body', () => {
+    const body = 'See below.\n\n-----Original Message-----\nFrom: Alice\nCan we meet?';
     expect(applyBodyFormat(body, undefined, 'text')).toContain('-----Original Message-----');
   });
 
@@ -60,11 +80,10 @@ describe('applyBodyFormat', () => {
     expect(applyBodyFormat(body, undefined, 'stripped')).toBe('New reply here.');
   });
 
-  it('strips tags for text format when only HTML is present', () => {
+  it('for text format, strips tags when only HTML is present', () => {
     expect(applyBodyFormat(undefined, '<p>Hello <strong>world</strong></p>', 'text')).toContain(
       'Hello world',
     );
-    expect(stripHtml('<p>Hello</p>')).toBe('Hello');
   });
 
   it('truncates the body and reports remaining characters when maxLength is exceeded', () => {

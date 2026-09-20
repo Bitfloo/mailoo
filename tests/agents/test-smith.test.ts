@@ -94,6 +94,12 @@ describe('test-smith L4 doctrine', () => {
     expect(claude).toContain('Never report a test count as quality');
   });
 
+  it('ships only when a fresh auditor would pass the Mailoo score bar', () => {
+    expect(claude).toContain('PASS at score ≥ 9');
+    expect(claude).toContain('**SHIPPED**');
+    expect(claude).toMatch(/test-auditor/);
+  });
+
   it('emits a SHIPPED/GAPS block with red and mutation sections', () => {
     expect(claude).toContain('VERDICT: SHIPPED | GAPS | ABORTED: <reason> | NEEDS_INPUT: <what>');
     expect(claude).toContain('RED ARTIFACT:');
