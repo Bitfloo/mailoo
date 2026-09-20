@@ -10,7 +10,9 @@ multi-mailbox, with profiles per account and per folder.
 This is a public **LGPL-3.0-or-later fork** of [email-mcp](https://github.com/codefuturist/email-mcp).
 It is **not** an official codefuturist project. See [Upstream / Attribution](#upstream--attribution).
 
-Enables AI assistants to read, search, send, manage, schedule, and analyze emails across multiple accounts. Exposes 49 tools, 7 prompts, and 6 resources over the MCP protocol with OAuth2 support _(experimental)_, email scheduling, calendar extraction, analytics, provider-aware label management, real-time IMAP IDLE watcher with AI-powered triage, customizable presets and static rules, and a guided setup wizard.
+Enables AI assistants to read, search, send, manage, schedule, and analyze emails across multiple accounts. Exposes 56 tools, 7 prompts, and 6 resources over the MCP protocol with OAuth2 support _(experimental)_, email scheduling, calendar extraction, analytics, provider-aware label management, real-time IMAP IDLE watcher with AI-powered triage, customizable presets and static rules, ManageSieve filters, and a guided setup wizard.
+
+Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, and read-only side effects is documented in [`docs/configuration.md`](docs/configuration.md) and [`docs/tools.md`](docs/tools.md).
 
 ## Highlights
 
@@ -28,11 +30,14 @@ Enables AI assistants to read, search, send, manage, schedule, and analyze email
 | Email analytics | ✅ | ❌ |
 | OAuth2 (Gmail / M365) | ✅ _experimental_ | ❌ |
 | Guided setup wizard | ✅ auto-detect | ❌ |
+| ManageSieve (server-side filters) | ✅ | ❌ |
+| Sender auth headers (SPF/DKIM/DMARC) | ✅ | ❌ |
 
 ## Table of Contents
 
 - [Highlights](#highlights)
 - [Security](#security)
+- [Docs](#docs)
 - [Background](#background)
 - [Install](#install)
 - [Usage](#usage)
@@ -44,11 +49,21 @@ Enables AI assistants to read, search, send, manage, schedule, and analyze email
 
 ## Security
 
-- All connections use TLS/STARTTLS encryption
+Policy and how to report a vulnerability: **[SECURITY.md](SECURITY.md)**.
+
+- All connections use TLS/STARTTLS encryption (ManageSieve PLAIN also requires TLS — [docs](docs/configuration.md#managesieve))
 - Passwords are never logged; audit trail records operations without credentials
 - Token-bucket rate limiter prevents abuse (configurable per account)
 - OAuth2 XOAUTH2 authentication for Gmail and Microsoft 365 _(experimental)_
-- Attachment downloads capped at 5 MB with base64 encoding
+- Attachment downloads: 5 MB as base64, or up to 50 MB when writing `savePath` under the working directory ([docs](docs/tools.md#download_attachment))
+
+## Docs
+
+| Topic | Where |
+|-------|--------|
+| Sent APPEND, IMAP4rev2, Sieve, `read_only`, stdio EOF | [docs/configuration.md](docs/configuration.md) |
+| `savePath`, search dates, `get_email_security`, sieve tools, send/draft attachments, RFC 2047 | [docs/tools.md](docs/tools.md) |
+| Performance notes | [docs/performance-roadmap.md](docs/performance-roadmap.md) |
 
 ## Background
 
@@ -376,6 +391,8 @@ Located at `$XDG_CONFIG_HOME/mailoo/config.toml` (default: `~/.config/mailoo/con
 ```toml
 [settings]
 rate_limit = 10  # max emails per minute per account
+read_only = false
+save_to_sent = true  # see docs/configuration.md — Gmail already files Sent
 
 [[accounts]]
 name = "personal"
@@ -387,6 +404,9 @@ password = "your-app-password"
 host = "imap.gmail.com"
 port = 993
 tls = true
+# disable_imap4rev2 = true  # Strato and similar SEARCH bugs
+# sieve_host = "imap.example.com"
+# sieve_port = 4190
 
 [accounts.smtp]
 host = "smtp.gmail.com"
@@ -456,6 +476,9 @@ For single-account setups (overrides config file):
 | `MCP_EMAIL_SMTP_POOL_MAX_CONNECTIONS` | `1` | Max pooled SMTP connections |
 | `MCP_EMAIL_SMTP_POOL_MAX_MESSAGES` | `100` | Max messages per pooled connection |
 | `MCP_EMAIL_RATE_LIMIT` | `10` | Max sends per minute |
+
+Sent copies, IMAP4rev2, Sieve host/port, and `read_only` env vars:
+[docs/configuration.md](docs/configuration.md#extra-environment-variables).
 
 ### Email Scheduling
 
@@ -657,9 +680,9 @@ Features:
 
 ## API
 
-### Tools (49)
+### Tools (56)
 
-#### Read (14)
+#### Read (18)
 
 | Tool | Description |
 |------|-------------|
@@ -669,28 +692,35 @@ Features:
 | `get_email` | Read full email content with attachment metadata |
 | `get_emails` | Fetch full content of multiple emails in a single call (max 20) |
 | `get_email_status` | Get read/flag/label state of an email without fetching the body |
-| `search_emails` | Search by keyword across subject, sender, and body |
-| `download_attachment` | Download an email attachment by filename |
+| `search_emails` | Search by keyword; `since`/`before` (aliases `start_date`/`end_date`) |
+| `download_attachment` | Download an attachment (base64, or `savePath` to disk — not a read-only write) |
 | `find_email_folder` | Discover the real folder(s) an email resides in (resolves virtual folders) |
 | `extract_contacts` | Extract unique contacts from recent email headers |
 | `get_thread` | Reconstruct a conversation thread via References/In-Reply-To |
 | `list_templates` | List available email templates |
 | `get_email_stats` | Email analytics — volume, top senders, daily trends |
 | `check_health` | Connection health, latency, quota, and IMAP capabilities |
+| `get_email_security` | Read-only SPF/DKIM/DMARC and From/Reply-To/Return-Path domains |
+| `sieve_status` | Whether ManageSieve is reachable (default port 4190) |
+| `sieve_list_scripts` | List ManageSieve scripts |
+| `sieve_get_script` | Download a ManageSieve script |
 
-#### Write (9)
+#### Write (12)
 
 | Tool | Description |
 |------|-------------|
-| `send_email` | Send a new email (plain text or HTML, CC/BCC) |
+| `send_email` | Send a new email (plain text or HTML, CC/BCC, attachments) |
 | `reply_email` | Reply with proper threading (In-Reply-To, References) |
 | `forward_email` | Forward with original content quoted |
-| `save_draft` | Save an email draft to the Drafts folder |
+| `save_draft` | Save a draft (RFC 2047 subjects; optional attachments) |
 | `send_draft` | Send an existing draft and remove from Drafts |
 | `apply_template` | Apply a template with variable substitution |
 | `schedule_email` | Schedule an email for future delivery |
 | `list_scheduled` | List scheduled emails by status |
 | `cancel_scheduled` | Cancel a pending scheduled email |
+| `sieve_put_script` | Create or replace a ManageSieve script (does not activate) |
+| `sieve_delete_script` | Delete a ManageSieve script |
+| `sieve_activate_script` | Activate a script (empty name deactivates all) |
 
 #### Manage (7)
 
@@ -737,6 +767,8 @@ Features:
 | `list_events` | List local calendar events with optional title, date, and calendar filters |
 | `list_reminders` | List Reminders.app items with optional title and list filters |
 | `check_calendar_permissions` | Check whether the local calendar is accessible |
+
+Parameter-level notes for the tools above: [docs/tools.md](docs/tools.md).
 
 ### Prompts (7)
 
@@ -798,7 +830,8 @@ src/
 ├── services/              — Business logic
 │   ├── imap.service.ts    — IMAP operations
 │   ├── label-strategy.ts  — Provider-aware label strategy (ProtonMail/Gmail/IMAP keywords)
-│   ├── smtp.service.ts    — SMTP operations
+│   ├── smtp.service.ts    — SMTP operations + optional \\Sent APPEND
+│   ├── sieve.service.ts   — ManageSieve (RFC 5804)
 │   ├── template.service.ts — Email template engine
 │   ├── oauth.service.ts   — OAuth2 token management (experimental)
 │   ├── calendar.service.ts — ICS/iCalendar parsing
@@ -808,10 +841,11 @@ src/
 │   ├── notifier.service.ts — Multi-channel notification dispatcher (desktop/sound/webhook)
 │   ├── presets.ts         — Built-in hook presets (inbox-zero, gtd, priority-focus, etc.)
 │   └── event-bus.ts       — Typed EventEmitter for internal email events
-├── tools/                 — MCP tool definitions (49)
+├── tools/                 — MCP tool definitions (56)
 ├── prompts/               — MCP prompt definitions (7)
 ├── resources/             — MCP resource definitions (6)
-├── safety/                — Audit trail and rate limiter
+├── safety/                — Audit trail, rate limiter, stdio lifecycle
+├── utils/                 — RFC 2047 compose, MIME body, auth headers
 └── types/                 — Shared TypeScript types
 ```
 

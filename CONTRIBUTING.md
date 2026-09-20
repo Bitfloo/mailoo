@@ -86,7 +86,9 @@ src/
 3. Use `server.tool()` with Zod schemas for input validation
 4. Add tool annotations (`readOnlyHint`, `destructiveHint`, etc.)
 5. Register it in `src/tools/register.ts`
-6. Add to the tools reference table in `README.md`
+6. Add a one-liner to the tools table in `README.md`. Parameter-level
+   behaviour belongs in [`docs/tools.md`](docs/tools.md); config keys in
+   [`docs/configuration.md`](docs/configuration.md).
 
 ## Pull Request Process
 

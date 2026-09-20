@@ -329,6 +329,9 @@ async function runHttpServer(port: number): Promise<void> {
       const mcpServer = buildMcpSession();
       await mcpServer.connect(newTransport);
 
+      // Register hooks on the *first* client init for this session so the
+      // HTTP path also wires up email:new → sampling/createMessage. Without
+      // this, only stdio mode triggered the hooks (see 36eb8ca on main).
       const ls = mcpServer.server;
       ls.oninitialized = () => {
         markInitialized();

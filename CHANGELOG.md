@@ -6,6 +6,18 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 <!-- next-header -->
 
+## [Unreleased]
+
+- Sent IMAP APPEND after SMTP (`save_to_sent`; skipped for Gmail)
+- IMAP4rev2 opt-out for broken SEARCH (e.g. Strato)
+- ManageSieve tools (TLS required for PLAIN)
+- `get_email_security`, attachment `savePath`, search `since`/`before`
+- `read_only` also skips hooks, watcher, and the in-process scheduler
+- Stdio shutdown on client stdin EOF; RFC 2047 encoded draft/Sent subjects
+
+See [docs/configuration.md](docs/configuration.md) and
+[docs/tools.md](docs/tools.md).
+
 ## [0.1.0] — 2026-09-20
 
 First Mailoo release. Public LGPL-3.0-or-later fork of

@@ -14,7 +14,9 @@
     "LICENSE",
     "COPYING",
     "NOTICE",
-    "README.md"
+    "README.md",
+    "SECURITY.md",
+    "docs"
   ],
   "scripts": {
     "dev": "tsx watch src/main.ts",

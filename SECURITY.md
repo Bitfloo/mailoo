@@ -21,8 +21,9 @@ Mailoo handles sensitive email credentials and message content. The project incl
 - **No credential storage** — passwords and tokens are read from your local config file or environment variables at runtime
 - **Audit logging** — all write operations are logged with automatic redaction of sensitive fields (passwords, email body content)
 - **Rate limiting** — configurable rate limits on send operations (default: 10/minute)
-- **Read-only mode** — can be configured to disable all write operations
+- **Read-only mode** — `read_only: true` omits write tools and does not start hooks, the IDLE watcher, or the in-process scheduler. `download_attachment` with `savePath` still writes under the working directory; see [docs/tools.md](docs/tools.md#download_attachment).
 - **Input validation** — all tool inputs are validated with Zod schemas
+- **ManageSieve** — AUTHENTICATE PLAIN requires TLS (implicit or STARTTLS)
 
 ## Best Practices for Users
 
