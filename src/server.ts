@@ -11,7 +11,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 const esmRequire = createRequire(import.meta.url);
 const pkg = esmRequire('../package.json') as { version: string };
 
-export const PKG_NAME = 'email-mcp';
+export const PKG_NAME = 'mailoo';
 export const PKG_VERSION = pkg.version;
 
 export default function createServer(): McpServer {

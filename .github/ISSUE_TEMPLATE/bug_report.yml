@@ -21,7 +21,7 @@ body:
       label: Steps to reproduce
       description: How can we reproduce this behavior?
       placeholder: |
-        1. Configure email-mcp with...
+        1. Configure mailoo with...
         2. Ask the AI assistant to...
         3. See error...
     validations:
@@ -47,7 +47,7 @@ body:
     id: version
     attributes:
       label: Version
-      description: "Run: email-mcp --version"
+      description: "Run: mailoo --version"
       placeholder: 0.1.0
     validations:
       required: true

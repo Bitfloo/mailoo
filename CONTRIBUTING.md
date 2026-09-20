@@ -1,14 +1,18 @@
-# Contributing to email-mcp
+# Contributing to Mailoo
 
 Thank you for your interest in contributing! This guide will help you get started.
 
+Issues and pull requests belong on [bitfloo/mailoo](https://github.com/bitfloo/mailoo).
+By contributing, you agree that your contributions are licensed under
+LGPL-3.0-or-later (see [LICENSE](LICENSE) and [COPYING](COPYING)).
+
 ## Getting Started
 
-1. Fork the repository
+1. Fork [bitfloo/mailoo](https://github.com/bitfloo/mailoo)
 2. Clone your fork:
    ```bash
-   git clone https://github.com/<your-username>/email-mcp.git
-   cd email-mcp
+   git clone https://github.com/<your-username>/mailoo.git
+   cd mailoo
    ```
 3. Install dependencies:
    ```bash
@@ -23,7 +27,7 @@ Thank you for your interest in contributing! This guide will help you get starte
 
 ### Prerequisites
 
-- **Node.js** >= 22.0.0
+- **Node.js** >= 24.0.0
 - **pnpm** (package manager)
 
 ### Commands
@@ -93,8 +97,8 @@ src/
 
 ## Reporting Issues
 
-- Use [GitHub Issues](https://github.com/codefuturist/email-mcp/issues) for bugs and feature requests
-- Use [GitHub Discussions](https://github.com/codefuturist/email-mcp/discussions) for questions and ideas
+- Use [GitHub Issues](https://github.com/bitfloo/mailoo/issues) for bugs and feature requests
+- Use [GitHub Discussions](https://github.com/bitfloo/mailoo/discussions) for questions and ideas
 
 ## License
 

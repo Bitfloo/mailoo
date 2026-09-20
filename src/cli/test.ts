@@ -42,7 +42,7 @@ async function testAccount(account: AccountConfig): Promise<boolean> {
 }
 
 export default async function runTest(accountFilter?: string): Promise<void> {
-  intro('email-mcp test');
+  intro('mailoo test');
 
   const config = await loadConfig();
 

@@ -282,7 +282,7 @@ export async function loadConfig(configPath?: string): Promise<AppConfig> {
     `No configuration found.\n\n` +
       `Set environment variables (MCP_EMAIL_ADDRESS, MCP_EMAIL_PASSWORD, etc.)\n` +
       `or create a config file at: ${configPath ?? CONFIG_FILE}\n\n` +
-      `Run 'email-mcp setup' for interactive configuration.`,
+      `Run 'mailoo setup' for interactive configuration.`,
   );
 }
 
@@ -303,7 +303,7 @@ export async function saveConfig(
  * Generate a template TOML config string.
  */
 export function generateTemplate(): string {
-  return `# Email MCP Server Configuration
+  return `# Mailoo Configuration
 # Location: ${CONFIG_FILE}
 
 [settings]

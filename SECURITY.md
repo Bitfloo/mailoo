@@ -10,13 +10,13 @@
 
 **Please do not report security vulnerabilities through public GitHub issues.**
 
-Instead, please report them via [GitHub Security Advisories](https://github.com/codefuturist/email-mcp/security/advisories/new).
+Instead, please report them via [GitHub Security Advisories](https://github.com/bitfloo/mailoo/security/advisories/new).
 
 You should receive a response within 48 hours. If the issue is confirmed, a fix will be released as soon as possible.
 
 ## Security Considerations
 
-email-mcp handles sensitive email credentials and message content. The project includes several security measures:
+Mailoo handles sensitive email credentials and message content. The project includes several security measures:
 
 - **No credential storage** — passwords and tokens are read from your local config file or environment variables at runtime
 - **Audit logging** — all write operations are logged with automatic redaction of sensitive fields (passwords, email body content)
@@ -28,6 +28,6 @@ email-mcp handles sensitive email credentials and message content. The project i
 
 - Use app-specific passwords instead of your main account password
 - Enable OAuth2 authentication where supported (Gmail, Outlook)
-- Review the audit log at `~/.local/share/email-mcp/audit.jsonl`
+- Review the audit log at `~/.local/share/mailoo/audit.jsonl`
 - Use `read_only: true` in config if you only need read access
-- Keep email-mcp updated to the latest version
+- Keep Mailoo updated to the latest version

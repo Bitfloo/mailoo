@@ -1,7 +1,7 @@
 services:
-  email-mcp:
+  mailoo:
     build: .
-    image: codefuturist/email-mcp:latest
+    image: ghcr.io/bitfloo/mailoo:latest
     stdin_open: true # required for stdio transport
     volumes:
-      - ${EMAIL_MCP_CONFIG:-~/.config/email-mcp}:/home/node/.config/email-mcp:ro
+      - ${MAILOO_CONFIG:-~/.config/mailoo}:/home/node/.config/mailoo:ro

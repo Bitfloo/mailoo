@@ -21,7 +21,7 @@ import {
 import ensureInteractive from './guard.js';
 
 function printConfigUsage(): void {
-  console.log(`Usage: email-mcp config <subcommand>
+  console.log(`Usage: mailoo config <subcommand>
 
 Subcommands:
   show    Show current configuration (passwords masked)
@@ -39,7 +39,7 @@ async function showConfig(): Promise<void> {
   const exists = await configExists();
   if (!exists) {
     console.error(`No config file found at: ${CONFIG_FILE}`);
-    console.error(`Run 'email-mcp setup' or 'email-mcp config init' to create one.`);
+    console.error(`Run 'mailoo setup' or 'mailoo config init' to create one.`);
     throw new Error('Config file not found');
   }
 
@@ -85,7 +85,7 @@ async function showConfig(): Promise<void> {
 
 async function initConfig(): Promise<void> {
   ensureInteractive();
-  intro('email-mcp config init');
+  intro('mailoo config init');
 
   const exists = await configExists();
   if (exists) {
@@ -104,18 +104,18 @@ async function initConfig(): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(CONFIG_FILE, generateTemplate(), 'utf-8');
   log.success(`Template config created at ${CONFIG_FILE}`);
-  log.info("Edit the file to add your email accounts, then run 'email-mcp test'.");
+  log.info("Edit the file to add your email accounts, then run 'mailoo test'.");
   outro('Done!');
 }
 
 async function editSettings(): Promise<void> {
   ensureInteractive();
-  intro('email-mcp › Edit Settings');
+  intro('mailoo › Edit Settings');
 
   const exists = await configExists();
   if (!exists) {
     log.error(`No config file found at: ${CONFIG_FILE}`);
-    cancel("Run 'email-mcp account add' or 'email-mcp config init' first.");
+    cancel("Run 'mailoo account add' or 'mailoo config init' first.");
     return;
   }
 

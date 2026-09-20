@@ -5,7 +5,8 @@ sessions) when working in this repository.
 
 ## What this repo is
 
-An open-source **MCP (Model Context Protocol) server** providing
+**Mailoo** is Bitfloo's public LGPL-3.0-or-later fork of email-mcp.
+It is an open-source **MCP (Model Context Protocol) server** providing
 comprehensive email capabilities over IMAP and SMTP. It exposes tools,
 prompts, and resources to AI assistants for reading, sending,
 scheduling, organising, and analysing email across multiple accounts.
@@ -47,8 +48,8 @@ work done. For changes touching IMAP/SMTP behaviour, run
   `src/tools/`, `src/prompts/`, `src/resources/`. Keep them decoupled —
   services must be unit-testable without mocking MCP transports.
 - **Workflows**: lowercase kebab-case `name:`, explicit `permissions:`
-  block per workflow, prefer the shared workflows under
-  `codefuturist/shared-workflows` over re-implementing common steps.
+  block per workflow. Keep CI in-repo (do not call
+  `codefuturist/shared-workflows`).
 
 ## What to do / not do
 

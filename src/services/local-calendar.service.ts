@@ -215,7 +215,7 @@ function buildAppleScript(opts: JXAScriptOptions): string {
     });
     lines.push(
       'try',
-      '  display dialog dialogText with title "email-mcp \u2014 Add Calendar Event?" buttons {"Cancel", "Add to Calendar"} default button "Add to Calendar" cancel button "Cancel" giving up after 60',
+      '  display dialog dialogText with title "mailoo \u2014 Add Calendar Event?" buttons {"Cancel", "Add to Calendar"} default button "Add to Calendar" cancel button "Cancel" giving up after 60',
       '  set dlgResult to button returned of result',
       '  if dlgResult is not "Add to Calendar" then',
       '    return "{\\"status\\":\\"timed_out\\"}"',
@@ -279,11 +279,11 @@ function escapeICS(s: string): string {
 }
 
 function buildICS(event: LocalCalendarEventInput): string {
-  const uid = `email-mcp-${Date.now()}@local`;
+  const uid = `mailoo-${Date.now()}@local`;
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//email-mcp//email-mcp//EN',
+    'PRODID:-//Bitfloo//Mailoo//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',
@@ -453,7 +453,7 @@ async function addEventLinux(
   event: LocalCalendarEventInput,
   _calendarName?: string,
 ): Promise<AddEventResult> {
-  const tmpFile = join(tmpdir(), `email-mcp-event-${Date.now()}.ics`);
+  const tmpFile = join(tmpdir(), `mailoo-event-${Date.now()}.ics`);
   const ics = buildICS(event);
   await writeFile(tmpFile, ics, 'utf8');
 

@@ -1,6 +1,6 @@
 # Smithery configuration — https://smithery.ai/docs/build
-# Lists email-mcp on the Smithery MCP marketplace.
-# Config is stored locally via `email-mcp account add`; no runtime secrets needed here.
+# Lists mailoo on the Smithery MCP marketplace.
+# Config is stored locally via `mailoo account add`; no runtime secrets needed here.
 startCommand:
   type: stdio
   configSchema:
@@ -10,5 +10,5 @@ startCommand:
   commandFunction: |-
     (config) => ({
       command: "npx",
-      args: ["-y", "@codefuturist/email-mcp", "stdio"]
+      args: ["-y", "@bitfloo/mailoo", "stdio"]
     })

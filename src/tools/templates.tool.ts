@@ -18,7 +18,7 @@ export function registerTemplateReadTools(
 ): void {
   server.tool(
     'list_templates',
-    'List all available email templates. Templates are TOML files in ~/.config/email-mcp/templates/ with {{variable}} placeholders for subject and body.',
+    'List all available email templates. Templates are TOML files in ~/.config/mailoo/templates/ with {{variable}} placeholders for subject and body.',
     {},
     { readOnlyHint: true, destructiveHint: false },
     async () => {

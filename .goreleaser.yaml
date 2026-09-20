@@ -1,43 +1,13 @@
-# yaml-language-server: $schema=https://goreleaser.com/static/schema-pro.json
-# ──────────────────────────────────────────────────────────────────────────────
-# email-mcp — GoReleaser configuration (modular fragment system)
-#
-# Shared (from config/goreleaser/):
-#   base.yaml                  – metadata, release.github, snapshot, checksums
-#
-# Project-specific (inline):
-#   builds                     – Skipped (Node.js/TS; Dockerfile handles build)
-#   dockers_v2                 – Dual-variant (Debian + Alpine) multi-arch images
-#   changelog                  – GitHub-generated release notes with filters
-#
-# Legacy config preserved at: .goreleaser.yaml.legacy
-# ──────────────────────────────────────────────────────────────────────────────
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# Mailoo — GoReleaser configuration (Node.js/TypeScript; Docker via Dockerfile)
 version: 2
-project_name: email-mcp
+project_name: mailoo
 
-# ── Monorepo (GoReleaser Pro) ────────────────────────────────────────────────
-monorepo:
-  tag_prefix: email-mcp/
-  dir: services/mcp/email-mcp
-
-# ── Shared base ──────────────────────────────────────────────────────────────
-includes:
-  - from_file:
-      path: config/goreleaser/base.yaml
-
-# ── Build ────────────────────────────────────────────────────────────────────
-# No Go builds — this is a Node.js/TypeScript project.
-# The Dockerfile handles the full build pipeline (pnpm install → tsc → prune).
 builds:
   - skip: true
 
-# ── Docker images (project-specific) ────────────────────────────────────────
-# Two variants pushed to dual registries (GHCR + Docker Hub) with custom tag
-# schemes, TypeScript build-context extra_files, and OCI labels/annotations.
-# Too specific for a shared atom — kept inline.
 dockers_v2:
-  # ── Debian (slim) — default image ──────────────────────────────────────────
-  - id: email-mcp-debian
+  - id: mailoo-debian
     dockerfile: Dockerfile
     extra_files:
       - src/
@@ -46,9 +16,11 @@ dockers_v2:
       - tsconfig.build.json
       - tsconfig.json
       - biome.json
+      - LICENSE
+      - COPYING
+      - NOTICE
     images:
-      - ghcr.io/codefuturist/email-mcp
-      - docker.io/diarmid/email-mcp
+      - ghcr.io/bitfloo/mailoo
     tags:
       - "{{ .Version }}"
       - "{{ .Version }}-bookworm"
@@ -59,29 +31,26 @@ dockers_v2:
       - bookworm
       - "{{ if not .Prerelease }}latest{{ end }}"
       - "sha-{{ .ShortCommit }}"
-      - "ts-{{ .Now.Unix }}"
-      - "{{ .Now.Unix }}"
     platforms:
       - linux/amd64
       - linux/arm64
     labels:
-      org.opencontainers.image.title: email-mcp
-      org.opencontainers.image.description: "IMAP/SMTP email MCP server — 47 tools, IMAP IDLE push, multi-account, AI triage"
-      org.opencontainers.image.url: "https://github.com/codefuturist/email-mcp"
-      org.opencontainers.image.source: "https://github.com/codefuturist/email-mcp"
+      org.opencontainers.image.title: Mailoo
+      org.opencontainers.image.description: "Mailoo — IMAP/SMTP MCP server. Multi-account, per-folder profiles."
+      org.opencontainers.image.url: "https://github.com/bitfloo/mailoo"
+      org.opencontainers.image.source: "https://github.com/bitfloo/mailoo"
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.created: "{{ .Date }}"
       org.opencontainers.image.licenses: LGPL-3.0-or-later
-      org.opencontainers.image.vendor: codefuturist
+      org.opencontainers.image.vendor: Bitfloo
     annotations:
-      org.opencontainers.image.description: "IMAP/SMTP email MCP server — 47 tools, IMAP IDLE push, multi-account, AI triage"
-      org.opencontainers.image.source: "https://github.com/codefuturist/email-mcp"
+      org.opencontainers.image.description: "Mailoo — IMAP/SMTP MCP server. Multi-account, per-folder profiles."
+      org.opencontainers.image.source: "https://github.com/bitfloo/mailoo"
       org.opencontainers.image.licenses: LGPL-3.0-or-later
       org.opencontainers.image.created: "{{ .Date }}"
 
-  # ── Alpine — minimal image ────────────────────────────────────────────────
-  - id: email-mcp-alpine
+  - id: mailoo-alpine
     dockerfile: Dockerfile.alpine
     extra_files:
       - src/
@@ -90,9 +59,11 @@ dockers_v2:
       - tsconfig.build.json
       - tsconfig.json
       - biome.json
+      - LICENSE
+      - COPYING
+      - NOTICE
     images:
-      - ghcr.io/codefuturist/email-mcp
-      - docker.io/diarmid/email-mcp
+      - ghcr.io/bitfloo/mailoo
     tags:
       - "{{ .Version }}-alpine"
       - "{{ .Major }}.{{ .Minor }}-alpine"
@@ -102,24 +73,28 @@ dockers_v2:
       - linux/amd64
       - linux/arm64
     labels:
-      org.opencontainers.image.title: email-mcp
-      org.opencontainers.image.description: "IMAP/SMTP email MCP server — 47 tools, IMAP IDLE push, multi-account, AI triage"
-      org.opencontainers.image.url: "https://github.com/codefuturist/email-mcp"
-      org.opencontainers.image.source: "https://github.com/codefuturist/email-mcp"
+      org.opencontainers.image.title: Mailoo
+      org.opencontainers.image.description: "Mailoo — IMAP/SMTP MCP server. Multi-account, per-folder profiles."
+      org.opencontainers.image.url: "https://github.com/bitfloo/mailoo"
+      org.opencontainers.image.source: "https://github.com/bitfloo/mailoo"
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.created: "{{ .Date }}"
       org.opencontainers.image.licenses: LGPL-3.0-or-later
-      org.opencontainers.image.vendor: codefuturist
+      org.opencontainers.image.vendor: Bitfloo
     annotations:
-      org.opencontainers.image.description: "IMAP/SMTP email MCP server — 47 tools, IMAP IDLE push, multi-account, AI triage"
-      org.opencontainers.image.source: "https://github.com/codefuturist/email-mcp"
+      org.opencontainers.image.description: "Mailoo — IMAP/SMTP MCP server. Multi-account, per-folder profiles."
+      org.opencontainers.image.source: "https://github.com/bitfloo/mailoo"
       org.opencontainers.image.licenses: LGPL-3.0-or-later
       org.opencontainers.image.created: "{{ .Date }}"
 
-# ── Changelog (project-specific) ────────────────────────────────────────────
-# Uses GitHub-generated release notes (not conventional-commits).
-# npm publish and MCP registry handled by release.yml workflow.
+release:
+  github:
+    owner: bitfloo
+    name: mailoo
+  make_latest: true
+  draft: false
+
 changelog:
   use: github
   sort: asc

@@ -40,13 +40,13 @@ describe('mcpLog', () => {
     bindServer(mock as never);
     markInitialized();
 
-    await mcpLog('info', 'server', 'Email MCP server started');
+    await mcpLog('info', 'server', 'Mailoo started');
 
     expect(mock.sendLoggingMessage).toHaveBeenCalledOnce();
     expect(mock.sendLoggingMessage).toHaveBeenCalledWith({
       level: 'info',
       logger: 'server',
-      data: 'Email MCP server started',
+      data: 'Mailoo started',
     });
   });
 

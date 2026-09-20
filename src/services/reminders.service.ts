@@ -169,7 +169,7 @@ function buildReminderAppleScript(input: ReminderInput, confirm: boolean): strin
     });
     lines.push(
       'try',
-      '  display dialog dialogText with title "email-mcp \u2014 Add Reminder?" buttons {"Cancel", "Add Reminder"} default button "Add Reminder" cancel button "Cancel" giving up after 60',
+      '  display dialog dialogText with title "mailoo \u2014 Add Reminder?" buttons {"Cancel", "Add Reminder"} default button "Add Reminder" cancel button "Cancel" giving up after 60',
       '  set dlgResult to button returned of result',
       '  if dlgResult is not "Add Reminder" then',
       '    return "{\\"status\\":\\"timed_out\\"}"',

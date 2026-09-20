@@ -1,5 +1,5 @@
 /**
- * Shared TypeScript types for the Email MCP Server.
+ * Shared TypeScript types for the Mailoo.
  */
 
 // ---------------------------------------------------------------------------

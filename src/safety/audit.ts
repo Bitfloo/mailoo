@@ -2,7 +2,7 @@
  * Audit logger — append-only JSON Lines log for all write operations.
  *
  * Logs are stored at the XDG data directory:
- *   ~/.local/share/email-mcp/audit.log
+ *   ~/.local/share/mailoo/audit.log
  */
 
 import fs from 'node:fs/promises';

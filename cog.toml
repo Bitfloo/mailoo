@@ -1,5 +1,5 @@
 # ==============================================================================
-# Cocogitto Configuration for email-mcp
+# Cocogitto Configuration for mailoo
 # ==============================================================================
 # Docs: https://docs.cocogitto.io/reference/config.html
 #
@@ -68,8 +68,8 @@ revert = { changelog_title = "⏪ Reverts" }
 path = "CHANGELOG.md"
 template = "remote"
 remote = "github.com"
-owner = "codefuturist"
-repository = "email-mcp"
+owner = "bitfloo"
+repository = "mailoo"
 authors = [
     { signature = "58808821+codefuturist@users.noreply.github.com", username = "codefuturist" },
 ]

@@ -24,7 +24,7 @@ describe('Config Loader', () => {
   const savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'email-mcp-test-'));
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-test-'));
 
     // Save and clear all MCP_EMAIL_* env vars
     for (const key of MCP_ENV_KEYS) {

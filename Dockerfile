@@ -20,12 +20,12 @@ RUN pnpm prune --prod
 # ── Production stage ──────────────────────────────────────────────────────────
 FROM node:24-slim AS production
 
-LABEL org.opencontainers.image.title="email-mcp" \
-      org.opencontainers.image.description="IMAP/SMTP email MCP server — 47 tools, IMAP IDLE push, multi-account, AI triage" \
-      org.opencontainers.image.url="https://github.com/codefuturist/email-mcp" \
-      org.opencontainers.image.source="https://github.com/codefuturist/email-mcp" \
+LABEL org.opencontainers.image.title="Mailoo" \
+      org.opencontainers.image.description="Mailoo — IMAP/SMTP MCP server. Multi-account, per-folder profiles." \
+      org.opencontainers.image.url="https://github.com/bitfloo/mailoo" \
+      org.opencontainers.image.source="https://github.com/bitfloo/mailoo" \
       org.opencontainers.image.licenses="LGPL-3.0-or-later" \
-      org.opencontainers.image.vendor="codefuturist"
+      org.opencontainers.image.vendor="Bitfloo"
 
 WORKDIR /app
 
@@ -33,9 +33,10 @@ WORKDIR /app
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
+COPY LICENSE COPYING NOTICE ./
 
 # Create config directory for volume mount
-RUN mkdir -p /home/node/.config/email-mcp && chown -R node:node /home/node/.config
+RUN mkdir -p /home/node/.config/mailoo && chown -R node:node /home/node/.config
 
 ENV NODE_ENV=production
 

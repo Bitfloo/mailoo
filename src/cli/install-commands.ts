@@ -1,7 +1,7 @@
 /**
  * MCP client installation subcommands.
  *
- * Manages registering / unregistering the email-mcp server with MCP host
+ * Manages registering / unregistering the Mailoo server with MCP host
  * applications such as Claude Desktop, VS Code, Cursor, and Windsurf.
  *
  * - install          — interactive wizard to register with detected MCP clients
@@ -26,6 +26,8 @@ import {
 } from '@clack/prompts';
 
 import ensureInteractive from './guard.js';
+
+const MCP_SERVER_KEY = 'mailoo';
 
 // ---------------------------------------------------------------------------
 // MCP client registry
@@ -115,17 +117,17 @@ interface ServerEntry {
 function buildServerEntry(transport: Transport): ServerEntry {
   switch (transport) {
     case 'npx':
-      return { command: 'npx', args: ['@codefuturist/email-mcp', 'stdio'] };
+      return { command: 'npx', args: ['@bitfloo/mailoo', 'stdio'] };
     case 'pnpm':
-      return { command: 'pnpm', args: ['dlx', '@codefuturist/email-mcp', 'stdio'] };
+      return { command: 'pnpm', args: ['dlx', '@bitfloo/mailoo', 'stdio'] };
     case 'global':
-      return { command: 'email-mcp', args: ['stdio'] };
+      return { command: 'mailoo', args: ['stdio'] };
     case 'node': {
       const mainJs = path.resolve(process.argv[1] ?? 'dist/main.js');
       return { command: process.execPath, args: [mainJs, 'stdio'] };
     }
     default:
-      return { command: 'npx', args: ['@codefuturist/email-mcp', 'stdio'] };
+      return { command: 'npx', args: ['@bitfloo/mailoo', 'stdio'] };
   }
 }
 
@@ -159,7 +161,7 @@ async function writeJsonFile(filePath: string, data: Record<string, unknown>): P
 
 function isRegistered(config: Record<string, unknown>, serversKey: string): boolean {
   const servers = config[serversKey] as Record<string, unknown> | undefined;
-  return servers != null && 'email' in servers;
+  return servers != null && MCP_SERVER_KEY in servers;
 }
 
 // ---------------------------------------------------------------------------
@@ -168,7 +170,7 @@ function isRegistered(config: Record<string, unknown>, serversKey: string): bool
 
 async function runInstall(): Promise<void> {
   ensureInteractive();
-  intro('email-mcp › Install MCP Server');
+  intro('mailoo › Install MCP Server');
 
   const clients = getClients();
 
@@ -191,7 +193,7 @@ async function runInstall(): Promise<void> {
     log.warn('No supported MCP clients detected on this system.');
     log.info('Supported clients: Claude Desktop, Cursor, Windsurf');
     note(
-      JSON.stringify({ mcpServers: { email: buildServerEntry('npx') } }, null, 2),
+      JSON.stringify({ mcpServers: { [MCP_SERVER_KEY]: buildServerEntry('npx') } }, null, 2),
       'Manual configuration — add this to your MCP client config',
     );
     outro('Done.');
@@ -212,7 +214,7 @@ async function runInstall(): Promise<void> {
   }));
 
   const selectedIds = await multiselect({
-    message: 'Which MCP clients should email-mcp be registered with?',
+    message: 'Which MCP clients should mailoo be registered with?',
     options: choices,
     initialValues: available.filter((c) => !c.registered).map((c) => c.id),
     required: true,
@@ -224,7 +226,7 @@ async function runInstall(): Promise<void> {
 
   // Ask for transport preference
   const transport = await select<Transport>({
-    message: 'How should the MCP client launch email-mcp?',
+    message: 'How should the MCP client launch mailoo?',
     options: [
       {
         value: 'npx' as Transport,
@@ -237,8 +239,8 @@ async function runInstall(): Promise<void> {
       },
       {
         value: 'global' as Transport,
-        label: 'Global install (email-mcp on PATH)',
-        hint: 'requires: npm i -g @codefuturist/email-mcp',
+        label: 'Global install (mailoo on PATH)',
+        hint: 'requires: npm i -g @bitfloo/mailoo',
       },
       {
         value: 'node' as Transport,
@@ -260,7 +262,7 @@ async function runInstall(): Promise<void> {
     await prev;
     const existing = await readJsonFile(client.configPath);
     const servers = (existing[client.serversKey] as Record<string, unknown>) ?? {};
-    servers.email = serverEntry;
+    servers[MCP_SERVER_KEY] = serverEntry;
     existing[client.serversKey] = servers;
 
     await writeJsonFile(client.configPath, existing);
@@ -269,7 +271,7 @@ async function runInstall(): Promise<void> {
 
   // Show what was written
   note(
-    JSON.stringify({ mcpServers: { email: serverEntry } }, null, 2),
+    JSON.stringify({ mcpServers: { [MCP_SERVER_KEY]: serverEntry } }, null, 2),
     'Server entry written to selected clients',
   );
 
@@ -281,11 +283,11 @@ async function runInstall(): Promise<void> {
 
 async function runRemove(): Promise<void> {
   ensureInteractive();
-  intro('email-mcp › Remove MCP Server');
+  intro('mailoo › Remove MCP Server');
 
   const clients = getClients();
 
-  // Find clients that have email-mcp registered (parallel checks)
+  // Find clients that have mailoo registered (parallel checks)
   const withStatus = await Promise.all(
     clients.map(async (client) => {
       const exists = await fileExists(client.configPath);
@@ -297,13 +299,13 @@ async function runRemove(): Promise<void> {
   const registered = withStatus.filter((c) => c.registered);
 
   if (registered.length === 0) {
-    log.info('email-mcp is not registered with any detected MCP clients.');
+    log.info('mailoo is not registered with any detected MCP clients.');
     outro('Nothing to remove.');
     return;
   }
 
   const selectedIds = await multiselect({
-    message: 'Unregister email-mcp from which clients?',
+    message: 'Unregister mailoo from which clients?',
     options: registered.map((c) => ({
       value: c.id,
       label: c.name,
@@ -318,7 +320,7 @@ async function runRemove(): Promise<void> {
   }
 
   const shouldRemove = await confirm({
-    message: `Remove email-mcp from ${selectedIds.length} client(s)?`,
+    message: `Remove mailoo from ${selectedIds.length} client(s)?`,
     initialValue: false,
   });
   if (isCancel(shouldRemove) || !shouldRemove) {
@@ -333,8 +335,8 @@ async function runRemove(): Promise<void> {
     await prev;
     const cfg = await readJsonFile(client.configPath);
     const servers = cfg[client.serversKey] as Record<string, unknown> | undefined;
-    if (servers && 'email' in servers) {
-      delete servers.email;
+    if (servers && MCP_SERVER_KEY in servers) {
+      delete servers[MCP_SERVER_KEY];
       if (Object.keys(servers).length === 0) {
         delete cfg[client.serversKey];
       }
@@ -363,7 +365,7 @@ async function runStatus(): Promise<void> {
       const cfg = await readJsonFile(client.configPath);
       if (isRegistered(cfg, client.serversKey)) {
         const servers = cfg[client.serversKey] as Record<string, unknown>;
-        const entry = servers.email as ServerEntry | undefined;
+        const entry = servers[MCP_SERVER_KEY] as ServerEntry | undefined;
         const cmd = entry ? `${entry.command} ${entry.args.join(' ')}` : 'unknown';
         return `  ✅ ${client.name} — registered (${cmd})\n     ${client.configPath}`;
       }
@@ -386,12 +388,12 @@ async function runStatus(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 function printUsage(): void {
-  console.log(`Usage: email-mcp install [subcommand]
+  console.log(`Usage: mailoo install [subcommand]
 
 Subcommands:
-  (default)   Register email-mcp with detected MCP clients
+  (default)   Register mailoo with detected MCP clients
   status      Show registration status for all detected clients
-  remove      Unregister email-mcp from MCP clients
+  remove      Unregister mailoo from MCP clients
 `);
 }
 

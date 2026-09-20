@@ -19,13 +19,13 @@ import ImapService from '../services/imap.service.js';
 import SchedulerService from '../services/scheduler.service.js';
 import SmtpService from '../services/smtp.service.js';
 
-const LAUNCHD_LABEL = 'com.email-mcp.scheduler';
+const LAUNCHD_LABEL = 'com.bitfloo.mailoo.scheduler';
 const LAUNCHD_PLIST_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents');
 const LAUNCHD_PLIST = path.join(LAUNCHD_PLIST_DIR, `${LAUNCHD_LABEL}.plist`);
-const CRONTAB_MARKER = '# email-mcp scheduler';
+const CRONTAB_MARKER = '# mailoo scheduler';
 
 function getExecutablePath(): string {
-  return process.argv[1] ?? 'email-mcp';
+  return process.argv[1] ?? 'mailoo';
 }
 
 async function createSchedulerService(): Promise<SchedulerService> {
@@ -121,9 +121,9 @@ async function runInstall(): Promise<void> {
   <key>StartInterval</key>
   <integer>60</integer>
   <key>StandardOutPath</key>
-  <string>/tmp/email-mcp-scheduler.log</string>
+  <string>/tmp/mailoo-scheduler.log</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/email-mcp-scheduler.log</string>
+  <string>/tmp/mailoo-scheduler.log</string>
   <key>RunAtLoad</key>
   <true/>
 </dict>
@@ -163,7 +163,7 @@ async function runInstall(): Promise<void> {
     console.log('   Runs every minute');
   } else {
     console.error(`❌ Unsupported platform: ${platform}`);
-    console.error("   Manually run 'email-mcp scheduler check' on a schedule.");
+    console.error("   Manually run 'mailoo scheduler check' on a schedule.");
   }
 }
 
@@ -251,7 +251,7 @@ async function runStatus(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const SCHEDULER_HELP = `
-email-mcp scheduler — Email scheduling management
+mailoo scheduler — Email scheduling management
 
 Commands:
   check      Send overdue scheduled emails

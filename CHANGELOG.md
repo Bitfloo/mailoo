@@ -1,10 +1,30 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to **Mailoo** are documented here.
 
-The format follows [Conventional Commits](https://www.conventionalcommits.org/) and is generated with [cocogitto](https://docs.cocogitto.io/).
+The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 <!-- next-header -->
+
+## [0.1.0] — 2026-09-20
+
+First Mailoo release. Public LGPL-3.0-or-later fork of
+[email-mcp](https://github.com/codefuturist/email-mcp) by codefuturist,
+rebranded and maintained by Bitfloo. This is not an official codefuturist
+project. Original copyright remains with the original authors.
+
+- Rebrand as Mailoo (`@bitfloo/mailoo`, `mailoo` CLI, XDG dirs under `mailoo`)
+- Add `COPYING` (GNU GPL-3) and `NOTICE` as required by LGPL-3
+- Replace `codefuturist/shared-workflows` with in-repo GitHub Actions
+- Start Mailoo versioning at 0.1.0 (do not treat upstream tags as Mailoo releases)
+
+---
+
+## Upstream history (email-mcp)
+
+The following entries document the upstream project before the fork.
+They are **not** Mailoo releases. Commit links point at
+[codefuturist/email-mcp](https://github.com/codefuturist/email-mcp).
 
 ## Unreleased ([3886bac..4e6910c](https://github.com/codefuturist/email-mcp/compare/3886bac..4e6910c))
 

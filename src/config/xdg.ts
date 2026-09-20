@@ -8,19 +8,19 @@
 import os from 'node:os';
 import path from 'node:path';
 
-const APP_NAME = 'email-mcp';
+const APP_NAME = 'mailoo';
 
 export const xdg = {
-  /** Config directory: ~/.config/email-mcp/ */
+  /** Config directory: ~/.config/mailoo/ */
   config: path.join(process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config'), APP_NAME),
 
-  /** Data directory: ~/.local/share/email-mcp/ */
+  /** Data directory: ~/.local/share/mailoo/ */
   data: path.join(
     process.env.XDG_DATA_HOME ?? path.join(os.homedir(), '.local', 'share'),
     APP_NAME,
   ),
 
-  /** State directory: ~/.local/state/email-mcp/ */
+  /** State directory: ~/.local/state/mailoo/ */
   state: path.join(
     process.env.XDG_STATE_HOME ?? path.join(os.homedir(), '.local', 'state'),
     APP_NAME,

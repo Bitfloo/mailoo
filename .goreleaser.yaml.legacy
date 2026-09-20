@@ -8,7 +8,7 @@ builds:
 
 dockers_v2:
   # ── Debian (slim) — default image ────────────────────────────────────────────
-  - id: email-mcp-debian
+  - id: mailoo-debian
     dockerfile: Dockerfile
     extra_files:
       - src/
@@ -18,8 +18,7 @@ dockers_v2:
       - tsconfig.json
       - biome.json
     images:
-      - ghcr.io/codefuturist/email-mcp
-      - docker.io/diarmid/email-mcp
+      - ghcr.io/bitfloo/mailoo
     tags:
       - "{{ .Version }}"
       - "{{ .Version }}-bookworm"
@@ -36,23 +35,23 @@ dockers_v2:
       - linux/amd64
       - linux/arm64
     labels:
-      org.opencontainers.image.title: email-mcp
+      org.opencontainers.image.title: mailoo
       org.opencontainers.image.description: "IMAP/SMTP email MCP server — 47 tools, IMAP IDLE push, multi-account, AI triage"
-      org.opencontainers.image.url: "https://github.com/codefuturist/email-mcp"
-      org.opencontainers.image.source: "https://github.com/codefuturist/email-mcp"
+      org.opencontainers.image.url: "https://github.com/bitfloo/mailoo"
+      org.opencontainers.image.source: "https://github.com/bitfloo/mailoo"
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.created: "{{ .Date }}"
       org.opencontainers.image.licenses: LGPL-3.0-or-later
-      org.opencontainers.image.vendor: codefuturist
+      org.opencontainers.image.vendor: Bitfloo
     annotations:
       org.opencontainers.image.description: "IMAP/SMTP email MCP server — 47 tools, IMAP IDLE push, multi-account, AI triage"
-      org.opencontainers.image.source: "https://github.com/codefuturist/email-mcp"
+      org.opencontainers.image.source: "https://github.com/bitfloo/mailoo"
       org.opencontainers.image.licenses: LGPL-3.0-or-later
       org.opencontainers.image.created: "{{ .Date }}"
 
   # ── Alpine — minimal image ────────────────────────────────────────────────────
-  - id: email-mcp-alpine
+  - id: mailoo-alpine
     dockerfile: Dockerfile.alpine
     extra_files:
       - src/
@@ -62,8 +61,7 @@ dockers_v2:
       - tsconfig.json
       - biome.json
     images:
-      - ghcr.io/codefuturist/email-mcp
-      - docker.io/diarmid/email-mcp
+      - ghcr.io/bitfloo/mailoo
     tags:
       - "{{ .Version }}-alpine"
       - "{{ .Major }}.{{ .Minor }}-alpine"
@@ -73,26 +71,26 @@ dockers_v2:
       - linux/amd64
       - linux/arm64
     labels:
-      org.opencontainers.image.title: email-mcp
+      org.opencontainers.image.title: mailoo
       org.opencontainers.image.description: "IMAP/SMTP email MCP server — 47 tools, IMAP IDLE push, multi-account, AI triage"
-      org.opencontainers.image.url: "https://github.com/codefuturist/email-mcp"
-      org.opencontainers.image.source: "https://github.com/codefuturist/email-mcp"
+      org.opencontainers.image.url: "https://github.com/bitfloo/mailoo"
+      org.opencontainers.image.source: "https://github.com/bitfloo/mailoo"
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.created: "{{ .Date }}"
       org.opencontainers.image.licenses: LGPL-3.0-or-later
-      org.opencontainers.image.vendor: codefuturist
+      org.opencontainers.image.vendor: Bitfloo
     annotations:
       org.opencontainers.image.description: "IMAP/SMTP email MCP server — 47 tools, IMAP IDLE push, multi-account, AI triage"
-      org.opencontainers.image.source: "https://github.com/codefuturist/email-mcp"
+      org.opencontainers.image.source: "https://github.com/bitfloo/mailoo"
       org.opencontainers.image.licenses: LGPL-3.0-or-later
       org.opencontainers.image.created: "{{ .Date }}"
 
 # GitHub Release notes — npm publish and MCP registry handled by release.yml
 release:
   github:
-    owner: codefuturist
-    name: email-mcp
+    owner: bitfloo
+    name: mailoo
   make_latest: true
   draft: false
 

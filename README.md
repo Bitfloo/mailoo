@@ -1,18 +1,20 @@
-# Email MCP Server
+# Mailoo
 
 [![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme)
-[![license](https://img.shields.io/github/license/codefuturist/email-mcp.svg?style=flat-square)](LICENSE)
-[![npm version](https://img.shields.io/npm/v/@codefuturist/email-mcp.svg?style=flat-square)](https://www.npmjs.com/package/@codefuturist/email-mcp)
-[![npm downloads](https://img.shields.io/npm/dm/@codefuturist/email-mcp.svg?style=flat-square)](https://www.npmjs.com/package/@codefuturist/email-mcp)
-[![CI](https://img.shields.io/github/actions/workflow/status/codefuturist/email-mcp/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/codefuturist/email-mcp/actions/workflows/ci.yml)
+[![license](https://img.shields.io/github/license/bitfloo/mailoo.svg?style=flat-square)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/bitfloo/mailoo/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/bitfloo/mailoo/actions/workflows/ci.yml)
 
-An MCP (Model Context Protocol) server providing comprehensive email capabilities via IMAP and SMTP.
+**Mailoo** is Bitfloo's IMAP/SMTP [MCP](https://modelcontextprotocol.io) server:
+multi-mailbox, with profiles per account and per folder.
+
+This is a public **LGPL-3.0-or-later fork** of [email-mcp](https://github.com/codefuturist/email-mcp).
+It is **not** an official codefuturist project. See [Upstream / Attribution](#upstream--attribution).
 
 Enables AI assistants to read, search, send, manage, schedule, and analyze emails across multiple accounts. Exposes 47 tools, 7 prompts, and 6 resources over the MCP protocol with OAuth2 support _(experimental)_, email scheduling, calendar extraction, analytics, provider-aware label management, real-time IMAP IDLE watcher with AI-powered triage, customizable presets and static rules, and a guided setup wizard.
 
 ## Highlights
 
-| Feature | email-mcp | Typical MCP email |
+| Feature | Mailoo | Typical MCP email |
 |---------|:---------:|:-----------------:|
 | Multi-account | ✅ | ❌ |
 | Send / reply / forward | ✅ | ✅ |
@@ -36,6 +38,7 @@ Enables AI assistants to read, search, send, manage, schedule, and analyze email
 - [Usage](#usage)
 - [API](#api)
 - [Maintainers](#maintainers)
+- [Upstream / Attribution](#upstream--attribution)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -53,55 +56,41 @@ Most MCP email implementations provide only basic read/send. This server aims to
 
 Key design decisions:
 
-- **XDG-compliant config** — TOML at `~/.config/email-mcp/config.toml`
+- **XDG-compliant config** — TOML at `~/.config/mailoo/config.toml`
 - **Multi-account** — Operate across multiple IMAP/SMTP accounts simultaneously
 - **Layered services** — Business logic is decoupled from MCP wiring for testability
 - **Provider auto-detection** — Gmail, Outlook, Yahoo, iCloud, Fastmail, ProtonMail, Zoho, GMX
 
 ## Install
 
-Requires Node.js ≥ 22.
+Requires Node.js ≥ 24.
 
 ```bash
 # Run directly (no install needed)
-npx @codefuturist/email-mcp setup
+npx @bitfloo/mailoo setup
 # or
-pnpm dlx @codefuturist/email-mcp setup
+pnpm dlx @bitfloo/mailoo setup
 
 # Or install globally
-npm install -g @codefuturist/email-mcp
+npm install -g @bitfloo/mailoo
 # or
-pnpm add -g @codefuturist/email-mcp
+pnpm add -g @bitfloo/mailoo
 ```
 
 ### Docker
 
-No Node.js required — just Docker.
+No Node.js required — just Docker. Build from source (published GHCR tags will appear after a release):
 
 ```bash
-# Latest stable release
-docker pull ghcr.io/codefuturist/email-mcp:latest
-
-# Pin to an exact version (immutable)
-docker pull ghcr.io/codefuturist/email-mcp:0.2.3
-
-# Auto-update patches within a minor version
-docker pull ghcr.io/codefuturist/email-mcp:0.2
-
-# Track a major version (won't cross breaking-change boundary)
-docker pull ghcr.io/codefuturist/email-mcp:0
-
-# Pin to an exact git commit (immutable, CI traceability)
-docker pull ghcr.io/codefuturist/email-mcp:sha-abc1234
-
-# Or build from source
-docker build -t ghcr.io/codefuturist/email-mcp .
+docker build -t ghcr.io/bitfloo/mailoo .
 ```
 
-> **Tag convention:** Tags follow bare semver (no `v` prefix), matching Docker ecosystem standards (e.g. `node:24`, `nginx:1.25`). The `latest` tag is only updated on stable releases, never pre-releases.
+Intended image name: `ghcr.io/bitfloo/mailoo` (not published until a release job pushes it).
+
+When images are published, tags will follow bare semver (no `v` prefix), e.g. `ghcr.io/bitfloo/mailoo:0.1.0`.
 
 > **Note:** The server uses stdio transport. Config must be created on the host first
-> (via `npx @codefuturist/email-mcp setup` or manually) and mounted into the container.
+> (via `npx @bitfloo/mailoo setup` or manually) and mounted into the container.
 
 ## Usage
 
@@ -109,13 +98,13 @@ docker build -t ghcr.io/codefuturist/email-mcp .
 
 ```bash
 # Add an email account interactively (recommended)
-email-mcp account add
+mailoo account add
 
 # Or use the legacy alias
-email-mcp setup
+mailoo setup
 
 # Or create a template config manually
-email-mcp config init
+mailoo config init
 ```
 
 The setup wizard auto-detects server settings, tests connections, saves config, and outputs the MCP client config snippet.
@@ -123,8 +112,8 @@ The setup wizard auto-detects server settings, tests connections, saves config, 
 ### Test Connections
 
 ```bash
-email-mcp test            # all accounts
-email-mcp test personal   # specific account
+mailoo test            # all accounts
+mailoo test personal   # specific account
 ```
 
 ### Configure Your MCP Client
@@ -132,7 +121,7 @@ email-mcp test personal   # specific account
 **Recommended — use the guided installer** (auto-detects Claude Desktop, VS Code, Cursor, Windsurf):
 
 ```bash
-email-mcp install
+mailoo install
 ```
 
 Or add manually using the snippets below.
@@ -145,9 +134,9 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 ```json
 {
   "mcpServers": {
-    "email": {
+    "mailoo": {
       "command": "npx",
-      "args": ["-y", "@codefuturist/email-mcp", "stdio"]
+      "args": ["-y", "@bitfloo/mailoo", "stdio"]
     }
   }
 }
@@ -159,7 +148,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 
 **Option 1 — Extensions gallery (easiest):**
 1. Open the Extensions view (<kbd>⇧⌘X</kbd> / <kbd>Ctrl+Shift+X</kbd>)
-2. Search `@mcp email-mcp`
+2. Search `@mcp mailoo`
 3. Click **Install** (user-wide) or right-click → **Install in Workspace**
 
 **Option 2 — Workspace config** (`.vscode/mcp.json`, committed to source control):
@@ -167,10 +156,10 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 ```json
 {
   "servers": {
-    "email": {
+    "mailoo": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@codefuturist/email-mcp", "stdio"]
+      "args": ["-y", "@bitfloo/mailoo", "stdio"]
     }
   }
 }
@@ -184,10 +173,10 @@ Open the Command Palette → **Preferences: Open User Settings (JSON)** and add:
 {
   "mcp": {
     "servers": {
-      "email": {
+      "mailoo": {
         "type": "stdio",
         "command": "npx",
-        "args": ["-y", "@codefuturist/email-mcp", "stdio"]
+        "args": ["-y", "@bitfloo/mailoo", "stdio"]
       }
     }
   }
@@ -203,9 +192,9 @@ Edit `~/.cursor/mcp.json`:
 ```json
 {
   "mcpServers": {
-    "email": {
+    "mailoo": {
       "command": "npx",
-      "args": ["-y", "@codefuturist/email-mcp", "stdio"]
+      "args": ["-y", "@bitfloo/mailoo", "stdio"]
     }
   }
 }
@@ -220,9 +209,9 @@ Edit `~/.codeium/windsurf/mcp_config.json`:
 ```json
 {
   "mcpServers": {
-    "email": {
+    "mailoo": {
       "command": "npx",
-      "args": ["-y", "@codefuturist/email-mcp", "stdio"]
+      "args": ["-y", "@bitfloo/mailoo", "stdio"]
     }
   }
 }
@@ -237,10 +226,10 @@ Edit `~/.config/zed/settings.json`:
 ```json
 {
   "context_servers": {
-    "email": {
+    "mailoo": {
       "command": {
         "path": "npx",
-        "args": ["-y", "@codefuturist/email-mcp", "stdio"]
+        "args": ["-y", "@bitfloo/mailoo", "stdio"]
       }
     }
   }
@@ -255,24 +244,24 @@ Add to `~/.vibe/config.toml`:
 
 ```toml
 [[mcp_servers]]
-name = "email-mcp"
+name = "mailoo"
 transport = "stdio"
 command = "npx"
-args = ["-y", "@codefuturist/email-mcp", "stdio"]
+args = ["-y", "@bitfloo/mailoo", "stdio"]
 ```
 
 To pass credentials directly instead of using a config file, use the `env` field:
 
 ```toml
 [[mcp_servers]]
-name = "email-mcp"
+name = "mailoo"
 transport = "stdio"
 command = "npx"
-args = ["-y", "@codefuturist/email-mcp", "stdio"]
+args = ["-y", "@bitfloo/mailoo", "stdio"]
 env = { "EMAIL_ACCOUNTS" = "<your-accounts-json>" }
 ```
 
-MCP tools are exposed as `email-mcp_<tool_name>` (e.g. `email-mcp_list_emails`). Restart Vibe after editing the config.
+MCP tools are exposed as `mailoo_<tool_name>` (e.g. `mailoo_list_emails`). Restart Vibe after editing the config.
 
 </details>
 
@@ -283,8 +272,8 @@ Run the server in a container — mount your config directory read-only:
 
 ```bash
 docker run --rm -i \
-  -v ~/.config/email-mcp:/home/node/.config/email-mcp:ro \
-  ghcr.io/codefuturist/email-mcp
+  -v ~/.config/mailoo:/home/node/.config/mailoo:ro \
+  ghcr.io/bitfloo/mailoo
 ```
 
 For MCP client configuration (e.g. Claude Desktop):
@@ -292,12 +281,12 @@ For MCP client configuration (e.g. Claude Desktop):
 ```json
 {
   "mcpServers": {
-    "email": {
+    "mailoo": {
       "command": "docker",
       "args": [
         "run", "--rm", "-i",
-        "-v", "~/.config/email-mcp:/home/node/.config/email-mcp:ro",
-        "ghcr.io/codefuturist/email-mcp"
+        "-v", "~/.config/mailoo:/home/node/.config/mailoo:ro",
+        "ghcr.io/bitfloo/mailoo"
       ]
     }
   }
@@ -311,9 +300,9 @@ For MCP client configuration (e.g. Claude Desktop):
 ```json
 {
   "mcpServers": {
-    "email": {
+    "mailoo": {
       "command": "npx",
-      "args": ["-y", "@codefuturist/email-mcp", "stdio"],
+      "args": ["-y", "@bitfloo/mailoo", "stdio"],
       "env": {
         "MCP_EMAIL_ADDRESS": "you@gmail.com",
         "MCP_EMAIL_PASSWORD": "your-app-password",
@@ -329,7 +318,7 @@ For MCP client configuration (e.g. Claude Desktop):
 ### CLI Commands
 
 ```
-email-mcp [command]
+mailoo [command]
 
 Commands:
   stdio                     Run as MCP server over stdio (default)
@@ -339,9 +328,9 @@ Commands:
   account delete [name]     Remove an account
   setup                     Alias for 'account add'
   test                      Test connections for all or a specific account
-  install                   Register email-mcp with MCP clients interactively
+  install                   Register mailoo with MCP clients interactively
   install status            Show registration status for detected clients
-  install remove            Unregister email-mcp from MCP clients
+  install remove            Unregister mailoo from MCP clients
   config show               Show config (passwords masked)
   config edit               Edit global settings (rate limit, read-only)
   config path               Print config file path
@@ -356,7 +345,7 @@ Commands:
 
 ### Configuration
 
-Located at `$XDG_CONFIG_HOME/email-mcp/config.toml` (default: `~/.config/email-mcp/config.toml`).
+Located at `$XDG_CONFIG_HOME/mailoo/config.toml` (default: `~/.config/mailoo/config.toml`).
 
 ```toml
 [settings]
@@ -447,8 +436,8 @@ For single-account setups (overrides config file):
 The scheduler enables future email delivery with a layered architecture:
 
 1. **MCP auto-check** — Processes the queue on server startup and every 60 seconds while the MCP server is running
-2. **CLI** — `email-mcp scheduler check` for manual or cron-based processing
-3. **OS-level daemon** — `email-mcp scheduler install` sets up launchd (macOS) or crontab (Linux) to run every minute, independently of the MCP server
+2. **CLI** — `mailoo scheduler check` for manual or cron-based processing
+3. **OS-level daemon** — `mailoo scheduler install` sets up launchd (macOS) or crontab (Linux) to run every minute, independently of the MCP server
 
 > **Important — the daemon must be installed for reliable delivery.**
 > Without it, scheduled emails only fire while an AI client is actively connected.
@@ -460,22 +449,22 @@ The scheduler enables future email delivery with a layered architecture:
 
 ```bash
 # Install (macOS launchd / Linux crontab — runs every minute)
-email-mcp scheduler install
+mailoo scheduler install
 
 # Verify it's running
-email-mcp scheduler status
+mailoo scheduler status
 
 # View pending / sent / failed scheduled emails
-email-mcp scheduler list
+mailoo scheduler list
 
 # Trigger a manual check immediately
-email-mcp scheduler check
+mailoo scheduler check
 
 # Remove the daemon
-email-mcp scheduler uninstall
+mailoo scheduler uninstall
 ```
 
-Scheduled emails are stored as JSON files in `~/.local/state/email-mcp/scheduled/` with status-based locking. Each entry tracks attempts (max 3) and the last error, so you can inspect failures with `scheduler list`.
+Scheduled emails are stored as JSON files in `~/.local/state/mailoo/scheduled/` with status-based locking. Each entry tracks attempts (max 3) and the last error, so you can inspect failures with `scheduler list`.
 
 ### Real-time Watcher & AI Hooks
 
@@ -800,7 +789,15 @@ src/
 
 ## Maintainers
 
-[@codefuturist](https://github.com/codefuturist)
+[Bitfloo](https://github.com/bitfloo)
+
+## Upstream / Attribution
+
+Mailoo is a fork of [email-mcp](https://github.com/codefuturist/email-mcp) by
+[codefuturist](https://github.com/codefuturist), licensed under LGPL-3.0-or-later.
+Original copyright remains with the original authors. Mailoo branding, Bitfloo
+trademarks, and new code are Copyright (c) 2026 Bitfloo. This is not an official
+codefuturist project. See [NOTICE](NOTICE).
 
 ## Contributing
 
@@ -817,4 +814,5 @@ pnpm start       # run
 
 ## License
 
-[LGPL-3.0-or-later](LICENSE)
+[LGPL-3.0-or-later](LICENSE). The GNU GPL-3 text required by LGPL-3 is in [COPYING](COPYING).
+Attribution is recorded in [NOTICE](NOTICE).

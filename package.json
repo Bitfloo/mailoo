@@ -1,16 +1,19 @@
 {
-  "name": "@codefuturist/email-mcp",
-  "version": "0.2.3",
-  "mcpName": "io.github.codefuturist/email-mcp",
-  "description": "Email MCP server with IMAP + SMTP support",
+  "name": "@bitfloo/mailoo",
+  "version": "0.1.0",
+  "mcpName": "io.github.bitfloo/mailoo",
+  "description": "Mailoo — IMAP/SMTP MCP server. Multi-account, per-folder profiles.",
   "type": "module",
   "bin": {
-    "email-mcp": "./dist/main.js"
+    "mailoo": "./dist/main.js"
   },
   "main": "./dist/main.js",
   "types": "./dist/main.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "LICENSE",
+    "COPYING",
+    "NOTICE"
   ],
   "scripts": {
     "dev": "tsx watch src/main.ts",
@@ -38,10 +41,10 @@
     "prepare": "lefthook install || true",
     "hooks:install": "lefthook install --force",
     "hooks:uninstall": "lefthook uninstall",
-    "docker:build": "docker build -t codefuturist/email-mcp .",
-    "docker:run": "docker run --rm -i -v ~/.config/email-mcp:/home/node/.config/email-mcp:ro codefuturist/email-mcp",
+    "docker:build": "docker build -t ghcr.io/bitfloo/mailoo .",
+    "docker:run": "docker run --rm -i -v ~/.config/mailoo:/home/node/.config/mailoo:ro ghcr.io/bitfloo/mailoo",
     "docker:compose": "docker compose up",
-    "docker:clean": "docker images --format '{{.Repository}}:{{.Tag}}' | grep email-mcp | xargs docker rmi -f 2>/dev/null; true",
+    "docker:clean": "docker images --format '{{.Repository}}:{{.Tag}}' | grep mailoo | xargs docker rmi -f 2>/dev/null; true",
     "docker:prune": "docker image prune -f && docker buildx prune -f",
     "release:check": "goreleaser check",
     "release:snapshot": "goreleaser release --snapshot --clean && pnpm docker:clean",
@@ -62,17 +65,17 @@
     "nodejs"
   ],
   "author": {
-    "name": "codefuturist",
-    "url": "https://github.com/codefuturist"
+    "name": "Bitfloo",
+    "url": "https://github.com/bitfloo"
   },
   "license": "LGPL-3.0-or-later",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/codefuturist/email-mcp.git"
+    "url": "git+https://github.com/bitfloo/mailoo.git"
   },
-  "homepage": "https://github.com/codefuturist/email-mcp#readme",
+  "homepage": "https://github.com/bitfloo/mailoo#readme",
   "bugs": {
-    "url": "https://github.com/codefuturist/email-mcp/issues"
+    "url": "https://github.com/bitfloo/mailoo/issues"
   },
   "dependencies": {
     "@clack/prompts": "^1.0.1",

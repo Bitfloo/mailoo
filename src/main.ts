@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Email MCP Server — Main entry point.
+ * Mailoo — Main entry point.
  *
  * Subcommands:
  *   stdio     Run as MCP server over stdio (default)
@@ -39,10 +39,10 @@ import WatcherService from './services/watcher.service.js';
 import registerAllTools from './tools/register.js';
 
 const HELP = `
-email-mcp — Email MCP Server (IMAP + SMTP)
+mailoo — IMAP/SMTP MCP server
 
 Usage:
-  email-mcp [command]
+  mailoo [command]
 
 Commands:
   stdio       Run as MCP server over stdio (default)
@@ -57,27 +57,27 @@ Commands:
   help        Show this help message
 
 Examples:
-  email-mcp                         # Start MCP server (stdio)
-  email-mcp http                    # Start HTTP server on port 8080
-  email-mcp http 9090               # Start HTTP server on port 9090
-  email-mcp account list             # List configured accounts
-  email-mcp account add              # Add a new email account
-  email-mcp account edit personal    # Edit an account
-  email-mcp account delete work      # Delete an account
-  email-mcp setup                    # Alias for account add
-  email-mcp test                     # Test all accounts
-  email-mcp test personal            # Test specific account
-  email-mcp install                  # Register with detected MCP clients
-  email-mcp install status           # Show client registration status
-  email-mcp install remove           # Unregister from MCP clients
-  email-mcp config show              # Show config (passwords masked)
-  email-mcp config edit              # Edit global settings
-  email-mcp config path              # Print config file path
-  email-mcp config init              # Create template config
-  email-mcp scheduler check          # Send overdue scheduled emails
-  email-mcp scheduler install        # Install OS periodic check
-  email-mcp notify test              # Send a test notification
-  email-mcp notify status            # Check notification platform support
+  mailoo                         # Start MCP server (stdio)
+  mailoo http                    # Start HTTP server on port 8080
+  mailoo http 9090               # Start HTTP server on port 9090
+  mailoo account list             # List configured accounts
+  mailoo account add              # Add a new email account
+  mailoo account edit personal    # Edit an account
+  mailoo account delete work      # Delete an account
+  mailoo setup                    # Alias for account add
+  mailoo test                     # Test all accounts
+  mailoo test personal            # Test specific account
+  mailoo install                  # Register with detected MCP clients
+  mailoo install status           # Show client registration status
+  mailoo install remove           # Unregister from MCP clients
+  mailoo config show              # Show config (passwords masked)
+  mailoo config edit              # Edit global settings
+  mailoo config path              # Print config file path
+  mailoo config init              # Create template config
+  mailoo scheduler check          # Send overdue scheduled emails
+  mailoo scheduler install        # Install OS periodic check
+  mailoo notify test              # Send a test notification
+  mailoo notify status            # Check notification platform support
 `.trim();
 
 async function runServer(): Promise<void> {
@@ -142,7 +142,7 @@ async function runServer(): Promise<void> {
 
         await watcherService.start();
 
-        await mcpLog('info', 'server', 'Email MCP server started');
+        await mcpLog('info', 'server', 'Mailoo started');
 
         // Check for overdue scheduled emails on startup
         try {
@@ -165,7 +165,7 @@ async function runServer(): Promise<void> {
       } catch (err) {
         // Log to stderr — mcpLog may not be safe if init itself errored
         process.stderr.write(
-          `[email-mcp] post-init error: ${err instanceof Error ? err.message : String(err)}\n`,
+          `[mailoo] post-init error: ${err instanceof Error ? err.message : String(err)}\n`,
         );
       }
     })();
@@ -301,10 +301,10 @@ async function runHttpServer(port: number): Promise<void> {
           try {
             const clientCaps = ls.getClientCapabilities?.() ?? {};
             hooksService.start(ls, { sampling: clientCaps.sampling != null });
-            await mcpLog('info', 'server', 'Email MCP server ready (HTTP mode)');
+            await mcpLog('info', 'server', 'Mailoo ready (HTTP mode)');
           } catch (err) {
             process.stderr.write(
-              `[email-mcp] hooks init error: ${err instanceof Error ? err.message : String(err)}\n`,
+              `[mailoo] hooks init error: ${err instanceof Error ? err.message : String(err)}\n`,
             );
           }
         })();
@@ -350,7 +350,7 @@ async function runHttpServer(port: number): Promise<void> {
 
   await new Promise<void>((resolve, reject) => {
     httpServer.listen(port, () => {
-      process.stderr.write(`email-mcp HTTP server listening on :${port}\n`);
+      process.stderr.write(`mailoo HTTP server listening on :${port}\n`);
       process.stderr.write(`  Endpoint : http://0.0.0.0:${port}/mcp\n`);
       process.stderr.write(`  Health   : http://0.0.0.0:${port}/health\n`);
       resolve();

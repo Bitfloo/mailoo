@@ -3,7 +3,7 @@
 > **Status**: Planning  
 > **Last Updated**: 2026-02-18
 
-Performance for an Email MCP server operates across **three distinct layers**, each with different bottlenecks and optimization strategies. This roadmap identifies concrete improvements against the current implementation, ordered by impact.
+Performance for an Mailoo operates across **three distinct layers**, each with different bottlenecks and optimization strategies. This roadmap identifies concrete improvements against the current implementation, ordered by impact.
 
 ## Key Insight
 

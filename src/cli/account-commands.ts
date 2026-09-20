@@ -424,7 +424,7 @@ async function listAccounts(): Promise<void> {
   const exists = await configExists();
   if (!exists) {
     console.error(`No config file found at: ${CONFIG_FILE}`);
-    console.error("Run 'email-mcp account add' to create one.");
+    console.error("Run 'mailoo account add' to create one.");
     return;
   }
 
@@ -455,7 +455,7 @@ async function listAccounts(): Promise<void> {
  */
 async function addAccount(): Promise<void> {
   ensureInteractive();
-  intro('email-mcp › Add Account');
+  intro('mailoo › Add Account');
 
   let existingConfig: RawAppConfig | undefined;
   const exists = await configExists();
@@ -535,8 +535,8 @@ async function addAccount(): Promise<void> {
     JSON.stringify(
       {
         mcpServers: {
-          email: {
-            command: 'email-mcp',
+          mailoo: {
+            command: 'mailoo',
             args: ['stdio'],
           },
         },
@@ -556,12 +556,12 @@ async function addAccount(): Promise<void> {
  */
 async function editAccount(nameArg?: string): Promise<void> {
   ensureInteractive();
-  intro('email-mcp › Edit Account');
+  intro('mailoo › Edit Account');
 
   const exists = await configExists();
   if (!exists) {
     log.error(`No config file found at: ${CONFIG_FILE}`);
-    cancel("Run 'email-mcp account add' first.");
+    cancel("Run 'mailoo account add' first.");
     return;
   }
 
@@ -708,7 +708,7 @@ async function editAccount(nameArg?: string): Promise<void> {
  */
 async function deleteAccount(nameArg?: string): Promise<void> {
   ensureInteractive();
-  intro('email-mcp › Delete Account');
+  intro('mailoo › Delete Account');
 
   const exists = await configExists();
   if (!exists) {
@@ -728,7 +728,7 @@ async function deleteAccount(nameArg?: string): Promise<void> {
 
   if (accounts.length === 1) {
     log.error('Cannot delete the last account. At least one account must remain.');
-    log.info("Use 'email-mcp account edit' to modify it instead.");
+    log.info("Use 'mailoo account edit' to modify it instead.");
     cancel('Operation refused.');
     return;
   }
@@ -786,7 +786,7 @@ async function deleteAccount(nameArg?: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 function printAccountUsage(): void {
-  console.log(`Usage: email-mcp account <subcommand>
+  console.log(`Usage: mailoo account <subcommand>
 
 Subcommands:
   list              List all configured accounts
@@ -795,10 +795,10 @@ Subcommands:
   delete [name]     Remove an account
 
 Examples:
-  email-mcp account list
-  email-mcp account add
-  email-mcp account edit personal
-  email-mcp account delete work
+  mailoo account list
+  mailoo account add
+  mailoo account edit personal
+  mailoo account delete work
 `);
 }
 
