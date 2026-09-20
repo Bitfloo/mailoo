@@ -52,6 +52,32 @@ describe('Audit Logger', () => {
     expect(entry.params.subject).toBe('visible');
   });
 
+  it('redacts OAuth token fields in camelCase and snake_case', async () => {
+    await audit.log(
+      'oauth',
+      'x',
+      {
+        clientSecret: 'cs',
+        client_secret: 'cs_snake',
+        refreshToken: 'rt',
+        refresh_token: 'rt_snake',
+        accessToken: 'at',
+        access_token: 'at_snake',
+        account: 'personal',
+      },
+      'ok',
+    );
+    const logLine = mockFs.appendFile.mock.calls[0][1] as string;
+    const entry = JSON.parse(logLine);
+    expect(entry.params.clientSecret).toBe('[REDACTED]');
+    expect(entry.params.client_secret).toBe('[REDACTED]');
+    expect(entry.params.refreshToken).toBe('[REDACTED]');
+    expect(entry.params.refresh_token).toBe('[REDACTED]');
+    expect(entry.params.accessToken).toBe('[REDACTED]');
+    expect(entry.params.access_token).toBe('[REDACTED]');
+    expect(entry.params.account).toBe('personal');
+  });
+
   it('redacts nested sensitive fields', async () => {
     await audit.log('test', 'x', { nested: { password: 'abc', safe: 'ok' } }, 'ok');
     const logLine = mockFs.appendFile.mock.calls[0][1] as string;
