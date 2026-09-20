@@ -1,7 +1,8 @@
 services:
   mailoo:
+    # ghcr.io/bitfloo/mailoo:latest is not published yet. Build locally until GHCR exists.
     build: .
-    image: ghcr.io/bitfloo/mailoo:latest
+    # image: ghcr.io/bitfloo/mailoo:latest
     stdin_open: true # required for stdio transport
     volumes:
       - ${MAILOO_CONFIG:-~/.config/mailoo}:/home/node/.config/mailoo:ro

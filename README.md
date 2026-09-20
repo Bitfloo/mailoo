@@ -63,10 +63,28 @@ Key design decisions:
 
 ## Install
 
-Requires Node.js ≥ 24.
+Requires [Node.js](https://nodejs.org/) ≥ 24 and [pnpm](https://pnpm.io) 9.
+
+**`@bitfloo/mailoo` is not on npmjs yet.** Until the first npm publish, install from git:
 
 ```bash
-# Run directly (no install needed)
+git clone https://github.com/Bitfloo/mailoo.git
+cd mailoo
+pnpm install && pnpm build
+```
+
+Then run the local CLI:
+
+```bash
+node dist/main.js setup
+# later: node dist/main.js account add | stdio | test | …
+```
+
+### After npm publish
+
+Once `@bitfloo/mailoo` is on npmjs, these will work:
+
+```bash
 npx @bitfloo/mailoo setup
 # or
 pnpm dlx @bitfloo/mailoo setup
@@ -79,32 +97,32 @@ pnpm add -g @bitfloo/mailoo
 
 ### Docker
 
-No Node.js required — just Docker. Build from source (published GHCR tags will appear after a release):
+No Node.js required — just Docker. **`ghcr.io/bitfloo/mailoo` is not published yet.** Build locally (`docker-compose.yml` uses `build: .` until GHCR exists):
 
 ```bash
 docker build -t ghcr.io/bitfloo/mailoo .
 ```
 
-Intended image name: `ghcr.io/bitfloo/mailoo` (not published until a release job pushes it).
-
-When images are published, tags will follow bare semver (no `v` prefix), e.g. `ghcr.io/bitfloo/mailoo:0.1.0`.
+Intended image name: `ghcr.io/bitfloo/mailoo`. When images are published, tags will follow bare semver (no `v` prefix), e.g. `ghcr.io/bitfloo/mailoo:0.1.0`.
 
 > **Note:** The server uses stdio transport. Config must be created on the host first
-> (via `npx @bitfloo/mailoo setup` or manually) and mounted into the container.
+> (`node dist/main.js setup` after a local clone, or manually) and mounted into the container.
 
 ## Usage
+
+Until npm publish, commands below are `node dist/main.js <subcommand>` from a local clone. After `@bitfloo/mailoo` is on npmjs (or a global install), use `mailoo <subcommand>`.
 
 ### Setup
 
 ```bash
 # Add an email account interactively (recommended)
-mailoo account add
+node dist/main.js account add
 
 # Or use the legacy alias
-mailoo setup
+node dist/main.js setup
 
 # Or create a template config manually
-mailoo config init
+node dist/main.js config init
 ```
 
 The setup wizard auto-detects server settings, tests connections, saves config, and outputs the MCP client config snippet.
@@ -112,8 +130,8 @@ The setup wizard auto-detects server settings, tests connections, saves config, 
 ### Test Connections
 
 ```bash
-mailoo test            # all accounts
-mailoo test personal   # specific account
+node dist/main.js test            # all accounts
+node dist/main.js test personal   # specific account
 ```
 
 ### Configure Your MCP Client
@@ -121,10 +139,18 @@ mailoo test personal   # specific account
 **Recommended — use the guided installer** (auto-detects Claude Desktop, VS Code, Cursor, Windsurf):
 
 ```bash
-mailoo install
+node dist/main.js install
+# after npm publish: mailoo install
 ```
 
 Or add manually using the snippets below.
+
+> **Until npm publish:** `@bitfloo/mailoo` is not on npmjs. The `npx @bitfloo/mailoo` snippets below work **after** the package is published. Until then, point the client at your local build:
+>
+> ```json
+> "command": "node",
+> "args": ["/absolute/path/to/mailoo/dist/main.js", "stdio"]
+> ```
 
 <details>
 <summary><strong>Claude Desktop</strong></summary>
@@ -268,7 +294,7 @@ MCP tools are exposed as `mailoo_<tool_name>` (e.g. `mailoo_list_emails`). Resta
 <details>
 <summary><strong>Docker (any MCP client)</strong></summary>
 
-Run the server in a container — mount your config directory read-only:
+Run the server in a container — mount your config directory read-only. **GHCR is not published yet**, so build first (`docker build -t ghcr.io/bitfloo/mailoo .`):
 
 ```bash
 docker run --rm -i \
