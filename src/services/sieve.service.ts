@@ -32,13 +32,6 @@ interface SieveConn {
   lastLiteral?: string;
 }
 
-function sieveEndpoint(account: AccountConfig): { host: string; port: number } {
-  return {
-    host: account.imap.sieveHost ?? account.imap.host,
-    port: account.imap.sievePort ?? 4190,
-  };
-}
-
 export function parseListScripts(lines: string[]): SieveScriptInfo[] {
   return lines
     .map((line) => {
@@ -66,59 +59,34 @@ function quoteSieve(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
-function writeConn(conn: SieveConn, data: string): void {
-  conn.socket.write(data);
-}
-
-function destroyConn(conn: SieveConn): void {
-  conn.socket.destroy();
-}
-
-export const SIEVE_IDLE_TIMEOUT_MS = 30_000;
-
-function isTlsSocket(socket: Socket): socket is TLSSocket {
-  return socket instanceof TLSSocket && socket.encrypted;
-}
-
-function applyIdleTimeout(socket: Socket): void {
-  socket.setTimeout(SIEVE_IDLE_TIMEOUT_MS);
-}
-
 function bindSocketWait(
   conn: SieveConn,
   tryConsume: () => boolean,
   reject: (err: Error) => void,
 ): void {
-  const handlers: {
-    onData: (chunk: Buffer) => void;
-    onError: (err: Error) => void;
-    onTimeout: () => void;
-  } = {
-    onData: () => undefined,
-    onError: () => undefined,
-    onTimeout: () => undefined,
-  };
-  const cleanup = (): void => {
-    conn.socket.off('data', handlers.onData);
-    conn.socket.off('error', handlers.onError);
-    conn.socket.off('timeout', handlers.onTimeout);
-  };
-  handlers.onData = (chunk: Buffer): void => {
+  /* eslint-disable @typescript-eslint/no-use-before-define -- finish and the three listeners close over each other */
+  function finish(): void {
+    conn.socket.off('data', onData);
+    conn.socket.off('error', onError);
+    conn.socket.off('timeout', onTimeout);
+  }
+  function onData(chunk: Buffer): void {
     conn.buf += chunk.toString('utf8');
-    if (tryConsume()) cleanup();
-  };
-  handlers.onError = (err: Error): void => {
-    cleanup();
+    if (tryConsume()) finish();
+  }
+  function onError(err: Error): void {
+    finish();
     reject(err);
-  };
-  handlers.onTimeout = (): void => {
-    cleanup();
+  }
+  function onTimeout(): void {
+    finish();
     conn.socket.destroy();
     reject(new Error('ManageSieve idle timeout'));
-  };
-  conn.socket.on('data', handlers.onData);
-  conn.socket.once('error', handlers.onError);
-  conn.socket.once('timeout', handlers.onTimeout);
+  }
+  /* eslint-enable @typescript-eslint/no-use-before-define */
+  conn.socket.on('data', onData);
+  conn.socket.once('error', onError);
+  conn.socket.once('timeout', onTimeout);
 }
 
 async function readLine(conn: SieveConn): Promise<string> {
@@ -190,16 +158,11 @@ async function sendCommand(
   conn: SieveConn,
   command: string,
 ): Promise<{ code: string; lines: string[]; message: string }> {
-  writeConn(conn, `${command}\r\n`);
+  conn.socket.write(`${command}\r\n`);
   const resp = await readResponse(conn);
   const lastLiteral = extractLiteral(resp.lines);
   if (lastLiteral !== undefined) conn.lastLiteral = lastLiteral;
   return resp;
-}
-
-function applyLiteral(conn: SieveConn, resp: { lines: string[] }): void {
-  const lastLiteral = extractLiteral(resp.lines);
-  if (lastLiteral !== undefined) conn.lastLiteral = lastLiteral;
 }
 
 function assertOk(resp: { code: string; message: string }, command: string): void {
@@ -228,17 +191,16 @@ async function connectTcp(host: string, port: number, timeoutMs: number): Promis
 
 async function upgradeTls(socket: Socket, host: string): Promise<TLSSocket> {
   return new Promise((resolve, reject) => {
-    const tlsSock = tlsConnect({ socket, servername: host, rejectUnauthorized: true }, () => {
-      resolve(tlsSock);
-    });
+    const tlsSock = tlsConnect({ socket, servername: host, rejectUnauthorized: true }, () => resolve(tlsSock),);
     tlsSock.once('error', reject);
   });
 }
 
 async function openConn(account: AccountConfig): Promise<SieveConn> {
-  const { host, port } = sieveEndpoint(account);
+  const host = account.imap.sieveHost ?? account.imap.host;
+  const port = account.imap.sievePort ?? 4190;
   const raw = await connectTcp(host, port, 8_000);
-  applyIdleTimeout(raw);
+  raw.setTimeout(30_000);
   let conn: SieveConn = { socket: raw, buf: '', lastCaps: {} };
   try {
     const greeting = await readResponse(conn);
@@ -247,12 +209,12 @@ async function openConn(account: AccountConfig): Promise<SieveConn> {
       const startTls = await sendCommand(conn, 'STARTTLS');
       assertOk(startTls, 'STARTTLS');
       const tlsSock = await upgradeTls(raw, host);
-      applyIdleTimeout(tlsSock);
+      tlsSock.setTimeout(30_000);
       conn = { socket: tlsSock, buf: '', lastCaps: {} };
       const postTls = await readResponse(conn);
       conn.lastCaps = parseCapabilityMap(postTls.lines);
     }
-    if (!isTlsSocket(conn.socket)) {
+    if (!(conn.socket instanceof TLSSocket) || !conn.socket.encrypted) {
       throw new Error('ManageSieve AUTHENTICATE PLAIN requires TLS; server did not offer STARTTLS');
     }
     const user = account.username;
@@ -264,7 +226,7 @@ async function openConn(account: AccountConfig): Promise<SieveConn> {
     assertOk(await sendCommand(conn, `AUTHENTICATE "PLAIN" "${token}"`), 'AUTHENTICATE');
     return conn;
   } catch (err) {
-    destroyConn(conn);
+    conn.socket.destroy();
     throw err;
   }
 }
@@ -276,7 +238,8 @@ async function commandList(conn: SieveConn): Promise<SieveScriptInfo[]> {
 }
 
 async function status(account: AccountConfig): Promise<SieveStatus> {
-  const { host, port } = sieveEndpoint(account);
+  const host = account.imap.sieveHost ?? account.imap.host;
+  const port = account.imap.sievePort ?? 4190;
   try {
     const conn = await openConn(account);
     try {
@@ -291,7 +254,7 @@ async function status(account: AccountConfig): Promise<SieveStatus> {
         scripts,
       };
     } finally {
-      destroyConn(conn);
+      conn.socket.destroy();
     }
   } catch (err) {
     return {
@@ -310,7 +273,7 @@ async function listScripts(account: AccountConfig): Promise<SieveScriptInfo[]> {
   try {
     return await commandList(conn);
   } finally {
-    destroyConn(conn);
+    conn.socket.destroy();
   }
 }
 
@@ -318,11 +281,10 @@ async function getScript(account: AccountConfig, name: string): Promise<string> 
   const conn = await openConn(account);
   try {
     const resp = await sendCommand(conn, `GETSCRIPT "${quoteSieve(name)}"`);
-    applyLiteral(conn, resp);
     assertOk(resp, 'GETSCRIPT');
     return conn.lastLiteral ?? '';
   } finally {
-    destroyConn(conn);
+    conn.socket.destroy();
   }
 }
 
@@ -330,12 +292,12 @@ async function putScript(account: AccountConfig, name: string, content: string):
   const conn = await openConn(account);
   try {
     const bytes = Buffer.byteLength(content, 'utf8');
-    writeConn(conn, `PUTSCRIPT "${quoteSieve(name)}" {${bytes}+}\r\n`);
-    writeConn(conn, content);
-    writeConn(conn, '\r\n');
+    conn.socket.write(`PUTSCRIPT "${quoteSieve(name)}" {${bytes}+}\r\n`);
+    conn.socket.write(content);
+    conn.socket.write('\r\n');
     assertOk(await readResponse(conn), 'PUTSCRIPT');
   } finally {
-    destroyConn(conn);
+    conn.socket.destroy();
   }
 }
 
@@ -344,7 +306,7 @@ async function deleteScript(account: AccountConfig, name: string): Promise<void>
   try {
     assertOk(await sendCommand(conn, `DELETESCRIPT "${quoteSieve(name)}"`), 'DELETESCRIPT');
   } finally {
-    destroyConn(conn);
+    conn.socket.destroy();
   }
 }
 
@@ -354,7 +316,7 @@ async function activateScript(account: AccountConfig, name: string): Promise<voi
     const arg = name ? `"${quoteSieve(name)}"` : '""';
     assertOk(await sendCommand(conn, `SETACTIVE ${arg}`), 'SETACTIVE');
   } finally {
-    destroyConn(conn);
+    conn.socket.destroy();
   }
 }
 

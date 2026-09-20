@@ -141,62 +141,37 @@ export default class SmtpService {
     },
   ): Promise<SendResult> {
     this.checkRateLimit(accountName);
-
     const account = this.connections.getAccount(accountName);
     const original = await this.imapService.getEmail(accountName, options.emailId, options.mailbox);
-
-    const subject = original.subject.startsWith('Fwd:')
-      ? original.subject
-      : `Fwd: ${original.subject}`;
-
     const fromDisplay = original.from.name
       ? `${original.from.name} <${original.from.address}>`
       : original.from.address;
     const toAddresses = original.to.map((a) => a.address).join(', ');
-    const extraAttachments = await this.resolveAttachments(accountName, options.attachments);
-
-    const from = account.fullName ? `"${account.fullName}" <${account.email}>` : account.email;
-    const mailBase = {
-      from,
+    const mail = {
+      from: account.fullName ? `"${account.fullName}" <${account.email}>` : account.email,
       to: options.to.join(', '),
       cc: options.cc?.join(', '),
-      subject,
-      attachments: extraAttachments,
+      subject: original.subject.startsWith('Fwd:') ? original.subject : `Fwd: ${original.subject}`,
+      attachments: await this.resolveAttachments(accountName, options.attachments),
       messageId: options.messageId,
     };
-
     if (options.html) {
-      const forwardHeaderHtml =
-        `<br><hr style="border:none;border-top:1px solid #ddd;margin:16px 0">` +
-        `<p style="color:#666;font-size:11pt;margin:0 0 8px">` +
-        `<strong>---------- Forwarded message ----------</strong><br>` +
-        `From: ${escapeHtml(fromDisplay)}<br>` +
-        `Date: ${escapeHtml(String(original.date))}<br>` +
-        `Subject: ${escapeHtml(original.subject)}<br>` +
-        `To: ${escapeHtml(toAddresses)}</p>`;
-      const originalBodyHtml =
-        original.bodyHtml ??
-        `<pre style="white-space:pre-wrap;font-family:inherit">${escapeHtml(original.bodyText ?? '')}</pre>`;
-      return this.sendAndAppend(accountName, {
-        ...mailBase,
-        html: (options.body ?? '') + forwardHeaderHtml + originalBodyHtml,
-      });
+      const quote =
+        `<br><hr style="border:none;border-top:1px solid #ddd;margin:16px 0"><p style="color:#666;font-size:11pt;margin:0 0 8px">` +
+        `<strong>---------- Forwarded message ----------</strong><br>From: ${escapeHtml(fromDisplay)}<br>` +
+        `Date: ${escapeHtml(String(original.date))}<br>Subject: ${escapeHtml(original.subject)}<br>` +
+        `To: ${escapeHtml(toAddresses)}</p>${
+          original.bodyHtml ??
+          `<pre style="white-space:pre-wrap;font-family:inherit">${escapeHtml(original.bodyText ?? '')}</pre>`
+        }`;
+      return this.sendAndAppend(accountName, { ...mail, html: (options.body ?? '') + quote });
     }
-
-    const forwardHeader = [
-      '',
-      '---------- Forwarded message ----------',
-      `From: ${fromDisplay}`,
-      `Date: ${original.date}`,
-      `Subject: ${original.subject}`,
-      `To: ${toAddresses}`,
-      '',
-    ].join('\n');
-
-    const originalBody = original.bodyText ?? original.bodyHtml ?? '';
+    const quote =
+      `\n---------- Forwarded message ----------\nFrom: ${fromDisplay}\nDate: ${original.date}\n` +
+      `Subject: ${original.subject}\nTo: ${toAddresses}\n`;
     return this.sendAndAppend(accountName, {
-      ...mailBase,
-      text: (options.body ?? '') + forwardHeader + originalBody,
+      ...mail,
+      text: (options.body ?? '') + quote + (original.bodyText ?? original.bodyHtml ?? ''),
     });
   }
 
