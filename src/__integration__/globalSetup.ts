@@ -2,6 +2,7 @@ import type { StartedTestContainer } from 'testcontainers';
 import { GenericContainer, Wait } from 'testcontainers';
 import type { GlobalSetupContext } from 'vitest/node';
 
+/** Throwaway IMAP/SMTP mailbox for protocol tests — not a database. Docker only wraps this image. */
 const GREENMAIL_IMAGE = 'greenmail/standalone:2.1.8';
 const SMTP_PORT = 3025;
 const SMTPS_PORT = 3465;

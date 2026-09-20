@@ -44,8 +44,9 @@ jobs:
 
   integration:
     name: Integration tests
-    # GreenMail via testcontainers. ubuntu-latest has Docker; leftover
-    # workflow_dispatch-only gating hid IMAP/SMTP regressions from PR CI.
+    # GreenMail is a disposable test IMAP/SMTP server (not a database).
+    # Docker on ubuntu-latest hosts it; the old workflow_dispatch-only
+    # gate hid protocol regressions from PR CI.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

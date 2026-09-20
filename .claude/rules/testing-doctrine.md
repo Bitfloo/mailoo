@@ -21,9 +21,11 @@ Read `package.json` before any runner command. The lanes are disjoint.
 | Lane | Files | Command | Notes |
 |---|---|---|---|
 | Unit | `vitest.config.ts` `test.include` | `pnpm test -- <file>` | Colocated next to the module. Services stay testable without mocking MCP transports (`CLAUDE.md`). |
-| Integration | `vitest.config.integration.ts` `test.include` | `pnpm test:integration -- <file>` | testcontainers / GreenMail. Serial, one worker, longer timeouts. |
+| Integration | `vitest.config.integration.ts` `test.include` | `pnpm test:integration -- <file>` | GreenMail: disposable **test IMAP/SMTP server** in Docker (not a database). Serial, one worker, longer timeouts. |
 
 `mailoo test` / `src/cli/test.ts` is a **CLI connection probe**, not either runner.
+
+Mailoo does not keep mail in SQL. Integration talks IMAP/SMTP to GreenMail so send, folders, flags and TLS hit a real protocol. Docker only hosts that Java process.
 
 Pre-push (lefthook `pnpm test`) runs the unit lane only. IMAP/SMTP/watcher/scheduler/transport
 changes also need the integration lane (`CLAUDE.md`).

@@ -876,10 +876,12 @@ when editing this README. See [CONTRIBUTING.md](CONTRIBUTING.md).
 ```bash
 # Development workflow
 pnpm install
-pnpm typecheck   # type check
-pnpm check       # lint and format
-pnpm build       # build
-pnpm start       # run
+pnpm typecheck          # type check
+pnpm check              # lint and format
+pnpm test               # unit tests
+pnpm test:integration   # GreenMail test IMAP/SMTP server (needs Docker; not a database)
+pnpm build              # build
+pnpm start              # run
 ```
 
 ## License

@@ -28,17 +28,19 @@ See `README.md` for the feature list and `docs/` for deeper guides.
 | Combined static checks | `pnpm check` (Biome + ESLint) |
 | Type-check | `pnpm typecheck` |
 | Unit tests | Vitest (`pnpm test`) — include list in `vitest.config.ts` |
-| Integration tests | Vitest with `vitest.config.integration.ts` (`pnpm test:integration`) — uses testcontainers |
+| Integration tests | Vitest with `vitest.config.integration.ts` (`pnpm test:integration`) — GreenMail, a disposable **test IMAP/SMTP server** (Docker only wraps that process; not a database) |
 | Test agents | Project `test-auditor` / `test-smith` in `.claude/agents/` (Claude Code, `model: sonnet`) and `.cursor/agents/` (Cursor, `model: cursor-grok-4.6-xhigh` minimum). Same body; rubric: `.claude/rules/testing-doctrine.md`. After new or changed tests, run `test-auditor` in a **fresh** session on the same files (not the author). **Do not** dispatch `cbc:test-auditor` or `cbc:test-smith` in this repo — those read Bitfloo `_knowledge/testing-doctrine.md`, which is not Mailoo's rubric. |
 | Pre-commit hooks | lefthook |
 | Versioning / changelog | cocogitto (`cog`) |
 | Release | goreleaser |
 
 Always run `pnpm check && pnpm typecheck && pnpm test` before declaring
-work done. For changes touching IMAP/SMTP behaviour, watcher, scheduler, or
-transport, run `pnpm test:integration` as well (needs a container runtime;
-CI runs this job with Docker). `pnpm test:all` is unit plus integration.
-Lefthook pre-push stays unit-only so a machine without Docker can still push.
+work done. Mailoo has no mail database — IMAP is the store. For changes
+touching IMAP/SMTP, watcher, scheduler, or transport, run
+`pnpm test:integration` as well: it boots GreenMail (a throwaway test
+mailbox speaking real IMAP/SMTP). That needs Docker locally; without it,
+skip the job — CI still runs it. `pnpm test:all` is unit plus that server.
+Lefthook pre-push stays unit-only.
 
 ## Conventions to follow
 
@@ -80,8 +82,8 @@ Lefthook pre-push stays unit-only so a machine without Docker can still push.
 2. `pnpm typecheck` — no type errors.
 3. `pnpm test` — unit tests green.
 4. `pnpm test:integration` — required for IMAP/SMTP, watcher,
-   scheduler, or transport changes. CI runs this job on every push
-   and pull request (Docker). Locally it needs a container runtime;
-   lefthook pre-push does not run it.
+   scheduler, or transport changes. Starts GreenMail (test mail
+   server), not a database. CI runs it on every push/PR. Locally it
+   needs Docker; lefthook pre-push does not run it.
 5. For Docker-affecting changes: `pnpm docker:build` succeeds.
 6. For workflow changes: `actionlint` clean (`pnpm report` includes it).

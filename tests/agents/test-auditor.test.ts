@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -28,6 +28,13 @@ describe('test-auditor L4 doctrine', () => {
     expect(existsSync(doctrinePath)).toBe(true);
     expect(claude).toContain('.claude/rules/testing-doctrine.md');
     expect(claude).toContain('ABORTED: testing doctrine missing');
+  });
+
+  it('treats GreenMail as a disposable IMAP/SMTP test server, not a database', () => {
+    const doctrine = readFileSync(doctrinePath, 'utf8');
+    expect(doctrine).toMatch(/test IMAP\/SMTP server/);
+    expect(doctrine).toMatch(/not a database/);
+    expect(doctrine).toContain('GreenMail');
   });
 
   it('stays inside the user-class description budget', () => {
