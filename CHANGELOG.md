@@ -26,7 +26,7 @@ The following entries document the upstream project before the fork.
 They are **not** Mailoo releases. Commit links point at
 [codefuturist/email-mcp](https://github.com/codefuturist/email-mcp).
 
-## Unreleased ([3886bac..4e6910c](https://github.com/codefuturist/email-mcp/compare/3886bac..4e6910c))
+## Upstream unreleased ([3886bac..4e6910c](https://github.com/codefuturist/email-mcp/compare/3886bac..4e6910c))
 
 #### ✨ Features
 

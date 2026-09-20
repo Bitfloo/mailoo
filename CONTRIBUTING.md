@@ -90,6 +90,9 @@ src/
 
 ## Pull Request Process
 
+Open pull requests against **`develop`** (the GitHub default branch).
+`main` is the release line and is kept in sync with `develop`.
+
 1. Ensure `pnpm check` and `pnpm typecheck` pass
 2. Update documentation if your change affects user-facing behavior
 3. Write a clear PR description explaining what and why

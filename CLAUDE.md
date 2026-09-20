@@ -42,8 +42,9 @@ work done. For changes touching IMAP/SMTP behaviour, run
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`,
   `test:`, `chore:`, `ci:`). cocogitto enforces this. Use `pnpm commit`
   if unsure.
-- **Branches**: topic branches off `develop`. PRs target `develop`.
-  `main` is the release line, fed by `develop` → `main` merges.
+- **Branches**: GitHub default is `develop`. Topic branches off `develop`;
+  PRs target `develop`. `main` is the release line, kept in sync with
+  `develop` (`develop` → `main` merges).
 - **Files layout**: business logic in `src/services/`, MCP wiring in
   `src/tools/`, `src/prompts/`, `src/resources/`. Keep them decoupled —
   services must be unit-testable without mocking MCP transports.

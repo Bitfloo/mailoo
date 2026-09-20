@@ -2,7 +2,7 @@
 
 [![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme)
 [![license](https://img.shields.io/github/license/bitfloo/mailoo.svg?style=flat-square)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/bitfloo/mailoo/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/bitfloo/mailoo/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/bitfloo/mailoo/ci.yml?branch=develop&style=flat-square&label=CI)](https://github.com/bitfloo/mailoo/actions/workflows/ci.yml)
 
 **Mailoo** is Bitfloo's IMAP/SMTP [MCP](https://modelcontextprotocol.io) server:
 multi-mailbox, with profiles per account and per folder.
@@ -10,7 +10,7 @@ multi-mailbox, with profiles per account and per folder.
 This is a public **LGPL-3.0-or-later fork** of [email-mcp](https://github.com/codefuturist/email-mcp).
 It is **not** an official codefuturist project. See [Upstream / Attribution](#upstream--attribution).
 
-Enables AI assistants to read, search, send, manage, schedule, and analyze emails across multiple accounts. Exposes 47 tools, 7 prompts, and 6 resources over the MCP protocol with OAuth2 support _(experimental)_, email scheduling, calendar extraction, analytics, provider-aware label management, real-time IMAP IDLE watcher with AI-powered triage, customizable presets and static rules, and a guided setup wizard.
+Enables AI assistants to read, search, send, manage, schedule, and analyze emails across multiple accounts. Exposes 49 tools, 7 prompts, and 6 resources over the MCP protocol with OAuth2 support _(experimental)_, email scheduling, calendar extraction, analytics, provider-aware label management, real-time IMAP IDLE watcher with AI-powered triage, customizable presets and static rules, and a guided setup wizard.
 
 ## Highlights
 
@@ -631,7 +631,7 @@ Features:
 
 ## API
 
-### Tools (47)
+### Tools (49)
 
 #### Read (14)
 
@@ -699,7 +699,7 @@ Features:
 | `check_notification_setup` | Diagnose desktop notification support and provide setup instructions |
 | `test_notification` | Send a test notification to verify OS permissions are configured |
 
-#### Calendar & Reminders (6)
+#### Calendar & Reminders (8)
 
 | Tool | Description |
 |------|-------------|
@@ -708,6 +708,8 @@ Features:
 | `add_to_calendar` | Add an email event to the local calendar (macOS/Linux) |
 | `create_reminder` | Create a reminder in macOS Reminders.app from an email |
 | `list_calendars` | List all available local calendars |
+| `list_events` | List local calendar events with optional title, date, and calendar filters |
+| `list_reminders` | List Reminders.app items with optional title and list filters |
 | `check_calendar_permissions` | Check whether the local calendar is accessible |
 
 ### Prompts (7)
@@ -780,7 +782,7 @@ src/
 │   ├── notifier.service.ts — Multi-channel notification dispatcher (desktop/sound/webhook)
 │   ├── presets.ts         — Built-in hook presets (inbox-zero, gtd, priority-focus, etc.)
 │   └── event-bus.ts       — Typed EventEmitter for internal email events
-├── tools/                 — MCP tool definitions (42)
+├── tools/                 — MCP tool definitions (49)
 ├── prompts/               — MCP prompt definitions (7)
 ├── resources/             — MCP resource definitions (6)
 ├── safety/                — Audit trail and rate limiter
@@ -801,7 +803,10 @@ codefuturist project. See [NOTICE](NOTICE).
 
 ## Contributing
 
-PRs accepted. Please conform to the [standard-readme](https://github.com/RichardLitt/standard-readme) specification when editing this README.
+PRs accepted against **`develop`** (GitHub default). `main` is the release
+line and is kept in sync with `develop`. Please conform to the
+[standard-readme](https://github.com/RichardLitt/standard-readme) specification
+when editing this README. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```bash
 # Development workflow
