@@ -1,10 +1,13 @@
 import { defineConfig } from 'vitest/config';
 
+/** Cold node plus junit/json reporters exceed Vitest's 5s default. */
+const UNIT_TEST_TIMEOUT_MS = 10_000;
+
 export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'tests/agents/**/*.test.ts'],
     exclude: ['src/__integration__/**'],
     reporters: ['default', 'junit', 'json'],
     outputFile: {
@@ -18,6 +21,6 @@ export default defineConfig({
       reporter: ['text', 'lcov', 'json-summary'],
       reportsDirectory: 'reports/coverage',
     },
-    testTimeout: 10_000,
+    testTimeout: UNIT_TEST_TIMEOUT_MS,
   },
 });
