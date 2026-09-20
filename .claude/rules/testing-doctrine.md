@@ -17,12 +17,12 @@ Read `package.json` before any runner command. The lanes are disjoint.
 
 | Lane | Files | Command | Notes |
 |---|---|---|---|
-| Unit | `src/**/*.test.ts` minus `__integration__` | `pnpm test -- <file>` | Colocated next to the module. Services stay testable without mocking MCP transports (`CLAUDE.md`). |
-| Integration | `src/__integration__/**/*.integration.test.ts` | `pnpm test:integration -- <file>` | testcontainers / GreenMail. Serial, one worker, longer timeouts. |
+| Unit | `vitest.config.ts` `test.include` | `pnpm test -- <file>` | Colocated next to the module. Services stay testable without mocking MCP transports (`CLAUDE.md`). |
+| Integration | `vitest.config.integration.ts` `test.include` | `pnpm test:integration -- <file>` | testcontainers / GreenMail. Serial, one worker, longer timeouts. |
 
 `mailoo test` / `src/cli/test.ts` is a **CLI connection probe**, not either runner.
 
-Pre-commit (lefthook) runs the unit lane only. IMAP/SMTP/watcher/scheduler/transport
+Pre-push (lefthook `pnpm test`) runs the unit lane only. IMAP/SMTP/watcher/scheduler/transport
 changes also need the integration lane (`CLAUDE.md`).
 
 No `retry:` in runner config. A flake is a defect. A raised timeout needs the
@@ -86,5 +86,5 @@ Not findings: semantically equivalent mutants; a mock at a genuine unpaid-extern
 
 - Do not treat `pnpm test:coverage` as an audit.
 - Do not add Playwright, Cypress, Selenium, or Puppeteer.
-- Do not put doctrine tests where Vitest will not see them — unit include is `src/**/*.test.ts` plus `tests/agents/**/*.test.ts`.
+- Do not put doctrine tests where Vitest will not see them — add the path to `vitest.config.ts` `test.include`.
 - Do not cite paths that do not exist in this clone.

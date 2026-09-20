@@ -27,7 +27,7 @@ See `README.md` for the feature list and `docs/` for deeper guides.
 | Lint | ESLint (Airbnb Extended + TS strict) (`pnpm lint`) |
 | Combined static checks | `pnpm check` (Biome + ESLint) |
 | Type-check | `pnpm typecheck` |
-| Unit tests | Vitest (`pnpm test`) — `src/**/*.test.ts` plus `tests/agents/**/*.test.ts` |
+| Unit tests | Vitest (`pnpm test`) — include list in `vitest.config.ts` |
 | Integration tests | Vitest with `vitest.config.integration.ts` (`pnpm test:integration`) — uses testcontainers |
 | Test agents | Project `test-auditor` / `test-smith` in `.claude/agents/` (Claude Code) and `.cursor/agents/` (Cursor). Rubric: `.claude/rules/testing-doctrine.md`. |
 | Pre-commit hooks | lefthook |

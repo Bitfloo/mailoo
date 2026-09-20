@@ -3,6 +3,9 @@ import { join } from 'node:path';
 
 export const repoRoot = join(import.meta.dirname, '../..');
 
+export const USER_DESCRIPTION_MAX_CHARS = 800;
+export const SYSTEM_PROMPT_MAX_WORDS = 500;
+
 export function readTwinAgent(name: string): { claude: string; cursor: string } {
   return {
     claude: readFileSync(join(repoRoot, '.claude/agents', `${name}.md`), 'utf8'),

@@ -5,8 +5,10 @@ import {
   descriptionBlock,
   readTwinAgent,
   repoRoot,
+  SYSTEM_PROMPT_MAX_WORDS,
   systemPromptWords,
   toolsList,
+  USER_DESCRIPTION_MAX_CHARS,
 } from './agent-file.js';
 
 const doctrinePath = join(repoRoot, '.claude/rules/testing-doctrine.md');
@@ -25,7 +27,7 @@ describe('test-smith L4 doctrine', () => {
 
   it('stays inside the user-class description budget', () => {
     expect(descriptionBlock(claude).length).toBeGreaterThan(10);
-    expect(descriptionBlock(claude).length).toBeLessThanOrEqual(800);
+    expect(descriptionBlock(claude).length).toBeLessThanOrEqual(USER_DESCRIPTION_MAX_CHARS);
   });
 
   it('routes Polish and English authoring phrases and defers grading', () => {
@@ -100,7 +102,7 @@ describe('test-smith L4 doctrine', () => {
   });
 
   it('keeps the generated system prompt (excluding When to invoke) inside the 500-word cap', () => {
-    expect(systemPromptWords(claude).length).toBeLessThanOrEqual(500);
+    expect(systemPromptWords(claude).length).toBeLessThanOrEqual(SYSTEM_PROMPT_MAX_WORDS);
   });
 
   it('does not cite CBC plugin paths in the agent file', () => {
