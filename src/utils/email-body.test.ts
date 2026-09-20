@@ -55,6 +55,11 @@ describe('applyBodyFormat', () => {
     expect(applyBodyFormat(body, undefined, 'text')).toContain('-----Original Message-----');
   });
 
+  it('for stripped format, drops quoted lines and signature separators', () => {
+    const body = 'New reply here.\n\n> quoted earlier text\n\n-- \nSent from my phone';
+    expect(applyBodyFormat(body, undefined, 'stripped')).toBe('New reply here.');
+  });
+
   it('strips tags for text format when only HTML is present', () => {
     expect(applyBodyFormat(undefined, '<p>Hello <strong>world</strong></p>', 'text')).toContain(
       'Hello world',

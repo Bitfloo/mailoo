@@ -2,6 +2,9 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  agentTwinBody,
+  CLAUDE_TEST_AGENT_MODEL,
+  CURSOR_TEST_AGENT_MODEL,
   descriptionBlock,
   readTwinAgent,
   repoRoot,
@@ -15,8 +18,10 @@ const doctrinePath = join(repoRoot, '.claude/rules/testing-doctrine.md');
 const { claude, cursor } = readTwinAgent('test-smith');
 
 describe('test-smith L4 doctrine', () => {
-  it('keeps the Claude Code and Cursor copies byte-identical', () => {
-    expect(claude).toBe(cursor);
+  it('keeps Claude Code and Cursor copies aligned except host model tier', () => {
+    expect(agentTwinBody(claude)).toBe(agentTwinBody(cursor));
+    expect(claude).toMatch(new RegExp(`^model: ${CLAUDE_TEST_AGENT_MODEL}$`, 'm'));
+    expect(cursor).toMatch(new RegExp(`^model: ${CURSOR_TEST_AGENT_MODEL}$`, 'm'));
   });
 
   it('grounds on the Mailoo doctrine file that exists in this clone', () => {
@@ -38,9 +43,9 @@ describe('test-smith L4 doctrine', () => {
     expect(description).toMatch(/NOT:.*test-auditor/);
   });
 
-  it('declares smith identity, sonnet tier, and green color', () => {
+  it('declares smith identity, Claude sonnet tier, and green color', () => {
     expect(claude).toMatch(/^name: test-smith$/m);
-    expect(claude).toMatch(/^model: sonnet$/m);
+    expect(claude).toMatch(new RegExp(`^model: ${CLAUDE_TEST_AGENT_MODEL}$`, 'm'));
     expect(claude).toMatch(/^color: green$/m);
     expect(claude).toMatch(/^dispatch: user$/m);
     expect(claude).toMatch(/^effort: high$/m);

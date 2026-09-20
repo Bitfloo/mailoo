@@ -2,6 +2,9 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  agentTwinBody,
+  CLAUDE_TEST_AGENT_MODEL,
+  CURSOR_TEST_AGENT_MODEL,
   descriptionBlock,
   readTwinAgent,
   repoRoot,
@@ -15,8 +18,10 @@ const doctrinePath = join(repoRoot, '.claude/rules/testing-doctrine.md');
 const { claude, cursor } = readTwinAgent('test-auditor');
 
 describe('test-auditor L4 doctrine', () => {
-  it('keeps the Claude Code and Cursor copies byte-identical', () => {
-    expect(claude).toBe(cursor);
+  it('keeps Claude Code and Cursor copies aligned except host model tier', () => {
+    expect(agentTwinBody(claude)).toBe(agentTwinBody(cursor));
+    expect(claude).toMatch(new RegExp(`^model: ${CLAUDE_TEST_AGENT_MODEL}$`, 'm'));
+    expect(cursor).toMatch(new RegExp(`^model: ${CURSOR_TEST_AGENT_MODEL}$`, 'm'));
   });
 
   it('grounds on the Mailoo doctrine file that exists in this clone', () => {
@@ -35,12 +40,15 @@ describe('test-auditor L4 doctrine', () => {
     expect(description).toContain('Trigger:');
     expect(description).toMatch(/oceń te testy/);
     expect(description).toMatch(/audit these tests/);
+    expect(description).toMatch(/czy testy w PR wystarczą/);
+    expect(description).toMatch(/are these tests sufficient/);
     expect(description).toMatch(/NOT:.*test-smith/);
+    expect(description).toMatch(/mutation\/detection judgment only here/);
   });
 
-  it('declares auditor identity, sonnet tier, and yellow color', () => {
+  it('declares auditor identity, Claude sonnet tier, and yellow color', () => {
     expect(claude).toMatch(/^name: test-auditor$/m);
-    expect(claude).toMatch(/^model: sonnet$/m);
+    expect(claude).toMatch(new RegExp(`^model: ${CLAUDE_TEST_AGENT_MODEL}$`, 'm'));
     expect(claude).toMatch(/^color: yellow$/m);
     expect(claude).toMatch(/^dispatch: user$/m);
     expect(claude).toMatch(/^effort: high$/m);
@@ -65,9 +73,13 @@ describe('test-auditor L4 doctrine', () => {
   it('binds the Mailoo runners and refuses the CLI probe', () => {
     expect(claude).toContain('pnpm test -- <file>');
     expect(claude).toContain('pnpm test:integration -- <file>');
+    expect(claude).toContain('vitest.config.integration.ts` `test.include`');
+    expect(claude).toContain('ABORTED: integration path needs pnpm test:integration');
+    expect(claude).toContain('integration lane UNAUDITED or C3 WARN');
     expect(claude).toContain('`mailoo test` is a CLI connection probe, not this runner');
     expect(claude).toContain('package.json` (runner — never infer it)');
     expect(claude).toContain('No browser automation');
+    expect(claude).toContain('fresh** session on the same files');
   });
 
   it('requires C1 and C2 before the rest of the rubric', () => {
@@ -76,6 +88,7 @@ describe('test-auditor L4 doctrine', () => {
     expect(claude).toContain('C1 and C2 were attempted');
     expect(claude).toContain('cite by section');
     expect(claude).toContain('Never repair');
+    expect(claude).toContain('>80%` target');
   });
 
   it('emits a SCORE/VERDICT block with a CRITICAL veto', () => {

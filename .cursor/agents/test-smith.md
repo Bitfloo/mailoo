@@ -5,7 +5,7 @@ description: |
   Authors demanding Mailoo test suites — layer from the shape of the object, fixtures 1:1 with production over mocks, red proven as quoted runner output, then self-mutation listing surviving mutants.
   Trigger: "napisz testy", "dopisz testy", "write tests for", "test this properly", "test-smith".
   NOT: grading existing tests → test-auditor; in-session check for a loud one-line fix; browser E2E → out of scope.
-model: sonnet
+model: cursor-grok-4.6-xhigh
 color: green
 tools:
   - Read

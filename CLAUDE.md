@@ -29,7 +29,7 @@ See `README.md` for the feature list and `docs/` for deeper guides.
 | Type-check | `pnpm typecheck` |
 | Unit tests | Vitest (`pnpm test`) — include list in `vitest.config.ts` |
 | Integration tests | Vitest with `vitest.config.integration.ts` (`pnpm test:integration`) — uses testcontainers |
-| Test agents | Project `test-auditor` / `test-smith` in `.claude/agents/` (Claude Code) and `.cursor/agents/` (Cursor). Rubric: `.claude/rules/testing-doctrine.md`. |
+| Test agents | Project `test-auditor` / `test-smith` in `.claude/agents/` (Claude Code, `model: sonnet`) and `.cursor/agents/` (Cursor, `model: cursor-grok-4.6-xhigh` minimum). Same body; rubric: `.claude/rules/testing-doctrine.md`. After new or changed tests, run `test-auditor` in a **fresh** session on the same files (not the author). |
 | Pre-commit hooks | lefthook |
 | Versioning / changelog | cocogitto (`cog`) |
 | Release | goreleaser |
