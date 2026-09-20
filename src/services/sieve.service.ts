@@ -191,7 +191,14 @@ async function connectTcp(host: string, port: number, timeoutMs: number): Promis
 
 async function upgradeTls(socket: Socket, host: string): Promise<TLSSocket> {
   return new Promise((resolve, reject) => {
-    const tlsSock = tlsConnect({ socket, servername: host, rejectUnauthorized: true }, () => resolve(tlsSock),);
+    const tlsSock = tlsConnect(
+      {
+        socket,
+        servername: host,
+        rejectUnauthorized: true,
+      },
+      () => resolve(tlsSock),
+    );
     tlsSock.once('error', reject);
   });
 }
