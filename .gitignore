@@ -328,3 +328,20 @@ $RECYCLE.BIN/
 
 # End of https://www.toptal.com/developers/gitignore/api/linux,windows,macos,node,visualstudiocode,jetbrains+all
 .mcpregistry_*
+
+# Mailoo-specific: secrets, local config, pnpm-only lockfile
+.env.*
+!.env.example
+.envrc
+.npmrc
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+id_rsa
+id_ed25519
+config.toml
+.config/mailoo/
+.config/email-mcp/
+package-lock.json
