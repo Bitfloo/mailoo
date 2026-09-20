@@ -29,6 +29,11 @@ describe('published identity', () => {
     smithery = await readFile(join(root, 'smithery.yaml'), 'utf8');
   });
 
+  it('publishes as Mailoo', () => {
+    expect(pkg.name).toBe('@bitfloo/mailoo');
+    expect(pkg.mcpName).toBe('io.github.bitfloo/mailoo');
+  });
+
   it('keeps server.json bound to package.json', () => {
     expect(server.name).toBe(pkg.mcpName);
     expect(server.version).toBe(pkg.version);
