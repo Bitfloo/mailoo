@@ -17,6 +17,7 @@ LGPL-3.0-or-later (see [LICENSE](LICENSE) and [COPYING](COPYING)).
 3. Install dependencies:
    ```bash
    pnpm install
+   pnpm build
    ```
 4. Create a feature branch:
    ```bash

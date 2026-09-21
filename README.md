@@ -390,6 +390,7 @@ Commands:
   scheduler install         Install OS-level scheduler (launchd/crontab)
   scheduler uninstall       Remove OS-level scheduler
   scheduler status          Show scheduler installation status
+  --version, -v             Print the package version
   help                      Show help
 ```
 

@@ -68,7 +68,10 @@ jobs:
           fi
           jq --arg v "$VERSION" '
             .version = $v
-            | .packages[0].version = $v
+            | if (.packages | type == "array" and length > 0)
+              then .packages[0].version = $v
+              else .
+              end
           ' server.json > server.tmp && mv server.tmp server.json
       - name: Authenticate to MCP Registry
         run: ./mcp-publisher login github-oidc
