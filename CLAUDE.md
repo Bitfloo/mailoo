@@ -18,7 +18,8 @@ scheduling, organising, and analysing email across multiple accounts.
 - **Public repo**: issue and PR comments are world-readable. Committed docs
   name this tree only — no plugin-internal paths, no changelog-as-comment.
 
-See `README.md` for the feature list and `docs/` for deeper guides.
+See `README.md` for the feature list, `docs/` for deeper guides, and
+`AGENTS.md` for the Cursor Cloud roster (`.cursor/agents/`).
 
 ## Stack and tooling
 
