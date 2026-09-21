@@ -35,4 +35,10 @@ describe('CI spend policy', () => {
     expect(pkg.scripts['ci:local']).toBe('bash scripts/ci-local.sh');
     expect(lefthook).toContain('scripts/ci-local.sh');
   });
+
+  it('names the dispatch include-unit flag in ci.yml and CLAUDE.md', () => {
+    const claude = readFileSync(join(repoRoot, 'CLAUDE.md'), 'utf8');
+    expect(ciYml).toContain('include-unit');
+    expect(claude).toContain('include-unit');
+  });
 });

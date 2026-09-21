@@ -30,9 +30,10 @@ describe('test-auditor L4 doctrine', () => {
     expect(claude).toContain('ABORTED: testing doctrine missing');
   });
 
-  it('treats GreenMail as a disposable IMAP/SMTP test server', () => {
+  it('treats GreenMail as a disposable IMAP/SMTP test server, not a database', () => {
     const doctrine = readFileSync(doctrinePath, 'utf8');
     expect(doctrine).toMatch(/test IMAP\/SMTP server/);
+    expect(doctrine).toMatch(/not a database/);
     expect(doctrine).toContain('GreenMail');
   });
 
