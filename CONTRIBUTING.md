@@ -48,7 +48,7 @@ LGPL-3.0-or-later (see [LICENSE](LICENSE) and [COPYING](COPYING)).
 
 `pnpm test:integration` needs Docker. Skip it locally if Docker is not running;
 CI runs it on every push and pull request. Lefthook pre-push is unit only.
-`mailoo test` is a live-account connection probe, not Vitest.
+`node dist/main.js test` / `mailoo test` is a live-account connection probe, not Vitest.
 
 ### Code Style
 

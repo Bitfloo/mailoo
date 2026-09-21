@@ -15,7 +15,7 @@ interface ServerIdentity {
   name: string;
   version: string;
   description: string;
-  packages: { identifier: string; version: string }[];
+  packages?: { identifier: string; version: string }[];
 }
 
 describe('published identity', () => {
@@ -34,12 +34,11 @@ describe('published identity', () => {
     expect(pkg.mcpName).toBe('io.github.bitfloo/mailoo');
   });
 
-  it('keeps server.json bound to package.json', () => {
+  it('keeps server.json bound to package.json without an npm packages entry', () => {
     expect(server.name).toBe(pkg.mcpName);
     expect(server.version).toBe(pkg.version);
     expect(server.description).toBe(pkg.description);
-    expect(server.packages[0]?.identifier).toBe(pkg.name);
-    expect(server.packages[0]?.version).toBe(pkg.version);
+    expect(server.packages ?? []).toEqual([]);
   });
 
   it('does not advertise npx while the package is unpublished', () => {

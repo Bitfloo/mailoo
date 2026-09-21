@@ -6,16 +6,5 @@
     "url": "https://github.com/bitfloo/mailoo.git",
     "source": "github"
   },
-  "version": "0.1.0",
-  "packages": [
-    {
-      "registryType": "npm",
-      "identifier": "@bitfloo/mailoo",
-      "version": "0.1.0",
-      "commandArguments": ["stdio"],
-      "transport": {
-        "type": "stdio"
-      }
-    }
-  ]
+  "version": "0.1.0"
 }
