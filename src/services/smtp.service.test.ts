@@ -108,7 +108,7 @@ describe('SmtpService', () => {
       );
     });
 
-    it('attaches path/base64 files', async () => {
+    it('attaches decoded base64 content', async () => {
       await service.sendEmail('test', {
         to: ['a@example.com'],
         subject: 'Files',
@@ -123,9 +123,101 @@ describe('SmtpService', () => {
       });
       const mail = transport.sendMail.mock.calls[0][0];
       expect(mail.attachments).toEqual([
-        expect.objectContaining({ filename: 'note.txt', contentType: 'text/plain' }),
+        {
+          filename: 'note.txt',
+          content: Buffer.from('hi'),
+          contentType: 'text/plain',
+        },
       ]);
-      expect(Buffer.isBuffer(mail.attachments[0].content)).toBe(true);
+    });
+
+    it('forwards a local path attachment without downloading it', async () => {
+      const dest = '/tmp/mailoo-invoice.txt';
+      await service.sendEmail('test', {
+        to: ['a@example.com'],
+        subject: 'Files',
+        body: 'See attached',
+        attachments: [{ path: dest, contentType: 'text/plain' }],
+      });
+      const mail = transport.sendMail.mock.calls[0][0];
+      expect(mail.attachments).toEqual([
+        {
+          filename: 'mailoo-invoice.txt',
+          path: dest,
+          contentType: 'text/plain',
+        },
+      ]);
+      expect(imap.downloadAttachment).not.toHaveBeenCalled();
+    });
+
+    it('copies an existing message attachment by emailId and filename', async () => {
+      (imap.downloadAttachment as ReturnType<typeof vi.fn>).mockResolvedValue({
+        filename: 'inv.pdf',
+        mimeType: 'application/pdf',
+        size: 4,
+        contentBase64: Buffer.from('PDF!').toString('base64'),
+      });
+      await service.sendEmail('test', {
+        to: ['a@example.com'],
+        subject: 'Files',
+        body: 'See attached',
+        attachments: [{ emailId: '42', filename: 'inv.pdf', mailbox: 'Archive' }],
+      });
+      const mail = transport.sendMail.mock.calls[0][0];
+      expect(mail.attachments).toEqual([
+        {
+          filename: 'inv.pdf',
+          content: Buffer.from('PDF!'),
+          contentType: 'application/pdf',
+        },
+      ]);
+      expect(imap.downloadAttachment).toHaveBeenCalledWith(
+        'test',
+        '42',
+        'Archive',
+        'inv.pdf',
+        50 * 1024 * 1024,
+      );
+    });
+
+    it('defaults emailId attachment mailbox to INBOX', async () => {
+      (imap.downloadAttachment as ReturnType<typeof vi.fn>).mockResolvedValue({
+        filename: 'a.bin',
+        mimeType: 'application/octet-stream',
+        size: 1,
+        contentBase64: Buffer.from([0]).toString('base64'),
+      });
+      await service.sendEmail('test', {
+        to: ['a@example.com'],
+        subject: 'Files',
+        body: 'See attached',
+        attachments: [{ emailId: '7', filename: 'a.bin' }],
+      });
+      const mail = transport.sendMail.mock.calls[0][0];
+      expect(mail.attachments[0]).toEqual({
+        filename: 'a.bin',
+        content: Buffer.from([0]),
+        contentType: 'application/octet-stream',
+      });
+      expect(imap.downloadAttachment).toHaveBeenCalledWith(
+        'test',
+        '7',
+        'INBOX',
+        'a.bin',
+        50 * 1024 * 1024,
+      );
+    });
+
+    it('rejects an attachment that has neither path, base64, nor emailId+filename', async () => {
+      await expect(
+        service.sendEmail('test', {
+          to: ['a@example.com'],
+          subject: 'Files',
+          body: 'See attached',
+          attachments: [{ filename: 'orphan.txt', contentType: 'text/plain' }],
+        }),
+      ).rejects.toThrow(/path, base64, or emailId\+filename/);
+      expect(transport.sendMail).not.toHaveBeenCalled();
     });
 
     it('appends a Sent copy after a successful send', async () => {

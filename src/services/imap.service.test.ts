@@ -336,8 +336,25 @@ describe('ImapService', () => {
     });
   });
 
+  describe('listEmails date criteria', () => {
+    it('passes since and before to IMAP as Date values, not strings', async () => {
+      client.search.mockResolvedValue([]);
+      await service.listEmails('test', {
+        since: '2026-01-01',
+        before: '2026-02-01',
+      });
+      expect(client.search).toHaveBeenCalledWith(
+        {
+          since: new Date('2026-01-01'),
+          before: new Date('2026-02-01'),
+        },
+        { uid: true },
+      );
+    });
+  });
+
   describe('searchEmails', () => {
-    it('passes since and before as IMAP date criteria', async () => {
+    it('passes since and before as IMAP Date values, not strings', async () => {
       client.search.mockResolvedValue([]);
       await service.searchEmails('test', 'invoice', {
         since: '2026-01-01',
@@ -345,11 +362,76 @@ describe('ImapService', () => {
       });
       expect(client.search).toHaveBeenCalledWith(
         expect.objectContaining({
-          since: expect.any(Date),
-          before: expect.any(Date),
+          since: new Date('2026-01-01'),
+          before: new Date('2026-02-01'),
         }),
         { uid: true },
       );
+    });
+  });
+
+  describe('getEmailSecurity', () => {
+    const foldedAuthHeaders = [
+      'From: Brand <noreply@brand.example>',
+      'Reply-To: support@brand.example',
+      'Return-Path: <bounce@mail.brand.example>',
+      'Authentication-Results: mx.google.com;',
+      '       spf=pass smtp.mailfrom=noreply@brand.example;',
+      '       dkim=pass header.d=brand.example header.s=s1;',
+      '       dkim=pass header.d=mailer.example;',
+      '       dmarc=pass header.from=brand.example',
+      'List-Unsubscribe: <https://brand.example/unsub?token=secret>',
+      'List-Unsubscribe-Post: List-Unsubscribe=One-Click',
+      '',
+    ].join('\r\n');
+
+    it('parses fetched headers into SPF/DKIM/DMARC without returning unsubscribe URLs', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 10,
+        envelope: {},
+        headers: Buffer.from(foldedAuthHeaders),
+      });
+
+      const signals = await service.getEmailSecurity('test', '10', 'INBOX');
+
+      expect(signals.uid).toBe('10');
+      expect(signals.mailbox).toBe('INBOX');
+      expect(signals.fromDomain).toBe('brand.example');
+      expect(signals.spf).toBe('pass');
+      expect(signals.dmarc).toBe('pass');
+      expect(signals.dkim).toEqual([
+        { result: 'pass', domain: 'brand.example' },
+        { result: 'pass', domain: 'mailer.example' },
+      ]);
+      expect(signals.hasListUnsubscribe).toBe(true);
+      expect(JSON.stringify(signals)).not.toContain('https://brand.example/unsub');
+    });
+
+    it('uses a readOnly lock and fetches headers without source', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 10,
+        envelope: {},
+        headers: Buffer.from('From: a@b.example\r\n\r\n'),
+      });
+
+      await service.getEmailSecurity('test', '10', 'INBOX');
+
+      expect(client.getMailboxLock).toHaveBeenCalledWith('INBOX', { readOnly: true });
+      expect(client.fetchOne).toHaveBeenCalledWith(
+        '10',
+        { uid: true, envelope: true, headers: true },
+        { uid: true },
+      );
+      expect(client.fetchOne.mock.calls[0][1]).not.toHaveProperty('source');
+    });
+
+    it('releases the mailbox lock when the message is missing', async () => {
+      client.fetchOne.mockResolvedValue(false);
+
+      await expect(service.getEmailSecurity('test', '99', 'INBOX')).rejects.toThrow(
+        /Email 99 not found in INBOX/,
+      );
+      expect(client._releaseFn).toHaveBeenCalled();
     });
   });
 

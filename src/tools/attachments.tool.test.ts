@@ -47,6 +47,10 @@ describe('writeAttachmentFile', () => {
 });
 
 describe('download_attachment tool', () => {
+  it('sets the savePath size cap at 50 mebibytes', () => {
+    expect(SAVE_PATH_MAX_BYTES).toBe(50 * 1024 * 1024);
+  });
+
   it('sets readOnlyHint to false because savePath can write', () => {
     let hints: { readOnlyHint?: boolean } | undefined;
     const server = {
@@ -111,8 +115,56 @@ describe('download_attachment tool', () => {
         '1',
         'INBOX',
         'a.txt',
-        SAVE_PATH_MAX_BYTES,
+        50 * 1024 * 1024,
       );
     });
+  });
+
+  it('returns Base64 content and a 5MB cap when savePath is omitted', async () => {
+    type Handler = (args: {
+      account: string;
+      id: string;
+      mailbox: string;
+      filename: string;
+      savePath?: string;
+    }) => Promise<{ content: { type: string; text: string }[] }>;
+
+    let handler: Handler | undefined;
+    const server = {
+      tool: (...args: unknown[]) => {
+        handler = args[4] as Handler;
+      },
+    };
+    const raw = Buffer.from('hello');
+    const imap = {
+      downloadAttachment: vi.fn().mockResolvedValue({
+        filename: 'a.txt',
+        mimeType: 'text/plain',
+        size: 5,
+        contentBase64: raw.toString('base64'),
+      }),
+    };
+
+    registerAttachmentTools(server as never, imap as unknown as ImapService);
+    if (!handler) {
+      throw new Error('download_attachment handler was not registered');
+    }
+
+    const result = await handler({
+      account: 'test',
+      id: '1',
+      mailbox: 'INBOX',
+      filename: 'a.txt',
+    });
+    const combined = result.content.map((c) => c.text).join('\n');
+    expect(combined).toContain('--- Base64 Content ---');
+    expect(combined).toContain(raw.toString('base64'));
+    expect(imap.downloadAttachment).toHaveBeenCalledWith(
+      'test',
+      '1',
+      'INBOX',
+      'a.txt',
+      5 * 1024 * 1024,
+    );
   });
 });
