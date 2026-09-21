@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -27,6 +27,14 @@ describe('public git log gate', () => {
 
   it('accepts a conventional subject with no operator leak', () => {
     expect(scanFile('docs: name the integration IMAP server\n').status).toBe(0);
+  });
+
+  it('reads the forbidden regex from the checker, not a second copy', () => {
+    const src = readFileSync(script, 'utf8');
+    const match = src.match(/^FORBIDDEN='([^']+)'/m);
+    expect(match?.[1]).toContain('cbc:test-auditor');
+    expect(match?.[1]).toContain('/Users/');
+    expect(readFileSync(publicGit, 'utf8')).toContain('scripts/check-public-git-log.sh');
   });
 
   it('rejects plugin dispatch names and machine paths', () => {

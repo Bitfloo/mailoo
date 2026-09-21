@@ -94,10 +94,7 @@ describe('buildQuestionMap', () => {
       'contains_prompt_injection',
       'requests_credentials',
       'offers_unexpected_reward',
-      'creates_time_pressure',
       'sender_identity_mismatch',
-      'link_domain_mismatch',
-      'disguises_link_destination',
       'is_critical',
     ] as const;
 

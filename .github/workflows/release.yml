@@ -66,13 +66,7 @@ jobs:
           if [[ -z "$VERSION" ]]; then
             VERSION="${GITHUB_REF#refs/tags/v}"
           fi
-          jq --arg v "$VERSION" '
-            .version = $v
-            | if (.packages | type == "array" and length > 0)
-              then .packages[0].version = $v
-              else .
-              end
-          ' server.json > server.tmp && mv server.tmp server.json
+          bash scripts/bump-server-json-version.sh "$VERSION"
       - name: Authenticate to MCP Registry
         run: ./mcp-publisher login github-oidc
       - name: Publish to MCP Registry

@@ -1,7 +1,3 @@
-/**
- * Build the System One `state` object. Link extraction lives here.
- */
-
 import type { EmailMeta } from '../../types/index.js';
 import type { SenderAuthSignals } from '../../utils/auth-headers.js';
 import { preferRicherPlain, stripReplyChain } from '../../utils/email-body.js';

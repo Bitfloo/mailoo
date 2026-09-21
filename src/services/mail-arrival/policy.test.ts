@@ -34,10 +34,7 @@ function answers(overrides: Partial<MailAnswers> = {}): MailAnswers {
     contains_prompt_injection: 0.1,
     requests_credentials: 0,
     offers_unexpected_reward: 0,
-    creates_time_pressure: 0,
     sender_identity_mismatch: 0,
-    link_domain_mismatch: 0,
-    disguises_link_destination: 0,
     folder_fit: new Map(),
     importance: { score: 1, confidence: 0.9 },
     is_critical: 0.1,
@@ -76,19 +73,6 @@ describe('composeSpamRisk', () => {
       ),
     ).toBeCloseTo(1, 10);
   });
-
-  it('does not weight time_pressure or link nouls', () => {
-    const base = composeSpamRisk(answers());
-    expect(
-      composeSpamRisk(
-        answers({
-          creates_time_pressure: 1,
-          link_domain_mismatch: 1,
-          disguises_link_destination: 1,
-        }),
-      ),
-    ).toBe(base);
-  });
 });
 
 describe('decideMailAction', () => {
@@ -100,22 +84,19 @@ describe('decideMailAction', () => {
         is_critical: 1,
       }),
       policy({ autoFlag: true }),
-      { currentMailbox: 'INBOX' },
     );
     expect(result).toEqual({ kind: 'noop', reason: 'injection_filter' });
   });
 
   it('noops injection_filter when |noul-0.5|<0.1', () => {
-    expect(
-      decideMailAction(answers({ contains_prompt_injection: 0.5 }), policy(), {
-        currentMailbox: 'INBOX',
-      }),
-    ).toEqual({ kind: 'noop', reason: 'injection_filter' });
-    expect(
-      decideMailAction(answers({ contains_prompt_injection: 0.45 }), policy(), {
-        currentMailbox: 'INBOX',
-      }),
-    ).toEqual({ kind: 'noop', reason: 'injection_filter' });
+    expect(decideMailAction(answers({ contains_prompt_injection: 0.5 }), policy())).toEqual({
+      kind: 'noop',
+      reason: 'injection_filter',
+    });
+    expect(decideMailAction(answers({ contains_prompt_injection: 0.45 }), policy())).toEqual({
+      kind: 'noop',
+      reason: 'injection_filter',
+    });
   });
 
   it('does NOT injection_filter at 0.70 when injectionHigh is 0.75', () => {
@@ -125,7 +106,6 @@ describe('decideMailAction', () => {
         folder_fit: new Map([['receipts', 0.99]]),
       }),
       policy(),
-      { currentMailbox: 'INBOX' },
     );
     expect(result).toEqual({
       kind: 'apply',
@@ -140,7 +120,7 @@ describe('decideMailAction', () => {
       folder_fit: new Map([['receipts', 0.99]]),
     });
     expect(composeSpamRisk(mail)).toBeCloseTo(0.45, 10);
-    expect(decideMailAction(mail, policy(), { currentMailbox: 'INBOX' })).toEqual({
+    expect(decideMailAction(mail, policy())).toEqual({
       kind: 'noop',
       reason: 'spam_uncertain',
     });
@@ -152,7 +132,7 @@ describe('decideMailAction', () => {
       folder_fit: new Map([['receipts', 0.99]]),
     });
     expect(composeSpamRisk(low)).toBeCloseTo(0.4, 10);
-    expect(decideMailAction(low, policy(), { currentMailbox: 'INBOX' })).toEqual({
+    expect(decideMailAction(low, policy())).toEqual({
       kind: 'apply',
       destinationMailbox: 'Receipts',
       flag: false,
@@ -166,7 +146,7 @@ describe('decideMailAction', () => {
       folder_fit: new Map([['receipts', 0.99]]),
     });
     expect(composeSpamRisk(high)).toBeCloseTo(0.6, 10);
-    expect(decideMailAction(high, policy(), { currentMailbox: 'INBOX' })).toEqual({
+    expect(decideMailAction(high, policy())).toEqual({
       kind: 'apply',
       destinationMailbox: 'Receipts',
       flag: false,
@@ -183,10 +163,8 @@ describe('decideMailAction', () => {
     });
     const cool = answers({ folder_fit: fit });
     expect(composeSpamRisk(hot)).toBeGreaterThan(0.72);
-    expect(decideMailAction(hot, policy(), { currentMailbox: 'INBOX' })).toEqual(
-      decideMailAction(cool, policy(), { currentMailbox: 'INBOX' }),
-    );
-    expect(decideMailAction(hot, policy(), { currentMailbox: 'INBOX' })).toEqual({
+    expect(decideMailAction(hot, policy())).toEqual(decideMailAction(cool, policy()));
+    expect(decideMailAction(hot, policy())).toEqual({
       kind: 'apply',
       destinationMailbox: 'Receipts',
       flag: false,
@@ -201,7 +179,6 @@ describe('decideMailAction', () => {
         offers_unexpected_reward: 1,
       }),
       policy(),
-      { currentMailbox: 'INBOX' },
     );
     expect(result).toEqual({ kind: 'noop', reason: 'no_folder_fit' });
     expect(result).not.toMatchObject({ destinationMailbox: expect.anything() });
@@ -216,7 +193,6 @@ describe('decideMailAction', () => {
         ]),
       }),
       policy(),
-      { currentMailbox: 'INBOX' },
     );
     expect(result).toEqual({
       kind: 'apply',
@@ -234,7 +210,6 @@ describe('decideMailAction', () => {
         ]),
       }),
       policy(),
-      { currentMailbox: 'INBOX' },
     );
     expect(result).toEqual({
       kind: 'apply',
@@ -259,13 +234,14 @@ describe('decideMailAction', () => {
             { ...ARCHIVE, priority: 1 },
           ],
         }),
-        { currentMailbox: 'INBOX' },
       ),
     ).toEqual({ kind: 'apply', destinationMailbox: 'Archive', flag: false });
 
-    expect(
-      decideMailAction(tied, policy({ folders: [RECEIPTS, ARCHIVE] }), { currentMailbox: 'INBOX' }),
-    ).toEqual({ kind: 'apply', destinationMailbox: 'Receipts', flag: false });
+    expect(decideMailAction(tied, policy({ folders: [RECEIPTS, ARCHIVE] }))).toEqual({
+      kind: 'apply',
+      destinationMailbox: 'Receipts',
+      flag: false,
+    });
   });
 
   it('MOVEs and flags together when autoFlag and importance 3.2 / conf 0.8', () => {
@@ -275,7 +251,6 @@ describe('decideMailAction', () => {
         importance: { score: 3.2, confidence: 0.8 },
       }),
       policy({ autoFlag: true }),
-      { currentMailbox: 'INBOX' },
     );
     expect(result).toEqual({
       kind: 'apply',
@@ -291,7 +266,6 @@ describe('decideMailAction', () => {
         is_critical: 0.85,
       }),
       policy({ autoMove: false, autoFlag: true }),
-      { currentMailbox: 'INBOX' },
     );
     expect(result).toEqual({ kind: 'apply', flag: true });
     expect(result).not.toHaveProperty('destinationMailbox');
@@ -302,7 +276,6 @@ describe('decideMailAction', () => {
       decideMailAction(
         answers({ folder_fit: new Map([['receipts', 1]]) }),
         policy({ autoMove: false, autoFlag: false }),
-        { currentMailbox: 'INBOX' },
       ),
     ).toEqual({ kind: 'noop', reason: 'auto_move_off' });
   });
@@ -312,42 +285,38 @@ describe('decideMailAction', () => {
       decideMailAction(
         answers({ folder_fit: new Map([['receipts', 0.99]]) }),
         policy({ folders: [] }),
-        {
-          currentMailbox: 'INBOX',
-        },
       ),
     ).toEqual({ kind: 'noop', reason: 'no_folder_fit' });
   });
 
   it('does not flag is_critical 0.84 when autoFlag', () => {
     const cfg = policy({ autoMove: false, autoFlag: true });
-    expect(
-      decideMailAction(answers({ is_critical: 0.84 }), cfg, { currentMailbox: 'INBOX' }),
-    ).toEqual({ kind: 'noop', reason: 'auto_move_off' });
+    expect(decideMailAction(answers({ is_critical: 0.84 }), cfg)).toEqual({
+      kind: 'noop',
+      reason: 'auto_move_off',
+    });
   });
 
   it('flags is_critical 0.85 when autoFlag', () => {
     const cfg = policy({ autoMove: false, autoFlag: true });
-    expect(
-      decideMailAction(answers({ is_critical: 0.85 }), cfg, { currentMailbox: 'INBOX' }),
-    ).toEqual({ kind: 'apply', flag: true });
+    expect(decideMailAction(answers({ is_critical: 0.85 }), cfg)).toEqual({
+      kind: 'apply',
+      flag: true,
+    });
   });
 
   it('flags on importance.score>=3 AND confidence>=0.70', () => {
     const cfg = policy({ autoMove: false, autoFlag: true });
-    expect(
-      decideMailAction(answers({ importance: { score: 3, confidence: 0.7 } }), cfg, {
-        currentMailbox: 'INBOX',
-      }),
-    ).toEqual({ kind: 'apply', flag: true });
+    expect(decideMailAction(answers({ importance: { score: 3, confidence: 0.7 } }), cfg)).toEqual({
+      kind: 'apply',
+      flag: true,
+    });
   });
 
   it('does not flag importance confidence 0.69', () => {
     const cfg = policy({ autoMove: false, autoFlag: true });
     expect(
-      decideMailAction(answers({ importance: { score: 3.2, confidence: 0.69 } }), cfg, {
-        currentMailbox: 'INBOX',
-      }),
+      decideMailAction(answers({ importance: { score: 3.2, confidence: 0.69 } }), cfg),
     ).toEqual({ kind: 'noop', reason: 'auto_move_off' });
   });
 });

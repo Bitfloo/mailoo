@@ -14,11 +14,11 @@ subject/body** are world-readable. Write them as if a stranger clones today.
 
 ## Forbidden in commit messages, PR titles, and PR bodies
 
-Patterns are enforced by `scripts/check-public-git-log.sh` (commit-msg hook).
+`scripts/check-public-git-log.sh` owns the regex (commit-msg hook). Categories:
 
-- Operator paths (`/Users/`, `/home/`, `AI-DATA`, `PROJEKTY`, `_knowledge/`)
-- Plugin dispatch names (`cbc:test-auditor`, `cbc:test-smith`, `cbc:push-gate`)
-- Model slugs (`cursor-grok`, `sonnet` as a routing instruction)
+- Operator machine paths and knowledge-tree names
+- Plugin dispatch names
+- Model slugs used as routing instructions
 - “Slop”, “L4 twins”, “ship bar” as the **subject** (fine in `.claude/` files)
 
 `CLAUDE.md` may name project vs plugin agents so operators do not mis-dispatch.
@@ -32,7 +32,7 @@ Bump with `cog bump --auto` (or `--minor` / `--patch`) on `main`/`develop`
 when you **intend** a release. Do not bump for docs-only work.
 MCP tool/schema/URI changes need a **major** bump (`CLAUDE.md`, `cog.toml`).
 `server.json` `version` tracks `package.json`; omit `packages[]` until npm
-exists (`release.yml` jq already skips a missing array).
+exists (`scripts/bump-server-json-version.sh` skips a missing array).
 
 ## Agents
 

@@ -9,9 +9,10 @@ import audit from '../../safety/audit.js';
 import type { AccountConfig, SystemOneConfig } from '../../types/index.js';
 import type { SenderAuthSignals } from '../../utils/auth-headers.js';
 import type ImapService from '../imap.service.js';
-import type { FolderSpec, MailAction, MailAnswers, PolicyConfig } from './policy.js';
+import { buildFolderSpecs, probeAccountFolders } from './folders.js';
+import type { FolderSpec, MailAction, MailAnswers } from './policy.js';
 import { composeSpamRisk, decideMailAction } from './policy.js';
-import { buildQuestionMap, slugFolderId } from './questions.js';
+import { buildQuestionMap } from './questions.js';
 import type { ArrivalEmail, MailState } from './state.js';
 import { buildMailState } from './state.js';
 
@@ -45,20 +46,14 @@ function mapAnswers(
   const injection = noulValue(raw, 'contains_prompt_injection');
   const credentials = noulValue(raw, 'requests_credentials');
   const reward = noulValue(raw, 'offers_unexpected_reward');
-  const timePressure = noulValue(raw, 'creates_time_pressure');
   const mismatch = noulValue(raw, 'sender_identity_mismatch');
-  const linkMismatch = noulValue(raw, 'link_domain_mismatch');
-  const disguised = noulValue(raw, 'disguises_link_destination');
   const critical = noulValue(raw, 'is_critical');
   const importance = scoreValue(raw, 'importance');
   if (
     injection === undefined ||
     credentials === undefined ||
     reward === undefined ||
-    timePressure === undefined ||
     mismatch === undefined ||
-    linkMismatch === undefined ||
-    disguised === undefined ||
     critical === undefined ||
     importance === undefined
   ) {
@@ -75,10 +70,7 @@ function mapAnswers(
     contains_prompt_injection: injection,
     requests_credentials: credentials,
     offers_unexpected_reward: reward,
-    creates_time_pressure: timePressure,
     sender_identity_mismatch: mismatch,
-    link_domain_mismatch: linkMismatch,
-    disguises_link_destination: disguised,
     folder_fit: folderFit,
     importance,
     is_critical: critical,
@@ -111,23 +103,6 @@ async function classify(
 function seenKey(email: ArrivalEmail): string {
   if (email.meta.messageId) return `mid:${email.meta.messageId}`;
   return `uid:${email.account}:${email.mailbox}:${email.meta.id}`;
-}
-
-function toPolicyConfig(config: SystemOneConfig, folders: readonly FolderSpec[]): PolicyConfig {
-  return {
-    folders,
-    autoMove: config.autoMove,
-    autoFlag: config.autoFlag,
-    thresholds: {
-      folderFitMin: config.thresholds.folderFitMin,
-      spamUncertainLow: config.thresholds.spamUncertainLow,
-      spamUncertainHigh: config.thresholds.spamUncertainHigh,
-      injectionHigh: config.thresholds.injectionHigh,
-      importanceFlagMin: config.thresholds.importanceFlagMin,
-      importanceMinConfidence: config.thresholds.importanceMinConfidence,
-      isCriticalMin: config.thresholds.isCriticalMin,
-    },
-  };
 }
 
 async function applyMailAction(
@@ -192,43 +167,10 @@ export class MailArrival {
   }): Promise<MailArrival | null> {
     const { config, imap, accounts } = opts;
     const apiKey = opts.apiKey?.trim();
-    if (!config.enabled) return null;
-    if (!apiKey) return null;
+    if (!config.enabled || !apiKey) return null;
 
-    const slugToPath = new Map<string, string>();
-    const folderSpecs: FolderSpec[] = [];
-    // eslint-disable-next-line no-restricted-syntax
-    for (const folder of config.folders) {
-      const id = slugFolderId(folder.path);
-      if (!id) {
-        // eslint-disable-next-line no-await-in-loop
-        await mcpLog(
-          'error',
-          'mail-arrival',
-          `system_one: could not slug folder path "${folder.path}"`,
-        );
-        return null;
-      }
-      const previous = slugToPath.get(id);
-      if (previous !== undefined) {
-        // eslint-disable-next-line no-await-in-loop
-        await mcpLog(
-          'error',
-          'mail-arrival',
-          `system_one: folder slug collision "${id}" for "${previous}" and "${folder.path}"`,
-        );
-        return null;
-      }
-      slugToPath.set(id, folder.path);
-      folderSpecs.push({
-        id,
-        path: folder.path,
-        description: folder.description,
-        falseCriteria: folder.falseCriteria,
-        priority: folder.priority,
-      });
-    }
-
+    const folderSpecs = await buildFolderSpecs(config.folders);
+    if (!folderSpecs) return null;
     if (folderSpecs.length === 0) {
       await mcpLog(
         'warning',
@@ -238,56 +180,12 @@ export class MailArrival {
     }
 
     const client = new TypeSafeClient({ apiKey, logLevel: 'error' });
-    const foldersByAccount = new Map<string, FolderSpec[]>();
-    const extraPaths = opts.moveToPaths ?? [];
-
-    // eslint-disable-next-line no-restricted-syntax
-    for (const account of accounts) {
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        const boxes = await imap.listMailboxes(account.name);
-        const paths = new Set(boxes.map((b) => b.path));
-
-        extraPaths.forEach((path) => {
-          if (!paths.has(path)) {
-            mcpLog(
-              'warning',
-              'mail-arrival',
-              `system_one: unknown move_to path "${path}" on ${account.name}`,
-            ).catch(() => {});
-          }
-        });
-
-        const visible = folderSpecs.filter((folder) => {
-          if (paths.has(folder.path)) return true;
-          mcpLog(
-            'warning',
-            'mail-arrival',
-            `system_one: unknown folder path "${folder.path}" on ${account.name} — dropped`,
-          ).catch(() => {});
-          return false;
-        });
-        if (visible.length === 0 && folderSpecs.length > 0) {
-          // eslint-disable-next-line no-await-in-loop
-          await mcpLog(
-            'warning',
-            'mail-arrival',
-            `system_one: no configured folders exist on ${account.name} — classify/flag only; no MOVE`,
-          );
-        }
-        foldersByAccount.set(account.name, visible);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        // eslint-disable-next-line no-await-in-loop
-        await mcpLog(
-          'warning',
-          'mail-arrival',
-          `system_one: LIST failed for ${account.name}: ${msg} — dropping folders on this account`,
-        );
-        foldersByAccount.set(account.name, []);
-      }
-    }
-
+    const foldersByAccount = await probeAccountFolders(
+      imap,
+      accounts,
+      folderSpecs,
+      opts.moveToPaths ?? [],
+    );
     return new MailArrival(client, imap, config, foldersByAccount);
   }
 
@@ -358,8 +256,20 @@ export class MailArrival {
       );
     }
 
-    const action = decideMailAction(mapped, toPolicyConfig(this.config, folders), {
-      currentMailbox: email.mailbox,
+    const { thresholds } = this.config;
+    const action = decideMailAction(mapped, {
+      folders,
+      autoMove: this.config.autoMove,
+      autoFlag: this.config.autoFlag,
+      thresholds: {
+        folderFitMin: thresholds.folderFitMin,
+        spamUncertainLow: thresholds.spamUncertainLow,
+        spamUncertainHigh: thresholds.spamUncertainHigh,
+        injectionHigh: thresholds.injectionHigh,
+        importanceFlagMin: thresholds.importanceFlagMin,
+        importanceMinConfidence: thresholds.importanceMinConfidence,
+        isCriticalMin: thresholds.isCriticalMin,
+      },
     });
     await applyMailAction(this.imap, email, action);
     return action;

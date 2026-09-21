@@ -37,10 +37,7 @@ export interface MailAnswers {
   contains_prompt_injection: number;
   requests_credentials: number;
   offers_unexpected_reward: number;
-  creates_time_pressure: number;
   sender_identity_mismatch: number;
-  link_domain_mismatch: number;
-  disguises_link_destination: number;
   folder_fit: ReadonlyMap<string, number>;
   importance: { score: number; confidence: number };
   is_critical: number;
@@ -73,7 +70,6 @@ function clamp01(n: number): number {
   return n;
 }
 
-/** Cookbook mix. time_pressure and link nouls are fetched but unweighted in v1. */
 export function composeSpamRisk(a: MailAnswers): number {
   return clamp01(
     CREDENTIALS_WEIGHT * a.requests_credentials +
@@ -111,11 +107,7 @@ function pickDestination(answers: MailAnswers, config: PolicyConfig): string | u
   return best?.path;
 }
 
-export function decideMailAction(
-  answers: MailAnswers,
-  config: PolicyConfig,
-  _ctx: { currentMailbox: string },
-): MailAction {
+export function decideMailAction(answers: MailAnswers, config: PolicyConfig): MailAction {
   const injection = answers.contains_prompt_injection;
   if (
     injection >= config.thresholds.injectionHigh ||

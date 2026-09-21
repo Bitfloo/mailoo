@@ -1,10 +1,7 @@
-/** Classify-contract strings for System One folder and action questions. */
-
 import type { Questions } from '@typesafe-ai/sdk';
 import { noul, score } from '@typesafe-ai/sdk';
 import type { FolderSpec } from './policy.js';
 
-/** lowercase; non-alphanumeric → `_`; collapse repeats; trim `_`. */
 export function slugFolderId(path: string): string {
   return path
     .toLowerCase()
@@ -47,34 +44,12 @@ export function buildQuestionMap(folders: readonly FolderSpec[]): Questions {
           'Contains no reward claim, or discusses an expected payment such as a known refund or payroll deposit.',
       },
     ),
-    creates_time_pressure: noul(
-      'Does `message.subject` or `message.body` pressure the recipient to act quickly?',
-      {
-        true: 'Pressures the recipient to act immediately or lose access, money, or a reward.',
-        false: 'No deadline pressure, or a real operational deadline stated without a threat.',
-      },
-    ),
     sender_identity_mismatch: noul(
       'Does the organization named in `message.sender.display_name` conflict with the domain in `message.sender.email`?',
       {
         true: 'Claims an organization unrelated to the email domain.',
         false:
           'The identity and domain agree, or the display name makes no conflicting organizational claim.',
-      },
-    ),
-    link_domain_mismatch: noul(
-      'Does any URL in `message.links` use a domain that conflicts with the organization named in `message.sender.display_name`?',
-      {
-        true: 'A link domain is unrelated to the named organization.',
-        false:
-          'There are no links, or every link domain is consistent with the named organization (or no organization is claimed).',
-      },
-    ),
-    disguises_link_destination: noul(
-      'Does any `message.links` entry have `text` that conceals or misrepresents the destination in `url`?',
-      {
-        true: 'Link text conceals or misrepresents the destination URL.',
-        false: "There are no links, or each link's text fairly represents its destination.",
       },
     ),
     is_critical: noul(
