@@ -18,6 +18,10 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 See [docs/configuration.md](docs/configuration.md) and
 [docs/tools.md](docs/tools.md).
 
+## [0.1.1] — 2026-09-21
+
+- Adopt patch-only **0.1.x** versioning (`cog bump --auto` advances patch, including `feat`)
+
 ## [0.1.0] — 2026-09-20
 
 First Mailoo release. Public LGPL-3.0-or-later fork of

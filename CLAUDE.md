@@ -34,7 +34,7 @@ See `README.md` for the feature list, `docs/` for deeper guides, and
 | Test agents | Project `test-auditor` / `test-smith` in `.claude/agents/` (Claude Code, `model: sonnet`) and `.cursor/agents/` (Cursor, `model: cursor-grok-4.6-xhigh` minimum). Same body; rubric: `.claude/rules/testing-doctrine.md`. After new or changed tests, run `test-auditor` in a **fresh** session on the same files (not the author). Do not dispatch `cbc:test-auditor` or `cbc:test-smith` in this repo. |
 | Public OSS face | Project `oss-repo-readiness`, `oss-public-face`, `oss-pr-steward` (PR/log), `oss-push-gate` (pre-push log + slop). Cursor, `model: cursor-grok-4.6-xhigh`. Rubric: `.claude/rules/public-git.md`. Read-only. Merge and release stay in this repo (`CONTRIBUTING.md`, `cog`, goreleaser). |
 | Pre-commit hooks | lefthook |
-| Versioning / changelog | cocogitto (`cog.toml`, `CHANGELOG.md`, tags `v*`). Current package is `0.1.0`. `cog bump --auto` on release; MCP API breaks need a major bump. |
+| Versioning / changelog | cocogitto (`cog.toml`, `CHANGELOG.md`, tags `v*`). Current package is `0.1.1`. On **0.1.x**, `cog bump --auto` is patch-only (`feat` uses `bump_patch`); MCP API breaks need a major bump. |
 | Release | goreleaser |
 
 Always run `pnpm ci:local` before declaring work done (lint, typecheck, unit;

@@ -3,8 +3,9 @@
 # ==============================================================================
 # Docs: https://docs.cocogitto.io/reference/config.html
 #
+# Patch-only 0.1.x: operator labels like 0.1.001 map to 0.1.1 (SemVer rejects leading zeros).
 # Quick Commands:
-#   cog bump --auto          # Auto-bump based on commit types
+#   cog bump --auto          # Auto-bump based on commit types (patch-only while on 0.1.x)
 #   cog bump --minor         # Manual minor bump
 #   cog bump --patch         # Manual patch bump
 #   cog check                # Verify commit history
@@ -51,7 +52,7 @@ post_bump_hooks = [
 # Commit Types
 # ------------------------------------------------------------------------------
 [commit_types]
-feat = { changelog_title = "✨ Features" }
+feat = { changelog_title = "✨ Features", bump_patch = true }
 fix = { changelog_title = "🐛 Bug Fixes" }
 perf = { changelog_title = "⚡ Performance" }
 refactor = { changelog_title = "♻️ Refactoring" }
