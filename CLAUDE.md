@@ -15,7 +15,8 @@ scheduling, organising, and analysing email across multiple accounts.
 - **Package manager**: pnpm 9 (do not introduce npm or yarn).
 - **Transport modes**: stdio (default), Streamable HTTP.
 - **License**: LGPL-3.0-or-later.
-- **Public repo**: be mindful that issue and PR comments are world-readable.
+- **Public repo**: issue and PR comments are world-readable. Committed docs
+  name this tree only — no plugin-internal paths, no changelog-as-comment.
 
 See `README.md` for the feature list and `docs/` for deeper guides.
 
@@ -28,19 +29,19 @@ See `README.md` for the feature list and `docs/` for deeper guides.
 | Combined static checks | `pnpm check` (Biome + ESLint) |
 | Type-check | `pnpm typecheck` |
 | Unit tests | Vitest (`pnpm test`) — include list in `vitest.config.ts` |
-| Integration tests | Vitest with `vitest.config.integration.ts` (`pnpm test:integration`) — GreenMail, a disposable **test IMAP/SMTP server** (Docker only wraps that process; not a database) |
-| Test agents | Project `test-auditor` / `test-smith` in `.claude/agents/` (Claude Code, `model: sonnet`) and `.cursor/agents/` (Cursor, `model: cursor-grok-4.6-xhigh` minimum). Same body; rubric: `.claude/rules/testing-doctrine.md`. After new or changed tests, run `test-auditor` in a **fresh** session on the same files (not the author). **Do not** dispatch `cbc:test-auditor` or `cbc:test-smith` in this repo — those read Bitfloo `_knowledge/testing-doctrine.md`, which is not Mailoo's rubric. |
+| Integration tests | Vitest with `vitest.config.integration.ts` (`pnpm test:integration`) — GreenMail IMAP/SMTP in Docker |
+| Test agents | Project `test-auditor` / `test-smith` in `.claude/agents/` (Claude Code, `model: sonnet`) and `.cursor/agents/` (Cursor, `model: cursor-grok-4.6-xhigh` minimum). Same body; rubric: `.claude/rules/testing-doctrine.md`. After new or changed tests, run `test-auditor` in a **fresh** session on the same files (not the author). Do not dispatch `cbc:test-auditor` or `cbc:test-smith` in this repo. |
+| Public OSS face | Project `oss-repo-readiness` (docs/CI/license/leaks) and `oss-public-face` (README/install/attribution) in `.cursor/agents/` (Cursor, `model: cursor-grok-4.6-xhigh`). Read-only. Merge and release stay in this repo (`CONTRIBUTING.md`, goreleaser). |
 | Pre-commit hooks | lefthook |
 | Versioning / changelog | cocogitto (`cog`) |
 | Release | goreleaser |
 
 Always run `pnpm check && pnpm typecheck && pnpm test` before declaring
-work done. Mailoo has no mail database — IMAP is the store. For changes
-touching IMAP/SMTP, watcher, scheduler, or transport, run
-`pnpm test:integration` as well: it boots GreenMail (a throwaway test
-mailbox speaking real IMAP/SMTP). That needs Docker locally; without it,
-skip the job — CI still runs it. `pnpm test:all` is unit plus that server.
-Lefthook pre-push stays unit-only.
+work done. For changes touching IMAP/SMTP, watcher, scheduler, or transport,
+run `pnpm test:integration` as well (needs Docker; skip locally if it is
+not running — CI still runs it). `pnpm test:all` is unit plus that job.
+Lefthook pre-push stays unit-only. `mailoo test` / `src/cli/test.ts` is a
+CLI connection probe, not Vitest.
 
 ## Conventions to follow
 
@@ -82,8 +83,7 @@ Lefthook pre-push stays unit-only.
 2. `pnpm typecheck` — no type errors.
 3. `pnpm test` — unit tests green.
 4. `pnpm test:integration` — required for IMAP/SMTP, watcher,
-   scheduler, or transport changes. Starts GreenMail (test mail
-   server), not a database. CI runs it on every push/PR. Locally it
-   needs Docker; lefthook pre-push does not run it.
+   scheduler, or transport changes. Needs Docker. CI runs it on
+   every push/PR. Lefthook pre-push does not.
 5. For Docker-affecting changes: `pnpm docker:build` succeeds.
 6. For workflow changes: `actionlint` clean (`pnpm report` includes it).

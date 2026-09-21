@@ -1,6 +1,7 @@
 # Smithery configuration — https://smithery.ai/docs/build
 # Lists mailoo on the Smithery MCP marketplace.
-# Config is stored locally via `mailoo account add`; no runtime secrets needed here.
+# `@bitfloo/mailoo` is not on npmjs yet — launch the built clone, not npx.
+# Config is stored locally via `node dist/main.js account add`; no runtime secrets here.
 startCommand:
   type: stdio
   configSchema:
@@ -9,6 +10,6 @@ startCommand:
     additionalProperties: false
   commandFunction: |-
     (config) => ({
-      command: "npx",
-      args: ["-y", "@bitfloo/mailoo", "stdio"]
+      command: "node",
+      args: ["dist/main.js", "stdio"]
     })

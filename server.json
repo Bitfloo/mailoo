@@ -12,7 +12,6 @@
       "registryType": "npm",
       "identifier": "@bitfloo/mailoo",
       "version": "0.1.0",
-      "runtimeHint": "npx",
       "commandArguments": ["stdio"],
       "transport": {
         "type": "stdio"

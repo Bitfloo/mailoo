@@ -85,7 +85,7 @@ body:
     id: node
     attributes:
       label: Node.js version
-      placeholder: v22.0.0
+      placeholder: v24.0.0
 
   - type: input
     id: os

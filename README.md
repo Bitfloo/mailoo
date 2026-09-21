@@ -16,22 +16,22 @@ Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, and read-onl
 
 ## Highlights
 
-| Feature | Mailoo | Typical MCP email |
-|---------|:---------:|:-----------------:|
-| Multi-account | ✅ | ❌ |
-| Send / reply / forward | ✅ | ✅ |
-| Drafts & templates | ✅ | ❌ |
-| Labels & bulk ops | ✅ provider-aware | ❌ |
-| Schedule future emails | ✅ | ❌ |
-| Real-time IMAP IDLE watcher | ✅ | ❌ |
-| AI triage with presets | ✅ | ❌ |
-| Desktop & webhook alerts | ✅ | ❌ |
-| Calendar (ICS) extraction | ✅ | ❌ |
-| Email analytics | ✅ | ❌ |
-| OAuth2 (Gmail / M365) | ✅ _experimental_ | ❌ |
-| Guided setup wizard | ✅ auto-detect | ❌ |
-| ManageSieve (server-side filters) | ✅ | ❌ |
-| Sender auth headers (SPF/DKIM/DMARC) | ✅ | ❌ |
+| Feature | In this tree |
+|---------|:------------:|
+| Multi-account IMAP/SMTP | ✅ |
+| Send / reply / forward | ✅ |
+| Drafts & templates | ✅ |
+| Provider-aware labels & bulk ops | ✅ |
+| Schedule future emails | ✅ |
+| Real-time IMAP IDLE watcher | ✅ |
+| AI triage with presets | ✅ |
+| Desktop & webhook alerts | ✅ |
+| Calendar (ICS) extraction | ✅ |
+| Email analytics | ✅ |
+| OAuth2 (Gmail / M365) | ✅ _experimental_ |
+| Guided setup wizard | ✅ |
+| ManageSieve (server-side filters) | ✅ |
+| Sender auth headers (SPF/DKIM/DMARC) | ✅ |
 
 ## Table of Contents
 
@@ -112,7 +112,7 @@ pnpm add -g @bitfloo/mailoo
 
 ### Docker
 
-No Node.js required — just Docker. **`ghcr.io/bitfloo/mailoo` is not published for anonymous pull.** Build locally (`docker-compose.yml` uses `build: .`):
+The **running image** needs Docker, not Node on the host. **First-time config** still needs a local clone (`node dist/main.js setup` after `pnpm build`) or a hand-written TOML, then mount that config into the container. **`ghcr.io/bitfloo/mailoo` is not published for anonymous pull.** Build locally (`docker-compose.yml` uses `build: .`):
 
 ```bash
 docker build -t ghcr.io/bitfloo/mailoo .
@@ -148,6 +148,8 @@ The setup wizard auto-detects server settings, tests connections, saves config, 
 node dist/main.js test            # all accounts
 node dist/main.js test personal   # specific account
 ```
+
+`node dist/main.js test` / `mailoo test` is a **live-account connection probe**, not Vitest. Unit and integration tests are `pnpm test` / `pnpm test:integration` (see [Contributing](#contributing)).
 
 ### Configure Your MCP Client
 
@@ -363,8 +365,10 @@ Same idea for Zed (`path`: `npx`) and Vibe (`command = "npx"`). Until then, `npx
 
 ### CLI Commands
 
+Until npm publish, invoke these as `node dist/main.js <command>` from a built clone (or `mailoo <command>` if that bin is on your PATH).
+
 ```
-mailoo [command]
+node dist/main.js [command]
 
 Commands:
   stdio                     Run as MCP server over stdio (default)
@@ -490,8 +494,8 @@ Sent copies, IMAP4rev2, Sieve host/port, and `read_only` env vars:
 The scheduler enables future email delivery with a layered architecture:
 
 1. **MCP auto-check** — Processes the queue on server startup and every 60 seconds while the MCP server is running
-2. **CLI** — `mailoo scheduler check` for manual or cron-based processing
-3. **OS-level daemon** — `mailoo scheduler install` sets up launchd (macOS) or crontab (Linux) to run every minute, independently of the MCP server
+2. **CLI** — `node dist/main.js scheduler check` for manual or cron-based processing
+3. **OS-level daemon** — `node dist/main.js scheduler install` sets up launchd (macOS) or crontab (Linux) to run every minute, independently of the MCP server
 
 > **Important — the daemon must be installed for reliable delivery.**
 > Without it, scheduled emails only fire while an AI client is actively connected.
@@ -503,19 +507,19 @@ The scheduler enables future email delivery with a layered architecture:
 
 ```bash
 # Install (macOS launchd / Linux crontab — runs every minute)
-mailoo scheduler install
+node dist/main.js scheduler install
 
 # Verify it's running
-mailoo scheduler status
+node dist/main.js scheduler status
 
 # View pending / sent / failed scheduled emails
-mailoo scheduler list
+node dist/main.js scheduler list
 
 # Trigger a manual check immediately
-mailoo scheduler check
+node dist/main.js scheduler check
 
 # Remove the daemon
-mailoo scheduler uninstall
+node dist/main.js scheduler uninstall
 ```
 
 Scheduled emails are stored as JSON files in `~/.local/state/mailoo/scheduled/` with status-based locking. Each entry tracks attempts (max 3) and the last error, so you can inspect failures with `scheduler list`.
@@ -898,11 +902,14 @@ when editing this README. See [CONTRIBUTING.md](CONTRIBUTING.md).
 pnpm install
 pnpm typecheck          # type check
 pnpm check              # lint and format
-pnpm test               # unit tests
+pnpm test               # unit tests (Vitest; no mail server)
 pnpm test:integration   # GreenMail IMAP/SMTP (needs Docker)
+pnpm test:all           # unit plus GreenMail
 pnpm build              # build
 pnpm start              # run
 ```
+
+`pnpm test:integration` and `pnpm test:all` need Docker. Skip them locally if Docker is not running; CI runs the integration job. Lefthook pre-push is unit only. `mailoo test` / `node dist/main.js test` is a live-account connection probe, not Vitest.
 
 ## License
 

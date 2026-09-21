@@ -42,7 +42,14 @@ describe('published identity', () => {
     expect(server.packages[0]?.version).toBe(pkg.version);
   });
 
-  it('keeps smithery on the npm package name', () => {
+  it('does not advertise npx while the package is unpublished', () => {
+    expect(JSON.stringify(server)).not.toContain('npx');
+  });
+
+  it('keeps smithery on the npm package name without pretending npx works', () => {
     expect(smithery).toContain(pkg.name);
+    expect(smithery).toContain('node');
+    expect(smithery).toContain('dist/main.js');
+    expect(smithery).not.toMatch(/"npx"/);
   });
 });

@@ -28,7 +28,7 @@ LGPL-3.0-or-later (see [LICENSE](LICENSE) and [COPYING](COPYING)).
 ### Prerequisites
 
 - **Node.js** >= 24.0.0
-- **pnpm** (package manager)
+- **pnpm** 9 (see `packageManager` in `package.json`)
 
 ### Commands
 
@@ -43,12 +43,10 @@ LGPL-3.0-or-later (see [LICENSE](LICENSE) and [COPYING](COPYING)).
 | `pnpm format:check` | Check formatting |
 | `pnpm check` | Run both Biome and ESLint |
 | `pnpm test` | Unit tests (in-process; no mail server) |
-| `pnpm test:integration` | Protocol tests against **GreenMail**, a disposable test IMAP/SMTP server in Docker — not a database |
+| `pnpm test:integration` | Protocol tests against **GreenMail** (test IMAP/SMTP server in Docker) |
 | `pnpm test:all` | Unit plus GreenMail |
 
-Mailoo stores mail on IMAP, not in SQL. `pnpm test` never starts a database.
-`pnpm test:integration` needs Docker only because GreenMail is a Java mail
-server packaged as a container. Skip it locally if Docker is not running;
+`pnpm test:integration` needs Docker. Skip it locally if Docker is not running;
 CI runs it on every push and pull request. Lefthook pre-push is unit only.
 `mailoo test` is a live-account connection probe, not Vitest.
 
