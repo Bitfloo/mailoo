@@ -1,6 +1,4 @@
-/**
- * System One question battery. Instruction strings are copied from the pipeline tables.
- */
+/** Classify-contract strings for System One folder and action questions. */
 
 import type { Questions } from '@typesafe-ai/sdk';
 import { noul, score } from '@typesafe-ai/sdk';

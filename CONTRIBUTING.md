@@ -59,7 +59,10 @@ CI runs it on every push and pull request. Lefthook pre-push is unit only.
 
 ### Commit Messages
 
-We follow [Conventional Commits](https://www.conventionalcommits.org/):
+We follow [Conventional Commits](https://www.conventionalcommits.org/).
+Cocogitto (`cog`) verifies the format. Lefthook also rejects messages that
+would leak operator paths or plugin dispatch names on public GitHub
+(`.claude/rules/public-git.md`).
 
 ```
 feat: add calendar event parsing
@@ -68,6 +71,13 @@ docs: update configuration guide
 refactor: extract connection retry logic
 test: add rate limiter unit tests
 ```
+
+Do not name internal plugins, model slugs, or machine paths in the subject
+or body. Do not rewrite commits that are already on GitHub.
+
+Releases: `package.json` `version`, annotated tags `v*`, `CHANGELOG.md`
+(cocogitto). First Mailoo release is **0.1.0**. Use `cog bump --auto` when
+you mean to cut a version — not for every docs PR.
 
 ## Project Structure
 

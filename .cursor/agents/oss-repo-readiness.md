@@ -29,16 +29,17 @@ Bash is read-only: `git ls-files`, `git status`, `git tag`, `test`, `command -v`
 
 Inventory in one batch, then read, then grep. Skip a lane only with UNAUDITED + reason.
 
-1. **R1 fileset** — Glob/Read: `README.md`, `CONTRIBUTING.md`, `CLAUDE.md` and/or `AGENTS.md`, `LICENSE`, `COPYING`, `NOTICE`, `SECURITY.md`, `package.json` (or language manifest), `CHANGELOG.md`, `server.json`, `.gitignore`, `.github/workflows/*`. Missing LICENSE → CRITICAL. Missing README → CRITICAL. Missing CONTRIBUTING or CLAUDE.md/AGENTS.md on an agent-facing repo → WARN.
+1. **R1 fileset** — Glob/Read: `README.md`, `CONTRIBUTING.md`, `CLAUDE.md` and/or `AGENTS.md`, `LICENSE`, `COPYING`, `NOTICE`, `SECURITY.md`, `package.json` (or language manifest), `CHANGELOG.md`, `server.json`, `.gitignore`, `.github/workflows/*`, `.claude/rules/public-git.md` when this is a public GitHub repo. Missing LICENSE → CRITICAL. Missing README → CRITICAL. Missing CONTRIBUTING or CLAUDE.md/AGENTS.md on an agent-facing repo → WARN.
 2. **R2 license/docs agreement** — SPDX in the manifest vs LICENSE family vs README/CONTRIBUTING license section vs NOTICE/COPYING when the license is LGPL. Three-way mismatch → CRITICAL or WARN by whether a downstream would pick the wrong license.
 3. **R3 engines vs CI** — `package.json` `engines` / `packageManager` (or equivalent) vs workflow `node-version` / setup steps vs README/CONTRIBUTING/CLAUDE.md prerequisites. CI below declared engines → CRITICAL. Docs vs engines drift → WARN.
 4. **R4 version/changelog** — manifest version, `CHANGELOG.md` latest **released** heading (not Unreleased), `server.json` `version` + npm identifier when present, git tags if any. Publishing the wrong version → CRITICAL. Changelog silent on the declared version → WARN.
 5. **R5 doc links** — markdown links and relative paths in README, CONTRIBUTING, CLAUDE.md, `docs/**`. Resolve relative to the file; missing target → WARN. Missing heading anchor → WARN. HTTP URLs: do not require network; mark UNAUDITED unless the path is obviously typo'd. Do not fetch private hosts.
 6. **R6 workflows** — each `.github/workflows/*.yml`: `name:` lowercase kebab-case; explicit `permissions:`; no call-out to a private/shared workflow the public clone cannot run. If `actionlint` exists, run it and quote findings; else inspect YAML and UNAUDITED the binary. Invalid workflow that would fail CI → WARN or CRITICAL.
-7. **R7 registry metadata** — if the repo is an MCP server or publishes a package: `server.json` `name` / `description` / `repository` / `packages[].identifier` vs `package.json` `name` / `mcpName` / `version`. Absent `server.json` when README claims MCP registry → WARN. Non-MCP repo: N/A, not a finding.
+7. **R7 registry metadata** — if the repo is an MCP server or publishes a package: `server.json` `name` / `description` / `repository` vs `package.json` `name` / `mcpName` / `version`. `packages[]` is optional until the npm package exists; a missing array is not a finding when README says unpublished. Absent `server.json` when README claims MCP registry → WARN. Non-MCP repo: N/A, not a finding.
 8. **R8 leaks in docs** — Grep committed markdown, YAML, JSON (not `node_modules`) for absolute home paths (`/Users/` or `/home/`), tilde-home plus `AI-DATA` or `PROJEKTY`, other-client slugs, `_knowledge/` as an **operator** path, credentials, private keys, tokens, `.env` values. Redact secrets (first 20 chars + `***`). Absolute machine paths or live secrets in docs → CRITICAL. Defer a full source/CVE/history secret scan to `cbc:security-auditor`. Do not flag this agent's own leak-pattern list.
 9. **R9 test scripts documented** — Read `package.json` `scripts` (never infer the runner). README/CONTRIBUTING/CLAUDE.md must name unit vs integration vs all, and when Docker is required. If a CLI bin has a `test` subcommand, docs must say it is **not** the unit runner. Canonical: Mailoo `mailoo test` is a live-account connection probe, not Vitest. Lane mix-up in docs → WARN. Missing any documented way to run tests when scripts exist → WARN.
 10. **R10 .gitignore** — `.env`, `.env.*`, credentials, keys, `node_modules`, coverage, editor junk ignored; lockfile **tracked**; LICENSE/source not ignored. Tracked secret file → CRITICAL. Missing `.env` ignore → WARN.
+11. **R11 public git** — `.claude/rules/public-git.md` exists. `scripts/check-public-git-log.sh` is executable. Lefthook `commit-msg` runs it. Unpushed range is **oss-pr-steward** / **oss-push-gate**, not this lane.
 
 Do not score README hype, badge taste, or contributor warmth — name `oss-public-face` in UNAUDITED/INFO if that is what you saw.
 
@@ -63,7 +64,7 @@ SCORE: N/10
 
 VERDICT: PASS | FAIL | ABORTED: <reason> | NEEDS_INPUT: <what>
 
-COVERAGE: R1–R10 — skipped: <lanes or none>
+COVERAGE: R1–R11 — skipped: <lanes or none>
 
 FINDINGS:
 1. [CRITICAL|WARN|INFO] path:line — R{n} — description
@@ -86,7 +87,7 @@ When the question is whether a **public OSS** tree is consistent, CI-aligned, an
 <example>
   Context: Mailoo is about to be treated as the public GitHub face.
   user: "Czy repo jest gotowe na GitHub?"
-  assistant: "oss-repo-readiness — R1–R10 on this checkout, SCORE/VERDICT/FINDINGS, no edits."
+  assistant: "oss-repo-readiness — R1–R11 on this checkout, SCORE/VERDICT/FINDINGS, no edits."
   <commentary>Polish readiness trigger. Health, not marketing.</commentary>
 </example>
 

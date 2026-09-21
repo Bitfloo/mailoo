@@ -5,8 +5,8 @@
 #
 # Install hooks: pnpm lefthook install
 #
-# pre-push runs unit tests only (`pnpm test`). Integration boots GreenMail
-# (a test IMAP/SMTP server in Docker, not a database) and runs in CI.
+# pre-push runs `pnpm test` (unit). Integration (`pnpm test:integration`)
+# needs Docker and runs in CI.
 # ==============================================================================
 
 pre-commit:
@@ -42,6 +42,7 @@ commit-msg:
           echo ""
           exit 1
         }
+        bash scripts/check-public-git-log.sh --file {1}
 
 pre-push:
   parallel: true

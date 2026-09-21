@@ -31,9 +31,9 @@ See `README.md` for the feature list and `docs/` for deeper guides.
 | Unit tests | Vitest (`pnpm test`) — include list in `vitest.config.ts` |
 | Integration tests | Vitest with `vitest.config.integration.ts` (`pnpm test:integration`) — GreenMail IMAP/SMTP in Docker |
 | Test agents | Project `test-auditor` / `test-smith` in `.claude/agents/` (Claude Code, `model: sonnet`) and `.cursor/agents/` (Cursor, `model: cursor-grok-4.6-xhigh` minimum). Same body; rubric: `.claude/rules/testing-doctrine.md`. After new or changed tests, run `test-auditor` in a **fresh** session on the same files (not the author). Do not dispatch `cbc:test-auditor` or `cbc:test-smith` in this repo. |
-| Public OSS face | Project `oss-repo-readiness` (docs/CI/license/leaks) and `oss-public-face` (README/install/attribution) in `.cursor/agents/` (Cursor, `model: cursor-grok-4.6-xhigh`). Read-only. Merge and release stay in this repo (`CONTRIBUTING.md`, goreleaser). |
+| Public OSS face | Project `oss-repo-readiness`, `oss-public-face`, `oss-pr-steward` (PR/log), `oss-push-gate` (pre-push log + slop). Cursor, `model: cursor-grok-4.6-xhigh`. Rubric: `.claude/rules/public-git.md`. Read-only. Merge and release stay in this repo (`CONTRIBUTING.md`, `cog`, goreleaser). |
 | Pre-commit hooks | lefthook |
-| Versioning / changelog | cocogitto (`cog`) |
+| Versioning / changelog | cocogitto (`cog.toml`, `CHANGELOG.md`, tags `v*`). Current package is `0.1.0`. `cog bump --auto` on release; MCP API breaks need a major bump. |
 | Release | goreleaser |
 
 Always run `pnpm check && pnpm typecheck && pnpm test` before declaring
@@ -47,7 +47,10 @@ CLI connection probe, not Vitest.
 
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`,
   `test:`, `chore:`, `ci:`). cocogitto enforces this. Use `pnpm commit`
-  if unsure.
+  if unsure. Lefthook also runs `scripts/check-public-git-log.sh` — no
+  operator paths or plugin dispatch names in the message (`.claude/rules/public-git.md`).
+  Before `git push`, run project `oss-push-gate` (and `oss-pr-steward` if the
+  log is the PR). Do not rewrite published history.
 - **Branches**: GitHub default is `develop`. Topic branches off `develop`;
   PRs target `develop`. `main` is the release line, kept in sync with
   `develop` (`develop` → `main` merges).

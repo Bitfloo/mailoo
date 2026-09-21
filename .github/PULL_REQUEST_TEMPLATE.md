@@ -1,6 +1,7 @@
 ## Description
 
-Brief description of what this PR does.
+What changed and why it matters to a clone of this repo. No operator paths,
+plugin dispatch names, or model slugs (see `.claude/rules/public-git.md`).
 
 ## Type of change
 
@@ -17,4 +18,6 @@ Brief description of what this PR does.
 - [ ] I have run `pnpm typecheck` and it passes
 - [ ] I have added tests that prove my fix/feature works (if applicable)
 - [ ] I have updated documentation (if applicable)
+- [ ] Commit messages pass Conventional Commits + `scripts/check-public-git-log.sh`
+- [ ] Breaking MCP tool/schema/URI changes bump the major version (`cog.toml`)
 - [ ] My changes generate no new warnings
