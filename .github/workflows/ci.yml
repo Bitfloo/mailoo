@@ -1,11 +1,17 @@
 name: ci
 
+# Unit/lint live in scripts/ci-local.sh (lefthook pre-push). This workflow is
+# linux GreenMail + image, plus a full suite on pull_request (we cannot assume
+# a contributor ran the hook). Operator pushes do not start it.
 on:
-  push:
-    branches: [main, develop]
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
+    inputs:
+      include-unit:
+        description: Also run lint and unit tests (lefthook already does this)
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,6 +23,7 @@ permissions:
 jobs:
   check:
     name: Check, typecheck, test
+    if: ${{ github.event_name == 'pull_request' || inputs.include-unit }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -44,8 +51,6 @@ jobs:
 
   integration:
     name: Integration tests
-    # Protocol tests against GreenMail (IMAP/SMTP in Docker). Runs on
-    # push/PR — a dispatch-only job hid regressions from PR CI.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

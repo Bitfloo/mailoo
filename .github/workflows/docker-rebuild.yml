@@ -1,8 +1,8 @@
 name: docker-rebuild
 
+# Rebuild GHCR from the Dockerfile (base-image patches). Not a test suite.
 on:
   schedule:
-    # Weekly on Monday at 06:00 UTC — picks up base image security patches
     - cron: "0 6 * * 1"
   workflow_dispatch:
 

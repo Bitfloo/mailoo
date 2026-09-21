@@ -116,8 +116,8 @@ describe('test-smith L4 doctrine', () => {
     expect(systemPromptWords(claude).length).toBeLessThanOrEqual(SYSTEM_PROMPT_MAX_WORDS);
   });
 
-  it('does not cite CBC plugin paths in the agent file', () => {
-    expect(claude).not.toContain('_knowledge/testing-doctrine.md');
+  it('does not cite plugin-internal paths in the agent file', () => {
+    expect(claude).not.toMatch(/_knowledge\//);
     expect(claude).not.toContain('skills/cbc-internals');
     expect(claude).not.toContain('rules/cbc-engineering-principles.md');
     expect(claude).not.toMatch(/\/Users\//);

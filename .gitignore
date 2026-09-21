@@ -349,7 +349,7 @@ package-lock.json
 .tmp*
 *.tmp
 
-# Local CBC / agent runtime — this is a public OSS repo, not a private bubble.
+# Local agent scratch (not published).
 # Keep published contributor agents: .claude/agents/, .cursor/agents/,
 # .claude/rules/testing-doctrine.md, tests/agents/
 .cbc/

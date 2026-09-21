@@ -27,6 +27,7 @@
     "lint:fix": "eslint src/ --fix",
     "format": "biome format --write src/",
     "format:check": "biome check src/",
+    "ci:local": "bash scripts/ci-local.sh",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

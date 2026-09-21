@@ -5,8 +5,8 @@
 #
 # Install hooks: pnpm lefthook install
 #
-# pre-push runs `pnpm test` (unit). Integration (`pnpm test:integration`)
-# needs Docker and runs in CI.
+# pre-push runs scripts/ci-local.sh (unit always; GreenMail when Docker is up).
+# GitHub Actions does not repeat that on operator pushes.
 # ==============================================================================
 
 pre-commit:
@@ -45,9 +45,6 @@ commit-msg:
         bash scripts/check-public-git-log.sh --file {1}
 
 pre-push:
-  parallel: true
   commands:
-    test:
-      run: pnpm test
-    check:
-      run: pnpm check
+    ci-local:
+      run: bash scripts/ci-local.sh

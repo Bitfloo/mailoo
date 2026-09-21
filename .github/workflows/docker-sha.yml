@@ -1,8 +1,7 @@
 name: docker-sha
 
+# SHA tags on demand. Release already publishes version tags to GHCR.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:

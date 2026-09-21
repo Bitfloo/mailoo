@@ -37,12 +37,12 @@ See `README.md` for the feature list, `docs/` for deeper guides, and
 | Versioning / changelog | cocogitto (`cog.toml`, `CHANGELOG.md`, tags `v*`). Current package is `0.1.0`. `cog bump --auto` on release; MCP API breaks need a major bump. |
 | Release | goreleaser |
 
-Always run `pnpm check && pnpm typecheck && pnpm test` before declaring
-work done. For changes touching IMAP/SMTP, watcher, scheduler, or transport,
-run `pnpm test:integration` as well (needs Docker; skip locally if it is
-not running — CI still runs it). `pnpm test:all` is unit plus that job.
-Lefthook pre-push stays unit-only. `mailoo test` / `src/cli/test.ts` is a
-CLI connection probe, not Vitest.
+Always run `pnpm ci:local` before declaring work done (lint, typecheck, unit;
+GreenMail when Docker is up; `pnpm ci:local -- --image` also builds the image).
+GitHub Actions does **not** repeat unit CI on operator pushes — it runs linux
+GreenMail + image on pull requests, and the same on `workflow_dispatch`. Tick
+`include-unit` on dispatch only when lefthook did not run. `mailoo test` /
+`src/cli/test.ts` is a CLI connection probe, not Vitest.
 
 ## Conventions to follow
 
@@ -87,7 +87,7 @@ CLI connection probe, not Vitest.
 2. `pnpm typecheck` — no type errors.
 3. `pnpm test` — unit tests green.
 4. `pnpm test:integration` — required for IMAP/SMTP, watcher,
-   scheduler, or transport changes. Needs Docker. CI runs it on
-   every push/PR. Lefthook pre-push does not.
-5. For Docker-affecting changes: `pnpm docker:build` succeeds.
+   scheduler, or transport changes. Needs Docker. `pnpm ci:local`
+   runs it when Docker is up; GitHub runs it on pull requests.
+5. For Docker-affecting changes: `pnpm docker:build` or `pnpm ci:local -- --image`.
 6. For workflow changes: `actionlint` clean (`pnpm report` includes it).

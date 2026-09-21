@@ -46,9 +46,11 @@ LGPL-3.0-or-later (see [LICENSE](LICENSE) and [COPYING](COPYING)).
 | `pnpm test` | Unit tests (in-process; no mail server) |
 | `pnpm test:integration` | Protocol tests against **GreenMail** (test IMAP/SMTP server in Docker) |
 | `pnpm test:all` | Unit plus GreenMail |
+| `pnpm ci:local` | Lint, typecheck, unit; GreenMail when Docker is up (`pnpm ci:local -- --image` also builds) |
 
-`pnpm test:integration` needs Docker. Skip it locally if Docker is not running;
-CI runs it on every push and pull request. Lefthook pre-push is unit only.
+`pnpm test:integration` needs Docker. `pnpm ci:local` skips that lane when Docker
+is down (lefthook pre-push uses the same script). GitHub Actions runs linux
+GreenMail and a Docker build on **pull requests**, not on every operator push.
 `node dist/main.js test` / `mailoo test` is a live-account connection probe, not Vitest.
 
 ### Code Style

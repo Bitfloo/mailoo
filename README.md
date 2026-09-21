@@ -903,6 +903,7 @@ when editing this README. See [CONTRIBUTING.md](CONTRIBUTING.md).
 pnpm install
 pnpm typecheck          # type check
 pnpm check              # lint and format
+pnpm ci:local           # lint, typecheck, unit; GreenMail if Docker is up
 pnpm test               # unit tests (Vitest; no mail server)
 pnpm test:integration   # GreenMail IMAP/SMTP (needs Docker)
 pnpm test:all           # unit plus GreenMail
@@ -910,7 +911,7 @@ pnpm build              # build
 pnpm start              # run
 ```
 
-`pnpm test:integration` and `pnpm test:all` need Docker. Skip them locally if Docker is not running; CI runs the integration job. Lefthook pre-push is unit only. `mailoo test` / `node dist/main.js test` is a live-account connection probe, not Vitest.
+`pnpm test:integration` and `pnpm test:all` need Docker. `pnpm ci:local` skips GreenMail when Docker is down. GitHub runs linux GreenMail and an image build on pull requests, not on every push. `mailoo test` / `node dist/main.js test` is a live-account connection probe, not Vitest.
 
 ## License
 

@@ -13,13 +13,14 @@ Project subagents live in `.cursor/agents/` (this clone). Cursor Cloud has no
 | `oss-push-gate` | Before `git push`: public log + slop. |
 
 Rubrics: `.claude/rules/testing-doctrine.md`, `.claude/rules/public-git.md`.
-Runners: `pnpm test` (unit), `pnpm test:integration` (GreenMail, needs Docker),
-`pnpm test:all`. `mailoo test` is a live-account probe, not Vitest.
+Runners: `pnpm ci:local` (lint + unit; GreenMail if Docker), `pnpm test`,
+`pnpm test:integration`, `pnpm test:all`. `mailoo test` is a live-account
+probe, not Vitest.
 
 ## Cursor Cloud specific instructions
 
 - Node.js ≥ 24, pnpm 9. Install: `.cursor/environment.json` `install`.
-- Unit tests: `pnpm test`. Skip integration unless Docker is in the VM.
+- `pnpm ci:local` (skip GreenMail unless Docker is in the VM).
 - Before push: `bash scripts/check-public-git-log.sh --range origin/develop..HEAD`
   and `@oss-push-gate`. Do not rewrite published history.
 - Brand files on the operator laptop are absent here. `oss-public-face` abstains
