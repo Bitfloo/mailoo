@@ -99,6 +99,8 @@ export interface HookRuleActions {
   alert?: boolean;
   /** Add the email's calendar event to the local calendar (triggers confirmation dialog). */
   addToCalendar?: boolean;
+  /** IMAP mailbox path to MOVE into after STORE (Proton: `Labels/Foo`, not addLabel). */
+  moveTo?: string;
 }
 
 export interface HookRule {
@@ -143,6 +145,36 @@ export interface HooksConfig {
   calendarConfirm?: boolean;
 }
 
+export interface SystemOneFolderSpec {
+  path: string;
+  description: string;
+  falseCriteria?: string;
+  priority?: number;
+}
+
+export interface SystemOneThresholds {
+  folderFitMin: number;
+  spamHigh: number;
+  spamUncertainLow: number;
+  spamUncertainHigh: number;
+  injectionHigh: number;
+  importanceFlagMin: number;
+  importanceMinConfidence: number;
+  isCriticalMin: number;
+}
+
+export interface SystemOneConfig {
+  enabled: boolean;
+  model: string;
+  includeBody: boolean;
+  bodyMaxChars: number;
+  autoMove: boolean;
+  autoFlag: boolean;
+  folders: SystemOneFolderSpec[];
+  sourceFolders: string[];
+  thresholds: SystemOneThresholds;
+}
+
 export interface AppConfig {
   settings: {
     rateLimit: number;
@@ -151,6 +183,7 @@ export interface AppConfig {
     saveToSent: boolean;
     watcher: WatcherConfig;
     hooks: HooksConfig;
+    systemOne: SystemOneConfig;
   };
   accounts: AccountConfig[];
 }

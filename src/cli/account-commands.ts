@@ -23,7 +23,7 @@ import {
 
 import { CONFIG_FILE, configExists, loadRawConfig, saveConfig } from '../config/loader.js';
 import type { RawAccountConfig, RawAppConfig } from '../config/schema.js';
-import { AppConfigFileSchema } from '../config/schema.js';
+import { AppConfigFileSchema, SystemOneConfigSchema } from '../config/schema.js';
 import ConnectionManager from '../connections/manager.js';
 import type { AccountConfig } from '../types/index.js';
 import ensureInteractive from './guard.js';
@@ -506,6 +506,7 @@ async function addAccount(): Promise<void> {
             folders: ['INBOX'],
             idle_timeout: 1740,
           },
+          system_one: SystemOneConfigSchema.parse({}),
           hooks: {
             on_new_email: 'notify',
             preset: 'priority-focus',

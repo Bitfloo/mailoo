@@ -78,6 +78,7 @@ export const HookRuleActionsSchema = z.object({
   mark_read: z.boolean().optional(),
   alert: z.boolean().optional(),
   add_to_calendar: z.boolean().optional(),
+  move_to: z.string().min(1).optional(),
 });
 
 export const HookRuleSchema = z.object({
@@ -118,6 +119,45 @@ export const HooksConfigSchema = z.object({
   calendar_confirm: z.boolean().default(true),
 });
 
+export const FolderSpecSchema = z.object({
+  path: z.string().min(1),
+  description: z.string().min(1),
+  false_criteria: z.string().min(1).optional(),
+  priority: z.number().int().optional(),
+});
+
+export const SystemOneConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  model: z.string().default('jev-latest'),
+  include_body: z.boolean().default(false),
+  body_max_chars: z.number().int().min(256).max(24_000).default(6000),
+  auto_move: z.boolean().default(false),
+  auto_flag: z.boolean().default(false),
+  folders: z.array(FolderSpecSchema).default([]),
+  source_folders: z.array(z.string()).default(['INBOX']),
+  thresholds: z
+    .object({
+      folder_fit_min: z.number().min(0).max(1).default(0.85),
+      spam_high: z.number().min(0).max(1).default(0.72),
+      spam_uncertain_low: z.number().min(0).max(1).default(0.4),
+      spam_uncertain_high: z.number().min(0).max(1).default(0.6),
+      injection_high: z.number().min(0).max(1).default(0.75),
+      importance_flag_min: z.number().default(3),
+      importance_min_confidence: z.number().min(0).max(1).default(0.7),
+      is_critical_min: z.number().min(0).max(1).default(0.85),
+    })
+    .default({
+      folder_fit_min: 0.85,
+      spam_high: 0.72,
+      spam_uncertain_low: 0.4,
+      spam_uncertain_high: 0.6,
+      injection_high: 0.75,
+      importance_flag_min: 3,
+      importance_min_confidence: 0.7,
+      is_critical_min: 0.85,
+    }),
+});
+
 export const SettingsSchema = z.object({
   rate_limit: z.number().int().min(1).default(10),
   read_only: z.boolean().default(false),
@@ -126,6 +166,26 @@ export const SettingsSchema = z.object({
     enabled: false,
     folders: ['INBOX'],
     idle_timeout: 1740,
+  }),
+  system_one: SystemOneConfigSchema.default({
+    enabled: false,
+    model: 'jev-latest',
+    include_body: false,
+    body_max_chars: 6000,
+    auto_move: false,
+    auto_flag: false,
+    folders: [],
+    source_folders: ['INBOX'],
+    thresholds: {
+      folder_fit_min: 0.85,
+      spam_high: 0.72,
+      spam_uncertain_low: 0.4,
+      spam_uncertain_high: 0.6,
+      injection_high: 0.75,
+      importance_flag_min: 3,
+      importance_min_confidence: 0.7,
+      is_critical_min: 0.85,
+    },
   }),
   hooks: HooksConfigSchema.default({
     on_new_email: 'notify',
@@ -157,6 +217,26 @@ export const AppConfigFileSchema = z.object({
       enabled: false,
       folders: ['INBOX'],
       idle_timeout: 1740,
+    },
+    system_one: {
+      enabled: false,
+      model: 'jev-latest',
+      include_body: false,
+      body_max_chars: 6000,
+      auto_move: false,
+      auto_flag: false,
+      folders: [],
+      source_folders: ['INBOX'],
+      thresholds: {
+        folder_fit_min: 0.85,
+        spam_high: 0.72,
+        spam_uncertain_low: 0.4,
+        spam_uncertain_high: 0.6,
+        injection_high: 0.75,
+        importance_flag_min: 3,
+        importance_min_confidence: 0.7,
+        is_critical_min: 0.85,
+      },
     },
     hooks: {
       on_new_email: 'notify',

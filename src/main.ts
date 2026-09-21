@@ -33,6 +33,7 @@ import CalendarService from './services/calendar.service.js';
 import HooksService from './services/hooks.service.js';
 import ImapService from './services/imap.service.js';
 import LocalCalendarService from './services/local-calendar.service.js';
+import { MailArrival } from './services/mail-arrival/index.js';
 import OAuthService from './services/oauth.service.js';
 import RemindersService from './services/reminders.service.js';
 import SchedulerService from './services/scheduler.service.js';
@@ -147,6 +148,24 @@ async function runServer(): Promise<void> {
     // eslint-disable-next-line no-void
     void (async () => {
       try {
+        const mailArrival = await MailArrival.tryCreate({
+          config: config.settings.systemOne,
+          imap: imapService,
+          apiKey: process.env.TYPESAFE_API_KEY,
+          accounts: config.accounts,
+          moveToPaths: config.settings.hooks.rules
+            .map((rule) => rule.actions.moveTo)
+            .filter((path): path is string => Boolean(path)),
+        });
+        hooksService.setMailArrival(mailArrival);
+        if (mailArrival && !config.settings.watcher.enabled) {
+          await mcpLog(
+            'warning',
+            'server',
+            'system_one is enabled but watcher is off — no arrivals will be classified',
+          );
+        }
+
         const started = await maybeStartMailboxWriters(canWrite, {
           startHooks: () => {
             const clientCaps = lowLevelServer.getClientCapabilities?.() ?? {};
@@ -338,6 +357,24 @@ async function runHttpServer(port: number): Promise<void> {
         // eslint-disable-next-line no-void
         void (async () => {
           try {
+            const mailArrival = await MailArrival.tryCreate({
+              config: config.settings.systemOne,
+              imap: imapService,
+              apiKey: process.env.TYPESAFE_API_KEY,
+              accounts: config.accounts,
+              moveToPaths: config.settings.hooks.rules
+                .map((rule) => rule.actions.moveTo)
+                .filter((path): path is string => Boolean(path)),
+            });
+            hooksService.setMailArrival(mailArrival);
+            if (mailArrival && !config.settings.watcher.enabled) {
+              await mcpLog(
+                'warning',
+                'server',
+                'system_one is enabled but watcher is off — no arrivals will be classified',
+              );
+            }
+
             const started = await maybeStartMailboxWriters(canWrite, {
               startHooks: () => {
                 const clientCaps = ls.getClientCapabilities?.() ?? {};

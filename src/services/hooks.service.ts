@@ -16,6 +16,7 @@ import type { NewEmailEvent } from './event-bus.js';
 import eventBus from './event-bus.js';
 import type ImapService from './imap.service.js';
 import LocalCalendarService from './local-calendar.service.js';
+import type { MailArrival } from './mail-arrival/index.js';
 import type { AlertPayload, UrgencyLevel } from './notifier.service.js';
 import NotifierService from './notifier.service.js';
 
@@ -105,17 +106,28 @@ export default class HooksService {
 
   private readonly localCalendar: LocalCalendarService;
 
+  private mailArrival: MailArrival | null = null;
+
   private static readonly MAX_SAMPLING_PER_MIN = 10;
 
-  constructor(config: HooksConfig, imapService: ImapService) {
+  constructor(
+    config: HooksConfig,
+    imapService: ImapService,
+    deps?: { mailArrival?: MailArrival | null },
+  ) {
     this.config = config;
     this.imapService = imapService;
+    this.mailArrival = deps?.mailArrival ?? null;
     this.notifier = new NotifierService(config.alerts);
     this.localCalendar = new LocalCalendarService();
     this.resolvedSystemPrompt = buildSystemPrompt(config.preset, {
       customInstructions: config.customInstructions,
       systemPrompt: config.systemPrompt,
     });
+  }
+
+  setMailArrival(instance: MailArrival | null): void {
+    this.mailArrival = instance;
   }
 
   /** Returns the NotifierService instance for direct tool access. */
@@ -147,7 +159,16 @@ export default class HooksService {
     }
     this.started = true;
 
-    if (this.config.onNewEmail === 'none') return;
+    if (this.config.onNewEmail === 'none') {
+      if (this.mailArrival) {
+        mcpLog(
+          'warning',
+          'hooks',
+          'system_one is enabled but on_new_email is none — not subscribing',
+        ).catch(() => {});
+      }
+      return;
+    }
 
     eventBus.on('email:new', (event: NewEmailEvent) => {
       this.onNewEmail(event);
@@ -195,7 +216,10 @@ export default class HooksService {
     this.pendingEmails.push(...items);
 
     this.batchTimer ??= setTimeout(() => {
-      this.flushBatch().catch(() => {});
+      this.flushBatch().catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        mcpLog('warning', 'hooks', `flushBatch failed: ${msg}`).catch(() => {});
+      });
     }, this.config.batchDelay * 1000);
   }
 
@@ -226,9 +250,34 @@ export default class HooksService {
       await Promise.allSettled(ruleOps);
     }
 
-    // AI triage for remaining emails
+    // AI triage / System One for remaining emails
     if (needsTriage.length > 0) {
-      if (this.config.onNewEmail === 'triage' && this.samplingSupported) {
+      if (this.mailArrival) {
+        // Sequential: one systemOne per UID; fail-open per email.
+        // eslint-disable-next-line no-restricted-syntax
+        for (const email of needsTriage) {
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            await this.mailArrival.handle(email);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            // eslint-disable-next-line no-await-in-loop
+            await mcpLog('warning', 'hooks', `MailArrival.handle failed: ${msg}`);
+          }
+          const payload: AlertPayload = {
+            account: email.account,
+            sender: email.meta.from,
+            subject: email.meta.subject,
+            uid: email.meta.id,
+            messageId: email.meta.messageId,
+            folder: email.mailbox,
+            hasAttachments: email.meta.hasAttachments,
+            priority: 'normal',
+          };
+          // eslint-disable-next-line no-await-in-loop
+          await this.notifier.alert(payload);
+        }
+      } else if (this.config.onNewEmail === 'triage' && this.samplingSupported) {
         await this.triageBatch(needsTriage);
       } else {
         await this.notifyBatch(needsTriage);
@@ -248,16 +297,11 @@ export default class HooksService {
   private static emailMatchesRule(email: BatchEmail, rule: HookRule): boolean {
     const { match } = rule;
     const fromAddr = email.meta.from.address;
-    const fromFull = email.meta.from.name ? `${email.meta.from.name} <${fromAddr}>` : fromAddr;
     const toAddrs = email.meta.to.map((t) => t.address).join(', ');
     const { subject } = email.meta;
 
     // All specified match conditions must pass (AND logic)
-    if (
-      match.from &&
-      !matchesPattern(match.from, fromAddr) &&
-      !matchesPattern(match.from, fromFull)
-    ) {
+    if (match.from && !matchesPattern(match.from, fromAddr)) {
       return false;
     }
     if (match.to && !matchesPattern(match.to, toAddrs)) {
@@ -293,7 +337,7 @@ export default class HooksService {
     // Apply flag
     if (actions.flag) {
       try {
-        await this.imapService.setFlags(email.account, email.mailbox, email.meta.id, 'flag');
+        await this.imapService.setFlags(email.account, email.meta.id, email.mailbox, 'flag');
       } catch {
         await mcpLog('warning', 'hooks', `Could not flag email ${email.meta.id}`);
       }
@@ -302,9 +346,26 @@ export default class HooksService {
     // Mark read
     if (actions.markRead) {
       try {
-        await this.imapService.setFlags(email.account, email.mailbox, email.meta.id, 'read');
+        await this.imapService.setFlags(email.account, email.meta.id, email.mailbox, 'read');
       } catch {
         await mcpLog('warning', 'hooks', `Could not mark email ${email.meta.id} as read`);
+      }
+    }
+
+    if (actions.moveTo) {
+      try {
+        await this.imapService.moveEmail(
+          email.account,
+          email.meta.id,
+          email.mailbox,
+          actions.moveTo,
+        );
+      } catch {
+        await mcpLog(
+          'warning',
+          'hooks',
+          `Could not move email ${email.meta.id} to ${actions.moveTo}`,
+        );
       }
     }
 
@@ -471,7 +532,7 @@ export default class HooksService {
     // Auto-flag
     if (this.config.autoFlag && triage.flag) {
       try {
-        await this.imapService.setFlags(email.account, email.mailbox, email.meta.id, 'flag');
+        await this.imapService.setFlags(email.account, email.meta.id, email.mailbox, 'flag');
       } catch {
         await mcpLog('warning', 'hooks', `Could not flag email ${email.meta.id}`);
       }

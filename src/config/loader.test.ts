@@ -132,6 +132,37 @@ read_only = true
       expect(config.settings.watcher.folders).toEqual(['INBOX']);
       expect(config.settings.hooks.onNewEmail).toBe('notify');
       expect(config.settings.hooks.preset).toBe('priority-focus');
+      expect(config.settings.systemOne.enabled).toBe(false);
+      expect(config.settings.systemOne.autoMove).toBe(false);
+      expect(config.settings.systemOne.autoFlag).toBe(false);
+      expect(config.settings.systemOne.includeBody).toBe(false);
+      expect(config.settings.systemOne.thresholds.isCriticalMin).toBe(0.85);
+      expect(config.settings.systemOne.thresholds.injectionHigh).toBe(0.75);
+    });
+
+    it('keeps move_to through normalizeHookRule', async () => {
+      const toml = `
+[[accounts]]
+name = "test"
+email = "test@example.com"
+password = "secret"
+
+[accounts.imap]
+host = "imap.example.com"
+
+[accounts.smtp]
+host = "smtp.example.com"
+
+[[settings.hooks.rules]]
+name = "receipts-vendor"
+match = { from = "*@billing.example.com" }
+actions = { move_to = "Receipts" }
+`;
+      const configPath = path.join(tmpDir, 'config.toml');
+      await fs.writeFile(configPath, toml, 'utf-8');
+
+      const config = await loadConfig(configPath);
+      expect(config.settings.hooks.rules[0].actions.moveTo).toBe('Receipts');
     });
   });
 
@@ -164,6 +195,17 @@ read_only = true
       const config = await loadConfig(path.join(tmpDir, 'nonexistent.toml'));
 
       expect(config.settings.readOnly).toBe(true);
+    });
+
+    it('defaults systemOne.thresholds.injectionHigh to 0.75 on the env path', async () => {
+      process.env.MCP_EMAIL_ADDRESS = 'env@example.com';
+      process.env.MCP_EMAIL_PASSWORD = 'env-pass';
+      process.env.MCP_EMAIL_IMAP_HOST = 'imap.env.com';
+      process.env.MCP_EMAIL_SMTP_HOST = 'smtp.env.com';
+
+      const config = await loadConfig(path.join(tmpDir, 'nonexistent.toml'));
+
+      expect(config.settings.systemOne.thresholds.injectionHigh).toBe(0.75);
     });
   });
 
@@ -235,6 +277,8 @@ read_only = true
       expect(template).toContain('[accounts.smtp]');
       expect(template).toContain('[settings]');
       expect(template).toContain('rate_limit');
+      expect(template).toContain('[settings.system_one]');
+      expect(template).not.toContain('TYPESAFE_API_KEY =');
     });
   });
 });

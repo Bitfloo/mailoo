@@ -4,6 +4,7 @@ import {
   ImapConfigSchema,
   SettingsSchema,
   SmtpConfigSchema,
+  SystemOneConfigSchema,
 } from './schema.js';
 
 const validImap = { host: 'imap.example.com' };
@@ -127,6 +128,29 @@ describe('SettingsSchema', () => {
 
   it('defaults read_only to false', () => {
     expect(SettingsSchema.parse({}).read_only).toBe(false);
+  });
+
+  it('defaults system_one enabled/auto_move/auto_flag/include_body to false and is_critical_min to 0.85', () => {
+    const result = SettingsSchema.parse({});
+    expect(result.system_one.enabled).toBe(false);
+    expect(result.system_one.auto_move).toBe(false);
+    expect(result.system_one.auto_flag).toBe(false);
+    expect(result.system_one.include_body).toBe(false);
+    expect(result.system_one.thresholds.is_critical_min).toBe(0.85);
+  });
+
+  it('should default injection_high to 0.75 not 0.70', () => {
+    expect(SettingsSchema.parse({}).system_one.thresholds.injection_high).toBe(0.75);
+  });
+
+  it('should default injection_high to 0.75 when thresholds is an empty object', () => {
+    expect(
+      SettingsSchema.parse({ system_one: { thresholds: {} } }).system_one.thresholds.injection_high,
+    ).toBe(0.75);
+  });
+
+  it('should default injection_high to 0.75 on SystemOneConfigSchema.parse({})', () => {
+    expect(SystemOneConfigSchema.parse({}).thresholds.injection_high).toBe(0.75);
   });
 
   it('accepts custom values', () => {

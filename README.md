@@ -683,6 +683,26 @@ Features:
 - **Graceful degradation** — Falls back to notify mode if client doesn't support sampling
 - **Resource subscriptions** — Pushes `notifications/resources/updated` for unread counts
 
+### System One (opt-in typed filing)
+
+Optional TypeSafe System One classification on residue mail after static rules. **Off by default.** Both `settings.watcher.enabled` and `settings.system_one.enabled` must be on. Set `TYPESAFE_API_KEY` in the environment (never in TOML).
+
+Default classify path sends **`mail_headers`** (subject, From, attachment names, extracted links, auth codes) to `api.typesafe.ai`. `include_body = true` additionally sends **`mail_body`**. `auto_move` and `auto_flag` are separate poles and default false. Filing destinations come from `folders[].path` (validated against IMAP LIST), not a live listing of every mailbox.
+
+```toml
+[settings.system_one]
+enabled = false
+include_body = false
+auto_move = false
+auto_flag = false
+
+[[settings.system_one.folders]]
+path = "Receipts"
+description = "Invoices, receipts, and payment confirmations."
+```
+
+`on_new_email = "notify"` or `"triage"` both feed System One when it is on. `none` stays off.
+
 ## API
 
 ### Tools (56)
@@ -879,7 +899,7 @@ pnpm install
 pnpm typecheck          # type check
 pnpm check              # lint and format
 pnpm test               # unit tests
-pnpm test:integration   # GreenMail test IMAP/SMTP server (needs Docker; not a database)
+pnpm test:integration   # GreenMail IMAP/SMTP (needs Docker)
 pnpm build              # build
 pnpm start              # run
 ```

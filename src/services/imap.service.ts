@@ -24,7 +24,7 @@ import type {
   SenderStat,
 } from '../types/index.js';
 import { parseSenderAuth } from '../utils/auth-headers.js';
-import { looksLikeRawMime } from '../utils/email-body.js';
+import { looksLikeRawMime, preferRicherPlain } from '../utils/email-body.js';
 import compileRfc822 from '../utils/mail-compose.js';
 import type { LabelStrategy } from './label-strategy.js';
 import { detectLabelStrategy } from './label-strategy.js';
@@ -55,6 +55,14 @@ function hasAttachments(bodyStructure: unknown): boolean {
   return false;
 }
 
+function mimeTypeOf(bs: Record<string, unknown>): string {
+  const raw = String(bs.type ?? '');
+  if (raw.includes('/')) return raw.toLowerCase();
+  const subtype = String(bs.subtype ?? '');
+  if (raw && subtype) return `${raw.toLowerCase()}/${subtype.toLowerCase()}`;
+  return raw.toLowerCase();
+}
+
 function extractAttachments(bodyStructure: unknown): AttachmentMeta[] {
   const attachments: AttachmentMeta[] = [];
   if (!bodyStructure || typeof bodyStructure !== 'object') return attachments;
@@ -64,7 +72,7 @@ function extractAttachments(bodyStructure: unknown): AttachmentMeta[] {
     const params = (bs.dispositionParameters ?? bs.parameters ?? {}) as Record<string, string>;
     attachments.push({
       filename: params.filename ?? params.name ?? 'unnamed',
-      mimeType: `${bs.type ?? 'application'}/${bs.subtype ?? 'octet-stream'}`,
+      mimeType: mimeTypeOf(bs) || 'application/octet-stream',
       size: (bs.size as number) ?? 0,
     });
   }
@@ -111,14 +119,6 @@ function findMimePartByFilename(
 export interface TextMimeParts {
   plain?: string;
   html?: string;
-}
-
-function mimeTypeOf(bs: Record<string, unknown>): string {
-  const raw = String(bs.type ?? '');
-  if (raw.includes('/')) return raw.toLowerCase();
-  const subtype = String(bs.subtype ?? '');
-  if (raw && subtype) return `${raw.toLowerCase()}/${subtype.toLowerCase()}`;
-  return raw.toLowerCase();
 }
 
 /**
@@ -1193,6 +1193,60 @@ export default class ImapService {
         ? headerBuf.toString('utf-8')
         : String(headerBuf ?? '');
       return { ...parseSenderAuth(headerText), uid: String(uid), mailbox: safeMailbox };
+    } finally {
+      lock.release();
+    }
+  }
+
+  /**
+   * Headers-safe body peek for classification. Uses a readOnly lock and never
+   * fetches `source: true` (which can set \\Seen).
+   */
+  async peekText(accountName: string, emailId: string, mailbox = 'INBOX'): Promise<string> {
+    const client = await this.connections.getImapClient(accountName);
+    const uid = parseInt(emailId, 10);
+    const safeMailbox = sanitizeMailboxName(mailbox);
+    const lock = await client.getMailboxLock(safeMailbox, { readOnly: true });
+    try {
+      const msg = await client.fetchOne(
+        String(uid),
+        { uid: true, bodyStructure: true },
+        { uid: true },
+      );
+      if (!msg) return '';
+      const raw = msg as unknown as Record<string, unknown>;
+      const parts = findTextMimeParts(raw.bodyStructure);
+      let bodyText: string | undefined;
+      let bodyHtml: string | undefined;
+      if (parts.plain) bodyText = await downloadMimePart(client, uid, parts.plain);
+      if (parts.html) bodyHtml = await downloadMimePart(client, uid, parts.html);
+      return preferRicherPlain(bodyText, bodyHtml);
+    } finally {
+      lock.release();
+    }
+  }
+
+  async peekAttachments(
+    accountName: string,
+    emailId: string,
+    mailbox = 'INBOX',
+  ): Promise<{ filename: string; mime: string }[]> {
+    const client = await this.connections.getImapClient(accountName);
+    const uid = parseInt(emailId, 10);
+    const safeMailbox = sanitizeMailboxName(mailbox);
+    const lock = await client.getMailboxLock(safeMailbox, { readOnly: true });
+    try {
+      const msg = await client.fetchOne(
+        String(uid),
+        { uid: true, bodyStructure: true },
+        { uid: true },
+      );
+      if (!msg) return [];
+      const raw = msg as unknown as Record<string, unknown>;
+      return extractAttachments(raw.bodyStructure).map((a) => ({
+        filename: a.filename,
+        mime: a.mimeType,
+      }));
     } finally {
       lock.release();
     }

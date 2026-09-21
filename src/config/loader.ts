@@ -8,9 +8,15 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { parse as parseTOML, stringify as stringifyTOML } from 'smol-toml';
-import type { AccountConfig, AppConfig, HookRule, OAuth2Config } from '../types/index.js';
+import type {
+  AccountConfig,
+  AppConfig,
+  HookRule,
+  OAuth2Config,
+  SystemOneConfig,
+} from '../types/index.js';
 import type { RawAccountConfig, RawAppConfig } from './schema.js';
-import { AppConfigFileSchema } from './schema.js';
+import { AppConfigFileSchema, SystemOneConfigSchema } from './schema.js';
 import { CONFIG_FILE, xdg } from './xdg.js';
 
 // ---------------------------------------------------------------------------
@@ -90,6 +96,9 @@ function loadFromEnv(): RawAppConfig | null {
         ),
         calendar_confirm: process.env.MCP_EMAIL_HOOK_CALENDAR_CONFIRM !== 'false',
       },
+      system_one: SystemOneConfigSchema.parse({
+        enabled: process.env.MCP_EMAIL_SYSTEM_ONE_ENABLED === 'true',
+      }),
     },
     accounts: [
       {
@@ -210,6 +219,38 @@ function normalizeHookRule(raw: {
       alert: typeof raw.actions.alert === 'boolean' ? raw.actions.alert : undefined,
       addToCalendar:
         typeof raw.actions.add_to_calendar === 'boolean' ? raw.actions.add_to_calendar : undefined,
+      moveTo: typeof raw.actions.move_to === 'string' ? raw.actions.move_to : undefined,
+    },
+  };
+}
+
+function normalizeSystemOne(
+  raw: RawAppConfig['settings']['system_one'] | undefined,
+): SystemOneConfig {
+  const parsed = SystemOneConfigSchema.parse(raw ?? {});
+  return {
+    enabled: parsed.enabled,
+    model: parsed.model,
+    includeBody: parsed.include_body,
+    bodyMaxChars: parsed.body_max_chars,
+    autoMove: parsed.auto_move,
+    autoFlag: parsed.auto_flag,
+    folders: parsed.folders.map((folder) => ({
+      path: folder.path,
+      description: folder.description,
+      falseCriteria: folder.false_criteria,
+      priority: folder.priority,
+    })),
+    sourceFolders: parsed.source_folders,
+    thresholds: {
+      folderFitMin: parsed.thresholds.folder_fit_min,
+      spamHigh: parsed.thresholds.spam_high,
+      spamUncertainLow: parsed.thresholds.spam_uncertain_low,
+      spamUncertainHigh: parsed.thresholds.spam_uncertain_high,
+      injectionHigh: parsed.thresholds.injection_high,
+      importanceFlagMin: parsed.thresholds.importance_flag_min,
+      importanceMinConfidence: parsed.thresholds.importance_min_confidence,
+      isCriticalMin: parsed.thresholds.is_critical_min,
     },
   };
 }
@@ -225,6 +266,7 @@ function normalizeConfig(raw: RawAppConfig): AppConfig {
         folders: raw.settings.watcher.folders,
         idleTimeout: raw.settings.watcher.idle_timeout,
       },
+      systemOne: normalizeSystemOne(raw.settings.system_one),
       hooks: {
         onNewEmail: raw.settings.hooks.on_new_email,
         preset: raw.settings.hooks.preset,
@@ -352,6 +394,16 @@ save_to_sent = true  # IMAP APPEND to \\Sent after SMTP send (set false for Gmai
 # urgency_threshold = "high" # minimum priority: "urgent" | "high" | "normal" | "low"
 # webhook_url = ""        # HTTP POST to Slack/Discord/ntfy.sh/etc.
 # webhook_events = ["urgent", "high"]  # which priorities trigger webhook
+
+# [settings.system_one]
+# enabled = false          # requires watcher.enabled too; TYPESAFE_API_KEY from env only
+# model = "jev-latest"
+# include_body = false     # default sends mail_headers; true additionally sends mail_body
+# auto_move = false
+# auto_flag = false
+# # [[settings.system_one.folders]]
+# # path = "Receipts"
+# # description = "Invoices, receipts, and payment confirmations."
 
 [[accounts]]
 name = "personal"

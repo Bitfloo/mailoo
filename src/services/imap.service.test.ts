@@ -202,6 +202,73 @@ describe('ImapService', () => {
     });
   });
 
+  describe('peekText', () => {
+    it('uses a readOnly lock and does not fetch source', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 10,
+        bodyStructure: { type: 'text/plain', part: '1' },
+      });
+      async function* chunksOf(text: string) {
+        yield Buffer.from(text);
+      }
+      client.download.mockResolvedValue({ content: chunksOf('hello') });
+
+      const text = await service.peekText('test', '10', 'INBOX');
+
+      expect(text).toBe('hello');
+      expect(client.getMailboxLock).toHaveBeenCalledWith('INBOX', { readOnly: true });
+      expect(client.fetchOne).toHaveBeenCalledWith(
+        '10',
+        { uid: true, bodyStructure: true },
+        { uid: true },
+      );
+      const query = client.fetchOne.mock.calls[0][1];
+      expect(query).not.toHaveProperty('source');
+    });
+  });
+
+  describe('peekAttachments', () => {
+    it('uses a readOnly lock and does not fetch source', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 10,
+        bodyStructure: { type: 'text/plain', part: '1' },
+      });
+
+      await service.peekAttachments('test', '10', 'INBOX');
+
+      expect(client.getMailboxLock).toHaveBeenCalledWith('INBOX', { readOnly: true });
+      expect(client.fetchOne).toHaveBeenCalledWith(
+        '10',
+        { uid: true, bodyStructure: true },
+        { uid: true },
+      );
+      const query = client.fetchOne.mock.calls[0][1];
+      expect(query).not.toHaveProperty('source');
+    });
+
+    it('should return attachment filename and mime from bodyStructure', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 10,
+        bodyStructure: {
+          type: 'multipart/mixed',
+          childNodes: [
+            { type: 'text/plain', part: '1' },
+            {
+              part: '2',
+              type: 'application/pdf',
+              disposition: 'attachment',
+              dispositionParameters: { filename: 'inv.pdf' },
+            },
+          ],
+        },
+      });
+
+      const attachments = await service.peekAttachments('test', '10', 'INBOX');
+
+      expect(attachments).toEqual([{ filename: 'inv.pdf', mime: 'application/pdf' }]);
+    });
+  });
+
   describe('getEmail', () => {
     it('downloads leaf text parts rather than hardcoded part 1, and keeps Original Message', async () => {
       client.fetchOne.mockResolvedValue({
