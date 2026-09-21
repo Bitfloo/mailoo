@@ -1,6 +1,7 @@
 # Mailoo testing doctrine
 
 Rubric for the project `test-auditor` and `test-smith` agents. Cite by section.
+Do not copy plugin-internal paths into this clone — they do not resolve here.
 
 ## Zero rule
 

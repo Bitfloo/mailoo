@@ -15,7 +15,21 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
 fi
 
 if [[ "$docker_ok" -eq 1 ]]; then
-  pnpm test:integration
+  integ_log=$(mktemp)
+  set +e
+  pnpm test:integration >"$integ_log" 2>&1
+  integ_status=$?
+  set -e
+  cat "$integ_log"
+  if [[ "$integ_status" -ne 0 ]]; then
+    if grep -q 'Could not find a working container runtime strategy' "$integ_log"; then
+      echo "ci-local: skip integration (no usable container runtime)" >&2
+    else
+      rm -f "$integ_log"
+      exit "$integ_status"
+    fi
+  fi
+  rm -f "$integ_log"
 else
   echo "ci-local: skip integration (Docker not running)" >&2
 fi

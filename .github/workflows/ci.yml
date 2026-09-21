@@ -51,6 +51,8 @@ jobs:
 
   integration:
     name: Integration tests
+    # GreenMail on linux. A dispatch-only job hid PR regressions; this job
+    # stays on pull_request (and dispatch), not on operator push.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
