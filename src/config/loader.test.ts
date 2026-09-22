@@ -111,6 +111,28 @@ read_only = true
       expect(config.settings.readOnly).toBe(true);
     });
 
+    it('carries an account sent_mailbox through to sentMailbox', async () => {
+      const toml = `
+[[accounts]]
+name = "ovh"
+email = "test@example.com"
+password = "secret"
+sent_mailbox = "INBOX.Sent Messages"
+
+[accounts.imap]
+host = "imap.example.com"
+
+[accounts.smtp]
+host = "smtp.example.com"
+`;
+      const configPath = path.join(tmpDir, 'config.toml');
+      await fs.writeFile(configPath, toml, 'utf-8');
+
+      const config = await loadConfig(configPath);
+
+      expect(config.accounts[0].sentMailbox).toBe('INBOX.Sent Messages');
+    });
+
     it('applies default values for optional fields', async () => {
       const configPath = path.join(tmpDir, 'config.toml');
       await fs.writeFile(configPath, MINIMAL_TOML, 'utf-8');

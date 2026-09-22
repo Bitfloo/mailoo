@@ -12,8 +12,15 @@ issues for credential leaks.
 ## `settings.save_to_sent`
 
 Default **true**. After a successful SMTP send, Mailoo IMAP-APPENDs an
-RFC 822 copy to the account’s `\Sent` mailbox (or a folder named `Sent`
-if the special-use flag is missing).
+RFC 822 copy to the account’s `accounts.sent_mailbox` when set, otherwise
+to the `\Sent` mailbox (or a folder named `Sent` if the special-use flag is
+missing).
+
+Set `sent_mailbox` when the server advertises no SPECIAL-USE: the client then
+guesses by folder name, and on a mailbox that collected sent-shaped folders
+from several clients the guess can land on an empty one. Measured on OVH MX
+Plan: the guess picked `INBOX.INBOX.Sent` while live mail sat in
+`INBOX.Sent Messages`.
 
 It does **not** APPEND when:
 
@@ -29,6 +36,10 @@ Env: `MCP_EMAIL_SAVE_TO_SENT` (`false` to disable; default on).
 ```toml
 [settings]
 save_to_sent = true
+
+[[accounts]]
+name = "ovh"
+sent_mailbox = "INBOX.Sent Messages"
 ```
 
 ## `settings.read_only`

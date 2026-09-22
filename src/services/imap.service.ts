@@ -1163,9 +1163,11 @@ export default class ImapService {
    */
   async appendSentMessage(accountName: string, raw: Buffer): Promise<void> {
     const client = await this.connections.getImapClient(accountName);
-    const mailboxes = await client.list();
-    const sent = mailboxes.find((mb) => mb.specialUse === '\\Sent');
-    const sentPath = sent?.path ?? 'Sent';
+    let sentPath = this.connections.getAccount(accountName).sentMailbox;
+    if (!sentPath) {
+      const mailboxes = await client.list();
+      sentPath = mailboxes.find((mb) => mb.specialUse === '\\Sent')?.path ?? 'Sent';
+    }
     await client.append(sentPath, raw, ['\\Seen']);
   }
 

@@ -72,6 +72,11 @@ export interface AccountConfig {
   username: string;
   password?: string;
   oauth2?: OAuth2Config;
+  /**
+   * Folder the Sent copy is filed in. Needed when the server advertises no SPECIAL-USE
+   * (OVH MX Plan): the client then guesses by name and can pick an empty folder nobody reads.
+   */
+  sentMailbox?: string;
   imap: ImapConfig;
   smtp: SmtpConfig;
 }

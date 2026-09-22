@@ -435,6 +435,37 @@ describe('ImapService', () => {
     });
   });
 
+  describe('appendSentMessage', () => {
+    it('files the copy in the \\Sent SPECIAL-USE folder when no sent_mailbox is set', async () => {
+      client.list.mockResolvedValue([{ name: 'Sent', path: 'Sent Items', specialUse: '\\Sent' }]);
+
+      await service.appendSentMessage('test', Buffer.from('raw'));
+
+      expect(client.append).toHaveBeenCalledWith('Sent Items', expect.any(Buffer), ['\\Seen']);
+    });
+
+    it("prefers the account's sent_mailbox over the client's SPECIAL-USE guess", async () => {
+      connections.getAccount.mockReturnValue({
+        name: 'test',
+        email: 'test@example.com',
+        username: 'test@example.com',
+        sentMailbox: 'INBOX.Sent Messages',
+        imap: { host: 'imap.example.com', port: 993, tls: true, starttls: false, verifySsl: true },
+        smtp: { host: 'smtp.example.com', port: 465, tls: true, starttls: false, verifySsl: true },
+      });
+      client.list.mockResolvedValue([
+        { name: 'Sent', path: 'INBOX.INBOX.Sent', specialUse: '\\Sent' },
+      ]);
+
+      await service.appendSentMessage('test', Buffer.from('raw'));
+
+      expect(client.append).toHaveBeenCalledWith('INBOX.Sent Messages', expect.any(Buffer), [
+        '\\Seen',
+      ]);
+      expect(client.list).not.toHaveBeenCalled();
+    });
+  });
+
   describe('saveDraft', () => {
     it('RFC-2047 encodes a non-ASCII subject', async () => {
       client.list.mockResolvedValue([{ name: 'Drafts', path: 'Drafts', specialUse: '\\Drafts' }]);
