@@ -68,6 +68,14 @@ They are **not** Mailoo releases. Commit links point at
 - add pnpm install and usage instructions - ([13c8d4b](https://github.com/codefuturist/email-mcp/commit/13c8d4bf3006fa4fb5f014eb630006a478082a23))
 
 - - -
+## [v0.1.3](https://github.com/bitfloo/mailoo/compare/09df7206546cd679d78ff99cd40f991c4a077a6e..v0.1.3) - 2026-09-23
+#### 🐛 Bug Fixes
+- (**release**) set the version before cog commits and tags - ([09df720](https://github.com/bitfloo/mailoo/commit/09df7206546cd679d78ff99cd40f991c4a077a6e)) - Mike, Claude Opus 5.5 (1M context)
+#### Chores
+- (**package**) write bin in the form npm normalizes it to - ([6d9f4c1](https://github.com/bitfloo/mailoo/commit/6d9f4c1ae7376d21562647faf1ea3240bc0461e1)) - Mike, Claude Opus 5.5 (1M context)
+
+- - -
+
 ## [v0.1.2](https://github.com/bitfloo/mailoo/compare/3b384c6210890691b05dfd70de2754382ae8e96e..v0.1.2) - 2026-09-23
 #### 🐛 Bug Fixes
 - (**registry**) publish under io.github.Bitfloo, the namespace GitHub OIDC grants - ([13bd23a](https://github.com/bitfloo/mailoo/commit/13bd23aa43f351a8878ceb4ebc1ed83c5fbff74b)) - Mike, Claude Opus 5.5 (1M context)
