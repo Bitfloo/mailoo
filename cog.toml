@@ -39,7 +39,7 @@ post_bump_hooks = [
     "bash scripts/bump-server-json-version.sh {{version}}",
     "git add server.json",
     "git push origin HEAD",
-    "git push origin {{version}}",
+    "git push origin v{{version}}",
 ]
 
 # ------------------------------------------------------------------------------
@@ -90,7 +90,7 @@ post_bump_hooks = [
     "bash scripts/bump-server-json-version.sh {{version}}",
     "git add server.json",
     "git push origin HEAD",
-    "git push origin {{version}}",
+    "git push origin v{{version}}",
 ]
 
 [bump_profiles.hotfix]
@@ -101,5 +101,5 @@ post_bump_hooks = [
     "bash scripts/bump-server-json-version.sh {{version}}",
     "git add server.json",
     "git push origin HEAD",
-    "git push origin {{version}}",
+    "git push origin v{{version}}",
 ]
