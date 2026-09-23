@@ -34,10 +34,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: pnpm publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
+      # Trusted publishing (OIDC, npm >= 11.5.1): npmjs.com trusts Bitfloo/mailoo
+      # release.yml, so there is no token to leak or expire, and provenance is
+      # attached automatically. pnpm 9 cannot do the OIDC exchange, hence npm.
+      - run: npm install -g npm@latest
+      - run: npm publish --access public
 
   mcp:
     name: Publish to MCP Registry
