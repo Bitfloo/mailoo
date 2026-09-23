@@ -9,6 +9,7 @@ interface PackageIdentity {
   version: string;
   mcpName: string;
   description: string;
+  repository: { url: string };
 }
 
 interface ServerIdentity {
@@ -32,6 +33,15 @@ describe('published identity', () => {
   it('publishes as Mailoo', () => {
     expect(pkg.name).toBe('@bitfloo/mailoo');
     expect(pkg.mcpName).toBe('io.github.Bitfloo/mailoo');
+  });
+
+  it('names the repository with the owner casing npm provenance and the MCP registry check', () => {
+    // Both compare case-sensitively against the OIDC claim (Bitfloo/mailoo); v0.1.3 got E422 on bitfloo.
+    const owner = pkg.mcpName.slice('io.github.'.length).split('/')[0];
+    expect(pkg.repository.url).toBe(`git+https://github.com/${owner}/mailoo.git`);
+    expect((server as unknown as { repository: { url: string } }).repository.url).toBe(
+      `https://github.com/${owner}/mailoo.git`,
+    );
   });
 
   it('keeps server.json bound to package.json without an npm packages entry', () => {

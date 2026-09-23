@@ -3,7 +3,7 @@
   "name": "io.github.Bitfloo/mailoo",
   "description": "Mailoo — IMAP/SMTP MCP server. Multi-account, per-folder profiles.",
   "repository": {
-    "url": "https://github.com/bitfloo/mailoo.git",
+    "url": "https://github.com/Bitfloo/mailoo.git",
     "source": "github"
   },
   "version": "0.1.3"

@@ -70,16 +70,16 @@
   ],
   "author": {
     "name": "Bitfloo",
-    "url": "https://github.com/bitfloo"
+    "url": "https://github.com/Bitfloo"
   },
   "license": "LGPL-3.0-or-later",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bitfloo/mailoo.git"
+    "url": "git+https://github.com/Bitfloo/mailoo.git"
   },
-  "homepage": "https://github.com/bitfloo/mailoo#readme",
+  "homepage": "https://github.com/Bitfloo/mailoo#readme",
   "bugs": {
-    "url": "https://github.com/bitfloo/mailoo/issues"
+    "url": "https://github.com/Bitfloo/mailoo/issues"
   },
   "dependencies": {
     "@clack/prompts": "^1.0.1",
