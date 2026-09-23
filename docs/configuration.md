@@ -99,7 +99,7 @@ These supplement the table in the README (single-account env overlay).
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MCP_EMAIL_READ_ONLY` | `false` | Skip write tools and mailbox writers |
-| `MCP_EMAIL_SAVE_TO_SENT` | `true` | IMAP APPEND to `\Sent` after SMTP |
+| `MCP_EMAIL_SAVE_TO_SENT` | `true` | IMAP APPEND after SMTP, to the account's `sent_mailbox` or else the `\Sent` special-use folder |
 | `MCP_EMAIL_IMAP_DISABLE_IMAP4REV2` | `false` | Force IMAP4rev1 SEARCH |
 | `MCP_EMAIL_SIEVE_HOST` | IMAP host | ManageSieve hostname |
 | `MCP_EMAIL_SIEVE_PORT` | `4190` | ManageSieve port |
