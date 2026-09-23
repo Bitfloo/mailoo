@@ -31,7 +31,7 @@ describe('published identity', () => {
 
   it('publishes as Mailoo', () => {
     expect(pkg.name).toBe('@bitfloo/mailoo');
-    expect(pkg.mcpName).toBe('io.github.bitfloo/mailoo');
+    expect(pkg.mcpName).toBe('io.github.Bitfloo/mailoo');
   });
 
   it('keeps server.json bound to package.json without an npm packages entry', () => {

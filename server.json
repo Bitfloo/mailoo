@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.bitfloo/mailoo",
+  "name": "io.github.Bitfloo/mailoo",
   "description": "Mailoo — IMAP/SMTP MCP server. Multi-account, per-folder profiles.",
   "repository": {
     "url": "https://github.com/bitfloo/mailoo.git",
