@@ -68,6 +68,12 @@ They are **not** Mailoo releases. Commit links point at
 - add pnpm install and usage instructions - ([13c8d4b](https://github.com/codefuturist/email-mcp/commit/13c8d4bf3006fa4fb5f014eb630006a478082a23))
 
 - - -
+## [v0.1.5](https://github.com/bitfloo/mailoo/compare/v0.1.4..v0.1.5) - 2026-09-23
+#### Chores
+- (**version**) v0.1.4 - ([dbc2b75](https://github.com/bitfloo/mailoo/commit/dbc2b7522668d3fb87bd3652cf249886a7c756fa)) - Mike
+
+- - -
+
 ## [v0.1.4](https://github.com/bitfloo/mailoo/compare/7e564afcb0de5ed000de9f32f469432ebc15fb3d..v0.1.4) - 2026-09-23
 #### 🐛 Bug Fixes
 - (**package**) name the repository Bitfloo/mailoo, as npm provenance requires - ([7e564af](https://github.com/bitfloo/mailoo/commit/7e564afcb0de5ed000de9f32f469432ebc15fb3d)) - Mike, Claude Opus 5.5 (1M context)
