@@ -68,6 +68,17 @@ They are **not** Mailoo releases. Commit links point at
 - add pnpm install and usage instructions - ([13c8d4b](https://github.com/codefuturist/email-mcp/commit/13c8d4bf3006fa4fb5f014eb630006a478082a23))
 
 - - -
+## [v0.1.2](https://github.com/bitfloo/mailoo/compare/3b384c6210890691b05dfd70de2754382ae8e96e..v0.1.2) - 2026-09-23
+#### 🐛 Bug Fixes
+- (**registry**) publish under io.github.Bitfloo, the namespace GitHub OIDC grants - ([13bd23a](https://github.com/bitfloo/mailoo/commit/13bd23aa43f351a8878ceb4ebc1ed83c5fbff74b)) - Mike, Claude Opus 5.5 (1M context)
+- (**release**) push the v-prefixed tag cog actually creates - ([3b384c6](https://github.com/bitfloo/mailoo/commit/3b384c6210890691b05dfd70de2754382ae8e96e)) - Mike, Claude Opus 5.5 (1M context)
+#### 📚 Documentation
+- (**config**) MCP_EMAIL_SAVE_TO_SENT files into sent_mailbox when set - ([e7c6312](https://github.com/bitfloo/mailoo/commit/e7c631255a44f914144381a64e1b8013d7144253)) - Mike, Claude Opus 5.5 (1M context)
+#### CI
+- (**release**) publish to npm through trusted publishing, no token - ([a2020a8](https://github.com/bitfloo/mailoo/commit/a2020a859d8d33e3ebf317419f2ae2839eb6685c)) - Mike, Claude Opus 5.5 (1M context)
+
+- - -
+
 ## [v0.1.1](https://github.com/bitfloo/mailoo/compare/4fdb1ad0b46c4a20dbc81ec40d62f64afba14c73..v0.1.1) - 2026-09-22
 #### ✨ Features
 - (**config**) let an account name the folder sent mail is filed in - ([bfac8ca](https://github.com/bitfloo/mailoo/commit/bfac8cae245f62e2a2607d3817464abdb8880b54)) - Mike, Claude Opus 5.5 (1M context)
