@@ -5,7 +5,7 @@
   "description": "Mailoo — IMAP/SMTP MCP server. Multi-account, per-folder profiles.",
   "type": "module",
   "bin": {
-    "mailoo": "./dist/main.js"
+    "mailoo": "dist/main.js"
   },
   "main": "./dist/main.js",
   "types": "./dist/main.d.ts",
