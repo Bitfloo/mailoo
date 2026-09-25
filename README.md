@@ -3,6 +3,7 @@
 [![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme)
 [![license](https://img.shields.io/github/license/bitfloo/mailoo.svg?style=flat-square)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/bitfloo/mailoo/ci.yml?branch=develop&style=flat-square&label=CI)](https://github.com/bitfloo/mailoo/actions/workflows/ci.yml)
+[![M8ven Verified](https://m8ven.ai/badge/mcp/bitfloo-mailoo-nj3l0w?variant=verified&v=fb93b00cc6661fb3e7518c32bb89d24f)](https://m8ven.ai/mcp/bitfloo-mailoo-nj3l0w)
 
 **Mailoo** is Bitfloo's IMAP/SMTP [MCP](https://modelcontextprotocol.io) server:
 multi-mailbox, with profiles per account and per folder.
