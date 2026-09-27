@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
@@ -77,5 +77,27 @@ describe('release supply chain', () => {
     expect(steps).toMatch(/releases\/download\/\$\{TAG\}/);
     expect(steps).toMatch(/registry_\$\{VER\}_checksums\.txt/);
     expect(steps).toContain('sha256sum -c');
+  });
+});
+
+const workflowDir = join(repoRoot, '.github/workflows');
+
+describe('pinned GitHub Actions', () => {
+  it('pins every uses: to a commit SHA with the version tag in a comment', () => {
+    const files = readdirSync(workflowDir).filter((name) => name.endsWith('.yml'));
+    expect(files.length).toBeGreaterThan(0);
+    const pin = /^\s*(?:-\s*)?uses:\s+\S+@[0-9a-f]{40}\s+#\s+v\d+\.\d+\.\d+\s*$/;
+    const unpinned: string[] = [];
+    for (const name of files) {
+      const uses = readFileSync(join(workflowDir, name), 'utf8')
+        .split('\n')
+        .filter((line) => /^\s*(?:-\s*)?uses:/.test(line));
+      for (const line of uses) {
+        if (!pin.test(line)) {
+          unpinned.push(`${name}: ${line.trim()}`);
+        }
+      }
+    }
+    expect(unpinned).toEqual([]);
   });
 });
