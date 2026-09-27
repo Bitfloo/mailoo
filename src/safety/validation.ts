@@ -124,6 +124,7 @@ export interface WebhookResolveOptions extends WebhookUrlOptions {
 }
 
 function stripHostBrackets(hostname: string): string {
+  // new URL('https://[::1]') stores hostname as '[::1]'
   return hostname
     .replace(/^\[|\]$/g, '')
     .replace(/\.$/, '')
