@@ -182,17 +182,6 @@ function warnIfGroupOrOtherCanRead(filePath: string, mode: number | bigint): voi
   );
 }
 
-async function assertParentDirectory(dir: string): Promise<void> {
-  const info = await lstatOrNull(dir);
-  if (!info) return;
-  if (info.isSymbolicLink()) {
-    throw new Error('Config path must not be a symlink');
-  }
-  if (!info.isDirectory()) {
-    throw new Error('Config path is not valid');
-  }
-}
-
 async function loadFromFile(filePath: string = CONFIG_FILE): Promise<RawAppConfig | null> {
   assertConfigPath(filePath);
   let info: Awaited<ReturnType<typeof fs.stat>>;
@@ -403,26 +392,57 @@ export async function loadConfig(configPath?: string): Promise<AppConfig> {
 }
 
 /**
- * Write config text as an owner-only file. The parent directory is owner-only.
- * A symlink at the file or its immediate parent is refused.
+ * Mode 0700 applies only to a directory this call creates. chmod on an
+ * existing path would follow a symlink and change a directory Mailoo did not create.
+ */
+async function ensureConfigDirectory(dir: string): Promise<void> {
+  const existing = await lstatOrNull(dir);
+  if (existing) {
+    const followed = await fs.stat(dir);
+    if (!followed.isDirectory()) {
+      throw new Error('Config path is not valid');
+    }
+    return;
+  }
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+  const created = await fs.lstat(dir);
+  // lstat, not stat: a symlink here is not a directory this call created.
+  if (created.isDirectory()) {
+    await fs.chmod(dir, 0o700);
+  }
+}
+
+/** Follow links so a later rename replaces the file the link points at. */
+async function resolveWriteTarget(filePath: string): Promise<string> {
+  const dest = await lstatOrNull(filePath);
+  if (dest?.isSymbolicLink() || dest?.isFile()) {
+    const targetPath = await fs.realpath(filePath);
+    const targetInfo = await fs.stat(targetPath);
+    if (!targetInfo.isFile()) {
+      throw new Error('Config path is not valid');
+    }
+    return targetPath;
+  }
+  if (dest) {
+    throw new Error('Config path is not valid');
+  }
+  const parentReal = await fs.realpath(path.dirname(filePath));
+  return path.join(parentReal, path.basename(filePath));
+}
+
+/**
+ * Write config text. A symlink stays a symlink and the target file changes,
+ * because renaming onto the link itself would replace the link.
+ * A new file is mode 0600.
  */
 export async function writeConfigFile(filePath: string, contents: string): Promise<void> {
   assertConfigPath(filePath);
-  const dir = path.dirname(filePath);
-  await assertParentDirectory(dir);
-  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
-  await assertParentDirectory(dir);
-  await fs.chmod(dir, 0o700);
-
-  const dest = await lstatOrNull(filePath);
-  if (dest?.isSymbolicLink()) {
-    throw new Error('Config path must not be a symlink');
-  }
-  if (dest && !dest.isFile()) {
-    throw new Error('Config path is not valid');
-  }
-
-  const tmpPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.tmp`);
+  await ensureConfigDirectory(path.dirname(filePath));
+  const targetPath = await resolveWriteTarget(filePath);
+  const tmpPath = path.join(
+    path.dirname(targetPath),
+    `.${path.basename(targetPath)}.${process.pid}.tmp`,
+  );
   const existingTmp = await lstatOrNull(tmpPath);
   if (existingTmp?.isSymbolicLink() || existingTmp?.isFile()) {
     await fs.unlink(tmpPath);
@@ -440,9 +460,14 @@ export async function writeConfigFile(filePath: string, contents: string): Promi
   } finally {
     await handle.close();
   }
-  await fs.chmod(tmpPath, 0o600);
-  await fs.rename(tmpPath, filePath);
-  await fs.chmod(filePath, 0o600);
+  try {
+    await fs.chmod(tmpPath, 0o600);
+    await fs.rename(tmpPath, targetPath);
+  } catch (error) {
+    // The temp file holds the config text. Do not leave it behind if replace fails.
+    await fs.unlink(tmpPath).catch(() => undefined);
+    throw error;
+  }
 }
 
 /**

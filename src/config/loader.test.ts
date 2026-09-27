@@ -362,12 +362,19 @@ actions = { move_to = "Receipts" }
       expect(permissionBits((await fs.stat(dir)).mode)).toBe(0o700);
     });
 
-    it('does not follow a symlink at the config path', async () => {
-      const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-cfg-'));
-      const outside = path.join(outsideDir, 'target.toml');
-      await fs.writeFile(outside, 'original');
-      const configPath = path.join(tmpDir, 'config.toml');
-      await fs.symlink(outside, configPath);
+    it('should keep a symlinked config file and update its target', async () => {
+      const store = path.join(tmpDir, 'store');
+      await fs.mkdir(store);
+      const target = path.join(store, 'target.toml');
+      await fs.writeFile(target, 'original');
+      const linkDir = path.join(tmpDir, 'links');
+      await fs.mkdir(linkDir);
+      const configPath = path.join(linkDir, 'config.toml');
+      const linkText = path.relative(linkDir, target);
+      await fs.symlink(linkText, configPath);
+      // The link's directory cannot hold a temp file. The write has to
+      // rename inside the directory that contains the target.
+      await fs.chmod(linkDir, 0o555);
       const rawConfig = {
         accounts: [
           {
@@ -379,21 +386,29 @@ actions = { move_to = "Receipts" }
           },
         ],
       };
+      const inodeBefore = (await fs.stat(target)).ino;
 
       try {
-        await expect(
-          saveConfig(rawConfig as unknown as Parameters<typeof saveConfig>[0], configPath),
-        ).rejects.toThrow(/symlink/);
-        expect(await fs.readFile(outside, 'utf-8')).toBe('original');
+        await saveConfig(rawConfig as unknown as Parameters<typeof saveConfig>[0], configPath);
+
+        expect((await fs.lstat(configPath)).isSymbolicLink()).toBe(true);
+        expect(await fs.readlink(configPath)).toBe(linkText);
+        expect(await fs.readFile(target, 'utf-8')).toContain('saved-test');
+        expect(permissionBits((await fs.stat(target)).mode)).toBe(0o600);
+        expect((await fs.stat(target)).ino).not.toBe(inodeBefore);
+        expect(permissionBits((await fs.stat(linkDir)).mode)).toBe(0o555);
+        expect((await fs.readdir(store)).some((name) => name.endsWith('.tmp'))).toBe(false);
       } finally {
-        await fs.rm(outsideDir, { recursive: true, force: true });
+        await fs.chmod(linkDir, 0o700);
       }
     });
 
-    it('does not follow a symlinked parent directory', async () => {
-      const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-cfg-'));
+    it('should write through a symlinked directory without replacing the link', async () => {
+      const realDir = path.join(tmpDir, 'real');
+      await fs.mkdir(realDir, { mode: 0o755 });
+      await fs.chmod(realDir, 0o755);
       const link = path.join(tmpDir, 'linked');
-      await fs.symlink(outsideDir, link);
+      await fs.symlink('real', link);
       const rawConfig = {
         accounts: [
           {
@@ -406,17 +421,42 @@ actions = { move_to = "Receipts" }
         ],
       };
 
-      try {
-        await expect(
-          saveConfig(
-            rawConfig as unknown as Parameters<typeof saveConfig>[0],
-            path.join(link, 'config.toml'),
-          ),
-        ).rejects.toThrow(/symlink/);
-        expect(await fs.readdir(outsideDir)).toEqual([]);
-      } finally {
-        await fs.rm(outsideDir, { recursive: true, force: true });
-      }
+      await saveConfig(
+        rawConfig as unknown as Parameters<typeof saveConfig>[0],
+        path.join(link, 'config.toml'),
+      );
+
+      expect((await fs.lstat(link)).isSymbolicLink()).toBe(true);
+      expect(await fs.readlink(link)).toBe('real');
+      expect(permissionBits((await fs.stat(realDir)).mode)).toBe(0o755);
+      const written = path.join(realDir, 'config.toml');
+      expect(permissionBits((await fs.stat(written)).mode)).toBe(0o600);
+      expect(await fs.readFile(written, 'utf-8')).toContain('saved-test');
+    });
+
+    it('should leave the mode of an existing directory unchanged', async () => {
+      const dir = path.join(tmpDir, 'cfg');
+      await fs.mkdir(dir, { mode: 0o755 });
+      await fs.chmod(dir, 0o755);
+      const rawConfig = {
+        accounts: [
+          {
+            name: 'saved-test',
+            email: 'saved@example.com',
+            password: 'saved-pass',
+            imap: { host: 'imap.saved.com' },
+            smtp: { host: 'smtp.saved.com' },
+          },
+        ],
+      };
+
+      await saveConfig(
+        rawConfig as unknown as Parameters<typeof saveConfig>[0],
+        path.join(dir, 'config.toml'),
+      );
+
+      expect(permissionBits((await fs.stat(dir)).mode)).toBe(0o755);
+      expect(permissionBits((await fs.stat(path.join(dir, 'config.toml'))).mode)).toBe(0o600);
     });
 
     it('rejects a config path that contains a null byte', async () => {
