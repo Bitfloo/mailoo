@@ -34,7 +34,14 @@ else
   echo "ci-local: skip integration (Docker not running)" >&2
 fi
 
-if [[ "${1:-}" == "--image" ]]; then
+build_image=0
+for arg in "$@"; do
+  if [[ "$arg" == "--image" ]]; then
+    build_image=1
+  fi
+done
+
+if [[ "$build_image" -eq 1 ]]; then
   if [[ "$docker_ok" -eq 1 ]]; then
     pnpm docker:build
   else
