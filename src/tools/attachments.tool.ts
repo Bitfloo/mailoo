@@ -9,6 +9,11 @@ import path from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
+import {
+  isInsideRoot,
+  realpathPreservingCase,
+  sanitizeAttachmentFilename,
+} from '../safety/local-paths.js';
 import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
 
@@ -21,34 +26,11 @@ export function downloadRoot(): string {
   return path.resolve(process.cwd());
 }
 
-/**
- * Reject destinations that escape `root`.
- * A name such as `..notes.txt` is one segment and stays inside `root`.
- */
+/** Reject destinations that escape `root`. */
 export function assertPathInsideRoot(resolvedPath: string, root: string): void {
-  const relative = path.relative(root, resolvedPath);
-  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+  if (!isInsideRoot(resolvedPath, root)) {
     throw new Error(OUTSIDE_ROOT);
   }
-}
-
-const FILENAME_UNSAFE = new Set(['/', '\\', '?', '%', '*', ':', '|', '"', '<', '>']);
-
-function isUnsafeFilenameChar(char: string): boolean {
-  const code = char.codePointAt(0) ?? 0;
-  return code <= 0x1f || code === 0x7f || FILENAME_UNSAFE.has(char);
-}
-
-/** One path segment. `..`, separators, and control characters cannot escape the directory. */
-export function sanitizeAttachmentFilename(filename: string): string {
-  const base = path.posix.basename(filename.replaceAll('\\', '/').replaceAll('\0', ''));
-  const cleaned = Array.from(base)
-    .map((char) => (isUnsafeFilenameChar(char) ? '_' : char))
-    .join('')
-    .replace(/^\.+/, '')
-    .trim();
-  if (!cleaned || cleaned === '.' || cleaned === '..') return 'attachment';
-  return cleaned.slice(0, 200);
 }
 
 function isEnoent(err: unknown): boolean {
@@ -79,7 +61,7 @@ async function ensurePathSegment(parent: string, part: string, rootReal: string)
   if (existing.isSymbolicLink() || !existing.isDirectory()) {
     throw new Error(OUTSIDE_ROOT);
   }
-  assertPathInsideRoot(await fs.realpath(current), rootReal);
+  assertPathInsideRoot(await realpathPreservingCase(current), rootReal);
   return current;
 }
 
@@ -107,7 +89,7 @@ export async function writeAttachmentFile(
   }
 
   const rootLogical = downloadRoot();
-  const rootReal = await fs.realpath(rootLogical);
+  const rootReal = await realpathPreservingCase(rootLogical);
   const resolved = path.resolve(rootLogical, savePath);
   assertPathInsideRoot(resolved, rootLogical);
 
@@ -132,7 +114,7 @@ export async function writeAttachmentFile(
 
   const parent = path.dirname(dest);
   await mkdirInside(parent, rootLogical, rootReal);
-  const parentReal = await fs.realpath(parent);
+  const parentReal = await realpathPreservingCase(parent);
   assertPathInsideRoot(path.join(parentReal, path.basename(dest)), rootReal);
 
   const noFollow = fsConstants.O_NOFOLLOW ?? 0;
