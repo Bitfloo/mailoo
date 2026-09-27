@@ -75,10 +75,25 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
   passes a ready access token rather than asking Nodemailer to refresh one.
   Node.js 20 or newer is required; Mailoo already requires 24.
 
+- `mailoo http` listens on loopback by default (previously `0.0.0.0`). A
+  non-loopback bind requires `MCP_EMAIL_HTTP_TOKEN`, and `0.0.0.0` / `::` also
+  requires `MCP_EMAIL_HTTP_ALLOWED_HOSTS`. To keep the previous bind, set the
+  host to `0.0.0.0` or `::` and set both of those variables.
+
+- A hostname listed in `MCP_EMAIL_HTTP_ALLOWED_HOSTS` is accepted in `Host` on
+  any port (the entry may be a name or `host:port`). `Origin` may be `https:`
+  as well as `http:`. Names allowed only because the process is on loopback
+  still have to use the listen port.
+
+### Added
+
 - Sent IMAP APPEND after SMTP (`save_to_sent`; skipped for Gmail)
 - IMAP4rev2 opt-out for broken SEARCH (e.g. Strato)
 - ManageSieve tools (TLS required for PLAIN)
 - `get_email_security`, attachment `savePath`, search `since`/`before`
+
+### Changed
+
 - `read_only` also skips hooks, watcher, and the in-process scheduler
 - Stdio shutdown on client stdin EOF; RFC 2047 encoded draft/Sent subjects
 
