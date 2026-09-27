@@ -43,7 +43,7 @@ export interface ResolveOutgoingAttachmentOptions {
 
 const URL_SCHEME = /^(?:https?|file|data|ftp|ftps|mailto|sftp):/i;
 
-/** Directory names that are too broad to use as an attachment root. */
+/** A cwd directly under / (or its realpath, e.g. /private/tmp on macOS) would admit other users' files. */
 const BROAD_ROOT_NAMES = new Set([
   'Users',
   'home',
@@ -109,11 +109,35 @@ function isCredentialStore(filePath: string): boolean {
   );
 }
 
-function rootIsSpecific(root: string): boolean {
+async function broadRootPaths(): Promise<Set<string>> {
+  const filesystemRoot = path.parse(path.resolve('/')).root;
+  const children = [...BROAD_ROOT_NAMES]
+    .map((name) => path.resolve(filesystemRoot, name))
+    .filter((candidate) => path.dirname(candidate) === path.parse(candidate).root);
+  const paths = new Set<string>(children);
+  await Promise.all(
+    children.map(async (candidate) => {
+      try {
+        paths.add(await fs.realpath(candidate));
+      } catch {
+        // realpath fails when the directory is absent; the unresolved name is already in the set.
+      }
+    }),
+  );
+  return paths;
+}
+
+async function specificRoot(root: string, broad: ReadonlySet<string>): Promise<string | undefined> {
   const resolved = path.resolve(root);
-  if (resolved === path.parse(resolved).root) return false;
-  const parent = path.dirname(resolved);
-  return !(parent === path.parse(resolved).root && BROAD_ROOT_NAMES.has(path.basename(resolved)));
+  if (resolved === path.parse(resolved).root || broad.has(resolved)) return undefined;
+  try {
+    const real = await fs.realpath(resolved);
+    // The input form can be a symlink whose parent is not "/", or an already-resolved alias.
+    if (broad.has(real)) return undefined;
+    return real;
+  } catch {
+    return resolved;
+  }
 }
 
 function isInsideAny(candidate: string, roots: readonly string[]): boolean {
@@ -146,16 +170,15 @@ function expandHome(input: string, homeDir: string): string {
 }
 
 async function specificRoots(cwd: string, home: string): Promise<string[]> {
-  const candidates = [...new Set([path.resolve(cwd), path.resolve(home)])].filter(rootIsSpecific);
-  return Promise.all(
+  const broad = await broadRootPaths();
+  const candidates = [...new Set([path.resolve(cwd), path.resolve(home)])];
+  const resolved = await Promise.all(
     candidates.map(async (candidate) => {
-      try {
-        return await fs.realpath(candidate);
-      } catch {
-        return candidate;
-      }
+      const specific = await specificRoot(candidate, broad);
+      return specific;
     }),
   );
+  return resolved.filter((root): root is string => root !== undefined);
 }
 
 async function readExact(fh: fs.FileHandle, size: number): Promise<Buffer> {
@@ -206,7 +229,7 @@ async function readLocalFile(
   const noFollow = fsConstants.O_NOFOLLOW ?? 0;
   let fh: fs.FileHandle;
   try {
-    // Open flags are a bitmask; O_NOFOLLOW refuses a symlink swapped in after the check.
+    // Open flags are a bitmask; O_NOFOLLOW refuses a final-component symlink swapped in after the check.
     // eslint-disable-next-line no-bitwise
     fh = await fs.open(real, fsConstants.O_RDONLY | noFollow);
   } catch {
@@ -295,16 +318,17 @@ export async function resolveOutgoingAttachments(
   if (!attachments?.length) return [];
   const maxBytes = byteLimit(options);
   // Sequential so the combined cap is applied before the next attachment is read.
-  const { parts } = await attachments.reduce(
-    async (previous, att) => {
-      const acc = await previous;
-      const part = await resolveOne(att, options, maxBytes);
-      if (!part) return acc;
-      const total = acc.total + part.content.length;
+  const parts: ResolvedOutgoingAttachment[] = [];
+  let total = 0;
+  // eslint-disable-next-line no-restricted-syntax -- combined byte cap must see each attachment before the next read
+  for (const att of attachments) {
+    // eslint-disable-next-line no-await-in-loop
+    const part = await resolveOne(att, options, maxBytes);
+    if (part) {
+      total += part.content.length;
       assertSize(total, maxBytes);
-      return { total, parts: [...acc.parts, part] };
-    },
-    Promise.resolve({ total: 0, parts: [] as ResolvedOutgoingAttachment[] }),
-  );
+      parts.push(part);
+    }
+  }
   return parts;
 }

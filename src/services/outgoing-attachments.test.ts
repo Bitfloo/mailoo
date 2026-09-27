@@ -203,6 +203,63 @@ describe('resolveOutgoingAttachments', () => {
     }
   });
 
+  // A symlink to /tmp needs extra privileges on Windows.
+  it.skipIf(process.platform === 'win32')(
+    'should reject a file when the working directory is a symlink to /tmp',
+    async () => {
+      const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-root-link-'));
+      const home = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-home-'));
+      const fileDir = await fs.mkdtemp(path.join('/tmp', 'mailoo-broad-'));
+      try {
+        const link = path.join(parent, 'cwd');
+        await fs.symlink('/tmp', link);
+        const file = path.join(fileDir, 'a.txt');
+        await fs.writeFile(file, 'tmp-file');
+        await expect(
+          resolveOutgoingAttachments([{ path: file }], { root: link, homeDir: home }),
+        ).rejects.toThrow(/not allowed/);
+      } finally {
+        await fs.rm(parent, { recursive: true, force: true });
+        await fs.rm(home, { recursive: true, force: true });
+        await fs.rm(fileDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  // On Linux realpath('/tmp') is '/tmp', which the direct-child rule already refuses.
+  it.skipIf(process.platform !== 'darwin')(
+    'should reject a file when the working directory is the real path of /tmp',
+    async () => {
+      const root = await fs.realpath('/tmp');
+      const home = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-home-'));
+      const fileDir = await fs.mkdtemp(path.join(root, 'mailoo-broad-'));
+      try {
+        const file = path.join(fileDir, 'a.txt');
+        await fs.writeFile(file, 'tmp-file');
+        await expect(
+          resolveOutgoingAttachments([{ path: file }], { root, homeDir: home }),
+        ).rejects.toThrow(/not allowed/);
+      } finally {
+        await fs.rm(home, { recursive: true, force: true });
+        await fs.rm(fileDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('should read a file when the working directory is a subdirectory of the system temp directory', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-cwd-'));
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-home-'));
+    try {
+      const file = path.join(root, 'a.txt');
+      await fs.writeFile(file, 'temp-ok');
+      const parts = await resolveOutgoingAttachments([{ path: file }], { root, homeDir: home });
+      expect(parts[0].content.toString()).toBe('temp-ok');
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+      await fs.rm(home, { recursive: true, force: true });
+    }
+  });
+
   it('should reject a macOS cookies path under the home directory', async () => {
     await withRoots(async (dirs) => {
       const dir = path.join(dirs.home, 'Library', 'Cookies');
