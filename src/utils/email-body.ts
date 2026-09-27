@@ -7,9 +7,6 @@
 
 export type BodyFormat = 'full' | 'text' | 'stripped';
 
-/** Bound work on a single body. Larger input is cut before tag scanning. */
-const MAX_HTML_CHARS = 1_000_000;
-
 const NAMED_ENTITIES: Record<string, string> = {
   nbsp: ' ',
   lt: '<',
@@ -182,7 +179,7 @@ function walkHtml(html: string, mode: 'text' | 'html'): string {
 
 /** Strips HTML markup and decodes common entities to produce readable plain text. */
 export function stripHtml(html: string): string {
-  let current = html.length > MAX_HTML_CHARS ? html.slice(0, MAX_HTML_CHARS) : html;
+  let current = html;
   // A second pass catches entities that only become tags after the first decode.
   for (let pass = 0; pass < 3; pass += 1) {
     const text = walkHtml(decodeEntities(current), 'text')
@@ -196,8 +193,7 @@ export function stripHtml(html: string): string {
 
 /** Removes active and remote-loading markup. Safe tags are left in place. */
 function sanitizeEmailHtml(html: string): string {
-  const input = html.length > MAX_HTML_CHARS ? html.slice(0, MAX_HTML_CHARS) : html;
-  return walkHtml(input, 'html');
+  return walkHtml(html, 'html');
 }
 
 /** Removes quoted reply chains and signatures from plain text. */

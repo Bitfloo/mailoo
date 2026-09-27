@@ -75,12 +75,11 @@ describe('stripHtml', () => {
     expect(stripHtml('<p>Hi</p><img src="https://evil.example/pixel.gif"')).toBe('Hi');
   });
 
-  it('caps a huge body and still drops script', () => {
-    const html = `<script>alert(1)</script><p>${'A'.repeat(2_000_000)}</p>`;
-    const text = stripHtml(html);
+  it('drops script in a body larger than a megabyte and keeps all of the text', () => {
+    const letters = 'A'.repeat(2_000_000);
+    const text = stripHtml(`<script>alert(1)</script><p>${letters}</p>`);
     expect(text).not.toContain('alert(1)');
-    expect(text.length).toBeLessThanOrEqual(1_000_000);
-    expect(text).toContain('A');
+    expect(text).toBe(letters);
   });
 });
 
