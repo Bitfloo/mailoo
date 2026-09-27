@@ -10,6 +10,10 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Behaviour changes
 
+- Text from incoming mail in tool results is marked as external content.
+
+- Scheduler install no longer overwrites an unreadable crontab.
+
 - `get_emails` (when no requested message could be fetched) and
   `test_notification` (on a failed notification) now return an MCP error
   result (`isError`) instead of ordinary text.
