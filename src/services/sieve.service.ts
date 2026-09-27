@@ -63,8 +63,9 @@ function quoteSieve(value: string): string {
 export const MAX_SIEVE_SCRIPT_BYTES = 1024 * 1024;
 
 /**
- * Chosen bound. RFC 5804 sets no script-name length; 255 matches a typical
- * filename limit so the name cannot fill the command.
+ * RFC 5804 §1.6: servers must accept names up to 128 characters and may accept
+ * longer. 255 is a chosen ceiling above that floor; a server at the minimum
+ * refuses 129-255 itself.
  */
 const MAX_SIEVE_SCRIPT_NAME_CHARS = 255;
 
@@ -78,7 +79,7 @@ function assertSieveScriptName(name: string, allowEmpty = false): void {
   }
   /* eslint-disable no-control-regex */
   // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional — reject control chars in script names
-  if (/[\u0000-\u001F\u007F\u2028\u2029]/.test(name)) {
+  if (/[\u0000-\u001F\u007F-\u009F\u2028\u2029]/.test(name)) {
     throw new Error('Script name must not contain control characters');
   }
   /* eslint-enable no-control-regex */

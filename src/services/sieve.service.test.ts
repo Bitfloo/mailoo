@@ -109,6 +109,19 @@ describe('ManageSieve script limits', () => {
     }
   });
 
+  it('does not open a socket for a script name that contains U+0085', async () => {
+    const { server, connections } = countingServer();
+    const port = await listen(server);
+    try {
+      await expect(
+        sieveService.putScript(sieveAccount(port), 'ok\u0085name', 'keep;'),
+      ).rejects.toThrow(/control characters/);
+      expect(connections()).toBe(0);
+    } finally {
+      await closeServer(server);
+    }
+  });
+
   it('does not open a socket for a script name longer than 255 characters', async () => {
     const { server, connections } = countingServer();
     const port = await listen(server);
