@@ -61,7 +61,15 @@ export interface LocalCalendarEventInput {
   icsUid?: string;
 }
 
-export type AddEventStatus = 'added' | 'cancelled' | 'timed_out' | 'no_display' | 'duplicate';
+export const ADD_EVENT_STATUSES = [
+  'added',
+  'cancelled',
+  'timed_out',
+  'no_display',
+  'duplicate',
+] as const;
+
+export type AddEventStatus = (typeof ADD_EVENT_STATUSES)[number];
 
 export interface AddEventResult {
   status: AddEventStatus;

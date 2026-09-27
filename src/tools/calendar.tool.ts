@@ -21,6 +21,7 @@ import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type CalendarService from '../services/calendar.service.js';
 import type ImapService from '../services/imap.service.js';
 import type LocalCalendarService from '../services/local-calendar.service.js';
+import { ADD_EVENT_STATUSES } from '../services/local-calendar.service.js';
 import type RemindersService from '../services/reminders.service.js';
 import { buildCalendarNotes } from '../utils/calendar-notes.js';
 import { extractConferenceDetails } from '../utils/conference-details.js';
@@ -116,7 +117,7 @@ function registerCalendarGroup(
           'conference dial-in / ID / passcode, attendees, and email body excerpt.',
           'All relevant email attachments (PDFs, docs, etc.) are saved locally and linked in the event notes.',
           'A native confirmation dialog is shown on macOS before the event is written.',
-          'Returns one of: added | cancelled | timed_out | no_display.',
+          `Returns one of: ${ADD_EVENT_STATUSES.join(' | ')}.`,
         ].join(' '),
         inputSchema: {
           account: z.string().describe('Account name'),

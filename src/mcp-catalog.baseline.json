@@ -477,7 +477,7 @@
     },
     {
       "name": "add_to_calendar",
-      "description": "Add an email event to the local calendar (macOS Calendar.app / Linux via xdg-open). Automatically extracts event data from the email: ICS attachments, meeting URL (Zoom/Teams/Meet), conference dial-in / ID / passcode, attendees, and email body excerpt. All relevant email attachments (PDFs, docs, etc.) are saved locally and linked in the event notes. A native confirmation dialog is shown on macOS before the event is written. Returns one of: added | cancelled | timed_out | no_display.",
+      "description": "Add an email event to the local calendar (macOS Calendar.app / Linux via xdg-open). Automatically extracts event data from the email: ICS attachments, meeting URL (Zoom/Teams/Meet), conference dial-in / ID / passcode, attendees, and email body excerpt. All relevant email attachments (PDFs, docs, etc.) are saved locally and linked in the event notes. A native confirmation dialog is shown on macOS before the event is written. Returns one of: added | cancelled | timed_out | no_display | duplicate.",
       "inputSchema": {
         "type": "object",
         "properties": {
