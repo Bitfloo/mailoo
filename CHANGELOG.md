@@ -52,6 +52,14 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
   Download a remote file first and attach the local copy.
 
+- `download_attachment` `savePath` no longer overwrites an existing file,
+  refuses a symlink, and keeps the file name to one path segment. It refuses
+  a hidden directory, a file name that starts with `.`, and application-data
+  directories (`~/Library` except iCloud Drive (`Mobile Documents`) and
+  `CloudStorage`, plus `~/AppData` and `~/snap`). A working directory of `/`
+  or another broad root is refused, and Mailoo does not create directories
+  on that path. Use base64 mode, or start the server in a dedicated folder.
+
 - Nodemailer 10 checks TLS certificates on remote URL fetches and OAuth token
   requests. A fetch to an untrusted certificate is refused. SMTP itself is
   unchanged: `verifySsl` still controls the mail connection, and Mailoo still

@@ -50,7 +50,7 @@ Default **false**. When **true**:
 - hooks, the IMAP IDLE watcher, and the in-process scheduler **do not start**
 
 `download_attachment` stays registered. Passing `savePath` still writes
-bytes under the process working directory — that is a disk write, not an
+bytes under a specific working directory — that is a disk write, not an
 IMAP write. Details: [tools.md](tools.md#download_attachment).
 
 Env: `MCP_EMAIL_READ_ONLY=true`.
