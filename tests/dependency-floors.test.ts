@@ -20,6 +20,7 @@ const FLOORS: Record<string, string> = {
   'ip-address': '10.3.1',
   qs: '6.16.0',
   'body-parser': '2.3.0',
+  // GHSA-5xrq-8626-4rwp: before 4.1.0 the Vitest UI server could read and execute files.
   vitest: '4.1.0',
 };
 

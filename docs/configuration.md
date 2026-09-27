@@ -103,7 +103,7 @@ Tool list: [tools.md](tools.md#managesieve).
 
 ## HTTP transport
 
-`mailoo http` listens on **127.0.0.1** and **::1**, port **8080**. Other addresses are not opened.
+`mailoo http` listens on **127.0.0.1** and **::1**, port **8080**.
 
 ```bash
 node dist/main.js http

@@ -25,6 +25,7 @@ export const HTTP_HEADERS_TIMEOUT_MS = 10_000;
  */
 export const HTTP_REQUEST_TIMEOUT_MS = 60_000;
 
+/** A header flood must not pin memory before the body limit applies. Node's default is 2000. */
 export const HTTP_MAX_HEADER_COUNT = 100;
 
 const LOOPBACK_BIND_HOSTS = ['127.0.0.1', '::1'] as const;
@@ -56,7 +57,6 @@ export interface HttpRequestHeaders {
   'sec-fetch-site'?: string | string[];
   'content-type'?: string | string[];
   'content-length'?: string | string[];
-  'x-forwarded-host'?: string | string[];
 }
 
 export type HttpAccessDecision = { ok: true } | { ok: false; status: number; message: string };
@@ -370,7 +370,8 @@ export function bearerAuthorizationMatches(
   const expectedBuf = Buffer.from(expected, 'utf8');
   const providedBuf = Buffer.from(provided ?? '', 'utf8');
   const sameLength = providedBuf.length === expectedBuf.length;
-  // The compare always sees two buffers of the expected size, including a shorter token.
+  // timingSafeEqual throws on unequal lengths; compare a zero buffer so a
+  // wrong-length token costs the same time.
   const left = sameLength ? providedBuf : Buffer.alloc(expectedBuf.length);
   const equalBytes = equal(left, expectedBuf);
   return provided !== undefined && sameLength && equalBytes;

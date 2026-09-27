@@ -73,7 +73,6 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
   requests. A fetch to an untrusted certificate is refused. SMTP itself is
   unchanged: `verifySsl` still controls the mail connection, and Mailoo still
   passes a ready access token rather than asking Nodemailer to refresh one.
-  Node.js 20 or newer is required; Mailoo already requires 24.
 
 - `mailoo http` listens on loopback by default (previously `0.0.0.0`). A
   non-loopback bind requires `MCP_EMAIL_HTTP_TOKEN`, and `0.0.0.0` / `::` also

@@ -398,7 +398,7 @@ Commands:
 
 ### HTTP
 
-`http` listens on **127.0.0.1** and **::1** (port **8080** unless you pass another port). It does not open other interfaces. A non-loopback address requires `MCP_EMAIL_HTTP_TOKEN`. Details, including `0.0.0.0` / `::` and the 8 MiB body limit: [docs/configuration.md](docs/configuration.md#http-transport).
+`http` listens on **127.0.0.1** and **::1** (port **8080** unless you pass another port). A non-loopback address requires `MCP_EMAIL_HTTP_TOKEN`. Details, including `0.0.0.0` / `::` and the 8 MiB body limit: [docs/configuration.md](docs/configuration.md#http-transport).
 
 ```bash
 node dist/main.js http

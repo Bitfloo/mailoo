@@ -249,20 +249,11 @@ describe('evaluateHttpAccess', () => {
   });
 
   it('ignores X-Forwarded-Host when Host is not allowed', () => {
-    expect(
-      deny(
-        evaluateHttpAccess(
-          {
-            method: 'GET',
-            headers: {
-              host: 'rebind.example:8080',
-              'x-forwarded-host': '127.0.0.1:8080',
-            },
-          },
-          policy,
-        ),
-      ).status,
-    ).toBe(403);
+    const headers = {
+      host: 'rebind.example:8080',
+      'x-forwarded-host': '127.0.0.1:8080',
+    };
+    expect(deny(evaluateHttpAccess({ method: 'GET', headers }, policy)).status).toBe(403);
   });
 
   it('allows a request with no Origin header', () => {
