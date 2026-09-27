@@ -23,7 +23,12 @@ export function registerTemplateReadTools(
       title: 'List Templates',
       description: `List all available email templates. Templates are TOML files in ${TEMPLATES_DIR}/ with {{variable}} placeholders for subject and body.`,
       inputSchema: {},
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async () => {
       try {
@@ -96,7 +101,12 @@ export function registerTemplateWriteTools(
           .optional()
           .describe('Recipient addresses (required for send, optional for draft)'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
     },
     async ({ account, template, variables, action, to }) => {
       try {

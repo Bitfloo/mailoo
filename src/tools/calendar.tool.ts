@@ -52,7 +52,12 @@ export default function registerCalendarTools(
         email_id: z.string().describe('Email UID'),
         mailbox: z.string().default('INBOX').describe('Mailbox path (default: INBOX)'),
       },
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, email_id: emailId, mailbox }) => {
       const email = await imapService.getEmail(account, emailId, mailbox);
@@ -133,7 +138,12 @@ export default function registerCalendarTools(
           .default(true)
           .describe('Show native confirmation dialog before adding (default: true)'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
     },
     async ({
       account,
@@ -306,7 +316,12 @@ export default function registerCalendarTools(
         'Returns granted status and step-by-step setup instructions if access is denied.',
       ].join(' '),
       inputSchema: {},
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async () => {
       const [calResult, remResult] = await Promise.all([
@@ -349,7 +364,12 @@ export default function registerCalendarTools(
         'Use the returned calendar names with add_to_calendar to target a specific calendar.',
       ].join(' '),
       inputSchema: {},
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async () => {
       const calendars = await localCalendarService.listCalendars();
@@ -411,7 +431,12 @@ export default function registerCalendarTools(
           .default(20)
           .describe('Maximum number of results (default: 20)'),
       },
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ title, from, to, calendar_name: calendarName, limit }) => {
       const events = await localCalendarService.listEvents({
@@ -482,7 +507,12 @@ export default function registerCalendarTools(
           .default(20)
           .describe('Maximum number of results (default: 20)'),
       },
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ title, list_name: listName, include_completed: includeCompleted, limit }) => {
       const reminders = await remindersService.listReminders({
@@ -558,7 +588,12 @@ export default function registerCalendarTools(
           .default(true)
           .describe('Show native confirmation dialog before adding (default: true)'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
     },
     async ({
       account,
@@ -622,7 +657,12 @@ export default function registerCalendarTools(
         email_id: z.string().describe('Email ID from list_emails_metadata'),
         mailbox: z.string().default('INBOX').describe('Mailbox containing the email'),
       },
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, email_id: emailId, mailbox }) => {
       const email = await imapService.getEmail(account, emailId, mailbox);

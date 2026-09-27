@@ -32,7 +32,12 @@ export default function registerBulkTools(server: McpServer, imapService: ImapSe
           .optional()
           .describe("Destination mailbox — required when action is 'move'"),
       },
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, mailbox, action, ids, destination }) => {
       try {

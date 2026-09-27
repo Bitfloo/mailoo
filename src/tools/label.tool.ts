@@ -29,7 +29,12 @@ export default function registerLabelTools(server: McpServer, imapService: ImapS
       inputSchema: {
         account: z.string().describe('Account name from list_accounts'),
       },
-      annotations: { readOnlyHint: true },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account }) => {
       try {
@@ -81,7 +86,12 @@ export default function registerLabelTools(server: McpServer, imapService: ImapS
         mailbox: z.string().describe('Mailbox containing the email (must be a real folder)'),
         label: z.string().describe('Label name to add (e.g., "Important", "Project-X")'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, emailId, mailbox, label }) => {
       try {
@@ -120,7 +130,12 @@ export default function registerLabelTools(server: McpServer, imapService: ImapS
         mailbox: z.string().describe('Mailbox containing the email (must be a real folder)'),
         label: z.string().describe('Label name to remove'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, emailId, mailbox, label }) => {
       try {
@@ -164,7 +179,12 @@ export default function registerLabelTools(server: McpServer, imapService: ImapS
             'Label name (e.g., "Project-X"). For nested labels use "/" separator (e.g., "Work/Urgent").',
           ),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, name }) => {
       try {
@@ -199,7 +219,12 @@ export default function registerLabelTools(server: McpServer, imapService: ImapS
         account: z.string().describe('Account name from list_accounts'),
         name: z.string().describe('Label name to delete'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, name }) => {
       try {

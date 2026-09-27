@@ -36,7 +36,12 @@ export default function registerSchedulerTools(
         html: z.boolean().default(false).describe('Send as HTML (default: false)'),
         in_reply_to: z.string().optional().describe('Message-ID to reply to'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
     },
     async (params) => {
       const scheduled = await schedulerService.schedule(params.account, {
@@ -86,7 +91,12 @@ export default function registerSchedulerTools(
           .default('pending')
           .describe('Filter by status (default: pending)'),
       },
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ account, status }) => {
       const emails = await schedulerService.list({
@@ -130,7 +140,12 @@ export default function registerSchedulerTools(
       inputSchema: {
         schedule_id: z.string().describe('Schedule ID to cancel'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ schedule_id: scheduleId }) => {
       const result = await schedulerService.cancel(scheduleId);

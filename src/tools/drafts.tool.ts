@@ -48,7 +48,12 @@ export default function registerDraftTools(
           .optional()
           .describe('Draft attachments (path or base64)'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
     },
     async ({ account, to, subject, body, cc, bcc, html, in_reply_to: inReplyTo, attachments }) => {
       try {
@@ -103,7 +108,12 @@ export default function registerDraftTools(
         id: z.number().int().describe('Draft email UID (from list_emails on Drafts mailbox)'),
         mailbox: z.string().optional().describe('Drafts folder path (auto-detected if omitted)'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
     },
     async ({ account, id, mailbox }) => {
       try {

@@ -29,7 +29,12 @@ export default function registerManageTools(server: McpServer, imapService: Imap
           .string()
           .describe('Target mailbox (e.g., Archive). Use list_mailboxes to see options.'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, emailId, sourceMailbox, destinationMailbox }) => {
       try {
@@ -88,7 +93,12 @@ export default function registerManageTools(server: McpServer, imapService: Imap
         mailbox: z.string().default('INBOX').describe('Mailbox containing the email'),
         permanent: z.boolean().default(false).describe('⚠️ Permanently delete (skip Trash)'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, emailId, mailbox, permanent }) => {
       try {
@@ -136,7 +146,12 @@ export default function registerManageTools(server: McpServer, imapService: Imap
           .enum(['read', 'unread', 'flag', 'unflag'])
           .describe('Action: read, unread, flag (star), or unflag (unstar)'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, id, mailbox, action }) => {
       try {

@@ -25,7 +25,12 @@ export default function registerContactsTools(server: McpServer, imapService: Im
           .default(100)
           .describe('Number of recent emails to scan (default: 100, max: 500)'),
       },
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, mailbox, limit }) => {
       try {

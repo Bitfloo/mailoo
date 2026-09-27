@@ -17,7 +17,12 @@ export default function registerAccountsTools(
       description:
         'List all configured email accounts. Call this first to discover available account names for use with other tools.',
       inputSchema: {},
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async () => {
       const names = connections.getAccountNames();

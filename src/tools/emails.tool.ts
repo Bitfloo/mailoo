@@ -81,7 +81,12 @@ export default function registerEmailsTools(server: McpServer, imapService: Imap
           .describe('Filter: true=has attachments, false=no attachments'),
         answered: z.boolean().optional().describe('Filter: true=replied, false=not yet replied'),
       },
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async (params) => {
       try {
@@ -166,7 +171,12 @@ export default function registerEmailsTools(server: McpServer, imapService: Imap
             'Explicitly mark the email as read after fetching (default: false — reading is non-destructive by default)',
           ),
       },
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, emailId, mailbox, format, maxLength, markRead }) => {
       try {
@@ -255,7 +265,12 @@ export default function registerEmailsTools(server: McpServer, imapService: Imap
           .optional()
           .describe('Truncate each email body at this many characters.'),
       },
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, ids, mailbox, format, maxLength }) => {
       const results: string[] = [];
@@ -336,7 +351,12 @@ export default function registerEmailsTools(server: McpServer, imapService: Imap
         emailId: z.string().describe('Email ID from list_emails or search_emails'),
         mailbox: z.string().default('INBOX').describe('Mailbox path (default: INBOX)'),
       },
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, emailId, mailbox }) => {
       try {
@@ -408,7 +428,12 @@ export default function registerEmailsTools(server: McpServer, imapService: Imap
         start_date: z.string().optional().describe('Alias of since (ISO 8601 range start)'),
         end_date: z.string().optional().describe('Alias of before (ISO 8601 range end)'),
       },
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async (params) => {
       try {

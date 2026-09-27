@@ -29,7 +29,12 @@ export default function registerLocateTools(server: McpServer, imapService: Imap
           .default('INBOX')
           .describe('Mailbox where the email is currently visible (e.g., "All Mail")'),
       },
-      annotations: { readOnlyHint: true },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, emailId, sourceMailbox }) => {
       try {

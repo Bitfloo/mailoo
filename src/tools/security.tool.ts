@@ -21,7 +21,12 @@ export default function registerSecurityTools(server: McpServer, imapService: Im
         emailId: z.string().describe('Email ID (UID) from list_emails or get_email'),
         mailbox: z.string().default('INBOX').describe('Mailbox containing the email'),
       },
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, emailId, mailbox }) => {
       try {

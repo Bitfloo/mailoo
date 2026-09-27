@@ -25,7 +25,12 @@ export default function registerFolderTools(server: McpServer, imapService: Imap
           .min(1)
           .describe("Folder path to create (e.g., 'Archive/2026' or 'Projects')"),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, path: folderPath }) => {
       try {
@@ -69,7 +74,12 @@ export default function registerFolderTools(server: McpServer, imapService: Imap
         path: z.string().min(1).describe('Current folder path'),
         new_path: z.string().min(1).describe('New folder path'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, path: folderPath, new_path: newPath }) => {
       try {
@@ -121,7 +131,12 @@ export default function registerFolderTools(server: McpServer, imapService: Imap
           .min(1)
           .describe('Folder path to delete (⚠️ all emails inside will be lost)'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, path: folderPath }) => {
       try {

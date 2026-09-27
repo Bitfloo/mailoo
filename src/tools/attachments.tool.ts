@@ -215,7 +215,12 @@ export default function registerAttachmentTools(server: McpServer, imapService: 
             'If set, write the decoded file to this path (or directory) and return metadata only — no base64.',
           ),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, id, mailbox, filename, savePath }) => {
       try {

@@ -28,7 +28,12 @@ export default function registerWatcherTools(
       title: 'Get Watcher Status',
       description: 'Get the status of IMAP IDLE watcher connections and recent activity.',
       inputSchema: {},
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async () => {
       const status = watcherService.getStatus();
@@ -71,7 +76,12 @@ export default function registerWatcherTools(
       description:
         'List all available AI triage presets with their descriptions and suggested labels.',
       inputSchema: {},
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async () => {
       const presets = listAllPresets();
@@ -108,7 +118,12 @@ export default function registerWatcherTools(
       description:
         'Get the current AI hooks configuration including preset, rules, and custom instructions.',
       inputSchema: {},
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async () => {
       const sections: string[] = [
@@ -182,7 +197,12 @@ export default function registerWatcherTools(
         'Checks if required OS tools are available and provides setup instructions ' +
         'to enable notification permissions (macOS, Linux, Windows).',
       inputSchema: {},
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async () => {
       const diag = await NotifierService.checkPlatformSupport();
@@ -252,7 +272,12 @@ export default function registerWatcherTools(
           .default(false)
           .describe('Include a sound alert in the test notification'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ sound }) => {
       const notifier = hooksService.getNotifier();
@@ -307,7 +332,12 @@ export default function registerWatcherTools(
           .default(false)
           .describe('Persist changes to config.toml (default: runtime only)'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({
       desktop,

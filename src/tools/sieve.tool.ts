@@ -23,7 +23,12 @@ export function registerSieveReadTools(
       inputSchema: {
         account: z.string().describe('Account name from list_accounts'),
       },
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account }) => {
       try {
@@ -54,7 +59,12 @@ export function registerSieveReadTools(
       inputSchema: {
         account: z.string().describe('Account name from list_accounts'),
       },
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account }) => {
       try {
@@ -89,7 +99,12 @@ export function registerSieveReadTools(
         account: z.string().describe('Account name from list_accounts'),
         name: z.string().describe('Script name from sieve_list_scripts'),
       },
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, name }) => {
       try {
@@ -126,7 +141,12 @@ export function registerSieveWriteTools(
         name: z.string().describe('Script name'),
         content: z.string().describe('SIEVE script source (RFC 5228)'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, name, content }) => {
       try {
@@ -161,7 +181,12 @@ export function registerSieveWriteTools(
         account: z.string().describe('Account name from list_accounts'),
         name: z.string().describe('Script name'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, name }) => {
       try {
@@ -189,7 +214,12 @@ export function registerSieveWriteTools(
         account: z.string().describe('Account name from list_accounts'),
         name: z.string().describe('Script name, or empty string to deactivate'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, name }) => {
       try {

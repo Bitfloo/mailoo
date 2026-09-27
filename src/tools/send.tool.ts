@@ -47,7 +47,12 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
           .optional()
           .describe('Stable RFC 5322 Message-ID for retries (receivers can dedupe)'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
     },
     async (params) => {
       try {
@@ -108,7 +113,12 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
         html: z.boolean().default(false).describe('Send as HTML'),
         messageId: z.string().optional().describe('Stable RFC 5322 Message-ID for retries'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
     },
     async (params) => {
       try {
@@ -172,7 +182,12 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
         attachments: z.array(outgoingAttachment).optional().describe('Extra file attachments'),
         messageId: z.string().optional().describe('Stable RFC 5322 Message-ID for retries'),
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
     },
     async (params) => {
       try {

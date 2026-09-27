@@ -51,7 +51,12 @@ export default function registerThreadTools(server: McpServer, imapService: Imap
               'Ideal for AI triage of long threads where only the latest reply matters.',
           ),
       },
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ account, message_id: messageId, mailbox, format, maxLength, newestFirst }) => {
       try {
