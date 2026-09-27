@@ -1,6 +1,8 @@
 /** Input validation and sanitization utilities. */
 
+import type { LookupAddress } from 'node:dns';
 import { lookup } from 'node:dns/promises';
+import type { LookupFunction } from 'node:net';
 import { BlockList, isIP } from 'node:net';
 
 import { z } from 'zod';
@@ -166,6 +168,56 @@ export function validateWebhookUrl(url: string, options: WebhookUrlOptions = {})
 async function defaultWebhookLookup(hostname: string): Promise<string[]> {
   const records = await lookup(hostname, { all: true, verbatim: true });
   return records.map((record) => record.address);
+}
+
+function refuseWebhookAddress(hostname: string): NodeJS.ErrnoException {
+  return new Error(`Webhook URL must not point to a loopback or private address: ${hostname}`);
+}
+
+/**
+ * `lookup` for `http.request` / `https.request`.
+ * Every answer is checked, then returned, so the socket connects to the
+ * checked address rather than a later resolution of the same name.
+ */
+export function createWebhookConnectLookup(options: WebhookResolveOptions = {}): LookupFunction {
+  const allowPrivate = options.allowPrivate === true;
+  const resolve = options.lookup ?? defaultWebhookLookup;
+  return async (hostname, lookupOptions, callback) => {
+    const fail = (err: NodeJS.ErrnoException): void => {
+      callback(err, []);
+    };
+    const deliver = (records: LookupAddress[]): void => {
+      if (lookupOptions.all === true) {
+        callback(null, records);
+        return;
+      }
+      const first = records[0];
+      if (!first) {
+        fail(refuseWebhookAddress(hostname));
+        return;
+      }
+      callback(null, first.address, first.family);
+    };
+
+    try {
+      const addresses = await resolve(stripHostBrackets(hostname));
+      const blocked =
+        addresses.length === 0 ||
+        (!allowPrivate && addresses.some((address) => isBlockedWebhookHost(address)));
+      if (blocked) {
+        fail(refuseWebhookAddress(hostname));
+        return;
+      }
+      deliver(
+        addresses.map((address) => ({
+          address,
+          family: isIP(address) === 6 ? 6 : 4,
+        })),
+      );
+    } catch (err: unknown) {
+      fail(err instanceof Error ? err : new Error(String(err)));
+    }
+  };
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {

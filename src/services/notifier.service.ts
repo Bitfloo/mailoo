@@ -11,9 +11,17 @@
  */
 
 import { execFile } from 'node:child_process';
-import { mcpLog } from '../logging.js';
-import { resolveWebhookUrl, validateWebhookUrl } from '../safety/validation.js';
+import type { IncomingMessage } from 'node:http';
+import http from 'node:http';
+import https from 'node:https';
 
+import { mcpLog } from '../logging.js';
+import type { WebhookResolveOptions } from '../safety/validation.js';
+import {
+  createWebhookConnectLookup,
+  resolveWebhookUrl,
+  validateWebhookUrl,
+} from '../safety/validation.js';
 import type { AlertsConfig } from '../types/index.js';
 
 // ---------------------------------------------------------------------------
@@ -214,6 +222,69 @@ export function desktopNotificationCommands(
   }
 
   return [];
+}
+
+export interface WebhookPostOptions extends WebhookResolveOptions {
+  signal?: AbortSignal;
+}
+
+/**
+ * POST a webhook body on a new socket.
+ * The lookup checks every address and the socket uses that result.
+ * `request` does not follow redirects. TLS still validates the URL host name.
+ */
+export async function postWebhook(
+  url: string,
+  body: string,
+  options: WebhookPostOptions = {},
+): Promise<number> {
+  const parsed = new URL(url);
+  const transport = parsed.protocol === 'https:' ? https : http;
+  const lookup = createWebhookConnectLookup(options);
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = (err: unknown): void => {
+      if (settled) return;
+      settled = true;
+      reject(err instanceof Error ? err : new Error(String(err)));
+    };
+    const succeed = (status: number): void => {
+      if (settled) return;
+      settled = true;
+      resolve(status);
+    };
+
+    let req: http.ClientRequest;
+    try {
+      req = transport.request(
+        url,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(body),
+          },
+          // A pooled socket skips lookup, so a later POST would not be checked.
+          agent: false,
+          lookup,
+          signal: options.signal,
+        },
+        (res: IncomingMessage) => {
+          res.resume();
+          res.on('error', fail);
+          res.on('end', () => {
+            succeed(res.statusCode ?? 0);
+          });
+        },
+      );
+    } catch (err) {
+      fail(err);
+      return;
+    }
+    req.on('error', fail);
+    req.end(body);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -521,15 +592,12 @@ export default class NotifierService {
     }, 5000);
 
     try {
-      const resp = await fetch(this.config.webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body,
-        redirect: 'error',
+      const status = await postWebhook(this.config.webhookUrl, body, {
+        allowPrivate: this.config.allowPrivateWebhooks === true,
         signal: controller.signal,
       });
-      if (!resp.ok) {
-        await mcpLog('warning', 'notifier', `Webhook returned ${resp.status}`);
+      if (status < 200 || status >= 300) {
+        await mcpLog('warning', 'notifier', `Webhook returned ${status}`);
       }
     } catch {
       await mcpLog('debug', 'notifier', 'Webhook dispatch failed (non-fatal)');
