@@ -1,6 +1,7 @@
 import {
   parseMessageUid,
   recipientEmail,
+  resolveWebhookUrl,
   sanitizeMailboxName,
   sanitizeSearchQuery,
   sanitizeTemplateVariable,
@@ -153,6 +154,77 @@ describe('validateWebhookUrl', () => {
 
   it('allows valid public http URL', () => {
     expect(() => validateWebhookUrl('http://hooks.example.com/wh')).not.toThrow();
+  });
+
+  it('throws on a link-local metadata address', () => {
+    expect(() => validateWebhookUrl('https://169.254.169.254/latest/meta-data/')).toThrow(
+      'loopback or private',
+    );
+  });
+
+  it('throws on the rest of 0.0.0.0/8', () => {
+    expect(() => validateWebhookUrl('http://0.1.2.3/hook')).toThrow('loopback or private');
+  });
+
+  it('throws on an IPv4-mapped loopback address', () => {
+    expect(() => validateWebhookUrl('http://[::ffff:127.0.0.1]/hook')).toThrow(
+      'loopback or private',
+    );
+    expect(() => validateWebhookUrl('http://[::ffff:169.254.169.254]/hook')).toThrow(
+      'loopback or private',
+    );
+  });
+
+  it('throws on an IPv6 link-local address', () => {
+    expect(() => validateWebhookUrl('http://[fe80::1]/hook')).toThrow('loopback or private');
+  });
+
+  it('throws on an IPv6 unique-local address', () => {
+    expect(() => validateWebhookUrl('http://[fd00::1]/hook')).toThrow('loopback or private');
+  });
+
+  it('throws on a metadata hostname', () => {
+    expect(() => validateWebhookUrl('http://metadata.google.internal/computeMetadata/v1/')).toThrow(
+      'loopback or private',
+    );
+  });
+
+  it('allows a decimal form of a public address', () => {
+    expect(() => validateWebhookUrl('http://134744072/')).not.toThrow();
+  });
+
+  it('allows a private address only when the policy opts in', () => {
+    expect(() =>
+      validateWebhookUrl('https://127.0.0.1/hook', { allowPrivate: true }),
+    ).not.toThrow();
+    expect(() => validateWebhookUrl('ftp://127.0.0.1/hook', { allowPrivate: true })).toThrow(
+      'http or https',
+    );
+  });
+
+  it('rejects a hostname that resolves to a private address', async () => {
+    await expect(
+      resolveWebhookUrl('https://hooks.example.com/hook', {
+        lookup: async () => ['10.1.2.3'],
+      }),
+    ).rejects.toThrow('loopback or private');
+  });
+
+  it('allows a hostname that resolves to a public address', async () => {
+    await expect(
+      resolveWebhookUrl('https://hooks.example.com/hook', {
+        lookup: async () => ['192.0.2.10'],
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('rejects a hostname lookup that does not finish', async () => {
+    await expect(
+      resolveWebhookUrl('https://hooks.example.com/hook', {
+        lookup: async () => new Promise<string[]>(() => {}),
+        lookupTimeoutMs: 20,
+      }),
+    ).rejects.toThrow(/timed out/);
   });
 });
 

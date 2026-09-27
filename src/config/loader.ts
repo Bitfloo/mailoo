@@ -87,6 +87,7 @@ function loadFromEnv(): RawAppConfig | null {
               | 'low') ?? 'high',
           webhook_url: process.env.MCP_EMAIL_ALERT_WEBHOOK_URL ?? '',
           webhook_events: ['urgent', 'high'],
+          allow_private_webhooks: process.env.MCP_EMAIL_ALERT_WEBHOOK_ALLOW_PRIVATE === 'true',
         },
         auto_calendar: process.env.MCP_EMAIL_HOOK_AUTO_CALENDAR === 'true',
         calendar_name: process.env.MCP_EMAIL_HOOK_CALENDAR_NAME ?? '',
@@ -283,6 +284,7 @@ function normalizeConfig(raw: RawAppConfig): AppConfig {
           urgencyThreshold: raw.settings.hooks.alerts?.urgency_threshold ?? 'high',
           webhookUrl: raw.settings.hooks.alerts?.webhook_url ?? '',
           webhookEvents: raw.settings.hooks.alerts?.webhook_events ?? ['urgent', 'high'],
+          allowPrivateWebhooks: raw.settings.hooks.alerts?.allow_private_webhooks ?? false,
         },
         autoCalendar: raw.settings.hooks.auto_calendar ?? false,
         calendarName: raw.settings.hooks.calendar_name ?? '',
@@ -395,6 +397,7 @@ save_to_sent = true  # IMAP APPEND to \\Sent after SMTP send (set false for Gmai
 # urgency_threshold = "high" # minimum priority: "urgent" | "high" | "normal" | "low"
 # webhook_url = ""        # HTTP POST to Slack/Discord/ntfy.sh/etc.
 # webhook_events = ["urgent", "high"]  # which priorities trigger webhook
+# allow_private_webhooks = false  # set true to permit loopback and private webhook URLs
 
 # [settings.system_one]
 # enabled = false          # requires watcher.enabled too; TYPESAFE_API_KEY from env only

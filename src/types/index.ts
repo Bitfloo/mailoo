@@ -124,6 +124,8 @@ export interface AlertsConfig {
   urgencyThreshold: 'urgent' | 'high' | 'normal' | 'low';
   webhookUrl: string;
   webhookEvents: ('urgent' | 'high' | 'normal' | 'low')[];
+  /** When true, webhook URLs may use loopback and non-global addresses. */
+  allowPrivateWebhooks?: boolean;
 }
 
 // ---------------------------------------------------------------------------

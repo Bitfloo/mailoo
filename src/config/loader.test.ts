@@ -157,6 +157,7 @@ host = "smtp.example.com"
       expect(config.settings.systemOne.enabled).toBe(false);
       expect(config.settings.systemOne.autoMove).toBe(false);
       expect(config.settings.systemOne.autoFlag).toBe(false);
+      expect(config.settings.hooks.alerts.allowPrivateWebhooks).toBe(false);
       expect(config.settings.systemOne.includeBody).toBe(false);
       expect(config.settings.systemOne.thresholds.isCriticalMin).toBe(0.85);
       expect(config.settings.systemOne.thresholds.injectionHigh).toBe(0.75);

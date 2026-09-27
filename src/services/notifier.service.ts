@@ -12,7 +12,7 @@
 
 import { execFile } from 'node:child_process';
 import { mcpLog } from '../logging.js';
-import { validateWebhookUrl } from '../safety/validation.js';
+import { resolveWebhookUrl, validateWebhookUrl } from '../safety/validation.js';
 
 import type { AlertsConfig } from '../types/index.js';
 
@@ -110,7 +110,11 @@ export default class NotifierService {
 
   /** Updates alert configuration at runtime (partial merge). */
   updateConfig(partial: Partial<AlertsConfig>): AlertsConfig {
-    this.config = { ...this.config, ...partial };
+    const next = { ...this.config, ...partial };
+    if (next.webhookUrl) {
+      validateWebhookUrl(next.webhookUrl, { allowPrivate: next.allowPrivateWebhooks === true });
+    }
+    this.config = next;
     return this.getConfig();
   }
 
@@ -373,7 +377,9 @@ export default class NotifierService {
     if (!this.config.webhookUrl) return;
 
     try {
-      validateWebhookUrl(this.config.webhookUrl);
+      await resolveWebhookUrl(this.config.webhookUrl, {
+        allowPrivate: this.config.allowPrivateWebhooks === true,
+      });
     } catch (err) {
       await mcpLog(
         'warning',
@@ -408,6 +414,7 @@ export default class NotifierService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body,
+        redirect: 'error',
         signal: controller.signal,
       });
       if (!resp.ok) {

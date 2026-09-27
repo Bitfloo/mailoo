@@ -1,5 +1,8 @@
 /** Input validation and sanitization utilities. */
 
+import { lookup } from 'node:dns/promises';
+import { BlockList, isIP } from 'node:net';
+
 import { z } from 'zod';
 
 /**
@@ -80,11 +83,77 @@ export function sanitizeSearchQuery(query: string): string {
 }
 
 /**
- * Validate a webhook URL.
- * Ensures the URL uses http(s) and does not point to a private or loopback address.
- * @param url - The webhook URL to validate.
+ * Non-global addresses a webhook must not reach unless the operator opts in.
+ * IPv4: this-host, RFC1918, loopback, link-local (includes cloud metadata).
+ * IPv6: unspecified, loopback, unique-local, link-local.
  */
-export function validateWebhookUrl(url: string): void {
+const BLOCKED_WEBHOOK_ADDRESSES = new BlockList();
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('0.0.0.0', 8, 'ipv4');
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('10.0.0.0', 8, 'ipv4');
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('127.0.0.0', 8, 'ipv4');
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('169.254.0.0', 16, 'ipv4');
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('172.16.0.0', 12, 'ipv4');
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('192.168.0.0', 16, 'ipv4');
+BLOCKED_WEBHOOK_ADDRESSES.addAddress('100.100.100.200', 'ipv4');
+BLOCKED_WEBHOOK_ADDRESSES.addAddress('::', 'ipv6');
+BLOCKED_WEBHOOK_ADDRESSES.addAddress('::1', 'ipv6');
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('fc00::', 7, 'ipv6');
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('fe80::', 10, 'ipv6');
+
+const METADATA_WEBHOOK_HOSTS = new Set(['metadata.google.internal', 'metadata.goog']);
+
+/** How long a webhook hostname lookup may take before it is refused. */
+export const WEBHOOK_LOOKUP_TIMEOUT_MS = 2_000;
+
+export interface WebhookUrlOptions {
+  /** When true, loopback and non-global addresses are allowed. Protocol is still checked. */
+  allowPrivate?: boolean;
+}
+
+export interface WebhookResolveOptions extends WebhookUrlOptions {
+  /** Test seam. Production uses DNS. */
+  lookup?: (hostname: string) => Promise<readonly string[]>;
+  lookupTimeoutMs?: number;
+}
+
+function stripHostBrackets(hostname: string): string {
+  return hostname
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '')
+    .toLowerCase();
+}
+
+/** `::ffff:7f00:1` and `::ffff:127.0.0.1` both carry an IPv4 address. */
+function embeddedIpv4(host: string): string | undefined {
+  const dotted = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(host);
+  if (dotted) return dotted[1];
+  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(host);
+  if (!hex) return undefined;
+  const high = Number.parseInt(hex[1], 16);
+  const low = Number.parseInt(hex[2], 16);
+  const octet = (value: number): string => `${Math.floor(value / 256)}.${value % 256}`;
+  return `${octet(high)}.${octet(low)}`;
+}
+
+function isBlockedWebhookHost(host: string): boolean {
+  const bare = stripHostBrackets(host);
+  if (bare === 'localhost' || bare.endsWith('.localhost')) return true;
+  if (METADATA_WEBHOOK_HOSTS.has(bare)) return true;
+  const embedded = embeddedIpv4(bare);
+  if (embedded) return BLOCKED_WEBHOOK_ADDRESSES.check(embedded, 'ipv4');
+  if (isIP(bare) === 4) return BLOCKED_WEBHOOK_ADDRESSES.check(bare, 'ipv4');
+  if (isIP(bare) === 6) return BLOCKED_WEBHOOK_ADDRESSES.check(bare, 'ipv6');
+  return false;
+}
+
+/**
+ * Validate a webhook URL.
+ * Ensures the URL uses http(s) and does not point to a loopback, private,
+ * link-local, or metadata address unless `allowPrivate` is set.
+ * @param url - The webhook URL to validate.
+ * @param options - Opt in to non-global addresses.
+ */
+export function validateWebhookUrl(url: string, options: WebhookUrlOptions = {}): void {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -96,20 +165,58 @@ export function validateWebhookUrl(url: string): void {
     throw new Error(`Webhook URL must use http or https protocol, got ${parsed.protocol}`);
   }
 
-  const hostname = parsed.hostname.toLowerCase();
+  if (options.allowPrivate) return;
 
-  // new URL('https://[::1]') stores hostname as '[::1]'
-  const bare = hostname.replace(/^\[|\]$/g, '');
-  if (bare === 'localhost' || bare === '::1' || bare === '0.0.0.0') {
+  const bare = stripHostBrackets(parsed.hostname);
+  if (isBlockedWebhookHost(bare)) {
     throw new Error(`Webhook URL must not point to a loopback or private address: ${bare}`);
   }
+}
 
-  const ipv4Match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(bare);
-  if (ipv4Match) {
-    const [, a, b] = ipv4Match.map(Number);
-    if (a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) {
-      throw new Error(`Webhook URL must not point to a loopback or private address: ${bare}`);
-    }
+async function defaultWebhookLookup(hostname: string): Promise<string[]> {
+  const records = await lookup(hostname, { all: true, verbatim: true });
+  return records.map((record) => record.address);
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error('Webhook address lookup timed out'));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * Validate a webhook URL, then resolve a hostname and refuse non-global answers.
+ * IP literals are checked without DNS. A lookup that fails or times out is refused.
+ */
+export async function resolveWebhookUrl(
+  url: string,
+  options: WebhookResolveOptions = {},
+): Promise<void> {
+  validateWebhookUrl(url, options);
+  if (options.allowPrivate) return;
+
+  const bare = stripHostBrackets(new URL(url).hostname);
+  if (isIP(bare) !== 0 || embeddedIpv4(bare) || isBlockedWebhookHost(bare)) return;
+
+  const lookupHost = options.lookup ?? defaultWebhookLookup;
+  const timeoutMs = options.lookupTimeoutMs ?? WEBHOOK_LOOKUP_TIMEOUT_MS;
+  let addresses: readonly string[];
+  try {
+    addresses = await withTimeout(lookupHost(bare), timeoutMs);
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Webhook address lookup timed out') throw err;
+    throw new Error(`Webhook URL must not point to a loopback or private address: ${bare}`);
+  }
+  if (addresses.length === 0 || addresses.some((address) => isBlockedWebhookHost(address))) {
+    throw new Error(`Webhook URL must not point to a loopback or private address: ${bare}`);
   }
 }
 

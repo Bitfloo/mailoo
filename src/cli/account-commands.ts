@@ -520,6 +520,7 @@ async function addAccount(): Promise<void> {
               urgency_threshold: 'high',
               webhook_url: '',
               webhook_events: ['urgent', 'high'],
+              allow_private_webhooks: false,
             },
             auto_calendar: false,
             calendar_name: '',

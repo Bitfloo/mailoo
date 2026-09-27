@@ -332,6 +332,7 @@ export default function registerWatcherTools(
           try {
             const rawConfig = await loadRawConfig();
             rawConfig.settings.hooks.alerts = {
+              ...rawConfig.settings.hooks.alerts,
               desktop: updated.desktop,
               sound: updated.sound,
               urgency_threshold: updated.urgencyThreshold,

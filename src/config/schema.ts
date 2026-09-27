@@ -94,6 +94,7 @@ export const AlertsConfigSchema = z.object({
   urgency_threshold: z.enum(['urgent', 'high', 'normal', 'low']).default('high'),
   webhook_url: z.string().default(''),
   webhook_events: z.array(z.enum(['urgent', 'high', 'normal', 'low'])).default(['urgent', 'high']),
+  allow_private_webhooks: z.boolean().default(false),
 });
 
 export const HooksConfigSchema = z.object({
@@ -113,6 +114,7 @@ export const HooksConfigSchema = z.object({
     urgency_threshold: 'high',
     webhook_url: '',
     webhook_events: ['urgent', 'high'],
+    allow_private_webhooks: false,
   }),
   auto_calendar: z.boolean().default(false),
   calendar_name: z.string().default(''),
@@ -201,6 +203,7 @@ export const SettingsSchema = z.object({
       urgency_threshold: 'high',
       webhook_url: '',
       webhook_events: ['urgent', 'high'],
+      allow_private_webhooks: false,
     },
     auto_calendar: false,
     calendar_name: '',
@@ -252,6 +255,7 @@ export const AppConfigFileSchema = z.object({
         urgency_threshold: 'high',
         webhook_url: '',
         webhook_events: ['urgent', 'high'],
+        allow_private_webhooks: false,
       },
       auto_calendar: false,
       calendar_name: '',
