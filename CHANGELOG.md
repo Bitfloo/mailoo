@@ -10,6 +10,10 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Behaviour changes
 
+- A single-message id must be one UID greater than 0. Ranges and lists such as
+  `1:*` and `1,2`, and leading zeros such as `01`, are rejected. Previously
+  `1:*` addressed every message in the mailbox.
+
 - Desktop notifications pass message text to the OS notifier as data, not as script source.
 
 - `send_at` must be an ISO 8601 date-time with a UTC offset, for example
