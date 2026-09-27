@@ -299,6 +299,7 @@ export function registerWatcherWriteTools(server: McpServer, hooksService: Hooks
       }
 
       return {
+        ...(result.success ? {} : { isError: true as const }),
         content: [{ type: 'text' as const, text: lines.join('\n') }],
       };
     },
