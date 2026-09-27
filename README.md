@@ -52,12 +52,12 @@ Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, and read-onl
 
 Policy and how to report a vulnerability: **[SECURITY.md](SECURITY.md)**.
 
-- All connections use TLS/STARTTLS encryption (ManageSieve PLAIN also requires TLS — [docs](docs/configuration.md#managesieve))
-- Passwords are never logged; audit trail records operations without credentials
+- IMAP and SMTP use TLS or STARTTLS unless the account sets both `tls` and `starttls` to false. Certificate checks follow `verify_ssl` (`src/connections/manager.ts`). ManageSieve `AUTHENTICATE PLAIN` requires TLS and always checks the certificate (`src/services/sieve.service.ts`) — [docs](docs/configuration.md#managesieve)
+- The audit log redacts passwords and message bodies. It records send, draft, folder, label, bulk, manage, sieve, template, and schedule writes, not every local write (`src/safety/audit.ts`) — [SECURITY.md](SECURITY.md)
 - Token-bucket rate limiter prevents abuse (configurable per account)
 - OAuth2 XOAUTH2 authentication for Gmail and Microsoft 365 _(experimental)_
-- Attachment downloads: 5 MB as base64, or up to 50 MB when `savePath` writes a new file under a specific working directory (hidden paths, application-data folders, and a working directory of `/` or another broad root are refused) ([docs](docs/tools.md#download_attachment))
-- Outgoing attachment paths must be local files under the working directory or home; `~/Library` (except iCloud Drive and CloudStorage), `~/AppData`, and `~/snap` are refused ([docs](docs/tools.md#attachments-on-send-and-drafts))
+- `savePath` writes a new file under the working directory when that directory is specific (`src/safety/local-paths.ts` refuses `/` and the broad roots named there). Hidden segments, `~/Library` except Mobile Documents and CloudStorage, `~/AppData`, and `~/snap` are refused. An existing file is left unchanged, and a symlink is refused ([docs](docs/tools.md#download_attachment))
+- Outgoing attachment paths must be regular files under the working directory or home. The same application-data directories are refused, and a symlink that leaves the allowed directory is refused ([docs](docs/tools.md#attachments-on-send-and-drafts))
 
 ## Docs
 
@@ -952,6 +952,7 @@ src/
 ├── prompts/               — MCP prompt definitions (7)
 ├── resources/             — MCP resource definitions (6)
 ├── safety/                — Audit trail, rate limiter, stdio lifecycle
+│   └── http-transport.ts  — Streamable HTTP listen policy
 ├── utils/                 — RFC 2047 compose, MIME body, auth headers
 └── types/                 — Shared TypeScript types
 ```
