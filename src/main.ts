@@ -4,7 +4,7 @@
  *
  * Subcommands:
  *   stdio     Run as MCP server over stdio (default)
- *   http      Run as MCP server over Streamable HTTP (port 8080 by default)
+ *   http      Run as MCP server over Streamable HTTP (loopback, port 8080)
  *   setup     Interactive account setup wizard
  *   test      Test IMAP/SMTP connections
  *   config    Config management (show, path, init)
@@ -13,7 +13,6 @@
 
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { createServer as createHttpServer } from 'node:http';
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -25,6 +24,13 @@ import { bindServer, markInitialized, mcpLog } from './logging.js';
 import registerAllPrompts from './prompts/register.js';
 import registerAllResources from './resources/register.js';
 import HttpSessionStore from './safety/http-sessions.js';
+import {
+  formatHttpListenLines,
+  readHttpLaunchOptions,
+  readLimitedBody,
+  resolveHttpRoute,
+  startGuardedHttpServers,
+} from './safety/http-transport.js';
 import RateLimiter from './safety/rate-limiter.js';
 import attachStdioShutdown from './safety/stdio-lifecycle.js';
 import { maybeStartMailboxWriters } from './safety/write-side-effects.js';
@@ -50,7 +56,7 @@ Usage:
 
 Commands:
   stdio       Run as MCP server over stdio (default)
-  http [port] Run as MCP server over Streamable HTTP (default port: 8080)
+  http [port] [host]  Streamable HTTP (default: port 8080 on 127.0.0.1 and ::1)
   account     Account management (list, add, edit, delete)
   setup       Alias for 'account add'
   test        Test connections for all or a specific account
@@ -62,8 +68,8 @@ Commands:
 
 Examples:
   mailoo                         # Start MCP server (stdio)
-  mailoo http                    # Start HTTP server on port 8080
-  mailoo http 9090               # Start HTTP server on port 9090
+  mailoo http                    # Loopback HTTP on port 8080 (127.0.0.1 and ::1)
+  mailoo http 9090               # Loopback HTTP on port 9090
   mailoo account list             # List configured accounts
   mailoo account add              # Add a new email account
   mailoo account edit personal    # Edit an account
@@ -234,16 +240,7 @@ async function runServer(): Promise<void> {
   process.on('SIGHUP', shutdown);
 }
 
-async function readBody(req: IncomingMessage): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-}
-
-async function runHttpServer(port: number): Promise<void> {
+async function runHttpServer(policy: ReturnType<typeof readHttpLaunchOptions>): Promise<void> {
   const config = await loadConfig();
 
   // Shared services — created once for the process lifetime
@@ -292,22 +289,27 @@ async function runHttpServer(port: number): Promise<void> {
   const sessions = new HttpSessionStore<StreamableHTTPServerTransport>();
   const canWrite = !config.settings.readOnly;
 
-  const httpServer = createHttpServer(async (req: IncomingMessage, res: ServerResponse) => {
-    if (req.url === '/health') {
+  const handleHttpRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    const route = resolveHttpRoute(req.method, req.url);
+    if (route === 'method') {
+      res.writeHead(405, { Allow: req.url === '/health' ? 'GET' : 'GET, POST, DELETE' });
+      res.end();
+      return;
+    }
+    if (route === 'missing') {
+      res.writeHead(404);
+      res.end('Not Found');
+      return;
+    }
+    if (route === 'health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, version: PKG_VERSION }));
       return;
     }
 
-    if (req.url !== '/mcp') {
-      res.writeHead(404);
-      res.end('Not Found');
-      return;
-    }
-
     let body: unknown;
     if (req.method === 'POST') {
-      const raw = await readBody(req);
+      const raw = await readLimitedBody(req, policy.bodyLimitBytes);
       if (raw.length > 0) {
         try {
           body = JSON.parse(raw.toString());
@@ -418,7 +420,7 @@ async function runHttpServer(port: number): Promise<void> {
       if (trackedId) sessions.endRequest(trackedId);
       sessions.evict();
     }
-  });
+  };
 
   let checkInterval: ReturnType<typeof setInterval> | undefined;
   await maybeStartMailboxWriters(canWrite, {
@@ -444,15 +446,8 @@ async function runHttpServer(port: number): Promise<void> {
     },
   });
 
-  await new Promise<void>((resolve, reject) => {
-    httpServer.listen(port, () => {
-      process.stderr.write(`mailoo HTTP server listening on :${port}\n`);
-      process.stderr.write(`  Endpoint : http://0.0.0.0:${port}/mcp\n`);
-      process.stderr.write(`  Health   : http://0.0.0.0:${port}/health\n`);
-      resolve();
-    });
-    httpServer.once('error', reject);
-  });
+  const listener = await startGuardedHttpServers(policy, handleHttpRequest);
+  process.stderr.write(`${formatHttpListenLines(listener.addresses)}\n`);
 
   const shutdown = async () => {
     if (checkInterval) clearInterval(checkInterval);
@@ -460,7 +455,7 @@ async function runHttpServer(port: number): Promise<void> {
     await watcherService.stop();
     await Promise.allSettled(sessions.values().map(async (t) => t.close()));
     await connections.closeAll();
-    httpServer.close();
+    await listener.close();
   };
 
   process.on('SIGINT', shutdown);
@@ -476,13 +471,18 @@ async function main(): Promise<void> {
       break;
 
     case 'http': {
-      const portArg = process.argv[3];
-      const port = portArg !== undefined ? Number.parseInt(portArg, 10) : 8080;
-      if (Number.isNaN(port) || port < 1 || port > 65535) {
-        console.error(`Invalid port: ${portArg}`);
-        throw new Error(`Invalid port: ${portArg}`);
+      let policy: ReturnType<typeof readHttpLaunchOptions>;
+      try {
+        policy = readHttpLaunchOptions(
+          { portArg: process.argv[3], hostArg: process.argv[4] },
+          process.env,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(message);
+        throw new Error(message);
       }
-      await runHttpServer(port);
+      await runHttpServer(policy);
       break;
     }
 

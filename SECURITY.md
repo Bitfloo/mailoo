@@ -24,6 +24,7 @@ Mailoo handles sensitive email credentials and message content. The project incl
 - **Read-only mode** — `read_only: true` omits write tools and does not start hooks, the IDLE watcher, or the in-process scheduler. `download_attachment` with `savePath` still writes under the working directory; see [docs/tools.md](docs/tools.md#download_attachment).
 - **Input validation** — all tool inputs are validated with Zod schemas
 - **ManageSieve** — AUTHENTICATE PLAIN requires TLS (implicit or STARTTLS)
+- **HTTP transport** — listens on 127.0.0.1 and ::1 unless `MCP_EMAIL_HTTP_TOKEN` is set. `Host` and `Origin` must match the names the process is serving, and request bodies are size-capped. See [docs/configuration.md](docs/configuration.md#http-transport).
 
 ## Best Practices for Users
 

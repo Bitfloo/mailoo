@@ -372,6 +372,7 @@ node dist/main.js [command]
 
 Commands:
   stdio                     Run as MCP server over stdio (default)
+  http [port] [host]        Streamable HTTP (default: port 8080 on 127.0.0.1 and ::1)
   account list              List all configured accounts
   account add               Add a new email account interactively
   account edit [name]       Edit an existing account
@@ -393,6 +394,17 @@ Commands:
   --version, -v             Print the package version
   help                      Show help
 ```
+
+### HTTP
+
+`http` listens on **127.0.0.1** and **::1** (port **8080** unless you pass another port). It does not open other interfaces. A non-loopback address requires `MCP_EMAIL_HTTP_TOKEN`. Details, including `0.0.0.0` / `::` and the 8 MiB body limit: [docs/configuration.md](docs/configuration.md#http-transport).
+
+```bash
+node dist/main.js http
+MCP_EMAIL_HTTP_TOKEN='replace-with-a-long-random-secret' node dist/main.js http 8080 192.0.2.10
+```
+
+Clients send `Authorization: Bearer <token>` when a token is configured.
 
 ### Configuration
 

@@ -85,6 +85,41 @@ sieve_port = 4190
 
 Tool list: [tools.md](tools.md#managesieve).
 
+## HTTP transport
+
+`mailoo http` listens on **127.0.0.1** and **::1**, port **8080**. Other addresses are not opened.
+
+```bash
+node dist/main.js http
+node dist/main.js http 9090
+```
+
+To listen on one other address, set a bearer token in the environment. The token is not accepted as a command argument, because process arguments are visible to other users on the machine.
+
+```bash
+MCP_EMAIL_HTTP_TOKEN='replace-with-a-long-random-secret' \
+  node dist/main.js http 8080 192.0.2.10
+```
+
+The command's host argument wins over `MCP_EMAIL_HTTP_HOST`. Clients send `Authorization: Bearer <token>` on every request, including `/health`.
+
+`0.0.0.0` and `::` also require `MCP_EMAIL_HTTP_ALLOWED_HOSTS`: a comma-separated list of hostnames that may appear in `Host` (the name clients put in the URL).
+
+Each request is checked before the body is handed to the MCP session:
+
+- `Host` must be an allowed hostname and the listen port
+- `Origin`, when the client sends one, must be `http://<allowed-host>:<port>`
+- `POST` must be `application/json` and at most **8 MiB**
+- `X-Forwarded-Host` is ignored
+
+Inside a container, loopback is the container's own loopback. Publishing the port means listening on `0.0.0.0` with a token and `MCP_EMAIL_HTTP_ALLOWED_HOSTS`.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MCP_EMAIL_HTTP_HOST` | `127.0.0.1` and `::1` | Single listen address. The host argument wins. |
+| `MCP_EMAIL_HTTP_TOKEN` | unset | Bearer token. Required when the listen address is not loopback. |
+| `MCP_EMAIL_HTTP_ALLOWED_HOSTS` | listen address, or the loopback names | Required for `0.0.0.0` and `::`. |
+
 ## Stdio shutdown
 
 In `stdio` mode the process listens for stdin `end` / `close` (client
