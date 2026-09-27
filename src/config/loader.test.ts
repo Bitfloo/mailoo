@@ -272,22 +272,22 @@ actions = { move_to = "Receipts" }
     it('loads config from env vars when set', async () => {
       process.env.MCP_EMAIL_ADDRESS = 'env@example.com';
       process.env.MCP_EMAIL_PASSWORD = 'env-pass';
-      process.env.MCP_EMAIL_IMAP_HOST = 'imap.env.com';
-      process.env.MCP_EMAIL_SMTP_HOST = 'smtp.env.com';
+      process.env.MCP_EMAIL_IMAP_HOST = 'imap.example.com';
+      process.env.MCP_EMAIL_SMTP_HOST = 'smtp.example.com';
 
       const config = await loadConfig(path.join(tmpDir, 'nonexistent.toml'));
 
       expect(config.accounts).toHaveLength(1);
       expect(config.accounts[0].email).toBe('env@example.com');
-      expect(config.accounts[0].imap.host).toBe('imap.env.com');
-      expect(config.accounts[0].smtp.host).toBe('smtp.env.com');
+      expect(config.accounts[0].imap.host).toBe('imap.example.com');
+      expect(config.accounts[0].smtp.host).toBe('smtp.example.com');
     });
 
     it('reads read_only from MCP_EMAIL_READ_ONLY', async () => {
       process.env.MCP_EMAIL_ADDRESS = 'env@example.com';
       process.env.MCP_EMAIL_PASSWORD = 'env-pass';
-      process.env.MCP_EMAIL_IMAP_HOST = 'imap.env.com';
-      process.env.MCP_EMAIL_SMTP_HOST = 'smtp.env.com';
+      process.env.MCP_EMAIL_IMAP_HOST = 'imap.example.com';
+      process.env.MCP_EMAIL_SMTP_HOST = 'smtp.example.com';
       process.env.MCP_EMAIL_READ_ONLY = 'true';
 
       const config = await loadConfig(path.join(tmpDir, 'nonexistent.toml'));
@@ -298,8 +298,8 @@ actions = { move_to = "Receipts" }
     it('defaults systemOne.thresholds.injectionHigh to 0.75 on the env path', async () => {
       process.env.MCP_EMAIL_ADDRESS = 'env@example.com';
       process.env.MCP_EMAIL_PASSWORD = 'env-pass';
-      process.env.MCP_EMAIL_IMAP_HOST = 'imap.env.com';
-      process.env.MCP_EMAIL_SMTP_HOST = 'smtp.env.com';
+      process.env.MCP_EMAIL_IMAP_HOST = 'imap.example.com';
+      process.env.MCP_EMAIL_SMTP_HOST = 'smtp.example.com';
 
       const config = await loadConfig(path.join(tmpDir, 'nonexistent.toml'));
 

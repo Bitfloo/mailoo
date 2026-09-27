@@ -271,8 +271,8 @@ describe('SmtpService', () => {
     it('skips Sent append for Gmail SMTP', async () => {
       connections.getAccount.mockReturnValue({
         name: 'test',
-        email: 'user@gmail.com',
-        username: 'user@gmail.com',
+        email: 'user@example.com',
+        username: 'user@example.com',
         imap: { host: 'imap.gmail.com', port: 993, tls: true, starttls: false, verifySsl: true },
         smtp: { host: 'smtp.gmail.com', port: 465, tls: true, starttls: false, verifySsl: true },
         oauth2: { provider: 'google' },

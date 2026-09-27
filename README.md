@@ -295,7 +295,7 @@ name = "mailoo"
 transport = "stdio"
 command = "npx"
 args = ["-y", "@bitfloo/mailoo", "stdio"]
-env = { MCP_EMAIL_ADDRESS = "you@gmail.com", MCP_EMAIL_PASSWORD = "your-app-password", MCP_EMAIL_IMAP_HOST = "imap.gmail.com", MCP_EMAIL_SMTP_HOST = "smtp.gmail.com" }
+env = { MCP_EMAIL_ADDRESS = "you@example.com", MCP_EMAIL_PASSWORD = "your-app-password", MCP_EMAIL_IMAP_HOST = "imap.example.com", MCP_EMAIL_SMTP_HOST = "smtp.example.com" }
 ```
 
 MCP tools are exposed as `mailoo_<tool_name>` (e.g. `mailoo_list_emails`). Restart Vibe after editing the config.
@@ -341,10 +341,10 @@ For MCP client configuration (e.g. Claude Desktop):
       "command": "npx",
       "args": ["-y", "@bitfloo/mailoo", "stdio"],
       "env": {
-        "MCP_EMAIL_ADDRESS": "you@gmail.com",
+        "MCP_EMAIL_ADDRESS": "you@example.com",
         "MCP_EMAIL_PASSWORD": "your-app-password",
-        "MCP_EMAIL_IMAP_HOST": "imap.gmail.com",
-        "MCP_EMAIL_SMTP_HOST": "smtp.gmail.com"
+        "MCP_EMAIL_IMAP_HOST": "imap.example.com",
+        "MCP_EMAIL_SMTP_HOST": "smtp.example.com"
       }
     }
   }
@@ -407,12 +407,12 @@ save_to_sent = true  # see docs/configuration.md — Gmail already files Sent
 
 [[accounts]]
 name = "personal"
-email = "you@gmail.com"
+email = "you@example.com"
 full_name = "Your Name"
 password = "your-app-password"
 
 [accounts.imap]
-host = "imap.gmail.com"
+host = "imap.example.com"
 port = 993
 tls = true
 # disable_imap4rev2 = true  # Strato and similar SEARCH bugs
@@ -420,7 +420,7 @@ tls = true
 # sieve_port = 4190
 
 [accounts.smtp]
-host = "smtp.gmail.com"
+host = "smtp.example.com"
 port = 465
 tls = true
 starttls = false
@@ -439,7 +439,7 @@ max_messages = 100
 ```toml
 [[accounts]]
 name = "work"
-email = "you@company.com"
+email = "you@example.com"
 full_name = "Your Name"
 
 [accounts.oauth2]
@@ -449,12 +449,12 @@ client_secret = "your-client-secret"
 refresh_token = "your-refresh-token"
 
 [accounts.imap]
-host = "imap.gmail.com"
+host = "imap.example.com"
 port = 993
 tls = true
 
 [accounts.smtp]
-host = "smtp.gmail.com"
+host = "smtp.example.com"
 port = 465
 tls = true
 
@@ -551,24 +551,24 @@ batch_delay = 5         # seconds to batch before triage
 
 # User context — appended to preset's AI prompt
 custom_instructions = """
-I'm a software engineer. Emails from @mycompany.com are always high priority.
+I'm a software engineer. Emails from @example.com are always high priority.
 Newsletters I read: TL;DR, Hacker Newsletter.
 """
 
 # Static rules — run BEFORE AI, skip AI if matched
 [[settings.hooks.rules]]
 name = "GitHub Notifications"
-match = { from = "*@github.com" }
+match = { from = "*@example.com" }
 actions = { labels = ["Dev"], mark_read = true }
 
 [[settings.hooks.rules]]
 name = "Newsletter Archive"
-match = { from = "*@substack.com|*@buttondown.email" }
+match = { from = "*@example.com|*@example.test" }
 actions = { labels = ["Newsletter"] }
 
 [[settings.hooks.rules]]
 name = "VIP Contacts"
-match = { from = "ceo@company.com|cto@company.com" }
+match = { from = "ceo@example.com|cto@example.test" }
 actions = { flag = true, labels = ["VIP"] }
 ```
 
@@ -584,7 +584,7 @@ actions = { flag = true, labels = ["VIP"] }
 
 #### Static Rules
 
-Static rules use glob-style patterns (`*@github.com`) with `|` as OR separator (`*@github.com|*@gitlab.com`). All conditions within a match are AND'd. First matching rule wins.
+Static rules use glob-style patterns (`*@example.com`) with `|` as OR separator (`*@example.com|*@example.test`). All conditions within a match are AND'd. First matching rule wins.
 
 Available actions: `labels` (string array), `flag` (boolean), `mark_read` (boolean), `alert` (boolean — forces desktop notification).
 
@@ -668,7 +668,7 @@ Uses PowerShell toast notifications (built-in):
 {
   "event": "email.urgent",
   "account": "work",
-  "sender": { "name": "John CEO", "address": "ceo@company.com" },
+  "sender": { "name": "John CEO", "address": "ceo@example.com" },
   "subject": "Q4 Review Due Today",
   "priority": "urgent",
   "labels": ["VIP"],
@@ -681,7 +681,7 @@ Static rules can force desktop notifications with `alert = true`, regardless of 
 ```toml
 [[settings.hooks.rules]]
 name = "VIP Contacts"
-match = { from = "ceo@company.com" }
+match = { from = "ceo@example.com" }
 actions = { flag = true, alert = true, labels = ["VIP"] }
 ```
 

@@ -12,22 +12,22 @@ describe('Audit Logger', () => {
   });
 
   it('logs an entry with tool, account, and result', async () => {
-    await audit.log('send_email', 'personal', { to: ['a@b.com'] }, 'ok');
+    await audit.log('send_email', 'personal', { to: ['a@example.com'] }, 'ok');
     expect(mockFs.appendFile).toHaveBeenCalledOnce();
     const logLine = mockFs.appendFile.mock.calls[0][1] as string;
     const entry = JSON.parse(logLine);
     expect(entry.tool).toBe('send_email');
     expect(entry.account).toBe('personal');
     expect(entry.result).toBe('ok');
-    expect(entry.params.to).toEqual(['a@b.com']);
+    expect(entry.params.to).toEqual(['a@example.com']);
   });
 
   it('redacts password field', async () => {
-    await audit.log('send_email', 'x', { password: 'secret123', to: ['a@b.com'] }, 'ok');
+    await audit.log('send_email', 'x', { password: 'secret123', to: ['a@example.com'] }, 'ok');
     const logLine = mockFs.appendFile.mock.calls[0][1] as string;
     const entry = JSON.parse(logLine);
     expect(entry.params.password).toBe('[REDACTED]');
-    expect(entry.params.to).toEqual(['a@b.com']);
+    expect(entry.params.to).toEqual(['a@example.com']);
   });
 
   it('redacts body, bodyText, bodyHtml, content_base64', async () => {
