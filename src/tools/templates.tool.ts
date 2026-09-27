@@ -113,7 +113,7 @@ export function registerTemplateWriteTools(
             body: composed.body,
           });
 
-          audit.log(
+          await audit.log(
             'apply_template',
             account,
             {
@@ -152,7 +152,7 @@ export function registerTemplateWriteTools(
           body: composed.body,
         });
 
-        audit.log(
+        await audit.log(
           'apply_template',
           account,
           {
