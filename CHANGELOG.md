@@ -10,9 +10,12 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Behaviour changes
 
+- `get_emails` (when no requested message could be fetched) and
+  `test_notification` (on a failed notification) now return an MCP error
+  result (`isError`) instead of ordinary text.
+
 - The server does not advertise `resources.subscribe` and does not send
-  `notifications/resources/updated`. Clients are not subscribed to resource
-  updates. `resources.listChanged` remains.
+  `notifications/resources/updated`. `resources.listChanged` remains.
 
 - `read_only` does not register tools that write. `add_to_calendar`,
   `create_reminder`, `test_notification`, and `configure_alerts` are
