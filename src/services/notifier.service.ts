@@ -62,16 +62,142 @@ const MCP_LOG_LEVEL_MAP: Record<UrgencyLevel, 'alert' | 'warning' | 'info' | 'de
   low: 'debug',
 };
 
-// ---------------------------------------------------------------------------
-// Text sanitization — prevent command injection in OS notifications
-// ---------------------------------------------------------------------------
+const URGENCY_LEVELS: readonly UrgencyLevel[] = ['urgent', 'high', 'normal', 'low'];
 
-function sanitizeForShell(text: string): string {
-  return text
-    .replace(/[\\"'`$]/g, '')
-    .replace(/[\n\r\t]/g, ' ')
-    .replace(/[^\x20-\x7E\u00A0-\uFFFF]/g, '')
-    .slice(0, 200);
+/** Webhook URLs are stored in the config file; keep them bounded. */
+export const MAX_WEBHOOK_URL_CHARS = 2048;
+
+/** Fixed sound file. Runtime alert settings cannot replace this path. */
+const FREEDESKTOP_MESSAGE_SOUND = '/usr/share/sounds/freedesktop/stereo/message-new-instant.oga';
+
+export interface DesktopNotificationCommand {
+  bin: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
+function isUrgency(value: string): value is UrgencyLevel {
+  return (URGENCY_LEVELS as readonly string[]).includes(value);
+}
+
+function assertWebhookUrl(url: string, allowPrivate: boolean): void {
+  if (url.length > MAX_WEBHOOK_URL_CHARS) {
+    throw new Error('Webhook URL is too long');
+  }
+  /* eslint-disable no-control-regex */
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional — reject control chars in webhook URLs
+  if (/[\u0000-\u001F\u007F\u2028\u2029]/.test(url)) {
+    throw new Error('Webhook URL must not contain control characters');
+  }
+  /* eslint-enable no-control-regex */
+  validateWebhookUrl(url, { allowPrivate });
+  const parsed = new URL(url);
+  if (parsed.username !== '' || parsed.password !== '') {
+    throw new Error('Webhook URL must not include credentials');
+  }
+}
+
+/**
+ * Merge a runtime alert update.
+ * `allowPrivateWebhooks` stays as loaded from the config file.
+ */
+export function applyAlertsPatch(
+  current: AlertsConfig,
+  partial: Partial<AlertsConfig>,
+): AlertsConfig {
+  if (partial.desktop !== undefined && typeof partial.desktop !== 'boolean') {
+    throw new Error('desktop must be a boolean');
+  }
+  if (partial.sound !== undefined && typeof partial.sound !== 'boolean') {
+    throw new Error('sound must be a boolean');
+  }
+  if (partial.urgencyThreshold !== undefined && !isUrgency(partial.urgencyThreshold)) {
+    throw new Error('urgency threshold must be urgent, high, normal, or low');
+  }
+  if (partial.webhookEvents !== undefined) {
+    const events = partial.webhookEvents as readonly string[];
+    if (
+      !Array.isArray(events) ||
+      events.length > URGENCY_LEVELS.length ||
+      events.some((level) => !isUrgency(level))
+    ) {
+      throw new Error('webhook events must be urgency levels');
+    }
+  }
+  if (partial.webhookUrl !== undefined && partial.webhookUrl !== '') {
+    assertWebhookUrl(partial.webhookUrl, current.allowPrivateWebhooks === true);
+  }
+
+  return {
+    desktop: partial.desktop ?? current.desktop,
+    sound: partial.sound ?? current.sound,
+    urgencyThreshold: partial.urgencyThreshold ?? current.urgencyThreshold,
+    webhookUrl: partial.webhookUrl ?? current.webhookUrl,
+    webhookEvents: partial.webhookEvents ?? current.webhookEvents,
+    allowPrivateWebhooks: current.allowPrivateWebhooks,
+  };
+}
+
+function notificationField(text: string): string {
+  return text.replace(/\0/g, '').slice(0, 200);
+}
+
+/**
+ * Build desktop notification commands.
+ * Title and body are data (argv or environment), never part of the script text.
+ */
+export function desktopNotificationCommands(
+  platform: NodeJS.Platform,
+  title: string,
+  body: string,
+  sound: boolean,
+): DesktopNotificationCommand[] {
+  const safeTitle = notificationField(title);
+  const safeBody = notificationField(body);
+  const env = {
+    MAILOO_NOTIFY_TITLE: safeTitle,
+    MAILOO_NOTIFY_BODY: safeBody,
+  };
+
+  if (platform === 'darwin') {
+    const soundClause = sound ? ' sound name "Glass"' : '';
+    const script =
+      'display notification (system attribute "MAILOO_NOTIFY_BODY") ' +
+      `with title (system attribute "MAILOO_NOTIFY_TITLE")${soundClause}`;
+    return [{ bin: 'osascript', args: ['-e', script], env }];
+  }
+
+  if (platform === 'linux') {
+    const commands: DesktopNotificationCommand[] = [
+      {
+        bin: 'notify-send',
+        args: ['-u', sound ? 'critical' : 'normal', '--', safeTitle, safeBody],
+      },
+    ];
+    if (sound) {
+      commands.push({ bin: 'paplay', args: [FREEDESKTOP_MESSAGE_SOUND] });
+    }
+    return commands;
+  }
+
+  if (platform === 'win32') {
+    const script = [
+      "[void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms')",
+      '$n = New-Object System.Windows.Forms.NotifyIcon',
+      '$n.Icon = [System.Drawing.SystemIcons]::Information',
+      '$n.Visible = $true',
+      "$n.ShowBalloonTip(5000, $env:MAILOO_NOTIFY_TITLE, $env:MAILOO_NOTIFY_BODY, 'Info')",
+    ].join('; ');
+    return [
+      {
+        bin: 'powershell',
+        args: ['-NoProfile', '-NonInteractive', '-Command', script],
+        env,
+      },
+    ];
+  }
+
+  return [];
 }
 
 // ---------------------------------------------------------------------------
@@ -110,11 +236,7 @@ export default class NotifierService {
 
   /** Updates alert configuration at runtime (partial merge). */
   updateConfig(partial: Partial<AlertsConfig>): AlertsConfig {
-    const next = { ...this.config, ...partial };
-    if (next.webhookUrl) {
-      validateWebhookUrl(next.webhookUrl, { allowPrivate: next.allowPrivateWebhooks === true });
-    }
-    this.config = next;
+    this.config = applyAlertsPatch(this.config, partial);
     return this.getConfig();
   }
 
@@ -307,62 +429,35 @@ export default class NotifierService {
     if (this.desktopCount >= NotifierService.MAX_DESKTOP_PER_MIN) return;
     this.desktopCount += 1;
 
-    const title = sanitizeForShell(
-      `📧 Mailoo — ${payload.priority === 'urgent' ? 'Urgent' : 'Important'}`,
-    );
-    const senderDisplay = sanitizeForShell(payload.sender.name ?? payload.sender.address);
-    const subject = sanitizeForShell(payload.subject);
-    const body = `From: ${senderDisplay}\n${subject}`;
+    const title = `📧 Mailoo — ${payload.priority === 'urgent' ? 'Urgent' : 'Important'}`;
+    const senderDisplay = payload.sender.name ?? payload.sender.address;
+    const body = `From: ${senderDisplay}\n${payload.subject}`;
     const playSound = this.config.sound && payload.priority === 'urgent';
-
-    const { platform } = process;
+    const commands = desktopNotificationCommands(process.platform, title, body, playSound);
 
     try {
-      if (platform === 'darwin') {
-        await NotifierService.execDarwin(title, body, playSound);
-      } else if (platform === 'linux') {
-        await NotifierService.execLinux(title, body, playSound);
-      } else if (platform === 'win32') {
-        await NotifierService.execWindows(title, body);
-      }
+      await commands.reduce(async (previous, command) => {
+        await previous;
+        try {
+          await NotifierService.execCommand(command.bin, command.args, command.env);
+        } catch (err) {
+          if (command.bin !== 'paplay') throw err;
+        }
+      }, Promise.resolve());
     } catch {
       // Desktop notification failure is non-fatal — silently degrade to MCP log only
     }
   }
 
-  private static async execDarwin(title: string, body: string, sound: boolean): Promise<void> {
-    const soundClause = sound ? ' sound name "Glass"' : '';
-    const script = `display notification "${body}" with title "${title}"${soundClause}`;
-    await NotifierService.execCommand('osascript', ['-e', script]);
-  }
-
-  private static async execLinux(title: string, body: string, sound: boolean): Promise<void> {
-    const urgency = sound ? 'critical' : 'normal';
-    await NotifierService.execCommand('notify-send', ['-u', urgency, title, body]);
-    if (sound) {
-      try {
-        await NotifierService.execCommand('paplay', [
-          '/usr/share/sounds/freedesktop/stereo/message-new-instant.oga',
-        ]);
-      } catch {
-        // Sound playback failure is non-fatal
-      }
-    }
-  }
-
-  private static async execWindows(title: string, body: string): Promise<void> {
-    const ps =
-      `[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); ` +
-      `$n = New-Object System.Windows.Forms.NotifyIcon; ` +
-      `$n.Icon = [System.Drawing.SystemIcons]::Information; ` +
-      `$n.Visible = $true; ` +
-      `$n.ShowBalloonTip(5000, '${title}', '${body}', 'Info')`;
-    await NotifierService.execCommand('powershell', ['-Command', ps]);
-  }
-
-  private static async execCommand(bin: string, args: string[]): Promise<void> {
+  private static async execCommand(
+    bin: string,
+    args: string[],
+    env?: Record<string, string>,
+  ): Promise<void> {
+    const options: { timeout: number; env?: NodeJS.ProcessEnv } = { timeout: 5000 };
+    if (env) options.env = { ...process.env, ...env };
     return new Promise((resolve, reject) => {
-      execFile(bin, args, { timeout: 5000 }, (err) => {
+      execFile(bin, args, options, (err) => {
         if (err) reject(err);
         else resolve();
       });
