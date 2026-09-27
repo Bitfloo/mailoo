@@ -1,5 +1,15 @@
 # Agents
 
+<!-- AUTO:RULES:START -->
+## Rules for this repository
+
+Read each file below before working; they are the project's standing rules, mirrored into
+`.claude/rules/` for Claude Code and listed here for hosts that read only this file.
+
+- `.claude/rules/public-git.md` - Public GitHub log
+- `.claude/rules/testing-doctrine.md` - Mailoo testing doctrine
+<!-- AUTO:RULES:END -->
+
 Project subagents live in `.cursor/agents/` (this clone). Cursor Cloud has no
 `~/.cursor/agents/` — use these files, not a machine-local copy.
 
