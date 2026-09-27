@@ -7,7 +7,70 @@ import { installCrontabLine, loadLaunchAgent, removeCrontabLine } from './schedu
 
 const SRC = path.resolve('src');
 
-const SHELL_CALL = [/(?<![.\w])execSync\s*\(/, /(?<![.\w])exec\s*\(/, /shell\s*:\s*true/];
+const CHILD_PROCESS_NAMES = new Set(['execFile', 'execFileSync', 'spawn', 'spawnSync']);
+
+// A call-site lookbehind misses `cp.execSync` and `childProcess.exec`.
+// Imports may only name the four functions above. A namespace or default import
+// is the module object, so it can still call exec.
+const CHILD_PROCESS_IMPORT =
+  /(?:^|\n)[ \t]*import\s+(?:type\s+)?([^;]*?)\s+from\s+['"](?:node:)?child_process['"]/g;
+const CHILD_PROCESS_MODULE =
+  /(?:^|\n)[ \t]*(?:import|require)\s*\(?\s*['"](?:node:)?child_process['"]/;
+
+// desktopNotificationCommands runs one fixed PowerShell script built from string
+// literals. Title and body are environment values, not the -Command text.
+const CONSTANT_POWERSHELL_NOTIFIER = `${path.sep}services${path.sep}notifier.service.ts`;
+
+function namedImportHits(clause: string): string[] {
+  const brace = /\{([^}]*)\}/.exec(clause);
+  if (!brace) return [];
+  return brace[1]
+    .split(',')
+    .map((part) => part.trim().replace(/^type\s+/, ''))
+    .filter((part) => part.length > 0)
+    .map((part) => part.split(/\s+as\s+/)[0]?.trim() ?? '')
+    .filter((name) => name.length > 0 && !CHILD_PROCESS_NAMES.has(name));
+}
+
+function childProcessImportHits(text: string): string[] {
+  const fromImports = [...text.matchAll(new RegExp(CHILD_PROCESS_IMPORT.source, 'g'))].flatMap(
+    (match) => {
+      const clause = match[1]?.trim() ?? '';
+      if (clause.startsWith('*') || clause.includes('* as ')) return ['namespace import'];
+      const braceAt = clause.indexOf('{');
+      const beforeBrace = (braceAt >= 0 ? clause.slice(0, braceAt) : clause)
+        .replace(/,/g, '')
+        .trim();
+      return [...(beforeBrace.length > 0 ? ['default import'] : []), ...namedImportHits(clause)];
+    },
+  );
+  const moduleImport = CHILD_PROCESS_MODULE.test(text) ? ['module import'] : [];
+  return [...fromImports, ...moduleImport];
+}
+
+function variableShellHits(file: string, text: string): string[] {
+  return [...text.matchAll(/['"](sh|bash|cmd|powershell)['"]/g)].flatMap((match) => {
+    const at = match.index ?? 0;
+    const flag = /['"](-c|\/c|-Command)['"]\s*,\s*([^,\]\n]+)/.exec(text.slice(at, at + 400));
+    const arg = flag?.[2]?.trim() ?? '';
+    if (!flag || arg.startsWith("'") || arg.startsWith('"')) return [];
+    const reason = `${match[1]} ${flag[1]} ${arg}`;
+    // The Windows notifier is the one constant script. Other shells in that file still fail.
+    if (file.endsWith(CONSTANT_POWERSHELL_NOTIFIER) && reason.startsWith('powershell -Command')) {
+      return [];
+    }
+    return [reason];
+  });
+}
+
+function shellHits(file: string, text: string): string[] {
+  const hits = [
+    ...childProcessImportHits(text),
+    ...(/\bshell\s*:/.test(text) ? ['shell property'] : []),
+    ...variableShellHits(file, text),
+  ];
+  return hits.map((hit) => `${path.relative(SRC, file)} ${hit}`);
+}
 
 async function productionSources(dir: string): Promise<string[]> {
   const entries = await fs.readdir(dir, { recursive: true, withFileTypes: true });
@@ -36,16 +99,12 @@ function recordRunner(): {
 }
 
 describe('scheduler install commands', () => {
-  it('should not run a shell command from production source', async () => {
+  it('should not import a shell executor or build a shell command from a variable', async () => {
     const files = await productionSources(SRC);
     const texts = await Promise.all(
       files.map(async (file) => ({ file, text: await fs.readFile(file, 'utf8') })),
     );
-    const hits = texts.flatMap(({ file, text }) =>
-      SHELL_CALL.filter((pattern) => pattern.test(text)).map(
-        (pattern) => `${path.relative(SRC, file)} ${pattern.source}`,
-      ),
-    );
+    const hits = texts.flatMap(({ file, text }) => shellHits(file, text));
     expect(hits).toEqual([]);
   });
 
