@@ -34,13 +34,11 @@ describe('get_email_security tool', () => {
   it('sets readOnlyHint because it does not change flags', () => {
     let hints: { readOnlyHint?: boolean; destructiveHint?: boolean } | undefined;
     const server = {
-      tool: (
+      registerTool: (
         _name: string,
-        _desc: string,
-        _schema: unknown,
-        annotations: { readOnlyHint?: boolean; destructiveHint?: boolean },
+        config: { annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean } },
       ) => {
-        hints = annotations;
+        hints = config.annotations;
       },
     };
     registerSecurityTools(server as never, { getEmailSecurity: vi.fn() } as never);
@@ -52,8 +50,8 @@ describe('get_email_security tool', () => {
     const signals = { ...parseSenderAuth(FOLDED), uid: '10', mailbox: 'INBOX' };
     let handler: Handler | undefined;
     const server = {
-      tool: (...args: unknown[]) => {
-        handler = args[4] as Handler;
+      registerTool: (...args: unknown[]) => {
+        handler = args[2] as Handler;
       },
     };
     const imap = { getEmailSecurity: vi.fn().mockResolvedValue(signals) };
@@ -76,8 +74,8 @@ describe('get_email_security tool', () => {
   it('returns isError when getEmailSecurity throws', async () => {
     let handler: Handler | undefined;
     const server = {
-      tool: (...args: unknown[]) => {
-        handler = args[4] as Handler;
+      registerTool: (...args: unknown[]) => {
+        handler = args[2] as Handler;
       },
     };
     const imap = {

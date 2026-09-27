@@ -12,10 +12,13 @@ export default function registerScheduledResource(
   server: McpServer,
   schedulerService: SchedulerService,
 ): void {
-  server.resource(
+  server.registerResource(
     'scheduled',
     'email://scheduled',
-    { description: 'List of pending scheduled emails' },
+    {
+      title: 'Scheduled Emails',
+      description: 'List of pending scheduled emails',
+    },
     async () => {
       const emails = await schedulerService.list({
         status: 'pending',

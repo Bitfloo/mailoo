@@ -9,16 +9,20 @@ import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
 
 export default function registerSecurityTools(server: McpServer, imapService: ImapService): void {
-  server.tool(
+  server.registerTool(
     'get_email_security',
-    'Read-only SPF/DKIM/DMARC and From/Reply-To/Return-Path domain signals for an email. ' +
-      'Does not change flags. Does not return unsubscribe or tracking URLs.',
     {
-      account: z.string().describe('Account name from list_accounts'),
-      emailId: z.string().describe('Email ID (UID) from list_emails or get_email'),
-      mailbox: z.string().default('INBOX').describe('Mailbox containing the email'),
+      title: 'Read Email Security',
+      description:
+        'Read-only SPF/DKIM/DMARC and From/Reply-To/Return-Path domain signals for an email. ' +
+        'Does not change flags. Does not return unsubscribe or tracking URLs.',
+      inputSchema: {
+        account: z.string().describe('Account name from list_accounts'),
+        emailId: z.string().describe('Email ID (UID) from list_emails or get_email'),
+        mailbox: z.string().default('INBOX').describe('Mailbox containing the email'),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false },
     },
-    { readOnlyHint: true, destructiveHint: false },
     async ({ account, emailId, mailbox }) => {
       try {
         const signals = await imapService.getEmailSecurity(account, emailId, mailbox);

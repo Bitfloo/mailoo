@@ -196,23 +196,27 @@ export async function writeAttachmentFile(
 }
 
 export default function registerAttachmentTools(server: McpServer, imapService: ImapService): void {
-  server.tool(
+  server.registerTool(
     'download_attachment',
-    'Download an email attachment by filename. First use get_email to see available attachments and their filenames. ' +
-      'Returns base64-encoded content for files ≤5MB. Pass savePath to write the file to disk instead (up to 50MB) and skip base64.',
     {
-      account: z.string().describe('Account name from list_accounts'),
-      id: z.string().describe('Email ID (UID) from list_emails or get_email'),
-      mailbox: z.string().default('INBOX').describe('Mailbox containing the email'),
-      filename: z.string().describe('Exact attachment filename (from get_email metadata)'),
-      savePath: z
-        .string()
-        .optional()
-        .describe(
-          'If set, write the decoded file to this path (or directory) and return metadata only — no base64.',
-        ),
+      title: 'Download Attachment',
+      description:
+        'Download an email attachment by filename. First use get_email to see available attachments and their filenames. ' +
+        'Returns base64-encoded content for files ≤5MB. Pass savePath to write the file to disk instead (up to 50MB) and skip base64.',
+      inputSchema: {
+        account: z.string().describe('Account name from list_accounts'),
+        id: z.string().describe('Email ID (UID) from list_emails or get_email'),
+        mailbox: z.string().default('INBOX').describe('Mailbox containing the email'),
+        filename: z.string().describe('Exact attachment filename (from get_email metadata)'),
+        savePath: z
+          .string()
+          .optional()
+          .describe(
+            'If set, write the decoded file to this path (or directory) and return metadata only — no base64.',
+          ),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    { readOnlyHint: false, destructiveHint: false },
     async ({ account, id, mailbox, filename, savePath }) => {
       try {
         const maxSize = savePath ? SAVE_PATH_MAX_BYTES : 5 * 1024 * 1024;

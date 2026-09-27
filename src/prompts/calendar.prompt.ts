@@ -9,12 +9,16 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 export default function registerCalendarPrompt(server: McpServer): void {
-  server.prompt(
+  server.registerPrompt(
     'summarize_meetings',
-    'Scan recent emails for calendar invites and produce a meeting overview grouped by timeframe.',
     {
-      account: z.string().describe('Account name to scan'),
-      days: z.string().default('7').describe('Number of days to look back (default: 7)'),
+      title: 'Summarize Meetings',
+      description:
+        'Scan recent emails for calendar invites and produce a meeting overview grouped by timeframe.',
+      argsSchema: {
+        account: z.string().describe('Account name to scan'),
+        days: z.string().default('7').describe('Number of days to look back (default: 7)'),
+      },
     },
     async ({ account, days }) => {
       const daysNum = Math.min(Math.max(parseInt(days, 10) || 7, 1), 30);

@@ -15,13 +15,17 @@ export default function registerHealthTools(
   connections: ConnectionManager,
   imapService: ImapService,
 ): void {
-  server.tool(
+  server.registerTool(
     'check_health',
-    'Check connection health, quota, and capabilities for email accounts. Useful for diagnosing issues.',
     {
-      account: z.string().optional().describe('Account name (checks all accounts if omitted)'),
+      title: 'Check Account Health',
+      description:
+        'Check connection health, quota, and capabilities for email accounts. Useful for diagnosing issues.',
+      inputSchema: {
+        account: z.string().optional().describe('Account name (checks all accounts if omitted)'),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false },
     },
-    { readOnlyHint: true, destructiveHint: false },
     async ({ account }) => {
       const names = account ? [account] : connections.getAccountNames();
 

@@ -13,14 +13,18 @@ export function registerSieveReadTools(
   connections: ConnectionManager,
   sieveService: SieveService,
 ): void {
-  server.tool(
+  server.registerTool(
     'sieve_status',
-    'Detect whether ManageSieve is available for an account (port 4190 by default). ' +
-      'If the provider only exposes filters in a web UI, this reports a warning rather than IMAP capabilities.',
     {
-      account: z.string().describe('Account name from list_accounts'),
+      title: 'Check Sieve Availability',
+      description:
+        'Detect whether ManageSieve is available for an account (port 4190 by default). ' +
+        'If the provider only exposes filters in a web UI, this reports a warning rather than IMAP capabilities.',
+      inputSchema: {
+        account: z.string().describe('Account name from list_accounts'),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false },
     },
-    { readOnlyHint: true, destructiveHint: false },
     async ({ account }) => {
       try {
         const cfg = connections.getAccount(account);
@@ -42,13 +46,16 @@ export function registerSieveReadTools(
     },
   );
 
-  server.tool(
+  server.registerTool(
     'sieve_list_scripts',
-    'List ManageSieve scripts on the account (RFC 5804 LISTSCRIPTS).',
     {
-      account: z.string().describe('Account name from list_accounts'),
+      title: 'List Sieve Scripts',
+      description: 'List ManageSieve scripts on the account (RFC 5804 LISTSCRIPTS).',
+      inputSchema: {
+        account: z.string().describe('Account name from list_accounts'),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false },
     },
-    { readOnlyHint: true, destructiveHint: false },
     async ({ account }) => {
       try {
         const scripts = await sieveService.listScripts(connections.getAccount(account));
@@ -73,14 +80,17 @@ export function registerSieveReadTools(
     },
   );
 
-  server.tool(
+  server.registerTool(
     'sieve_get_script',
-    'Download a ManageSieve script by name (RFC 5804 GETSCRIPT).',
     {
-      account: z.string().describe('Account name from list_accounts'),
-      name: z.string().describe('Script name from sieve_list_scripts'),
+      title: 'Get Sieve Script',
+      description: 'Download a ManageSieve script by name (RFC 5804 GETSCRIPT).',
+      inputSchema: {
+        account: z.string().describe('Account name from list_accounts'),
+        name: z.string().describe('Script name from sieve_list_scripts'),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false },
     },
-    { readOnlyHint: true, destructiveHint: false },
     async ({ account, name }) => {
       try {
         const body = await sieveService.getScript(connections.getAccount(account), name);
@@ -105,15 +115,19 @@ export function registerSieveWriteTools(
   connections: ConnectionManager,
   sieveService: SieveService,
 ): void {
-  server.tool(
+  server.registerTool(
     'sieve_put_script',
-    'Create or replace a ManageSieve script (RFC 5804 PUTSCRIPT). Does not activate it.',
     {
-      account: z.string().describe('Account name from list_accounts'),
-      name: z.string().describe('Script name'),
-      content: z.string().describe('SIEVE script source (RFC 5228)'),
+      title: 'Save Sieve Script',
+      description:
+        'Create or replace a ManageSieve script (RFC 5804 PUTSCRIPT). Does not activate it.',
+      inputSchema: {
+        account: z.string().describe('Account name from list_accounts'),
+        name: z.string().describe('Script name'),
+        content: z.string().describe('SIEVE script source (RFC 5228)'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    { readOnlyHint: false, destructiveHint: false },
     async ({ account, name, content }) => {
       try {
         await sieveService.putScript(connections.getAccount(account), name, content);
@@ -137,14 +151,18 @@ export function registerSieveWriteTools(
     },
   );
 
-  server.tool(
+  server.registerTool(
     'sieve_delete_script',
-    'Delete a ManageSieve script (RFC 5804 DELETESCRIPT). Active scripts must be deactivated first.',
     {
-      account: z.string().describe('Account name from list_accounts'),
-      name: z.string().describe('Script name'),
+      title: 'Delete Sieve Script',
+      description:
+        'Delete a ManageSieve script (RFC 5804 DELETESCRIPT). Active scripts must be deactivated first.',
+      inputSchema: {
+        account: z.string().describe('Account name from list_accounts'),
+        name: z.string().describe('Script name'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    { readOnlyHint: false, destructiveHint: true },
     async ({ account, name }) => {
       try {
         await sieveService.deleteScript(connections.getAccount(account), name);
@@ -161,14 +179,18 @@ export function registerSieveWriteTools(
     },
   );
 
-  server.tool(
+  server.registerTool(
     'sieve_activate_script',
-    'Activate a ManageSieve script (RFC 5804 SETACTIVE). Pass an empty name to deactivate all.',
     {
-      account: z.string().describe('Account name from list_accounts'),
-      name: z.string().describe('Script name, or empty string to deactivate'),
+      title: 'Activate Sieve Script',
+      description:
+        'Activate a ManageSieve script (RFC 5804 SETACTIVE). Pass an empty name to deactivate all.',
+      inputSchema: {
+        account: z.string().describe('Account name from list_accounts'),
+        name: z.string().describe('Script name, or empty string to deactivate'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    { readOnlyHint: false, destructiveHint: false },
     async ({ account, name }) => {
       try {
         await sieveService.activateScript(connections.getAccount(account), name);

@@ -30,7 +30,7 @@ function captureConfigureAlerts(notifier: NotifierService): Handler {
     alerts: notifier.getConfig(),
   };
   const server = {
-    tool: (name: string, _desc: string, _schema: unknown, _hints: unknown, fn: Handler) => {
+    registerTool: (name: string, _config: unknown, fn: Handler) => {
       if (name === 'configure_alerts') handler = fn;
     },
   };

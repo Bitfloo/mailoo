@@ -29,7 +29,7 @@ function captureApplyTemplate(): Handler {
     sendEmail: vi.fn().mockResolvedValue({ messageId: '<m@example.com>' }),
   };
   const server = {
-    tool: (name: string, _desc: string, _schema: unknown, _hints: unknown, fn: Handler) => {
+    registerTool: (name: string, _config: unknown, fn: Handler) => {
       if (name === 'apply_template') handler = fn;
     },
   };

@@ -8,13 +8,17 @@ import { z } from 'zod';
 import type ImapService from '../services/imap.service.js';
 
 export default function registerMailboxesTools(server: McpServer, imapService: ImapService): void {
-  server.tool(
+  server.registerTool(
     'list_mailboxes',
-    'List all mailbox folders for an account with unread counts and special-use flags. Use list_accounts first to get the account name.',
     {
-      account: z.string().describe('Account name from list_accounts'),
+      title: 'List Mailboxes',
+      description:
+        'List all mailbox folders for an account with unread counts and special-use flags. Use list_accounts first to get the account name.',
+      inputSchema: {
+        account: z.string().describe('Account name from list_accounts'),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false },
     },
-    { readOnlyHint: true, destructiveHint: false },
     async ({ account }) => {
       try {
         const mailboxes = await imapService.listMailboxes(account);

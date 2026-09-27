@@ -267,13 +267,8 @@ describe('download_attachment tool', () => {
   it('sets readOnlyHint to false because savePath can write', () => {
     let hints: { readOnlyHint?: boolean } | undefined;
     const server = {
-      tool: (
-        _name: string,
-        _desc: string,
-        _schema: unknown,
-        annotations: { readOnlyHint?: boolean },
-      ) => {
-        hints = annotations;
+      registerTool: (_name: string, config: { annotations?: { readOnlyHint?: boolean } }) => {
+        hints = config.annotations;
       },
     };
     registerAttachmentTools(server as never, { downloadAttachment: vi.fn() } as never);
@@ -291,8 +286,8 @@ describe('download_attachment tool', () => {
 
     let handler: Handler | undefined;
     const server = {
-      tool: (...args: unknown[]) => {
-        handler = args[4] as Handler;
+      registerTool: (...args: unknown[]) => {
+        handler = args[2] as Handler;
       },
     };
     const imap = {
@@ -344,8 +339,8 @@ describe('download_attachment tool', () => {
 
     let handler: Handler | undefined;
     const server = {
-      tool: (...args: unknown[]) => {
-        handler = args[4] as Handler;
+      registerTool: (...args: unknown[]) => {
+        handler = args[2] as Handler;
       },
     };
     const raw = Buffer.from('hello');

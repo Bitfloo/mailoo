@@ -13,7 +13,7 @@ export default function registerTemplatesResource(
   server: McpServer,
   templateService: TemplateService,
 ): void {
-  server.resource(
+  server.registerResource(
     'templates',
     new ResourceTemplate('email://templates/{name}', {
       list: async () => {
@@ -28,7 +28,10 @@ export default function registerTemplatesResource(
         };
       },
     }),
-    { description: 'User-defined email template with variable placeholders' },
+    {
+      title: 'Email Templates',
+      description: 'User-defined email template with variable placeholders',
+    },
     async (uri, { name }) => {
       const templateName = name as string;
       const template = await templateService.getTemplate(templateName);

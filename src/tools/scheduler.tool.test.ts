@@ -5,13 +5,12 @@ describe('schedule_email', () => {
   it('describes send_at as an ISO 8601 date-time with a UTC offset', () => {
     let sendAtDescription = '';
     const server = {
-      tool: (
+      registerTool: (
         name: string,
-        _description: string,
-        schema: { send_at?: { description?: string } },
+        config: { inputSchema?: { send_at?: { description?: string } } },
       ) => {
         if (name === 'schedule_email') {
-          sendAtDescription = schema.send_at?.description ?? '';
+          sendAtDescription = config.inputSchema?.send_at?.description ?? '';
         }
       },
     };

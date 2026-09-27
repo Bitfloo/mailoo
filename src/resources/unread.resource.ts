@@ -19,7 +19,7 @@ export default function registerUnreadResource(
   const names = connections.getAccountNames();
   const accounts = names.map((name) => connections.getAccount(name));
 
-  server.resource(
+  server.registerResource(
     'unread',
     new ResourceTemplate('email://{account}/unread', {
       list: async () => ({
@@ -31,7 +31,10 @@ export default function registerUnreadResource(
         })),
       }),
     }),
-    { description: 'Unread email count summary by folder for an account' },
+    {
+      title: 'Unread Summary',
+      description: 'Unread email count summary by folder for an account',
+    },
     async (uri, { account }) => {
       const accountName = account as string;
       const mailboxes = await imapService.listMailboxes(accountName);

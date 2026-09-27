@@ -18,7 +18,7 @@ export default function registerStatsResource(
   const names = connections.getAccountNames();
   const accounts = names.map((name) => connections.getAccount(name));
 
-  server.resource(
+  server.registerResource(
     'stats',
     new ResourceTemplate('email://{account}/stats', {
       list: async () => ({
@@ -31,6 +31,7 @@ export default function registerStatsResource(
       }),
     }),
     {
+      title: 'Inbox Statistics',
       description: 'Daily inbox statistics snapshot with unread count and quota',
     },
     async (uri, { account }) => {

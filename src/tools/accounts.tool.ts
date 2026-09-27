@@ -10,11 +10,15 @@ export default function registerAccountsTools(
   server: McpServer,
   connections: ConnectionManager,
 ): void {
-  server.tool(
+  server.registerTool(
     'list_accounts',
-    'List all configured email accounts. Call this first to discover available account names for use with other tools.',
-    {},
-    { readOnlyHint: true, destructiveHint: false },
+    {
+      title: 'List Accounts',
+      description:
+        'List all configured email accounts. Call this first to discover available account names for use with other tools.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, destructiveHint: false },
+    },
     async () => {
       const names = connections.getAccountNames();
       const accounts = names.map((name) => {

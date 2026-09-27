@@ -105,7 +105,7 @@ src/
 
 1. Create a new file in `src/tools/` (e.g., `my-feature.tool.ts`)
 2. Export a default function that takes the MCP server + services
-3. Use `server.tool()` with Zod schemas for input validation
+3. Use `server.registerTool()` with a human-readable `title` and a Zod `inputSchema`
 4. Add tool annotations (`readOnlyHint`, `destructiveHint`, etc.)
 5. Register it in `src/tools/register.ts`
 6. Add a one-liner to the tools table in `README.md`. Parameter-level

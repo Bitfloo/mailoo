@@ -18,7 +18,7 @@ export default function registerMailboxesResource(
   const names = connections.getAccountNames();
   const accounts = names.map((name) => connections.getAccount(name));
 
-  server.resource(
+  server.registerResource(
     'mailboxes',
     new ResourceTemplate('email://{account}/mailboxes', {
       list: async () => ({
@@ -30,7 +30,10 @@ export default function registerMailboxesResource(
         })),
       }),
     }),
-    { description: 'Mailbox folder tree with message counts for an account' },
+    {
+      title: 'Mailbox Tree',
+      description: 'Mailbox folder tree with message counts for an account',
+    },
     async (uri, { account }) => {
       const accountName = account as string;
       const mailboxes = await imapService.listMailboxes(accountName);

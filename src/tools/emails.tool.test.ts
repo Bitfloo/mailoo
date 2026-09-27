@@ -9,7 +9,7 @@ type Handler = (args: Record<string, unknown>) => Promise<{
 function captureNamedHandler(name: string, imap: unknown): Handler {
   let handler: Handler | undefined;
   const server = {
-    tool: (toolName: string, _desc: string, _schema: unknown, _hints: unknown, fn: Handler) => {
+    registerTool: (toolName: string, _config: unknown, fn: Handler) => {
       if (toolName === name) handler = fn;
     },
   };

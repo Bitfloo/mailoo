@@ -17,11 +17,14 @@ export function registerTemplateReadTools(
   server: McpServer,
   templateService: TemplateService,
 ): void {
-  server.tool(
+  server.registerTool(
     'list_templates',
-    `List all available email templates. Templates are TOML files in ${TEMPLATES_DIR}/ with {{variable}} placeholders for subject and body.`,
-    {},
-    { readOnlyHint: true, destructiveHint: false },
+    {
+      title: 'List Templates',
+      description: `List all available email templates. Templates are TOML files in ${TEMPLATES_DIR}/ with {{variable}} placeholders for subject and body.`,
+      inputSchema: {},
+      annotations: { readOnlyHint: true, destructiveHint: false },
+    },
     async () => {
       try {
         const templates = await templateService.listTemplates();
@@ -72,25 +75,29 @@ export function registerTemplateWriteTools(
   imapService: ImapService,
   smtpService: SmtpService,
 ): void {
-  server.tool(
+  server.registerTool(
     'apply_template',
-    'Apply an email template with variable substitution. Use action "preview" to see the result, "draft" to save as draft, or "send" to send immediately.',
     {
-      account: z.string().describe('Account name from list_accounts'),
-      template: z.string().describe('Template name from list_templates'),
-      variables: z
-        .record(z.string(), z.string())
-        .describe("Variable values as key-value pairs, e.g. { topic: 'Q1 Review' }"),
-      action: z
-        .enum(['preview', 'draft', 'send'])
-        .default('preview')
-        .describe('What to do with the composed email'),
-      to: z
-        .array(z.string())
-        .optional()
-        .describe('Recipient addresses (required for send, optional for draft)'),
+      title: 'Apply Template',
+      description:
+        'Apply an email template with variable substitution. Use action "preview" to see the result, "draft" to save as draft, or "send" to send immediately.',
+      inputSchema: {
+        account: z.string().describe('Account name from list_accounts'),
+        template: z.string().describe('Template name from list_templates'),
+        variables: z
+          .record(z.string(), z.string())
+          .describe("Variable values as key-value pairs, e.g. { topic: 'Q1 Review' }"),
+        action: z
+          .enum(['preview', 'draft', 'send'])
+          .default('preview')
+          .describe('What to do with the composed email'),
+        to: z
+          .array(z.string())
+          .optional()
+          .describe('Recipient addresses (required for send, optional for draft)'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
-    { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     async ({ account, template, variables, action, to }) => {
       try {
         const composed = await templateService.applyTemplate(template, variables);

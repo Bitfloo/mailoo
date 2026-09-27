@@ -22,10 +22,13 @@ export default function registerAccountsResource(
     };
   });
 
-  server.resource(
+  server.registerResource(
     'accounts',
     'email://accounts',
-    { description: 'List of all configured email accounts' },
+    {
+      title: 'Configured Accounts',
+      description: 'List of all configured email accounts',
+    },
     async () => ({
       contents: [
         {

@@ -18,34 +18,38 @@ export default function registerDraftTools(
   // ---------------------------------------------------------------------------
   // save_draft
   // ---------------------------------------------------------------------------
-  server.tool(
+  server.registerTool(
     'save_draft',
-    'Save an email draft to the Drafts folder. Compose over time, then use send_draft to send it. Use list_emails with the Drafts mailbox to see saved drafts.',
     {
-      account: z.string().describe('Account name from list_accounts'),
-      to: z
-        .array(recipientEmail)
-        .default([])
-        .describe('Recipient email addresses (can be empty for drafts)'),
-      subject: z.string().describe('Email subject'),
-      body: z.string().describe('Email body content'),
-      cc: z.array(recipientEmail).optional().describe('CC recipients'),
-      bcc: z.array(recipientEmail).optional().describe('BCC recipients'),
-      html: z.boolean().default(false).describe('Send as HTML (default: plain text)'),
-      in_reply_to: z.string().optional().describe('Message-ID for threading (from get_email)'),
-      attachments: z
-        .array(
-          z.object({
-            filename: z.string().optional(),
-            path: z.string().optional(),
-            base64: z.string().optional(),
-            contentType: z.string().optional(),
-          }),
-        )
-        .optional()
-        .describe('Draft attachments (path or base64)'),
+      title: 'Save Draft',
+      description:
+        'Save an email draft to the Drafts folder. Compose over time, then use send_draft to send it. Use list_emails with the Drafts mailbox to see saved drafts.',
+      inputSchema: {
+        account: z.string().describe('Account name from list_accounts'),
+        to: z
+          .array(recipientEmail)
+          .default([])
+          .describe('Recipient email addresses (can be empty for drafts)'),
+        subject: z.string().describe('Email subject'),
+        body: z.string().describe('Email body content'),
+        cc: z.array(recipientEmail).optional().describe('CC recipients'),
+        bcc: z.array(recipientEmail).optional().describe('BCC recipients'),
+        html: z.boolean().default(false).describe('Send as HTML (default: plain text)'),
+        in_reply_to: z.string().optional().describe('Message-ID for threading (from get_email)'),
+        attachments: z
+          .array(
+            z.object({
+              filename: z.string().optional(),
+              path: z.string().optional(),
+              base64: z.string().optional(),
+              contentType: z.string().optional(),
+            }),
+          )
+          .optional()
+          .describe('Draft attachments (path or base64)'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    { readOnlyHint: false, destructiveHint: false },
     async ({ account, to, subject, body, cc, bcc, html, in_reply_to: inReplyTo, attachments }) => {
       try {
         const result = await imapService.saveDraft(account, {
@@ -88,15 +92,19 @@ export default function registerDraftTools(
   // ---------------------------------------------------------------------------
   // send_draft
   // ---------------------------------------------------------------------------
-  server.tool(
+  server.registerTool(
     'send_draft',
-    'Send an existing draft email and remove it from Drafts. The draft is fetched, sent via SMTP, then deleted. Use list_emails with the Drafts mailbox to find draft IDs.',
     {
-      account: z.string().describe('Account name from list_accounts'),
-      id: z.number().int().describe('Draft email UID (from list_emails on Drafts mailbox)'),
-      mailbox: z.string().optional().describe('Drafts folder path (auto-detected if omitted)'),
+      title: 'Send Draft',
+      description:
+        'Send an existing draft email and remove it from Drafts. The draft is fetched, sent via SMTP, then deleted. Use list_emails with the Drafts mailbox to find draft IDs.',
+      inputSchema: {
+        account: z.string().describe('Account name from list_accounts'),
+        id: z.number().int().describe('Draft email UID (from list_emails on Drafts mailbox)'),
+        mailbox: z.string().optional().describe('Drafts folder path (auto-detected if omitted)'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true },
     },
-    { readOnlyHint: false, destructiveHint: true },
     async ({ account, id, mailbox }) => {
       try {
         const result = await smtpService.sendDraft(account, id, mailbox);
