@@ -464,6 +464,98 @@ describe('HTTP session account state', () => {
     expect(sampled.filter((server) => server === scopeA.server)).toHaveLength(1);
   });
 
+  it('should sample on the newest sampling session and fall back to an older one after it closes', async () => {
+    const imap = mockImap();
+    const sampled: Server[] = [];
+    vi.spyOn(Server.prototype, 'createMessage').mockImplementation(async function recordSample(
+      this: Server,
+    ) {
+      sampled.push(this);
+      return {
+        model: 'fast',
+        role: 'assistant',
+        content: { type: 'text', text: '[]' },
+      } as Awaited<ReturnType<Server['createMessage']>>;
+    });
+
+    const session = await startHost(
+      testConfig({
+        readOnly: false,
+        onNewEmail: 'triage',
+      }),
+      imap,
+    );
+    // Boot binds the first sampling client. Later clients must move the target;
+    // opening them before ready lets boot see every candidate at once.
+    const sidA = await openSession(session, 1, true);
+    await session.host.ready;
+    const sidB = await openSession(session, 2, false);
+    const sidC = await openSession(session, 3, true);
+    const scopeA = session.host.scopeFor(sidA);
+    const scopeB = session.host.scopeFor(sidB);
+    const scopeC = session.host.scopeFor(sidC);
+    if (!scopeA || !scopeB || !scopeC) throw new Error('missing session');
+
+    const emit = (id: string): void => {
+      scopeA.events.emit('email:new', {
+        account: 'personal',
+        mailbox: 'INBOX',
+        emails: [meta({ id, subject: 'needs-ai' })],
+      });
+    };
+
+    emit('1');
+    await vi.waitFor(() => {
+      expect(sampled).toEqual([scopeC.server]);
+    });
+
+    expect(await deleteSession(session, sidC)).toBeLessThan(300);
+    await scopeC.dispose();
+
+    emit('2');
+    await vi.waitFor(() => {
+      expect(sampled).toEqual([scopeC.server, scopeA.server]);
+    });
+  });
+
+  it('should sample on the second session when the first session does not support sampling', async () => {
+    const imap = mockImap();
+    const sampled: Server[] = [];
+    vi.spyOn(Server.prototype, 'createMessage').mockImplementation(async function recordSample(
+      this: Server,
+    ) {
+      sampled.push(this);
+      return {
+        model: 'fast',
+        role: 'assistant',
+        content: { type: 'text', text: '[]' },
+      } as Awaited<ReturnType<Server['createMessage']>>;
+    });
+
+    const session = await startHost(
+      testConfig({
+        readOnly: false,
+        onNewEmail: 'triage',
+      }),
+      imap,
+    );
+    const sidA = await openSession(session, 1, false);
+    await session.host.ready;
+    const sidB = await openSession(session, 2, true);
+    const scopeA = session.host.scopeFor(sidA);
+    const scopeB = session.host.scopeFor(sidB);
+    if (!scopeA || !scopeB) throw new Error('missing session');
+
+    scopeA.events.emit('email:new', {
+      account: 'personal',
+      mailbox: 'INBOX',
+      emails: [meta({ id: '1', subject: 'needs-ai' })],
+    });
+    await vi.waitFor(() => {
+      expect(sampled).toEqual([scopeB.server]);
+    });
+  });
+
   it('should not register an EmailEventBus listener for an HTTP session', async () => {
     const session = await startHost(testConfig({ readOnly: true }));
     const sidA = await openSession(session, 1, false);
