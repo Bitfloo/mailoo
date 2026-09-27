@@ -6,5 +6,325 @@
     "url": "https://github.com/Bitfloo/mailoo.git",
     "source": "github"
   },
-  "version": "0.1.5"
+  "version": "0.1.5",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@bitfloo/mailoo",
+      "version": "0.1.5",
+      "runtimeHint": "npx",
+      "runtimeArguments": [
+        {
+          "type": "positional",
+          "value": "-y",
+          "description": "Accept the npm install without a prompt"
+        }
+      ],
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MCP_EMAIL_ADDRESS",
+          "description": "Email address. Required for the environment-variable account.",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_PASSWORD",
+          "description": "Password or app password. Required unless MCP_EMAIL_OAUTH2_PROVIDER is set.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "MCP_EMAIL_IMAP_HOST",
+          "description": "IMAP server hostname.",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_SMTP_HOST",
+          "description": "SMTP server hostname.",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_ACCOUNT_NAME",
+          "description": "Account name. Defaults to default.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_FULL_NAME",
+          "description": "Display name on sent mail.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_USERNAME",
+          "description": "Login username. Defaults to the email address.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_IMAP_PORT",
+          "description": "IMAP port. Defaults to 993.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_IMAP_TLS",
+          "description": "Set to false to turn off implicit IMAP TLS. Defaults to true.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_IMAP_STARTTLS",
+          "description": "Set to true to upgrade IMAP with STARTTLS. Defaults to false.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_IMAP_VERIFY_SSL",
+          "description": "Set to false to skip IMAP certificate verification. Defaults to true.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_IMAP_DISABLE_IMAP4REV2",
+          "description": "Set to true to force IMAP4rev1 SEARCH.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_SIEVE_HOST",
+          "description": "ManageSieve hostname. Defaults to the IMAP host.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_SIEVE_PORT",
+          "description": "ManageSieve port. Defaults to 4190.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_SMTP_PORT",
+          "description": "SMTP port. Defaults to 465.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_SMTP_TLS",
+          "description": "Set to false to turn off implicit SMTP TLS. Defaults to true.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_SMTP_STARTTLS",
+          "description": "Set to true to upgrade SMTP with STARTTLS. Defaults to false.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_SMTP_VERIFY_SSL",
+          "description": "Set to false to skip SMTP certificate verification. Defaults to true.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_SMTP_POOL_ENABLED",
+          "description": "Set to false to disable SMTP connection pooling. Defaults to true.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_SMTP_POOL_MAX_CONNECTIONS",
+          "description": "Maximum pooled SMTP connections. Defaults to 1.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_SMTP_POOL_MAX_MESSAGES",
+          "description": "Maximum messages per pooled SMTP connection. Defaults to 100.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_OAUTH2_PROVIDER",
+          "description": "OAuth2 provider: google, microsoft, or custom.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_OAUTH2_CLIENT_ID",
+          "description": "OAuth2 client id.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_OAUTH2_CLIENT_SECRET",
+          "description": "OAuth2 client secret.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "MCP_EMAIL_OAUTH2_REFRESH_TOKEN",
+          "description": "OAuth2 refresh token.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "MCP_EMAIL_RATE_LIMIT",
+          "description": "Maximum sends per minute. Defaults to 10.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_READ_ONLY",
+          "description": "Set to true to omit write tools and mailbox writers.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_SAVE_TO_SENT",
+          "description": "Set to false to skip the IMAP Sent copy after SMTP. Defaults to true.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_WATCHER_ENABLED",
+          "description": "Set to true to start the IMAP IDLE watcher.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_WATCHER_FOLDERS",
+          "description": "Comma-separated folders to watch. Defaults to INBOX.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_WATCHER_IDLE_TIMEOUT",
+          "description": "IMAP IDLE timeout in seconds. Defaults to 1740.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_HOOK_ON_NEW_EMAIL",
+          "description": "What to do on arrival: triage, notify, or none.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_HOOK_PRESET",
+          "description": "Hook preset: inbox-zero, gtd, priority-focus, notification-only, or custom.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_HOOK_AUTO_LABEL",
+          "description": "Set to true to apply labels from hook triage.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_HOOK_AUTO_FLAG",
+          "description": "Set to true to flag mail from hook triage.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_HOOK_BATCH_DELAY",
+          "description": "Seconds to batch arrivals before hooks run. Defaults to 5.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_HOOK_CUSTOM_INSTRUCTIONS",
+          "description": "Extra instructions appended to the hook preset.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_ALERT_DESKTOP",
+          "description": "Set to true for desktop notifications.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_ALERT_SOUND",
+          "description": "Set to true to play a sound with desktop notifications.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_ALERT_URGENCY_THRESHOLD",
+          "description": "Minimum urgency for an alert: urgent, high, normal, or low.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_ALERT_WEBHOOK_URL",
+          "description": "HTTP or HTTPS URL that receives alert POSTs.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "MCP_EMAIL_ALERT_WEBHOOK_ALLOW_PRIVATE",
+          "description": "Set to true to allow webhook targets on a LAN, VPN, or tailnet.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_HOOK_AUTO_CALENDAR",
+          "description": "Set to true to create calendar events from hook triage.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_HOOK_CALENDAR_NAME",
+          "description": "Calendar name for automatic events.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_HOOK_CALENDAR_ALARM_MINUTES",
+          "description": "Minutes before an automatic event to alarm. Defaults to 15.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_HOOK_CALENDAR_CONFIRM",
+          "description": "Set to false to skip confirming automatic calendar events. Defaults to true.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_SYSTEM_ONE_ENABLED",
+          "description": "Set to true to classify residue mail with System One. Off by default.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_HTTP_HOST",
+          "description": "HTTP listen address. Defaults to loopback. The host argument wins.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_HTTP_TOKEN",
+          "description": "Bearer token. Required when the HTTP listen address is not loopback.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "MCP_EMAIL_HTTP_ALLOWED_HOSTS",
+          "description": "Comma-separated Host names. Required for 0.0.0.0 and ::.",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
 }

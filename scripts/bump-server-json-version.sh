@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Stamp server.json version; skip packages[0] until an npm packages entry exists.
+# Stamp server.json version and every packages[].version from the release version.
 set -euo pipefail
 v=${1:?version}
 jq --arg v "$v" \
-  '.version = $v | if (.packages | type == "array" and length > 0) then .packages[0].version = $v else . end' \
+  '.version = $v | if (.packages | type == "array") then .packages |= map(.version = $v) else . end' \
   server.json > server.tmp && mv server.tmp server.json
