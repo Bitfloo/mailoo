@@ -1,4 +1,3 @@
-import { delimitUntrusted } from '../../safety/untrusted-content.js';
 import type { EmailMeta } from '../../types/index.js';
 import type { SenderAuthSignals } from '../../utils/auth-headers.js';
 import type { ArrivalEmail } from './state.js';
@@ -40,28 +39,25 @@ describe('extractLinks', () => {
 });
 
 describe('buildMailState', () => {
-  it('keeps body empty when includeBody is false', () => {
+  it('keeps subject and filename byte-identical to the input', () => {
+    const subject = 'Invoice https://billing.example.com/pay';
+    const filename = 'inv.pdf';
     const state = buildMailState({
-      email: email(),
+      email: email({ subject }),
       security,
       bodyText: 'secret password body',
-      attachmentNames: [{ filename: 'inv.pdf', mime: 'application/pdf' }],
+      attachmentNames: [{ filename, mime: 'application/pdf' }],
       includeBody: false,
       bodyMaxChars: 6000,
     });
     expect(state.message.body).toBe('');
     expect(state.message.sender.email).toBe('billing@example.com');
-    expect(state.message.sender.display_name).toBe(delimitUntrusted('Billing'));
-    expect(state.message.subject).toBe(delimitUntrusted('Invoice https://billing.example.com/pay'));
+    expect(state.message.sender.display_name).toBe('Billing');
+    expect(state.message.subject).toBe(subject);
     expect(state.message.links).toEqual([
-      {
-        text: delimitUntrusted('https://billing.example.com/pay'),
-        url: 'https://billing.example.com/pay',
-      },
+      { text: 'https://billing.example.com/pay', url: 'https://billing.example.com/pay' },
     ]);
-    expect(state.message.attachments).toEqual([
-      { filename: delimitUntrusted('inv.pdf'), mime: 'application/pdf' },
-    ]);
+    expect(state.message.attachments).toEqual([{ filename, mime: 'application/pdf' }]);
   });
 
   it('truncates body when includeBody is true', () => {
@@ -73,6 +69,6 @@ describe('buildMailState', () => {
       includeBody: true,
       bodyMaxChars: 4,
     });
-    expect(state.message.body).toBe(delimitUntrusted('abcd'));
+    expect(state.message.body).toBe('abcd');
   });
 });
