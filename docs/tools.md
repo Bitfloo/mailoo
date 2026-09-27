@@ -60,8 +60,10 @@ defaults to INBOX). Optional `contentType`.
 `path` must be a regular file under the process working directory or
 the user's home directory. A path segment that starts with `.` is
 refused, as are system locations (`/etc`, `/proc`, `/sys`, `/dev`),
-`http:` / `https:` / `file:` / `data:` URLs, macOS Keychains and Cookies
-directories, and a symlink whose target leaves the allowed directories.
+`http:` / `https:` / `file:` / `data:` URLs, and a symlink whose target
+leaves the allowed directories. Application-data trees under the home
+directory (`~/Library`, `~/AppData`, `~/snap`) are refused, except
+`~/Library/Mobile Documents` (iCloud Drive) and `~/Library/CloudStorage`.
 Each attachment, and the attachments on one message together, must be
 at most **50 MB**. The service reads the bytes itself.
 

@@ -99,14 +99,18 @@ function isSystemPath(filePath: string): boolean {
   );
 }
 
-function isCredentialStore(filePath: string): boolean {
-  const normalized = filePath.replaceAll('\\', '/');
-  return (
-    normalized.includes('/Library/Keychains/') ||
-    normalized.endsWith('/Library/Keychains') ||
-    normalized.includes('/Library/Cookies/') ||
-    normalized.endsWith('/Library/Cookies')
-  );
+const APP_DATA_TREES = new Set(['Library', 'AppData', 'snap']);
+
+function isAppDataTree(filePath: string, homeDir: string): boolean {
+  const relative = path.relative(path.resolve(homeDir), path.resolve(filePath));
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) return false;
+  const [top, second] = relative.split(path.sep);
+  if (!top || !APP_DATA_TREES.has(top)) return false;
+  if (top === 'Library') {
+    // "Mobile Documents" also holds app iCloud containers (iCloud~...), accepted on purpose as a user-document space.
+    if (second === 'Mobile Documents' || second === 'CloudStorage') return false;
+  }
+  return true;
 }
 
 async function broadRootPaths(): Promise<Set<string>> {
@@ -147,11 +151,11 @@ function isInsideAny(candidate: string, roots: readonly string[]): boolean {
   });
 }
 
-function assertAllowedLocation(filePath: string, roots: readonly string[]): void {
+function assertAllowedLocation(filePath: string, roots: readonly string[], homeDir: string): void {
   if (
     hiddenSegment(filePath) ||
     isSystemPath(filePath) ||
-    isCredentialStore(filePath) ||
+    isAppDataTree(filePath, homeDir) ||
     !isInsideAny(filePath, roots)
   ) {
     throw new Error('Attachment path is not allowed');
@@ -206,25 +210,32 @@ async function readLocalFile(
   if (!trimmed || trimmed.includes('\0') || isRemoteOrFileUrl(trimmed)) {
     throw new Error('Attachment path must be a local file');
   }
-  if (hiddenSegment(trimmed) || isCredentialStore(trimmed)) {
+  if (hiddenSegment(trimmed)) {
     throw new Error('Attachment path is not allowed');
   }
 
   const cwdRoot = path.resolve(options.root ?? process.cwd());
-  const homeDir = options.homeDir ?? os.homedir();
+  const homeDir = path.resolve(options.homeDir ?? os.homedir());
   const resolved = path.resolve(cwdRoot, expandHome(trimmed, homeDir));
-  if (hiddenSegment(resolved) || isSystemPath(resolved) || isCredentialStore(resolved)) {
+  if (hiddenSegment(resolved) || isSystemPath(resolved) || isAppDataTree(resolved, homeDir)) {
     throw new Error('Attachment path is not allowed');
   }
 
   const roots = await specificRoots(cwdRoot, homeDir);
+  let homeReal = homeDir;
+  try {
+    homeReal = await fs.realpath(homeDir);
+  } catch {
+    // A missing home has no application-data tree to compare.
+  }
   let real: string;
   try {
+    // native realpath restores on-disk letter case; fs.realpath / fs.realpathSync (JS) do not, and the refused-tree check depends on it
     real = await fs.realpath(resolved);
   } catch {
     throw new Error('Attachment path is not allowed');
   }
-  assertAllowedLocation(real, roots);
+  assertAllowedLocation(real, roots, homeReal);
 
   const noFollow = fsConstants.O_NOFOLLOW ?? 0;
   let fh: fs.FileHandle;

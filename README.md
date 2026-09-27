@@ -56,6 +56,7 @@ Policy and how to report a vulnerability: **[SECURITY.md](SECURITY.md)**.
 - Token-bucket rate limiter prevents abuse (configurable per account)
 - OAuth2 XOAUTH2 authentication for Gmail and Microsoft 365 _(experimental)_
 - Attachment downloads: 5 MB as base64, or up to 50 MB when writing `savePath` under the working directory ([docs](docs/tools.md#download_attachment))
+- Outgoing attachment paths must be local files under the working directory or home; `~/Library` (except iCloud Drive and CloudStorage), `~/AppData`, and `~/snap` are refused ([docs](docs/tools.md#attachments-on-send-and-drafts))
 
 ## Docs
 

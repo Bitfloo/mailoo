@@ -282,6 +282,80 @@ describe('resolveOutgoingAttachments', () => {
     });
   });
 
+  it('should reject a file under ~/Library', async () => {
+    await withRoots(async (dirs) => {
+      const dir = path.join(dirs.home, 'Library', 'Application Support', 'Browser');
+      await fs.mkdir(dir, { recursive: true });
+      const file = path.join(dir, 'Cookies');
+      await fs.writeFile(file, 'not-browser-cookies');
+      await expect(resolveOutgoingAttachments([{ path: file }], opts(dirs))).rejects.toThrow(
+        /not allowed/,
+      );
+    });
+  });
+
+  it('should reject a file under ~/AppData', async () => {
+    await withRoots(async (dirs) => {
+      const dir = path.join(dirs.home, 'AppData', 'Roaming');
+      await fs.mkdir(dir, { recursive: true });
+      const file = path.join(dir, 'secret.txt');
+      await fs.writeFile(file, 'not-appdata');
+      await expect(resolveOutgoingAttachments([{ path: file }], opts(dirs))).rejects.toThrow(
+        /not allowed/,
+      );
+    });
+  });
+
+  it('should reject a file under ~/snap', async () => {
+    await withRoots(async (dirs) => {
+      const dir = path.join(dirs.home, 'snap', 'firefox', 'common');
+      await fs.mkdir(dir, { recursive: true });
+      const file = path.join(dir, 'session');
+      await fs.writeFile(file, 'not-a-session');
+      await expect(resolveOutgoingAttachments([{ path: file }], opts(dirs))).rejects.toThrow(
+        /not allowed/,
+      );
+    });
+  });
+
+  it('should read a file under ~/Library/Mobile Documents', async () => {
+    await withRoots(async (dirs) => {
+      const dir = path.join(dirs.home, 'Library', 'Mobile Documents', 'com~apple~CloudDocs');
+      await fs.mkdir(dir, { recursive: true });
+      const file = path.join(dir, 'note.txt');
+      await fs.writeFile(file, 'icloud-doc');
+      const parts = await resolveOutgoingAttachments([{ path: file }], opts(dirs));
+      expect(parts[0].content.toString()).toBe('icloud-doc');
+    });
+  });
+
+  it('should read a file under ~/Library/CloudStorage', async () => {
+    await withRoots(async (dirs) => {
+      const dir = path.join(dirs.home, 'Library', 'CloudStorage', 'Dropbox');
+      await fs.mkdir(dir, { recursive: true });
+      const file = path.join(dir, 'note.txt');
+      await fs.writeFile(file, 'cloud-doc');
+      const parts = await resolveOutgoingAttachments([{ path: file }], opts(dirs));
+      expect(parts[0].content.toString()).toBe('cloud-doc');
+    });
+  });
+
+  it('should reject a symlink from ~/Documents into ~/Library/Messages', async () => {
+    await withRoots(async (dirs) => {
+      const messages = path.join(dirs.home, 'Library', 'Messages');
+      await fs.mkdir(messages, { recursive: true });
+      const secret = path.join(messages, 'secret.txt');
+      await fs.writeFile(secret, 'messages-secret');
+      const docs = path.join(dirs.home, 'Documents');
+      await fs.mkdir(docs);
+      const link = path.join(docs, 'link.txt');
+      await fs.symlink(secret, link);
+      await expect(resolveOutgoingAttachments([{ path: link }], opts(dirs))).rejects.toThrow(
+        /not allowed/,
+      );
+    });
+  });
+
   it('should reject a macOS keychain path under the home directory', async () => {
     await withRoots(async (dirs) => {
       const dir = path.join(dirs.home, 'Library', 'Keychains');

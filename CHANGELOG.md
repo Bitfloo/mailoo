@@ -10,6 +10,21 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Behaviour changes
 
+- Outgoing attachment `path` values are read by Mailoo instead of being passed
+  to Nodemailer, which accepted any local path and fetched `http:`, `https:`,
+  and `data:` URLs itself. Refused:
+  - paths outside the working directory or home directory, including when the
+    working directory is `/tmp`, a symlink to it, or that directory's resolved
+    path (such as `/private/tmp`)
+  - path segments whose names start with `.`
+  - system locations (`/etc`, `/proc`, `/sys`, `/dev`, `/boot`)
+  - every URL
+  - application-data folders: `~/Library` except iCloud Drive
+    (`Mobile Documents`) and `CloudStorage`, plus `~/AppData` and `~/snap`
+  - one attachment, or all attachments on a message together, over 50 MB
+
+  Download a remote file first and attach the local copy.
+
 - Nodemailer 10 checks TLS certificates on remote URL fetches and OAuth token
   requests. A fetch to an untrusted certificate is refused. SMTP itself is
   unchanged: `verifySsl` still controls the mail connection, and Mailoo still
