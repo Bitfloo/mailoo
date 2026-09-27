@@ -59,6 +59,33 @@ function quoteSieve(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
+/** PUTSCRIPT literal cap. Larger scripts are refused before a socket is opened. */
+export const MAX_SIEVE_SCRIPT_BYTES = 1024 * 1024;
+
+const MAX_SIEVE_SCRIPT_NAME_CHARS = 255;
+
+function assertSieveScriptName(name: string, allowEmpty = false): void {
+  if (allowEmpty && name.length === 0) return;
+  if (name.length === 0) {
+    throw new Error('Script name must not be empty');
+  }
+  if (name.length > MAX_SIEVE_SCRIPT_NAME_CHARS) {
+    throw new Error('Script name is too long');
+  }
+  /* eslint-disable no-control-regex */
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional — reject control chars in script names
+  if (/[\u0000-\u001F\u007F\u2028\u2029]/.test(name)) {
+    throw new Error('Script name must not contain control characters');
+  }
+  /* eslint-enable no-control-regex */
+}
+
+function assertSieveScriptContent(content: string): void {
+  if (Buffer.byteLength(content, 'utf8') > MAX_SIEVE_SCRIPT_BYTES) {
+    throw new Error(`Script is too large (maximum ${MAX_SIEVE_SCRIPT_BYTES} bytes)`);
+  }
+}
+
 function bindSocketWait(
   conn: SieveConn,
   tryConsume: () => boolean,
@@ -285,6 +312,7 @@ async function listScripts(account: AccountConfig): Promise<SieveScriptInfo[]> {
 }
 
 async function getScript(account: AccountConfig, name: string): Promise<string> {
+  assertSieveScriptName(name);
   const conn = await openConn(account);
   try {
     const resp = await sendCommand(conn, `GETSCRIPT "${quoteSieve(name)}"`);
@@ -296,6 +324,8 @@ async function getScript(account: AccountConfig, name: string): Promise<string> 
 }
 
 async function putScript(account: AccountConfig, name: string, content: string): Promise<void> {
+  assertSieveScriptName(name);
+  assertSieveScriptContent(content);
   const conn = await openConn(account);
   try {
     const bytes = Buffer.byteLength(content, 'utf8');
@@ -309,6 +339,7 @@ async function putScript(account: AccountConfig, name: string, content: string):
 }
 
 async function deleteScript(account: AccountConfig, name: string): Promise<void> {
+  assertSieveScriptName(name);
   const conn = await openConn(account);
   try {
     assertOk(await sendCommand(conn, `DELETESCRIPT "${quoteSieve(name)}"`), 'DELETESCRIPT');
@@ -318,6 +349,7 @@ async function deleteScript(account: AccountConfig, name: string): Promise<void>
 }
 
 async function activateScript(account: AccountConfig, name: string): Promise<void> {
+  assertSieveScriptName(name, true);
   const conn = await openConn(account);
   try {
     const arg = name ? `"${quoteSieve(name)}"` : '""';
