@@ -37,7 +37,8 @@ jobs:
       # Trusted publishing (OIDC, npm >= 11.5.1): npmjs.com trusts Bitfloo/mailoo
       # release.yml, so there is no token to leak or expire, and provenance is
       # attached automatically. pnpm 9 cannot do the OIDC exchange, hence npm.
-      - run: npm install -g npm@latest
+      # The CLI is pinned: @latest is not a version we can review before publish.
+      - run: npm install -g npm@11.20.0
       - run: npm publish --access public
 
   mcp:
@@ -50,17 +51,26 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v6
+      # releases/latest can be replaced; the tag and its published checksum cannot.
       - name: Install mcp-publisher
         run: |
           OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
           ARCH="$(uname -m)"
           ARCH="${ARCH/x86_64/amd64}"
           ARCH="${ARCH/aarch64/arm64}"
-          BASE="https://github.com/modelcontextprotocol"
-          BASE="${BASE}/registry/releases/latest/download"
-          curl -L \
-            "${BASE}/mcp-publisher_${OS}_${ARCH}.tar.gz" \
-            | tar xz mcp-publisher
+          TAG="v1.8.1"
+          VER="${TAG#v}"
+          BASE="https://github.com/modelcontextprotocol/registry/releases/download/${TAG}"
+          ASSET="mcp-publisher_${OS}_${ARCH}.tar.gz"
+          curl -fsSL -o "${ASSET}" "${BASE}/${ASSET}"
+          curl -fsSL -o "registry_${VER}_checksums.txt" "${BASE}/registry_${VER}_checksums.txt"
+          match="$(awk -v asset="${ASSET}" '$2 == asset { print }' "registry_${VER}_checksums.txt")"
+          if [[ -z "${match}" ]]; then
+            echo "no published checksum for ${ASSET}" >&2
+            exit 1
+          fi
+          printf '%s\n' "${match}" | sha256sum -c -
+          tar -xzf "${ASSET}" mcp-publisher
       - name: Set version in server.json
         run: |
           VERSION="${{ inputs.version || '' }}"

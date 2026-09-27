@@ -42,3 +42,40 @@ describe('CI spend policy', () => {
     expect(claude).toContain('include-unit');
   });
 });
+
+const releaseYml = readFileSync(join(repoRoot, '.github/workflows/release.yml'), 'utf8');
+
+/** Comments are not the install steps. */
+function releaseSteps(yaml: string): string {
+  return yaml
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('#'))
+    .join('\n');
+}
+
+describe('release supply chain', () => {
+  it('installs a fixed npm CLI at or above 11.5.1', () => {
+    const steps = releaseSteps(releaseYml);
+    expect(steps).not.toContain('npm@latest');
+    const pinned = steps.match(/npm install -g npm@(\d+)\.(\d+)\.(\d+)/);
+    expect(pinned).not.toBeNull();
+    if (!pinned) {
+      return;
+    }
+    const major = Number(pinned[1]);
+    const minor = Number(pinned[2]);
+    const patch = Number(pinned[3]);
+    const atOrAbove =
+      major > 11 || (major === 11 && minor > 5) || (major === 11 && minor === 5 && patch >= 1);
+    expect(atOrAbove).toBe(true);
+  });
+
+  it('downloads mcp-publisher from a fixed release and checks the published checksum', () => {
+    const steps = releaseSteps(releaseYml);
+    expect(steps).not.toContain('releases/latest');
+    expect(steps).toMatch(/TAG="v\d+\.\d+\.\d+"/);
+    expect(steps).toMatch(/releases\/download\/\$\{TAG\}/);
+    expect(steps).toMatch(/registry_\$\{VER\}_checksums\.txt/);
+    expect(steps).toContain('sha256sum -c');
+  });
+});
