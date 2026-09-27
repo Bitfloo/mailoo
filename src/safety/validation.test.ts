@@ -138,10 +138,24 @@ describe('validateWebhookUrl', () => {
     expect(() => validateWebhookUrl('https://192.168.1.1/hook')).toThrow('loopback or private');
   });
 
-  it('throws on ::1', () => {
-    // Note: URL parser keeps brackets in hostname for IPv6, so the source
-    // comparison against '::1' won't match '[::1]'. This tests current behaviour.
-    expect(() => validateWebhookUrl('http://::1/hook')).toThrow();
+  it('throws on an IPv6 loopback address', () => {
+    expect(() => validateWebhookUrl('http://[::1]/hook')).toThrow('loopback or private');
+  });
+
+  it('throws on a hex IPv4-mapped loopback address', () => {
+    expect(() => validateWebhookUrl('http://[::ffff:7f00:1]/hook')).toThrow('loopback or private');
+  });
+
+  it('throws on the metadata address 100.100.100.200', () => {
+    expect(() => validateWebhookUrl('http://100.100.100.200/hook')).toThrow('loopback or private');
+  });
+
+  it('throws on the metadata.goog hostname', () => {
+    expect(() => validateWebhookUrl('http://metadata.goog/')).toThrow('loopback or private');
+  });
+
+  it('throws on a localhost subdomain', () => {
+    expect(() => validateWebhookUrl('https://foo.localhost/hook')).toThrow('loopback or private');
   });
 
   it('throws on 0.0.0.0', () => {

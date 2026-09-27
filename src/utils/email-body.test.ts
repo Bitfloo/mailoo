@@ -58,8 +58,10 @@ describe('stripHtml', () => {
   });
 
   it('does not leave an encoded script tag in the text', () => {
-    expect(stripHtml('&lt;script&gt;alert(1)&lt;/script&gt;<p>Hello</p>')).not.toMatch(/<script/i);
-    expect(stripHtml('&lt;script&gt;alert(1)&lt;/script&gt;<p>Hello</p>')).toContain('Hello');
+    const text = stripHtml('&lt;script&gt;alert(1)&lt;/script&gt;<p>Hello</p>');
+    expect(text).not.toMatch(/<script/i);
+    expect(text).not.toContain('alert(1)');
+    expect(text).toContain('Hello');
   });
 
   it('drops a style block and its remote URL', () => {

@@ -47,15 +47,12 @@ describe('writeAttachmentFile', () => {
   });
 
   it('allows a working-directory file whose name starts with two dots', async () => {
-    const dest = path.join(process.cwd(), '..notes.txt');
-    await fs.rm(dest, { force: true });
-    try {
+    await withCwdTempDir(async (dir) => {
+      const dest = path.join(dir, '..notes.txt');
       const saved = await writeAttachmentFile(dest, '..notes.txt', Buffer.from('dots'));
       expect(saved).toBe(dest);
       expect(await fs.readFile(dest, 'utf8')).toBe('dots');
-    } finally {
-      await fs.rm(dest, { force: true });
-    }
+    });
   });
 
   it('does not replace an existing file', async () => {
