@@ -94,7 +94,6 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
   );
   const hooks = new HooksService(options.config.settings.hooks, options.imap, {
     events,
-    sessionResourceListeners: true,
   });
 
   const sessions = new HttpSessionStore<StreamableHTTPServerTransport>(
@@ -304,7 +303,6 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
         const ls = mcpServer.server;
         ls.oninitialized = () => {
           markInitialized();
-          scope.attachClient();
           candidates.set(sid, {
             server: ls,
             sampling: (ls.getClientCapabilities?.()?.sampling ?? null) != null,

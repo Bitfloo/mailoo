@@ -4,6 +4,7 @@ import eventBus from './event-bus.js';
 import HooksService from './hooks.service.js';
 import type ImapService from './imap.service.js';
 import type { MailArrival } from './mail-arrival/index.js';
+import NotifierService from './notifier.service.js';
 
 vi.mock('../logging.js', () => ({
   mcpLog: vi.fn().mockResolvedValue(undefined),
@@ -108,6 +109,7 @@ describe('HooksService IMAP apply', () => {
   afterEach(() => {
     hooks?.stop();
     hooks = undefined;
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -125,9 +127,7 @@ describe('HooksService IMAP apply', () => {
       }),
       imap as unknown as ImapService,
     );
-    hooks.start({ sendResourceUpdated: vi.fn().mockResolvedValue(undefined) } as never, {
-      sampling: false,
-    });
+    hooks.start({} as never, { sampling: false });
 
     await flushHooks([meta()]);
 
@@ -150,9 +150,7 @@ describe('HooksService IMAP apply', () => {
       }),
       imap as unknown as ImapService,
     );
-    hooks.start({ sendResourceUpdated: vi.fn().mockResolvedValue(undefined) } as never, {
-      sampling: false,
-    });
+    hooks.start({} as never, { sampling: false });
 
     await flushHooks([meta({ from: { address: 'billing@example.com' } })]);
 
@@ -173,12 +171,9 @@ describe('HooksService IMAP apply', () => {
       hooksConfig({ onNewEmail: 'triage', autoFlag: true }),
       imap as unknown as ImapService,
     );
-    hooks.start(
-      { sendResourceUpdated: vi.fn().mockResolvedValue(undefined), createMessage } as never,
-      {
-        sampling: true,
-      },
-    );
+    hooks.start({ createMessage } as never, {
+      sampling: true,
+    });
 
     await flushHooks([meta()]);
 
@@ -196,12 +191,9 @@ describe('HooksService IMAP apply', () => {
       imap as unknown as ImapService,
       { mailArrival: { handle } as unknown as MailArrival },
     );
-    hooks.start(
-      { sendResourceUpdated: vi.fn().mockResolvedValue(undefined), createMessage } as never,
-      {
-        sampling: true,
-      },
-    );
+    hooks.start({ createMessage } as never, {
+      sampling: true,
+    });
 
     await flushHooks([meta()]);
 
@@ -211,7 +203,10 @@ describe('HooksService IMAP apply', () => {
 
   it('logs flushBatch rejection instead of swallowing it', async () => {
     const imap = mockImap();
-    hooks = new HooksService(hooksConfig(), imap as unknown as ImapService);
+    vi.spyOn(NotifierService.prototype, 'alert').mockRejectedValue(new Error('alert down'));
+    hooks = new HooksService(hooksConfig(), imap as unknown as ImapService, {
+      mailArrival: { handle: async () => ({ kind: 'noop' }) } as unknown as MailArrival,
+    });
     hooks.start({} as never, { sampling: false });
 
     await flushHooks([meta()]);

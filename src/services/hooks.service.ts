@@ -111,9 +111,6 @@ export default class HooksService {
 
   private readonly events: EmailEventBus;
 
-  /** HTTP sessions notify their own clients; this service must not fan out to one server. */
-  private readonly sessionResourceListeners: boolean;
-
   private static readonly MAX_SAMPLING_PER_MIN = 10;
 
   private readonly handleNewEmail = (event: NewEmailEvent): void => {
@@ -126,14 +123,12 @@ export default class HooksService {
     deps?: {
       mailArrival?: MailArrival | null;
       events?: EmailEventBus;
-      sessionResourceListeners?: boolean;
     },
   ) {
     this.config = config;
     this.imapService = imapService;
     this.mailArrival = deps?.mailArrival ?? null;
     this.events = deps?.events ?? eventBus;
-    this.sessionResourceListeners = deps?.sessionResourceListeners === true;
     this.notifier = new NotifierService(config.alerts);
     this.localCalendar = new LocalCalendarService();
     this.resolvedSystemPrompt = buildSystemPrompt(config.preset, {
@@ -241,8 +236,6 @@ export default class HooksService {
     const batch = [...this.pendingEmails];
     this.pendingEmails = [];
     if (batch.length === 0) return;
-
-    await this.sendResourceUpdates(batch);
 
     // Partition: static-rule-matched vs needs-AI-triage
     const ruleMatched: { email: BatchEmail; rule: HookRule }[] = [];
@@ -414,23 +407,6 @@ export default class HooksService {
         );
       }
     }
-  }
-
-  // -------------------------------------------------------------------------
-  // Resource subscription notifications
-  // -------------------------------------------------------------------------
-
-  private async sendResourceUpdates(emails: BatchEmail[]): Promise<void> {
-    if (this.sessionResourceListeners || !this.lowLevelServer) return;
-
-    const accounts = [...new Set(emails.map((e) => e.account))];
-    const srv = this.lowLevelServer;
-
-    const ops = accounts.flatMap((account) => [
-      srv.sendResourceUpdated({ uri: `email://${account}/unread` }).catch(() => {}),
-      srv.sendResourceUpdated({ uri: `email://${account}/mailboxes` }).catch(() => {}),
-    ]);
-    await Promise.allSettled(ops);
   }
 
   // -------------------------------------------------------------------------

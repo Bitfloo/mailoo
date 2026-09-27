@@ -24,7 +24,7 @@ export default function createServer(): McpServer {
       capabilities: {
         tools: { listChanged: true },
         prompts: { listChanged: true },
-        resources: { subscribe: true, listChanged: true },
+        resources: { listChanged: true },
         logging: {},
       },
     },

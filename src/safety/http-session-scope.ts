@@ -1,14 +1,14 @@
 /**
  * Per-session MCP objects for one Streamable HTTP client.
- * Account state stays on the process. Dispose closes only this session's
- * bus listeners. Session id checks stay here because the id is the session key.
+ * Account state stays on the process. Dispose does not close shared
+ * connections. Session id checks stay here because the id is the session key.
  */
 
 import path from 'node:path';
 
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
-import type { EmailEventBus, NewEmailEvent } from '../services/event-bus.js';
+import type { EmailEventBus } from '../services/event-bus.js';
 import type SchedulerService from '../services/scheduler.service.js';
 import type SmtpService from '../services/smtp.service.js';
 
@@ -20,7 +20,6 @@ export interface HttpSessionScope {
   readonly smtp: SmtpService;
   readonly scheduler: SchedulerService;
   readonly server: Server;
-  attachClient: () => void;
   dispose: () => Promise<void>;
 }
 
@@ -37,19 +36,6 @@ export function httpSessionQueueDir(root: string, sessionId: string): string {
   return dir;
 }
 
-function listenForResourceUpdates(events: EmailEventBus, server: Server): () => void {
-  const onNew = (event: NewEmailEvent): void => {
-    const uris = [`email://${event.account}/unread`, `email://${event.account}/mailboxes`];
-    uris.forEach((uri) => {
-      server.sendResourceUpdated({ uri }).catch(() => {});
-    });
-  };
-  events.on('email:new', onNew);
-  return () => {
-    events.off('email:new', onNew);
-  };
-}
-
 export function createHttpSessionScope(input: {
   id: string;
   server: Server;
@@ -58,7 +44,6 @@ export function createHttpSessionScope(input: {
   scheduler: SchedulerService;
   onDispose: () => void;
 }): HttpSessionScope {
-  let detach: (() => void) | undefined;
   let disposePromise: Promise<void> | undefined;
 
   return {
@@ -67,15 +52,10 @@ export function createHttpSessionScope(input: {
     smtp: input.smtp,
     scheduler: input.scheduler,
     server: input.server,
-    attachClient() {
-      detach ??= listenForResourceUpdates(input.events, input.server);
-    },
     async dispose() {
-      disposePromise ??= (async () => {
-        detach?.();
-        detach = undefined;
+      disposePromise ??= Promise.resolve().then(() => {
         input.onDispose();
-      })();
+      });
       await disposePromise;
     },
   };

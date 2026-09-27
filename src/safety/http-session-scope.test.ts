@@ -1,6 +1,6 @@
 /**
  * HTTP sessions share account state (L3: queue, rate limit, watcher, hooks)
- * and only the MCP session is per client (L2: listeners, sampling target).
+ * and only the MCP session is per client (L2: sampling target).
  * XDG_STATE_HOME is pinned before the queue path is imported.
  */
 
@@ -378,7 +378,6 @@ describe('HTTP session account state', () => {
 
   it('should start one watcher per account and dispatch hooks once for two sessions', async () => {
     const imap = mockImap();
-    vi.spyOn(Server.prototype, 'sendResourceUpdated').mockResolvedValue(undefined);
     const config = testConfig({
       readOnly: false,
       watcherEnabled: true,
@@ -409,7 +408,6 @@ describe('HTTP session account state', () => {
   it('should sample on the latest live sampling session and keep static rules after it closes', async () => {
     const imap = mockImap();
     const sampled: Server[] = [];
-    const notified: Server[] = [];
     vi.spyOn(Server.prototype, 'createMessage').mockImplementation(async function recordSample(
       this: Server,
     ) {
@@ -420,11 +418,6 @@ describe('HTTP session account state', () => {
         content: { type: 'text', text: '[]' },
       } as Awaited<ReturnType<Server['createMessage']>>;
     });
-    vi.spyOn(Server.prototype, 'sendResourceUpdated').mockImplementation(
-      async function recordNotice(this: Server) {
-        notified.push(this);
-      },
-    );
 
     const config = testConfig({
       readOnly: false,
@@ -455,9 +448,7 @@ describe('HTTP session account state', () => {
     });
     expect(sampled).not.toContain(scopeB.server);
 
-    const callsToA = () =>
-      sampled.filter((server) => server === scopeA.server).length +
-      notified.filter((server) => server === scopeA.server).length;
+    const callsToA = () => sampled.filter((server) => server === scopeA.server).length;
     const beforeDispose = callsToA();
     expect(await deleteSession(session, sidA)).toBeLessThan(300);
 
@@ -473,15 +464,13 @@ describe('HTTP session account state', () => {
     expect(sampled.filter((server) => server === scopeA.server)).toHaveLength(1);
   });
 
-  it('should return event-bus listenerCount to the pre-session baseline after the session closes', async () => {
+  it('should not register an EmailEventBus listener for an HTTP session', async () => {
     const session = await startHost(testConfig({ readOnly: true }));
     const sidA = await openSession(session, 1, false);
     const scopeA = session.host.scopeFor(sidA);
     if (!scopeA) throw new Error('missing session');
     const baseline = scopeA.events.listenerCount('email:new');
-    const sidB = await openSession(session, 2, false);
-    expect(scopeA.events.listenerCount('email:new')).toBe(baseline + 1);
-    expect(await deleteSession(session, sidB)).toBeLessThan(300);
+    await openSession(session, 2, false);
     expect(scopeA.events.listenerCount('email:new')).toBe(baseline);
   });
 

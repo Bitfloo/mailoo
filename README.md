@@ -702,7 +702,6 @@ Features:
 - **Batching** — Groups arrivals within a configurable delay to reduce AI calls
 - **Rate limiting** — Max 10 sampling calls per minute
 - **Graceful degradation** — Falls back to notify mode if client doesn't support sampling
-- **Resource subscriptions** — Pushes `notifications/resources/updated` for unread counts
 
 ### System One (opt-in typed filing)
 

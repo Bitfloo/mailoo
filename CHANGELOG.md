@@ -10,6 +10,10 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Behaviour changes
 
+- The server does not advertise `resources.subscribe` and does not send
+  `notifications/resources/updated`. Clients are not subscribed to resource
+  updates. `resources.listChanged` remains.
+
 - `read_only` does not register tools that write. `add_to_calendar`,
   `create_reminder`, `test_notification`, and `configure_alerts` are
   omitted, along with send, draft, label-change, mailbox, schedule-write,
