@@ -348,7 +348,6 @@ package-lock.json
 .tmp-mailoo-att-*
 .tmp*
 *.tmp
-tmp-mailoo-out-*
 
 # Local agent scratch (not published).
 # Keep published contributor agents: .claude/agents/, .cursor/agents/,

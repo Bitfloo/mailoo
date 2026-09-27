@@ -486,7 +486,8 @@ describe('ImapService', () => {
     });
 
     it('should embed a draft attachment read from the working directory', async () => {
-      const dir = await fs.mkdtemp(path.join(process.cwd(), 'tmp-mailoo-out-'));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-out-'));
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
       try {
         const file = path.join(dir, 'note.txt');
         await fs.writeFile(file, 'draft-file-marker');
@@ -502,6 +503,7 @@ describe('ImapService', () => {
         expect(text).toContain('note.txt');
         expect(text).toContain(Buffer.from('draft-file-marker').toString('base64'));
       } finally {
+        cwdSpy.mockRestore();
         await fs.rm(dir, { recursive: true, force: true });
       }
     });

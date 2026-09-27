@@ -139,7 +139,8 @@ describe('SmtpService', () => {
     });
 
     it('reads a local file attachment and does not copy it from IMAP', async () => {
-      const dir = await fs.mkdtemp(path.join(process.cwd(), 'tmp-mailoo-out-'));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-out-'));
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
       try {
         const file = path.join(dir, 'note.txt');
         await fs.writeFile(file, 'hello-file');
@@ -159,6 +160,7 @@ describe('SmtpService', () => {
         ]);
         expect(imap.downloadAttachment).not.toHaveBeenCalled();
       } finally {
+        cwdSpy.mockRestore();
         await fs.rm(dir, { recursive: true, force: true });
       }
     });
@@ -321,7 +323,8 @@ describe('SmtpService', () => {
     });
 
     it('should reject a hidden attachment path under the working directory', async () => {
-      const dir = await fs.mkdtemp(path.join(process.cwd(), 'tmp-mailoo-out-'));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-out-'));
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
       try {
         const hidden = path.join(dir, '.ssh');
         await fs.mkdir(hidden);
@@ -337,12 +340,14 @@ describe('SmtpService', () => {
         ).rejects.toThrow(/not allowed/);
         expect(transport.sendMail).not.toHaveBeenCalled();
       } finally {
+        cwdSpy.mockRestore();
         await fs.rm(dir, { recursive: true, force: true });
       }
     });
 
     it('should reject a symlink whose target leaves the working directory', async () => {
-      const dir = await fs.mkdtemp(path.join(process.cwd(), 'tmp-mailoo-out-'));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-out-'));
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
       const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-secret-'));
       try {
         const secret = path.join(outside, 'secret.txt');
@@ -361,13 +366,15 @@ describe('SmtpService', () => {
         const sent = JSON.stringify(transport.sendMail.mock.calls);
         expect(sent).not.toContain('outside-secret-marker');
       } finally {
+        cwdSpy.mockRestore();
         await fs.rm(dir, { recursive: true, force: true });
         await fs.rm(outside, { recursive: true, force: true });
       }
     });
 
     it('should read a symlink whose target stays inside the working directory', async () => {
-      const dir = await fs.mkdtemp(path.join(process.cwd(), 'tmp-mailoo-out-'));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-out-'));
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
       try {
         const target = path.join(dir, 'target.txt');
         await fs.writeFile(target, 'linked-body');
@@ -387,6 +394,7 @@ describe('SmtpService', () => {
           },
         ]);
       } finally {
+        cwdSpy.mockRestore();
         await fs.rm(dir, { recursive: true, force: true });
       }
     });
@@ -420,7 +428,8 @@ describe('SmtpService', () => {
     });
 
     it('should reject a file URL attachment path', async () => {
-      const dir = await fs.mkdtemp(path.join(process.cwd(), 'tmp-mailoo-out-'));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-out-'));
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
       try {
         const file = path.join(dir, 'note.txt');
         await fs.writeFile(file, 'local-bytes');
@@ -434,12 +443,14 @@ describe('SmtpService', () => {
         ).rejects.toThrow(/local file/);
         expect(transport.sendMail).not.toHaveBeenCalled();
       } finally {
+        cwdSpy.mockRestore();
         await fs.rm(dir, { recursive: true, force: true });
       }
     });
 
     it('should reject an attachment file over the size limit', async () => {
-      const dir = await fs.mkdtemp(path.join(process.cwd(), 'tmp-mailoo-out-'));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-out-'));
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
       try {
         const file = path.join(dir, 'big.bin');
         const handle = await fs.open(file, 'w');
@@ -455,6 +466,7 @@ describe('SmtpService', () => {
         ).rejects.toThrow(String(MAX_OUTGOING_ATTACHMENT_BYTES));
         expect(transport.sendMail).not.toHaveBeenCalled();
       } finally {
+        cwdSpy.mockRestore();
         await fs.rm(dir, { recursive: true, force: true });
       }
     });

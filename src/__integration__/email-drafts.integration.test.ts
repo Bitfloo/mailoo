@@ -55,7 +55,8 @@ describe('Email Draft Operations', () => {
     });
 
     it('should save a draft attachment read from the working directory', async () => {
-      const dir = await fs.mkdtemp(path.join(process.cwd(), 'tmp-mailoo-out-'));
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-out-'));
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(dir);
       const marker = `draft-payload-${Date.now()}`;
       try {
         const file = path.join(dir, 'note.txt');
@@ -75,6 +76,7 @@ describe('Email Draft Operations', () => {
         );
         expect(Buffer.from(downloaded.contentBase64, 'base64').toString('utf8')).toBe(marker);
       } finally {
+        cwdSpy.mockRestore();
         await fs.rm(dir, { recursive: true, force: true });
       }
     });
