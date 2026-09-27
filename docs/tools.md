@@ -16,7 +16,8 @@ capped at **5 MB**.
 working directory** (absolute paths or `..` that escape cwd are
 rejected) and returns metadata only — no base64. Cap is **50 MB**.
 `readOnlyHint` is **false** because this path writes disk. A directory
-`savePath` uses the attachment filename (sanitised).
+`savePath` uses the attachment filename (sanitised to one path segment).
+An existing file is left unchanged. A symlink is rejected.
 
 ## `list_emails` / `search_emails` dates
 

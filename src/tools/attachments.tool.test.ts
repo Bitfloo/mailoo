@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 import type ImapService from '../services/imap.service.js';
@@ -43,6 +44,106 @@ describe('writeAttachmentFile', () => {
     await expect(writeAttachmentFile(outside, 'x.txt', Buffer.from('nope'))).rejects.toThrow(
       /working directory/,
     );
+  });
+
+  it('allows a working-directory file whose name starts with two dots', async () => {
+    const dest = path.join(process.cwd(), '..notes.txt');
+    await fs.rm(dest, { force: true });
+    try {
+      const saved = await writeAttachmentFile(dest, '..notes.txt', Buffer.from('dots'));
+      expect(saved).toBe(dest);
+      expect(await fs.readFile(dest, 'utf8')).toBe('dots');
+    } finally {
+      await fs.rm(dest, { force: true });
+    }
+  });
+
+  it('does not replace an existing file', async () => {
+    await withCwdTempDir(async (dir) => {
+      const dest = path.join(dir, 'notes.txt');
+      await fs.writeFile(dest, 'original');
+      await expect(writeAttachmentFile(dest, 'notes.txt', Buffer.from('replaced'))).rejects.toThrow(
+        /exist/,
+      );
+      expect(await fs.readFile(dest, 'utf8')).toBe('original');
+    });
+  });
+
+  it('does not follow a symlink to a file outside the working directory', async () => {
+    const outside = path.join(os.tmpdir(), `mailoo-att-outside-${process.pid}-${Date.now()}.txt`);
+    await fs.writeFile(outside, 'original');
+    try {
+      await withCwdTempDir(async (dir) => {
+        const link = path.join(dir, 'link.txt');
+        await fs.symlink(outside, link);
+        await expect(writeAttachmentFile(link, 'link.txt', Buffer.from('pwned'))).rejects.toThrow(
+          /working directory/,
+        );
+        expect(await fs.readFile(outside, 'utf8')).toBe('original');
+      });
+    } finally {
+      await fs.rm(outside, { force: true });
+    }
+  });
+
+  it('does not follow a symlink directory outside the working directory', async () => {
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-att-outdir-'));
+    try {
+      await withCwdTempDir(async (dir) => {
+        const link = path.join(dir, 'out');
+        await fs.symlink(outside, link);
+        await expect(writeAttachmentFile(link, 'evil.txt', Buffer.from('pwned'))).rejects.toThrow(
+          /working directory/,
+        );
+        expect(await fs.readdir(outside)).toEqual([]);
+      });
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a dot-dot attachment name inside the destination directory', async () => {
+    await withCwdTempDir(async (dir) => {
+      const saved = await writeAttachmentFile(dir, '..', Buffer.from('inside'));
+      expect(path.dirname(saved)).toBe(dir);
+      expect(path.basename(saved)).not.toBe('..');
+      expect(await fs.readFile(saved, 'utf8')).toBe('inside');
+    });
+  });
+
+  it('does not create a file through a symlinked parent directory', async () => {
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-att-parent-'));
+    try {
+      await withCwdTempDir(async (dir) => {
+        const link = path.join(dir, 'linked');
+        await fs.symlink(outside, link);
+        const dest = path.join(link, 'a.txt');
+        await expect(writeAttachmentFile(dest, 'a.txt', Buffer.from('pwned'))).rejects.toThrow(
+          /working directory/,
+        );
+        expect(await fs.readdir(outside)).toEqual([]);
+      });
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('creates a missing directory under the working directory', async () => {
+    await withCwdTempDir(async (dir) => {
+      const dest = path.join(dir, 'nested', 'a.txt');
+      const saved = await writeAttachmentFile(dest, 'a.txt', Buffer.from('nested'));
+      expect(saved).toBe(dest);
+      expect(await fs.readFile(dest, 'utf8')).toBe('nested');
+    });
+  });
+
+  it('strips control characters from an attachment filename', async () => {
+    await withCwdTempDir(async (dir) => {
+      const saved = await writeAttachmentFile(dir, 'a\nb.txt', Buffer.from('line'));
+      expect(path.dirname(saved)).toBe(dir);
+      expect(path.basename(saved)).not.toMatch(/[\r\n]/);
+      expect(await fs.readFile(saved, 'utf8')).toBe('line');
+    });
   });
 });
 
