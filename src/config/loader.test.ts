@@ -17,6 +17,12 @@ host = "imap.example.com"
 host = "smtp.example.com"
 `;
 
+/** writeFile follows the umask, usually 0644, which warns on load. */
+async function writeOwnerOnly(filePath: string, contents: string): Promise<void> {
+  await fs.writeFile(filePath, contents, 'utf-8');
+  await fs.chmod(filePath, 0o600);
+}
+
 const MCP_ENV_KEYS = Object.keys(process.env).filter((k) => k.startsWith('MCP_EMAIL_'));
 
 function permissionBits(mode: number): number {
@@ -67,28 +73,74 @@ describe('Config Loader', () => {
   // -------------------------------------------------------------------------
 
   describe('loadConfig from TOML file', () => {
-    it('tightens a world-readable config file when loading', async () => {
+    it.each([
+      'EROFS',
+      'EPERM',
+    ])('should load a group-readable config and warn when chmod throws %s', async (code) => {
       const configPath = path.join(tmpDir, 'config.toml');
       await fs.writeFile(configPath, MINIMAL_TOML, 'utf-8');
       await fs.chmod(configPath, 0o644);
 
-      await loadConfig(configPath);
+      // A read-only mount (EROFS) or a file owned by another uid (EPERM)
+      // rejects chmod. Startup must still read the file.
+      const chmod = vi
+        .spyOn(fs, 'chmod')
+        .mockRejectedValue(Object.assign(new Error(code), { code }));
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      try {
+        const config = await loadConfig(configPath);
 
-      expect(permissionBits((await fs.stat(configPath)).mode)).toBe(0o600);
+        expect(config.accounts[0].email).toBe('test@example.com');
+        expect(permissionBits((await fs.stat(configPath)).mode)).toBe(0o644);
+        const warnings = stderr.mock.calls
+          .map((call) => String(call[0]))
+          .filter((line) => line.includes('warning'));
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0]).toContain(`chmod 600 ${configPath}`);
+      } finally {
+        chmod.mockRestore();
+        stderr.mockRestore();
+      }
     });
 
-    it('does not read a config file through a symlink', async () => {
-      const outside = path.join(tmpDir, 'real.toml');
-      await fs.writeFile(outside, MINIMAL_TOML, 'utf-8');
+    it('should load config when the file is a symlink', async () => {
+      const real = path.join(tmpDir, 'real.toml');
+      await fs.writeFile(real, MINIMAL_TOML, 'utf-8');
+      await fs.chmod(real, 0o600);
       const link = path.join(tmpDir, 'link.toml');
-      await fs.symlink(outside, link);
+      await fs.symlink('real.toml', link);
 
-      await expect(loadConfig(link)).rejects.toThrow(/symlink/);
+      const config = await loadConfig(link);
+
+      expect(config.accounts[0].email).toBe('test@example.com');
+      expect((await fs.lstat(link)).isSymbolicLink()).toBe(true);
+      expect(await fs.readlink(link)).toBe('real.toml');
+    });
+
+    it('should load config when its directory is a symlink', async () => {
+      const realDir = path.join(tmpDir, 'real-dir');
+      await fs.mkdir(realDir);
+      const realFile = path.join(realDir, 'config.toml');
+      await fs.writeFile(realFile, MINIMAL_TOML, 'utf-8');
+      await fs.chmod(realFile, 0o644);
+      const linkDir = path.join(tmpDir, 'linked-dir');
+      await fs.symlink('real-dir', linkDir);
+
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      try {
+        const config = await loadConfig(path.join(linkDir, 'config.toml'));
+
+        expect(config.accounts[0].email).toBe('test@example.com');
+        expect((await fs.lstat(linkDir)).isSymbolicLink()).toBe(true);
+        expect(permissionBits((await fs.stat(realFile)).mode)).toBe(0o644);
+      } finally {
+        stderr.mockRestore();
+      }
     });
 
     it('loads a valid TOML config file', async () => {
       const configPath = path.join(tmpDir, 'config.toml');
-      await fs.writeFile(configPath, MINIMAL_TOML, 'utf-8');
+      await writeOwnerOnly(configPath, MINIMAL_TOML);
 
       const config = await loadConfig(configPath);
 
@@ -124,7 +176,7 @@ rate_limit = 5
 read_only = true
 `;
       const configPath = path.join(tmpDir, 'config.toml');
-      await fs.writeFile(configPath, toml, 'utf-8');
+      await writeOwnerOnly(configPath, toml);
 
       const config = await loadConfig(configPath);
 
@@ -149,7 +201,7 @@ host = "imap.example.com"
 host = "smtp.example.com"
 `;
       const configPath = path.join(tmpDir, 'config.toml');
-      await fs.writeFile(configPath, toml, 'utf-8');
+      await writeOwnerOnly(configPath, toml);
 
       const config = await loadConfig(configPath);
 
@@ -158,7 +210,7 @@ host = "smtp.example.com"
 
     it('applies default values for optional fields', async () => {
       const configPath = path.join(tmpDir, 'config.toml');
-      await fs.writeFile(configPath, MINIMAL_TOML, 'utf-8');
+      await writeOwnerOnly(configPath, MINIMAL_TOML);
 
       const config = await loadConfig(configPath);
 
@@ -205,7 +257,7 @@ match = { from = "*@billing.example.com" }
 actions = { move_to = "Receipts" }
 `;
       const configPath = path.join(tmpDir, 'config.toml');
-      await fs.writeFile(configPath, toml, 'utf-8');
+      await writeOwnerOnly(configPath, toml);
 
       const config = await loadConfig(configPath);
       expect(config.settings.hooks.rules[0].actions.moveTo).toBe('Receipts');
@@ -265,7 +317,7 @@ actions = { move_to = "Receipts" }
 
       // Write minimal TOML first, load it as raw, then save and re-load
       const srcPath = path.join(tmpDir, 'source.toml');
-      await fs.writeFile(srcPath, MINIMAL_TOML, 'utf-8');
+      await writeOwnerOnly(srcPath, MINIMAL_TOML);
       await loadConfig(srcPath);
 
       // Build a RawAppConfig to save

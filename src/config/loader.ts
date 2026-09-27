@@ -167,14 +167,19 @@ async function lstatOrNull(filePath: string): Promise<Awaited<ReturnType<typeof 
   }
 }
 
-/** Owner-only. Group and other bits would leave the file readable by others. */
-async function tightenFileMode(filePath: string, mode: number | bigint): Promise<void> {
+function hasGroupOrOtherBits(mode: number | bigint): boolean {
   const bits = typeof mode === 'bigint' ? Number(mode) : mode;
-  // Permission bits live in the low 9 bits of the stat mode.
+  // 0o077 is the group and other permission bits.
   // eslint-disable-next-line no-bitwise
-  if ((bits & 0o077) !== 0) {
-    await fs.chmod(filePath, 0o600);
-  }
+  return (bits & 0o077) !== 0;
+}
+
+function warnIfGroupOrOtherCanRead(filePath: string, mode: number | bigint): void {
+  if (!hasGroupOrOtherBits(mode)) return;
+  // Config is read before the MCP handshake, so a client log would be dropped.
+  process.stderr.write(
+    `[mailoo] warning: config file is readable by group or other. Run: chmod 600 ${filePath}\n`,
+  );
 }
 
 async function assertParentDirectory(dir: string): Promise<void> {
@@ -190,13 +195,15 @@ async function assertParentDirectory(dir: string): Promise<void> {
 
 async function loadFromFile(filePath: string = CONFIG_FILE): Promise<RawAppConfig | null> {
   assertConfigPath(filePath);
-  const info = await lstatOrNull(filePath);
-  if (!info) return null;
-  if (info.isSymbolicLink()) {
-    throw new Error('Config path must not be a symlink');
+  let info: Awaited<ReturnType<typeof fs.stat>>;
+  try {
+    info = await fs.stat(filePath);
+  } catch (error) {
+    if (isEnoent(error)) return null;
+    throw error;
   }
   if (!info.isFile()) return null;
-  await tightenFileMode(filePath, info.mode);
+  warnIfGroupOrOtherCanRead(filePath, info.mode);
   try {
     const content = await fs.readFile(filePath, 'utf-8');
     const parsed = parseTOML(content);
