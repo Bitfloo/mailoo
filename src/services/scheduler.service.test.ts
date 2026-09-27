@@ -15,7 +15,7 @@ function daysFromNow(days: number): string {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
-function createService() {
+function createService(queueDir?: string) {
   const imap = {
     saveDraft: vi.fn().mockRejectedValue(new Error('draft unavailable')),
     deleteEmail: vi.fn().mockResolvedValue(undefined),
@@ -23,8 +23,12 @@ function createService() {
   const smtp = {
     sendEmail: vi.fn().mockResolvedValue({ messageId: '<scheduled@example.com>' }),
   };
-  const service = new SchedulerService(smtp as never, imap as never);
+  const service = new SchedulerService(smtp as never, imap as never, queueDir);
   return { service, imap, smtp };
+}
+
+function queueId(index: number): string {
+  return `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
 }
 
 async function jsonNames(dir: string): Promise<string[]> {
@@ -49,6 +53,22 @@ function pendingRecord(id: string, sendAt: string): ScheduledEmail {
     status: 'pending',
     attempts: 0,
   };
+}
+
+async function fillQueue(
+  queueDir: string,
+  count: number,
+  status: ScheduledEmail['status'],
+): Promise<void> {
+  await Promise.all(
+    Array.from({ length: count }, async (_unused, index) => {
+      const id = queueId(index);
+      await fs.writeFile(
+        path.join(queueDir, `${id}.json`),
+        JSON.stringify({ ...pendingRecord(id, daysFromNow(2)), status }),
+      );
+    }),
+  );
 }
 
 describe('SchedulerService queue files', () => {
@@ -183,7 +203,12 @@ describe('SchedulerService queue files', () => {
       const name = `${id}.json`;
       if (!existing.has(name)) {
         existing.add(name);
-        writes.push(fs.writeFile(path.join(scheduledDir, name), '{}\n'));
+        writes.push(
+          fs.writeFile(
+            path.join(scheduledDir, name),
+            `${JSON.stringify(pendingRecord(id, daysFromNow(2)))}\n`,
+          ),
+        );
       }
     }
     await Promise.all(writes);
@@ -196,5 +221,40 @@ describe('SchedulerService queue files', () => {
         sendAt: daysFromNow(2),
       }),
     ).rejects.toThrow(/100/);
+  });
+
+  it('schedules an email when the queue holds 100 failed messages and no pending ones', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-failed-'));
+    try {
+      await fillQueue(queueDir, 100, 'failed');
+      const { service } = createService(queueDir);
+      const scheduled = await service.schedule('personal', {
+        to: ['user@example.com'],
+        subject: 'Hello',
+        body: 'Body',
+        sendAt: daysFromNow(2),
+      });
+      expect(scheduled.status).toBe('pending');
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a schedule when 100 messages are still being sent', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-sending-'));
+    try {
+      await fillQueue(queueDir, 100, 'sending');
+      const { service } = createService(queueDir);
+      await expect(
+        service.schedule('personal', {
+          to: ['user@example.com'],
+          subject: 'Hello',
+          body: 'Body',
+          sendAt: daysFromNow(2),
+        }),
+      ).rejects.toThrow(/Too many scheduled emails/);
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
   });
 });

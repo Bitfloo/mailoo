@@ -82,6 +82,28 @@ function assertAddresses(values: string[] | undefined): void {
   });
 }
 
+/**
+ * Failed files stay in this directory and cancel accepts only pending,
+ * so they must not consume the cap.
+ */
+async function countLiveSchedules(dir: string): Promise<number> {
+  const names = await fs.readdir(dir);
+  const statuses = await Promise.all(
+    names.map(async (name) => {
+      const id = scheduleIdFromFilename(name);
+      if (!id) return undefined;
+      try {
+        const content = await fs.readFile(queueFile(dir, id), 'utf-8');
+        const scheduled = JSON.parse(content) as ScheduledEmail;
+        return scheduled.status;
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+  return statuses.filter((status) => status === 'pending' || status === 'sending').length;
+}
+
 function parseSendAt(sendAt: string, now = Date.now()): Date {
   if (sendAt.length > 40 || !SEND_AT_RE.test(sendAt)) {
     throw new Error(`Invalid send_at date: ${sendAt}`);
@@ -153,8 +175,7 @@ export default class SchedulerService {
     const sendAtDate = parseSendAt(options.sendAt);
 
     await this.ensureDirs();
-    const pendingNames = await fs.readdir(this.pendingDir);
-    const pendingCount = pendingNames.filter((name) => scheduleIdFromFilename(name)).length;
+    const pendingCount = await countLiveSchedules(this.pendingDir);
     if (pendingCount >= MAX_PENDING_SCHEDULES) {
       throw new Error(`Too many scheduled emails (maximum ${MAX_PENDING_SCHEDULES})`);
     }
