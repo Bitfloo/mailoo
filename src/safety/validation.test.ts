@@ -149,6 +149,45 @@ describe('validateWebhookUrl', () => {
     expect(() => validateWebhookUrl('http://100.100.100.200/hook')).toThrow('loopback or private');
   });
 
+  it('throws on a shared address space address', () => {
+    expect(() => validateWebhookUrl('http://100.64.0.1/hook')).toThrow('loopback or private');
+  });
+
+  it('throws on an IPv4-compatible loopback address', () => {
+    expect(() => validateWebhookUrl('http://[::7f00:1]/hook')).toThrow('loopback or private');
+  });
+
+  it('throws on a NAT64 address that embeds a private IPv4 address', () => {
+    expect(() => validateWebhookUrl('http://[64:ff9b::a00:1]/hook')).toThrow('loopback or private');
+  });
+
+  it('throws on a 6to4 address that embeds a private IPv4 address', () => {
+    expect(() => validateWebhookUrl('http://[2002:a00:1::]/hook')).toThrow('loopback or private');
+  });
+
+  it('throws on an IETF protocol assignment address', () => {
+    expect(() => validateWebhookUrl('http://192.0.0.1/hook')).toThrow('loopback or private');
+  });
+
+  it('throws on a benchmarking address', () => {
+    expect(() => validateWebhookUrl('http://198.18.0.1/hook')).toThrow('loopback or private');
+  });
+
+  it('throws on a reserved address', () => {
+    expect(() => validateWebhookUrl('http://240.0.0.1/hook')).toThrow('loopback or private');
+  });
+
+  it('throws on an IPv6 site-local address', () => {
+    expect(() => validateWebhookUrl('http://[fec0::1]/hook')).toThrow('loopback or private');
+  });
+
+  it('allows an embedded public IPv4 address', () => {
+    expect(() => validateWebhookUrl('http://[::ffff:c000:20a]/hook')).not.toThrow();
+    expect(() => validateWebhookUrl('http://[::c000:20a]/hook')).not.toThrow();
+    expect(() => validateWebhookUrl('http://[64:ff9b::c000:20a]/hook')).not.toThrow();
+    expect(() => validateWebhookUrl('http://[2002:c000:20a::]/hook')).not.toThrow();
+  });
+
   it('throws on the metadata.goog hostname', () => {
     expect(() => validateWebhookUrl('http://metadata.goog/')).toThrow('loopback or private');
   });
