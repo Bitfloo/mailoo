@@ -153,6 +153,7 @@ export default class HooksService {
 
   /**
    * Start listening for email events once.
+   * Call after the server is connected.
    * A later call does not move the sampling target; use `setSamplingTarget`.
    */
   start(lowLevelServer: Server, clientCapabilities: { sampling?: boolean }): void {

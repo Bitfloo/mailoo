@@ -105,11 +105,8 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
   const disposing: Promise<void>[] = [];
   const canWrite = !options.config.settings.readOnly;
 
-  // Sampling target policy: hooks start ONCE per process; the sampling target is
-  // the most recently initialised LIVE session whose client declares the sampling
-  // capability; a session without sampling never takes the target; when the target
-  // session is disposed, switch to another live session with sampling, or, if none,
-  // run hooks without sampling (static rules); never call a disposed session's server.
+  // Never call a disposed session's server. The newest sampling client wins
+  // because older sessions may be idle until the TTL closes them.
   const candidates = new Map<string, SamplingCandidate>();
   let samplingOrder = 0;
   let hooksListening = false;
