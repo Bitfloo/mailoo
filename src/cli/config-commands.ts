@@ -6,8 +6,6 @@
  * - config init  — create a template config file
  */
 
-import fs from 'node:fs/promises';
-
 import { cancel, confirm, intro, isCancel, log, outro, text } from '@clack/prompts';
 
 import {
@@ -17,6 +15,7 @@ import {
   loadConfig,
   loadRawConfig,
   saveConfig,
+  writeConfigFile,
 } from '../config/loader.js';
 import ensureInteractive from './guard.js';
 
@@ -100,9 +99,7 @@ async function initConfig(): Promise<void> {
     }
   }
 
-  const dir = CONFIG_FILE.replace(/\/[^/]+$/, '');
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(CONFIG_FILE, generateTemplate(), 'utf-8');
+  await writeConfigFile(CONFIG_FILE, generateTemplate());
   log.success(`Template config created at ${CONFIG_FILE}`);
   log.info("Edit the file to add your email accounts, then run 'mailoo test'.");
   outro('Done!');

@@ -4,6 +4,7 @@
  * Precedence: environment variables → TOML config file → defaults.
  */
 
+import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -142,7 +143,60 @@ function loadFromEnv(): RawAppConfig | null {
 // TOML file loader
 // ---------------------------------------------------------------------------
 
+function isEnoent(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'ENOENT'
+  );
+}
+
+function assertConfigPath(filePath: string): void {
+  if (filePath.includes('\0')) {
+    throw new Error('Config path is not valid');
+  }
+}
+
+async function lstatOrNull(filePath: string): Promise<Awaited<ReturnType<typeof fs.lstat>> | null> {
+  try {
+    return await fs.lstat(filePath);
+  } catch (error) {
+    if (isEnoent(error)) return null;
+    throw error;
+  }
+}
+
+/** Owner-only. Group and other bits would leave the file readable by others. */
+async function tightenFileMode(filePath: string, mode: number | bigint): Promise<void> {
+  const bits = typeof mode === 'bigint' ? Number(mode) : mode;
+  // Permission bits live in the low 9 bits of the stat mode.
+  // eslint-disable-next-line no-bitwise
+  if ((bits & 0o077) !== 0) {
+    await fs.chmod(filePath, 0o600);
+  }
+}
+
+async function assertParentDirectory(dir: string): Promise<void> {
+  const info = await lstatOrNull(dir);
+  if (!info) return;
+  if (info.isSymbolicLink()) {
+    throw new Error('Config path must not be a symlink');
+  }
+  if (!info.isDirectory()) {
+    throw new Error('Config path is not valid');
+  }
+}
+
 async function loadFromFile(filePath: string = CONFIG_FILE): Promise<RawAppConfig | null> {
+  assertConfigPath(filePath);
+  const info = await lstatOrNull(filePath);
+  if (!info) return null;
+  if (info.isSymbolicLink()) {
+    throw new Error('Config path must not be a symlink');
+  }
+  if (!info.isFile()) return null;
+  await tightenFileMode(filePath, info.mode);
   try {
     const content = await fs.readFile(filePath, 'utf-8');
     const parsed = parseTOML(content);
@@ -342,16 +396,57 @@ export async function loadConfig(configPath?: string): Promise<AppConfig> {
 }
 
 /**
+ * Write config text as an owner-only file. The parent directory is owner-only.
+ * A symlink at the file or its immediate parent is refused.
+ */
+export async function writeConfigFile(filePath: string, contents: string): Promise<void> {
+  assertConfigPath(filePath);
+  const dir = path.dirname(filePath);
+  await assertParentDirectory(dir);
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+  await assertParentDirectory(dir);
+  await fs.chmod(dir, 0o700);
+
+  const dest = await lstatOrNull(filePath);
+  if (dest?.isSymbolicLink()) {
+    throw new Error('Config path must not be a symlink');
+  }
+  if (dest && !dest.isFile()) {
+    throw new Error('Config path is not valid');
+  }
+
+  const tmpPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.tmp`);
+  const existingTmp = await lstatOrNull(tmpPath);
+  if (existingTmp?.isSymbolicLink() || existingTmp?.isFile()) {
+    await fs.unlink(tmpPath);
+  } else if (existingTmp) {
+    throw new Error('Config path is not valid');
+  }
+
+  const noFollow = fsConstants.O_NOFOLLOW ?? 0;
+  // Open flags are a bitmask; O_EXCL creates only a new file and O_NOFOLLOW refuses a symlink.
+  // eslint-disable-next-line no-bitwise
+  const flags = fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | noFollow;
+  const handle = await fs.open(tmpPath, flags, 0o600);
+  try {
+    await handle.writeFile(contents, 'utf-8');
+  } finally {
+    await handle.close();
+  }
+  await fs.chmod(tmpPath, 0o600);
+  await fs.rename(tmpPath, filePath);
+  await fs.chmod(filePath, 0o600);
+}
+
+/**
  * Save configuration to a TOML file.
  */
 export async function saveConfig(
   config: RawAppConfig,
   filePath: string = CONFIG_FILE,
 ): Promise<void> {
-  const dir = path.dirname(filePath);
-  await fs.mkdir(dir, { recursive: true });
   const toml = stringifyTOML(config as Record<string, unknown>);
-  await fs.writeFile(filePath, toml, 'utf-8');
+  await writeConfigFile(filePath, toml);
 }
 
 /**

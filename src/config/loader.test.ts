@@ -19,6 +19,10 @@ host = "smtp.example.com"
 
 const MCP_ENV_KEYS = Object.keys(process.env).filter((k) => k.startsWith('MCP_EMAIL_'));
 
+function permissionBits(mode: number): number {
+  return mode % 0o1000;
+}
+
 describe('Config Loader', () => {
   let tmpDir: string;
   const savedEnv: Record<string, string | undefined> = {};
@@ -63,6 +67,25 @@ describe('Config Loader', () => {
   // -------------------------------------------------------------------------
 
   describe('loadConfig from TOML file', () => {
+    it('tightens a world-readable config file when loading', async () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      await fs.writeFile(configPath, MINIMAL_TOML, 'utf-8');
+      await fs.chmod(configPath, 0o644);
+
+      await loadConfig(configPath);
+
+      expect(permissionBits((await fs.stat(configPath)).mode)).toBe(0o600);
+    });
+
+    it('does not read a config file through a symlink', async () => {
+      const outside = path.join(tmpDir, 'real.toml');
+      await fs.writeFile(outside, MINIMAL_TOML, 'utf-8');
+      const link = path.join(tmpDir, 'link.toml');
+      await fs.symlink(outside, link);
+
+      await expect(loadConfig(link)).rejects.toThrow(/symlink/);
+    });
+
     it('loads a valid TOML config file', async () => {
       const configPath = path.join(tmpDir, 'config.toml');
       await fs.writeFile(configPath, MINIMAL_TOML, 'utf-8');
@@ -264,6 +287,102 @@ actions = { move_to = "Receipts" }
       expect(reloaded.accounts[0].name).toBe('saved-test');
       expect(reloaded.accounts[0].email).toBe('saved@example.com');
       expect(reloaded.accounts[0].imap.host).toBe('imap.saved.com');
+    });
+
+    it('writes the file as owner-only and the parent directory as owner-only', async () => {
+      const dir = path.join(tmpDir, 'cfg');
+      const configPath = path.join(dir, 'config.toml');
+      const rawConfig = {
+        accounts: [
+          {
+            name: 'saved-test',
+            email: 'saved@example.com',
+            password: 'saved-pass',
+            imap: { host: 'imap.saved.com' },
+            smtp: { host: 'smtp.saved.com' },
+          },
+        ],
+      };
+
+      await saveConfig(rawConfig as unknown as Parameters<typeof saveConfig>[0], configPath);
+
+      expect(permissionBits((await fs.stat(configPath)).mode)).toBe(0o600);
+      expect(permissionBits((await fs.stat(dir)).mode)).toBe(0o700);
+    });
+
+    it('does not follow a symlink at the config path', async () => {
+      const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-cfg-'));
+      const outside = path.join(outsideDir, 'target.toml');
+      await fs.writeFile(outside, 'original');
+      const configPath = path.join(tmpDir, 'config.toml');
+      await fs.symlink(outside, configPath);
+      const rawConfig = {
+        accounts: [
+          {
+            name: 'saved-test',
+            email: 'saved@example.com',
+            password: 'saved-pass',
+            imap: { host: 'imap.saved.com' },
+            smtp: { host: 'smtp.saved.com' },
+          },
+        ],
+      };
+
+      try {
+        await expect(
+          saveConfig(rawConfig as unknown as Parameters<typeof saveConfig>[0], configPath),
+        ).rejects.toThrow(/symlink/);
+        expect(await fs.readFile(outside, 'utf-8')).toBe('original');
+      } finally {
+        await fs.rm(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it('does not follow a symlinked parent directory', async () => {
+      const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-cfg-'));
+      const link = path.join(tmpDir, 'linked');
+      await fs.symlink(outsideDir, link);
+      const rawConfig = {
+        accounts: [
+          {
+            name: 'saved-test',
+            email: 'saved@example.com',
+            password: 'saved-pass',
+            imap: { host: 'imap.saved.com' },
+            smtp: { host: 'smtp.saved.com' },
+          },
+        ],
+      };
+
+      try {
+        await expect(
+          saveConfig(
+            rawConfig as unknown as Parameters<typeof saveConfig>[0],
+            path.join(link, 'config.toml'),
+          ),
+        ).rejects.toThrow(/symlink/);
+        expect(await fs.readdir(outsideDir)).toEqual([]);
+      } finally {
+        await fs.rm(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects a config path that contains a null byte', async () => {
+      const rawConfig = {
+        accounts: [
+          {
+            name: 'saved-test',
+            email: 'saved@example.com',
+            password: 'saved-pass',
+            imap: { host: 'imap.saved.com' },
+            smtp: { host: 'smtp.saved.com' },
+          },
+        ],
+      };
+
+      await expect(
+        saveConfig(rawConfig as unknown as Parameters<typeof saveConfig>[0], 'bad\0.toml'),
+      ).rejects.toThrow(/not valid/);
     });
   });
 
