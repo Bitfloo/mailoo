@@ -1,8 +1,13 @@
+import type { ChildProcess } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { timingSafeEqual } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
 import { Readable } from 'node:stream';
+import { fileURLToPath } from 'node:url';
 import type { HttpAccessDecision, HttpListenPolicy } from './http-transport.js';
 import {
   bearerAuthorizationMatches,
@@ -39,7 +44,7 @@ function fakeRequest(chunks: Buffer[], headers: http.IncomingHttpHeaders = {}): 
 async function send(
   port: number,
   headers: http.OutgoingHttpHeaders,
-  options: { method?: string; body?: Buffer } = {},
+  options: { method?: string; path?: string; body?: Buffer } = {},
 ): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
     const req = http.request(
@@ -47,7 +52,7 @@ async function send(
         host: '127.0.0.1',
         port,
         method: options.method ?? 'GET',
-        path: '/mcp',
+        path: options.path ?? '/mcp',
         headers,
       },
       (res) => {
@@ -787,28 +792,160 @@ describe('startGuardedHttpServers', () => {
   });
 });
 
-describe('HTTP entrypoint', () => {
-  it('starts through the guarded listener and does not advertise every interface', async () => {
-    const source = await readFile(new URL('../main.ts', import.meta.url), 'utf8');
-    const host = await readFile(new URL('./http-mcp-host.ts', import.meta.url), 'utf8');
-    expect(source).toContain('startGuardedHttpServers');
-    expect(source).toContain('createHttpMcpHost');
-    expect(host).toContain('readLimitedBody');
-    expect(host).toContain('resolveHttpRoute');
-    expect(source).not.toContain('http://0.0.0.0:');
-    expect(source).not.toMatch(/\.listen\(\s*port\s*[,)]/);
-    expect(host).not.toMatch(/\.listen\(\s*port\s*[,)]/);
-  });
+const HTTP_ENTRY_CONFIG = `
+[[accounts]]
+name = "test"
+email = "test@example.com"
+password = "secret"
 
-  it('documents loopback as the HTTP default', async () => {
-    const readme = await readFile(new URL('../../README.md', import.meta.url), 'utf8');
-    const configuration = await readFile(
-      new URL('../../docs/configuration.md', import.meta.url),
-      'utf8',
-    );
-    expect(readme).toContain('127.0.0.1');
-    expect(readme).toContain('MCP_EMAIL_HTTP_TOKEN');
-    expect(configuration).toContain('::1');
-    expect(configuration).toContain('MCP_EMAIL_HTTP_ALLOWED_HOSTS');
+[accounts.imap]
+host = "imap.example.com"
+
+[accounts.smtp]
+host = "smtp.example.com"
+`;
+
+/** The http command loads the MCP host before the socket accepts. */
+const HTTP_COMMAND_READY_MS = 8_000;
+
+async function freeLoopbackPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = http.createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      probe.close((err) => (err ? reject(err) : resolve(port)));
+    });
   });
+}
+
+async function waitForText(child: ChildProcess, text: () => string, needle: string): Promise<void> {
+  if (text().includes(needle)) return;
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let onData: () => void = () => {};
+    let onExit: () => void = () => {};
+    const detach = (): void => {
+      if (timer) clearTimeout(timer);
+      child.stdout?.off('data', onData);
+      child.stderr?.off('data', onData);
+      child.off('exit', onExit);
+    };
+    const settle = (err?: Error): void => {
+      if (settled) return;
+      settled = true;
+      detach();
+      if (err) reject(err);
+      else resolve();
+    };
+    onData = (): void => {
+      if (text().includes(needle)) settle();
+    };
+    onExit = (): void => {
+      if (text().includes(needle)) settle();
+      else settle(new Error(`http command exited ${child.exitCode}: ${text()}`));
+    };
+    timer = setTimeout(() => {
+      settle(new Error(`http command did not listen: ${text()}`));
+    }, HTTP_COMMAND_READY_MS);
+    child.stdout?.on('data', onData);
+    child.stderr?.on('data', onData);
+    child.on('exit', onExit);
+    if (text().includes(needle)) settle();
+  });
+}
+
+async function childResult(child: ChildProcess): Promise<number | null> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('http command did not exit'));
+    }, HTTP_COMMAND_READY_MS);
+    const finish = (code: number | null): void => {
+      clearTimeout(timer);
+      resolve(code);
+    };
+    child.once('exit', finish);
+    if (child.exitCode !== null) finish(child.exitCode);
+  });
+}
+
+async function withHttpCommand(
+  args: string[],
+  run: (child: ChildProcess, output: () => string) => Promise<void>,
+): Promise<void> {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'mailoo-http-'));
+  const configHome = path.join(root, 'config');
+  const stateHome = path.join(root, 'state');
+  const dataHome = path.join(root, 'data');
+  await mkdir(path.join(configHome, 'mailoo'), { recursive: true });
+  const configPath = path.join(configHome, 'mailoo', 'config.toml');
+  await writeFile(configPath, HTTP_ENTRY_CONFIG);
+  await chmod(configPath, 0o600);
+  const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
+  const child = spawn(process.execPath, ['--import', 'tsx', 'src/main.ts', 'http', ...args], {
+    cwd: repoRoot,
+    env: {
+      PATH: process.env.PATH,
+      HOME: root,
+      XDG_CONFIG_HOME: configHome,
+      XDG_STATE_HOME: stateHome,
+      XDG_DATA_HOME: dataHome,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let combined = '';
+  const append = (chunk: Buffer): void => {
+    combined += chunk.toString('utf8');
+  };
+  child.stdout?.on('data', append);
+  child.stderr?.on('data', append);
+  const exited = new Promise<void>((resolve) => {
+    child.once('exit', () => resolve());
+  });
+  try {
+    await run(child, () => combined);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGTERM');
+      const killTimer = setTimeout(() => {
+        if (child.exitCode === null) child.kill('SIGKILL');
+      }, 2_000);
+      await exited;
+      clearTimeout(killTimer);
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+describe('HTTP entrypoint', () => {
+  // Cold start loads the MCP host before the request can be sent.
+  it(
+    'rejects a disallowed Host when the http command is listening',
+    async () => {
+      const port = await freeLoopbackPort();
+      await withHttpCommand([String(port), '127.0.0.1'], async (child, output) => {
+        await waitForText(child, output, `mailoo HTTP server listening on 127.0.0.1:${port}`);
+        const foreign = await send(port, { host: `rebind.example:${port}` }, { path: '/health' });
+        expect(foreign.status).toBe(403);
+        expect(foreign.body).toContain('Invalid Host header');
+        expect(foreign.body).not.toContain('"ok":true');
+      });
+    },
+    HTTP_COMMAND_READY_MS + 12_000,
+  );
+
+  it(
+    'refuses to bind 0.0.0.0 without a bearer token when the http command starts',
+    async () => {
+      const port = await freeLoopbackPort();
+      await withHttpCommand([String(port), '0.0.0.0'], async (child, output) => {
+        const code = await childResult(child);
+        expect(code).not.toBe(0);
+        expect(output()).toMatch(/MCP_EMAIL_HTTP_TOKEN/);
+      });
+    },
+    HTTP_COMMAND_READY_MS + 12_000,
+  );
 });
