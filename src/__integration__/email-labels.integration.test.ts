@@ -73,5 +73,19 @@ describe('Email Label Operations', () => {
       const flagsAfterRemove = await services.imapService.getEmailFlags(TEST_ACCOUNT_NAME, emailId);
       expect(flagsAfterRemove.labels).not.toContain('MyTag');
     });
+
+    it('should not store a label that contains a quote', async () => {
+      const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
+        subject: 'Label test email',
+      });
+      const emailId = list.items[0].id;
+
+      await expect(
+        services.imapService.addLabel(TEST_ACCOUNT_NAME, emailId, 'INBOX', 'Bad"Tag'),
+      ).rejects.toThrow(/IMAP special/);
+
+      const flags = await services.imapService.getEmailFlags(TEST_ACCOUNT_NAME, emailId);
+      expect(flags.labels).not.toContain('Bad"Tag');
+    });
   });
 });

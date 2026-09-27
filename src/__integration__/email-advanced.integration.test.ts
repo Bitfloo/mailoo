@@ -72,6 +72,12 @@ describe('Advanced Email Operations', () => {
         expect(attachment.filename).toBe('image.png');
       }
     });
+
+    it('should reject a sequence-set id before downloading', async () => {
+      await expect(
+        services.imapService.downloadAttachment(TEST_ACCOUNT_NAME, '1:*', 'INBOX', 'readme.txt'),
+      ).rejects.toThrow(/positive integer UID/);
+    });
   });
 
   // ---------------------------------------------------------------------------

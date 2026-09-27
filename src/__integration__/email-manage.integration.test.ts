@@ -254,4 +254,42 @@ describe('Email Management Operations', () => {
       expect(result.succeeded).toBe(ids.length);
     });
   });
+
+  // A sequence-set is a legal IMAP UID argument and would select every message.
+  describe('single-message id checks', () => {
+    it('should leave both messages when deleteEmail is given a sequence set', async () => {
+      await seedEmail({ subject: 'Keep one sequence check' });
+      await seedEmail({ subject: 'Keep two sequence check' });
+      await waitForDelivery();
+
+      await expect(
+        services.imapService.deleteEmail(TEST_ACCOUNT_NAME, '1:*', 'INBOX', true),
+      ).rejects.toThrow(/positive integer UID/);
+
+      const first = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
+        subject: 'Keep one sequence check',
+      });
+      const second = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
+        subject: 'Keep two sequence check',
+      });
+      expect(first.items.length).toBeGreaterThanOrEqual(1);
+      expect(second.items.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should leave the message unread when the mailbox name contains a line break', async () => {
+      await seedEmail({ subject: 'Mailbox line break check' });
+      await waitForDelivery();
+      const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
+        subject: 'Mailbox line break check',
+      });
+      const emailId = list.items[0].id;
+
+      await expect(
+        services.imapService.setFlags(TEST_ACCOUNT_NAME, emailId, 'INBOX\r\nTrash', 'read'),
+      ).rejects.toThrow(/control characters/);
+
+      const flags = await services.imapService.getEmailFlags(TEST_ACCOUNT_NAME, emailId);
+      expect(flags.seen).toBe(false);
+    });
+  });
 });

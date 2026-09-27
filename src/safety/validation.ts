@@ -9,8 +9,20 @@ import { z } from 'zod';
 export const recipientEmail = z.string().regex(z.regexes.html5Email);
 
 /**
+ * Characters that change IMAP command structure when a mailbox name is one token:
+ * quoted-string (`"`, `\`), literal (`{`, `}`), and list (`(`, `)`).
+ * `*` and `%` are wildcards and are rejected separately. `]` stays allowed
+ * because Gmail paths such as `[Gmail]/All Mail` contain it.
+ */
+const MAILBOX_SPECIAL = /["\\{}()]/;
+
+/** IMAP UID is an nz-number: 1 through 2^32-1, with no leading zeros (RFC 9051). */
+const MAX_MESSAGE_UID = 4_294_967_295;
+
+/**
  * Validate and sanitize an IMAP mailbox name.
- * Rejects names containing IMAP wildcard characters (`*`, `%`) or empty strings.
+ * Rejects empty names, control characters, IMAP wildcards (`*`, `%`),
+ * and characters that change quoted-string, literal, or list syntax.
  * @param name - The mailbox name to validate.
  * @returns The trimmed mailbox name.
  */
@@ -22,7 +34,34 @@ export function sanitizeMailboxName(name: string): string {
   if (trimmed.includes('*') || trimmed.includes('%')) {
     throw new Error('Mailbox name must not contain IMAP wildcard characters (* or %)');
   }
+  /* eslint-disable no-control-regex */
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional — reject control chars in mailbox names
+  if (/[\x00-\x1F\x7F]/.test(trimmed)) {
+    throw new Error('Mailbox name must not contain control characters');
+  }
+  /* eslint-enable no-control-regex */
+  if (MAILBOX_SPECIAL.test(trimmed)) {
+    throw new Error('Mailbox name must not contain IMAP special characters');
+  }
   return trimmed;
+}
+
+/**
+ * One IMAP UID (RFC 9051 nz-number, 1 through 2^32-1).
+ * A sequence-set (`1:*`, `1,2`) or a non-integer prefix addresses a different
+ * message than the single id the caller passed.
+ * @param emailId - Caller-supplied message id.
+ * @returns The same string when it is a single UID.
+ */
+export function parseMessageUid(emailId: string): string {
+  if (!/^[1-9][0-9]{0,9}$/.test(emailId)) {
+    throw new Error('Email ID must be a positive integer UID');
+  }
+  const uid = Number(emailId);
+  if (!Number.isSafeInteger(uid) || uid > MAX_MESSAGE_UID) {
+    throw new Error('Email ID must be a positive integer UID');
+  }
+  return emailId;
 }
 
 /**
@@ -94,8 +133,15 @@ export function sanitizeTemplateVariable(value: string, html: boolean): string {
 }
 
 /**
+ * Metacharacters that are not a single IMAP flag atom or one mailbox segment.
+ * Space and `/` stay allowed: Gmail labels use spaces, nested labels use `/`.
+ */
+const LABEL_SPECIAL = /[\]"\\{}()*%]/;
+
+/**
  * Validate an email label name.
- * Rejects labels with control characters or that exceed 200 characters.
+ * Rejects control characters, flag and mailbox metacharacters, relative path
+ * segments, and names longer than 200 characters.
  * @param name - The label name to validate.
  * @returns The trimmed label name.
  */
@@ -109,10 +155,17 @@ export function validateLabelName(name: string): string {
   }
   /* eslint-disable no-control-regex */
   // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional — reject control chars in label names
-  if (/[\x00-\x1F]/.test(trimmed)) {
+  if (/[\x00-\x1F\x7F]/.test(trimmed)) {
     throw new Error('Label name must not contain control characters');
   }
   /* eslint-enable no-control-regex */
+  if (LABEL_SPECIAL.test(trimmed)) {
+    throw new Error('Label name must not contain IMAP special characters');
+  }
+  const segments = trimmed.split('/');
+  if (segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')) {
+    throw new Error('Label name must not contain empty or relative path segments');
+  }
   return trimmed;
 }
 

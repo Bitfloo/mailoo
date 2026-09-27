@@ -1,4 +1,5 @@
 import {
+  parseMessageUid,
   recipientEmail,
   sanitizeMailboxName,
   sanitizeSearchQuery,
@@ -31,6 +32,56 @@ describe('sanitizeMailboxName', () => {
 
   it('allows names with dots and slashes', () => {
     expect(sanitizeMailboxName('INBOX/Subfolder.Label')).toBe('INBOX/Subfolder.Label');
+  });
+
+  it('allows a Gmail special-use path', () => {
+    expect(sanitizeMailboxName('[Gmail]/All Mail')).toBe('[Gmail]/All Mail');
+  });
+
+  it.each([
+    'INBOX\r\nSent',
+    'IN\x00BOX',
+    'INBOX\x7F',
+  ])('throws when the name contains a control character (%j)', (name) => {
+    expect(() => sanitizeMailboxName(name)).toThrow('control characters');
+  });
+
+  it.each([
+    'INBOX"',
+    'INBOX\\Sent',
+    'INBOX{5}',
+    'INBOX(old)',
+  ])('throws when the name contains an IMAP special character (%j)', (name) => {
+    expect(() => sanitizeMailboxName(name)).toThrow('IMAP special');
+  });
+});
+
+describe('parseMessageUid', () => {
+  it.each(['1', '42', '4294967295'])('returns a canonical positive UID (%s)', (emailId) => {
+    expect(parseMessageUid(emailId)).toBe(emailId);
+  });
+
+  it.each([
+    '0',
+    '-1',
+    '01',
+    '1.5',
+    '1e2',
+    ' 4',
+    '4 ',
+    '12abc',
+    '1:*',
+    '1:5',
+    '1,2',
+    '*',
+    '$',
+    '',
+  ])('throws when the id is %j', (emailId) => {
+    expect(() => parseMessageUid(emailId)).toThrow('positive integer UID');
+  });
+
+  it('throws when the id is above the 32-bit UID maximum', () => {
+    expect(() => parseMessageUid('4294967296')).toThrow('positive integer UID');
   });
 });
 
@@ -156,6 +207,29 @@ describe('validateLabelName', () => {
 
   it('trims whitespace and returns valid name', () => {
     expect(validateLabelName('  Important  ')).toBe('Important');
+  });
+
+  it('allows a nested label', () => {
+    expect(validateLabelName('Work/Urgent')).toBe('Work/Urgent');
+  });
+
+  it.each([
+    'Bad"Tag',
+    'Bad\\Tag',
+    '\\Seen',
+    'Bad*Tag',
+    'Tag)',
+  ])('throws when the name contains an IMAP special character (%j)', (name) => {
+    expect(() => validateLabelName(name)).toThrow('IMAP special');
+  });
+
+  it.each([
+    '../Secret',
+    'Work//Urgent',
+    'Work/',
+    '.',
+  ])('throws when a path segment is empty or relative (%j)', (name) => {
+    expect(() => validateLabelName(name)).toThrow('relative path');
   });
 });
 

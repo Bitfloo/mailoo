@@ -557,4 +557,90 @@ describe('ImapService', () => {
       }
     });
   });
+
+  // A single-message id is one UID. These strings are sequence-sets or non-integers;
+  // forwarding them selects more than the one message the caller named.
+  describe('single-message inputs', () => {
+    type Call = (svc: ImapService) => Promise<unknown>;
+
+    it.each<[string, Call]>([
+      ['getEmail', async (svc) => svc.getEmail('test', '1:*', 'INBOX')],
+      ['getEmailFlags', async (svc) => svc.getEmailFlags('test', '1,2', 'INBOX')],
+      ['moveEmail', async (svc) => svc.moveEmail('test', '1:5', 'INBOX', 'Archive')],
+      ['deleteEmail', async (svc) => svc.deleteEmail('test', '*', 'INBOX', true)],
+      ['setFlags', async (svc) => svc.setFlags('test', '0', 'INBOX', 'read')],
+      ['addLabel', async (svc) => svc.addLabel('test', '-3', 'INBOX', 'Tag')],
+      ['removeLabel', async (svc) => svc.removeLabel('test', '1.5', 'INBOX', 'Tag')],
+      ['findEmailFolder', async (svc) => svc.findEmailFolder('test', '12abc', 'INBOX')],
+      ['downloadAttachment', async (svc) => svc.downloadAttachment('test', '01', 'INBOX', 'a.txt')],
+      ['getEmailSecurity', async (svc) => svc.getEmailSecurity('test', '1e2', 'INBOX')],
+      ['peekText', async (svc) => svc.peekText('test', ' 4', 'INBOX')],
+      ['peekAttachments', async (svc) => svc.peekAttachments('test', '$', 'INBOX')],
+      [
+        'saveEmailAttachments',
+        async (svc) => svc.saveEmailAttachments('test', '1:*', 'INBOX', '/tmp/x'),
+      ],
+      ['getCalendarParts', async (svc) => svc.getCalendarParts('test', 'INBOX', '2,3')],
+      ['fetchDraft', async (svc) => svc.fetchDraft('test', 0)],
+      ['fetchDraft fraction', async (svc) => svc.fetchDraft('test', 1.5)],
+      ['deleteDraft', async (svc) => svc.deleteDraft('test', -1, 'Drafts')],
+    ])('should reject a non-integer UID from %s before contacting IMAP', async (_name, call) => {
+      await expect(call(service)).rejects.toThrow(/positive integer UID/);
+      expect(connections.getImapClient).not.toHaveBeenCalled();
+    });
+
+    it.each<[string, Call]>([
+      ['getEmail', async (svc) => svc.getEmail('test', '8', 'INBOX\r\nSent')],
+      ['getEmailFlags', async (svc) => svc.getEmailFlags('test', '8', 'IN\x00BOX')],
+      ['moveEmail', async (svc) => svc.moveEmail('test', '8', 'INBOX\nSent', 'Archive')],
+      ['deleteEmail', async (svc) => svc.deleteEmail('test', '8', 'INBOX\rTrash', true)],
+      ['setFlags', async (svc) => svc.setFlags('test', '8', 'INBOX\x7F', 'read')],
+      ['addLabel', async (svc) => svc.addLabel('test', '8', 'Box\r\nNext', 'Tag')],
+      ['removeLabel', async (svc) => svc.removeLabel('test', '8', 'Box\nNext', 'Tag')],
+      ['findEmailFolder', async (svc) => svc.findEmailFolder('test', '8', 'INBOX\r\nSent')],
+      [
+        'downloadAttachment',
+        async (svc) => svc.downloadAttachment('test', '8', 'INBOX\nSent', 'a.txt'),
+      ],
+      ['getEmailSecurity', async (svc) => svc.getEmailSecurity('test', '8', 'INBOX\r\nSent')],
+      ['peekText', async (svc) => svc.peekText('test', '8', 'INBOX\nSent')],
+      ['peekAttachments', async (svc) => svc.peekAttachments('test', '8', 'INBOX\r\nSent')],
+      [
+        'saveEmailAttachments',
+        async (svc) => svc.saveEmailAttachments('test', '8', 'INBOX\nSent', '/tmp/x'),
+      ],
+      ['getCalendarParts', async (svc) => svc.getCalendarParts('test', 'INBOX\r\nSent', '8')],
+      ['deleteDraft', async (svc) => svc.deleteDraft('test', 8, 'Drafts\nOther')],
+      ['fetchDraft', async (svc) => svc.fetchDraft('test', 8, 'Drafts\r\nOther')],
+    ])('should reject a mailbox name with a control character from %s before contacting IMAP', async (_name, call) => {
+      await expect(call(service)).rejects.toThrow(/control characters/);
+      expect(connections.getImapClient).not.toHaveBeenCalled();
+    });
+
+    it('should reject a destination mailbox that contains a quote', async () => {
+      await expect(service.moveEmail('test', '4', 'INBOX', 'Archive"')).rejects.toThrow(
+        /IMAP special/,
+      );
+      expect(connections.getImapClient).not.toHaveBeenCalled();
+    });
+
+    it.each<[string, Call]>([
+      ['addLabel', async (svc) => svc.addLabel('test', '8', 'INBOX', 'Bad"Tag')],
+      ['removeLabel', async (svc) => svc.removeLabel('test', '8', 'INBOX', 'Bad\\Tag')],
+      ['createLabel', async (svc) => svc.createLabel('test', 'Bad*Tag')],
+      ['deleteLabel', async (svc) => svc.deleteLabel('test', '../Secret')],
+      ['addLabel paren', async (svc) => svc.addLabel('test', '8', 'INBOX', 'Tag)')],
+      ['addLabel system flag', async (svc) => svc.addLabel('test', '8', 'INBOX', '\\Seen')],
+    ])('should reject an unsafe label from %s before contacting IMAP', async (_name, call) => {
+      await expect(call(service)).rejects.toThrow(/IMAP special|relative path/);
+      expect(connections.getImapClient).not.toHaveBeenCalled();
+    });
+
+    it('should reject an unknown flag action before contacting IMAP', async () => {
+      await expect(service.setFlags('test', '4', 'INBOX', 'explode' as 'read')).rejects.toThrow(
+        /flag action/,
+      );
+      expect(connections.getImapClient).not.toHaveBeenCalled();
+    });
+  });
 });
