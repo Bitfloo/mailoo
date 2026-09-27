@@ -354,3 +354,20 @@ package-lock.json
 # .claude/rules/testing-doctrine.md, tests/agents/
 .cbc/
 docs/plans/
+
+# Local agent state — machine-local, may name internal paths or carry tokens.
+# Rules are re-included by name: CBC drops its own rule files into .claude/rules/.
+.claude/*
+!.claude/agents/
+!.claude/rules/
+.claude/rules/*
+!.claude/rules/public-git.md
+!.claude/rules/testing-doctrine.md
+.cursor/*
+!.cursor/agents/
+!.cursor/environment.json
+CLAUDE.local.md
+.mcp.json
+.cbc-bridge.md
+.cbc-init.yaml
+.cbc-push-gate/
