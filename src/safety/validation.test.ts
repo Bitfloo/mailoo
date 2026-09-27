@@ -46,15 +46,6 @@ describe('sanitizeMailboxName', () => {
   ])('throws when the name contains a control character (%j)', (name) => {
     expect(() => sanitizeMailboxName(name)).toThrow('control characters');
   });
-
-  it.each([
-    'INBOX"',
-    'INBOX\\Sent',
-    'INBOX{5}',
-    'INBOX(old)',
-  ])('throws when the name contains an IMAP special character (%j)', (name) => {
-    expect(() => sanitizeMailboxName(name)).toThrow('IMAP special');
-  });
 });
 
 describe('parseMessageUid', () => {

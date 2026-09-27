@@ -11,21 +11,12 @@ import { z } from 'zod';
  */
 export const recipientEmail = z.string().regex(z.regexes.html5Email);
 
-/**
- * Characters that change IMAP command structure when a mailbox name is one token:
- * quoted-string (`"`, `\`), literal (`{`, `}`), and list (`(`, `)`).
- * `*` and `%` are wildcards and are rejected separately. `]` stays allowed
- * because Gmail paths such as `[Gmail]/All Mail` contain it.
- */
-const MAILBOX_SPECIAL = /["\\{}()]/;
-
 /** IMAP UID is an nz-number: 1 through 2^32-1, with no leading zeros (RFC 9051). */
 const MAX_MESSAGE_UID = 4_294_967_295;
 
 /**
  * Validate and sanitize an IMAP mailbox name.
- * Rejects empty names, control characters, IMAP wildcards (`*`, `%`),
- * and characters that change quoted-string, literal, or list syntax.
+ * Rejects empty names, control characters, and IMAP wildcards (`*`, `%`).
  * @param name - The mailbox name to validate.
  * @returns The trimmed mailbox name.
  */
@@ -38,14 +29,13 @@ export function sanitizeMailboxName(name: string): string {
     throw new Error('Mailbox name must not contain IMAP wildcard characters (* or %)');
   }
   /* eslint-disable no-control-regex */
+  // imapflow quotes non-atom mailbox names and refuses CR/LF/NUL; only control
+  // characters are rejected here, for a clearer error.
   // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional — reject control chars in mailbox names
   if (/[\x00-\x1F\x7F]/.test(trimmed)) {
     throw new Error('Mailbox name must not contain control characters');
   }
   /* eslint-enable no-control-regex */
-  if (MAILBOX_SPECIAL.test(trimmed)) {
-    throw new Error('Mailbox name must not contain IMAP special characters');
-  }
   return trimmed;
 }
 

@@ -619,13 +619,6 @@ describe('ImapService', () => {
       expect(connections.getImapClient).not.toHaveBeenCalled();
     });
 
-    it('should reject a destination mailbox that contains a quote', async () => {
-      await expect(service.moveEmail('test', '4', 'INBOX', 'Archive"')).rejects.toThrow(
-        /IMAP special/,
-      );
-      expect(connections.getImapClient).not.toHaveBeenCalled();
-    });
-
     it.each<[string, Call]>([
       ['addLabel', async (svc) => svc.addLabel('test', '8', 'INBOX', 'Bad"Tag')],
       ['removeLabel', async (svc) => svc.removeLabel('test', '8', 'INBOX', 'Bad\\Tag')],
