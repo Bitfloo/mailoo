@@ -65,6 +65,11 @@ describe('buildCalendarNotes', () => {
     expect(result).not.toContain('<b>');
   });
 
+  it('keeps HTML entities in a plain-text excerpt with no markup', () => {
+    const result = buildCalendarNotes({ bodyExcerpt: 'Tom &amp; Jerry' });
+    expect(result).toContain('Tom &amp; Jerry');
+  });
+
   it('formats attachment sizes correctly', () => {
     const result = buildCalendarNotes({
       savedAttachments: [

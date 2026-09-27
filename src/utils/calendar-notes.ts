@@ -69,7 +69,10 @@ export function buildCalendarNotes(input: CalendarNotesInput): string {
 
   // Body excerpt
   if (input.bodyExcerpt) {
-    const cleaned = stripHtml(input.bodyExcerpt);
+    // No tag means plain text: keep entities such as "&amp;" instead of decoding them.
+    const cleaned = input.bodyExcerpt.includes('<')
+      ? stripHtml(input.bodyExcerpt)
+      : input.bodyExcerpt;
     const excerpt = cleaned.slice(0, 500).trim();
     if (excerpt) sections.push(`📝 Details:\n${excerpt}${cleaned.length > 500 ? '…' : ''}`);
   }
