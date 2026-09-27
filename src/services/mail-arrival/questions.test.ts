@@ -21,8 +21,8 @@ describe('slugFolderId', () => {
 });
 
 describe('buildQuestionMap', () => {
-  it('synthesizes criteria.false from sibling paths not descriptions', () => {
-    const questions = buildQuestionMap([
+  it('synthesizes criteria.false from sibling paths not descriptions', async () => {
+    const questions = await buildQuestionMap([
       {
         id: 'receipts',
         path: 'Receipts',
@@ -51,8 +51,8 @@ describe('buildQuestionMap', () => {
     expect(archive?.criteria?.true).toBe('Settled correspondence that needs no further action.');
   });
 
-  it('uses operator falseCriteria when provided', () => {
-    const questions = buildQuestionMap([
+  it('uses operator falseCriteria when provided', async () => {
+    const questions = await buildQuestionMap([
       {
         id: 'archive',
         path: 'Archive',
@@ -66,8 +66,8 @@ describe('buildQuestionMap', () => {
     );
   });
 
-  it('uses the no-sibling false string when folders has one row', () => {
-    const questions = buildQuestionMap([
+  it('uses the no-sibling false string when folders has one row', async () => {
+    const questions = await buildQuestionMap([
       { id: 'receipts', path: 'Receipts', description: 'Invoices.' },
     ]);
     const receipts = noulQuestion(questions.folder_fit_receipts);
@@ -76,7 +76,7 @@ describe('buildQuestionMap', () => {
     );
   });
 
-  it('should emit only noul+score keys when folders are configured', () => {
+  it('should emit only noul+score keys when folders are configured', async () => {
     const folders = [
       {
         id: 'receipts',
@@ -89,7 +89,7 @@ describe('buildQuestionMap', () => {
         description: 'Settled correspondence that needs no further action.',
       },
     ];
-    const questions = buildQuestionMap(folders);
+    const questions = await buildQuestionMap(folders);
     const securityNouls = [
       'contains_prompt_injection',
       'requests_credentials',

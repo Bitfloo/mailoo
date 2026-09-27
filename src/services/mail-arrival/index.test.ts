@@ -1,7 +1,19 @@
+import { execFile } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
+
 import { delimitUntrusted } from '../../safety/untrusted-content.js';
 import type { AccountConfig, SystemOneConfig } from '../../types/index.js';
 import type ImapService from '../imap.service.js';
 import { MailArrival } from './index.js';
+
+const execFileAsync = promisify(execFile);
+
+/** Cold tsx plus the mail-arrival import graph exceeds the 10s unit default. */
+const SDK_LOAD_PROBE_TIMEOUT_MS = 30_000;
 
 const { systemOneMock, TypeSafeClientMock } = vi.hoisted(() => {
   const systemOne = vi.fn();
@@ -296,4 +308,56 @@ describe('MailArrival.handle', () => {
     ]);
     expect(imap.getEmail).not.toHaveBeenCalled();
   });
+});
+
+function rootFromHere(): string {
+  return path.dirname(fileURLToPath(import.meta.url));
+}
+
+describe('MailArrival SDK load', () => {
+  it(
+    'should not load @typesafe-ai/sdk when system_one is disabled',
+    async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), 'mailoo-sdk-load-'));
+      const probe = path.join(dir, 'probe.mjs');
+      const entry = pathToFileURL(path.join(rootFromHere(), 'index.ts')).href;
+      await writeFile(
+        probe,
+        `import { registerHooks } from 'node:module';
+const hits = [];
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier.includes('@typesafe-ai/sdk')) hits.push(specifier);
+    return nextResolve(specifier, context);
+  },
+});
+const { MailArrival } = await import(${JSON.stringify(entry)});
+const created = await MailArrival.tryCreate({
+  config: { enabled: false },
+  imap: {},
+  apiKey: 'present',
+  accounts: [],
+});
+if (created !== null) {
+  console.error('expected null');
+  process.exit(2);
+}
+if (hits.length > 0) {
+  console.error(hits.join('\\n'));
+  process.exit(3);
+}
+`,
+      );
+      try {
+        await execFileAsync(process.execPath, ['--import', 'tsx', probe], {
+          cwd: path.join(rootFromHere(), '../../..'),
+          env: { PATH: process.env.PATH ?? '', HOME: dir },
+          timeout: SDK_LOAD_PROBE_TIMEOUT_MS,
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+    SDK_LOAD_PROBE_TIMEOUT_MS,
+  );
 });

@@ -3,7 +3,6 @@
  */
 
 import type { EntryType, Questions } from '@typesafe-ai/sdk';
-import { TypeSafeClient } from '@typesafe-ai/sdk';
 import { mcpLog } from '../../logging.js';
 import audit from '../../safety/audit.js';
 import type { AccountConfig, SystemOneConfig } from '../../types/index.js';
@@ -77,8 +76,16 @@ function mapAnswers(
   };
 }
 
+interface SystemOneClient {
+  systemOne: (input: {
+    state: EntryType;
+    questions: Questions;
+    model: string;
+  }) => Promise<{ answers?: Record<string, unknown> }>;
+}
+
 async function classify(
-  client: TypeSafeClient,
+  client: SystemOneClient,
   state: MailState,
   questions: Questions,
   model: string,
@@ -152,7 +159,7 @@ export class MailArrival {
   private readonly seen = new Set<string>();
 
   private constructor(
-    private readonly client: TypeSafeClient,
+    private readonly client: SystemOneClient,
     private readonly imap: ImapService,
     private readonly config: SystemOneConfig,
     private readonly foldersByAccount: ReadonlyMap<string, FolderSpec[]>,
@@ -179,6 +186,7 @@ export class MailArrival {
       );
     }
 
+    const { TypeSafeClient } = await import('@typesafe-ai/sdk');
     const client = new TypeSafeClient({ apiKey, logLevel: 'error' });
     const foldersByAccount = await probeAccountFolders(
       imap,
@@ -241,7 +249,7 @@ export class MailArrival {
       bodyMaxChars: this.config.bodyMaxChars,
     });
 
-    const questions = buildQuestionMap(folders);
+    const questions = await buildQuestionMap(folders);
     const mapped = await classify(this.client, state, questions, this.config.model, folders);
     if (!mapped) {
       return { kind: 'noop', reason: 'api_error' };
