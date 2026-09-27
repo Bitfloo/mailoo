@@ -122,6 +122,37 @@ describe('Email Management Operations', () => {
       // Cleanup
       await services.imapService.deleteMailbox(TEST_ACCOUNT_NAME, 'TestArchive');
     });
+
+    it('should move a message into a mailbox named with parentheses and read it back', async () => {
+      const mailbox = 'Archive (2024)';
+      await services.imapService.createMailbox(TEST_ACCOUNT_NAME, mailbox);
+      try {
+        await seedEmail({ subject: 'Paren mailbox email' });
+        await waitForDelivery();
+
+        const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
+          subject: 'Paren mailbox email',
+        });
+        const emailId = list.items[0].id;
+
+        await services.imapService.moveEmail(TEST_ACCOUNT_NAME, emailId, 'INBOX', mailbox);
+
+        const destList = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
+          mailbox,
+          subject: 'Paren mailbox email',
+        });
+        expect(destList.items.length).toBeGreaterThanOrEqual(1);
+
+        const moved = await services.imapService.getEmail(
+          TEST_ACCOUNT_NAME,
+          destList.items[0].id,
+          mailbox,
+        );
+        expect(moved.subject).toBe('Paren mailbox email');
+      } finally {
+        await services.imapService.deleteMailbox(TEST_ACCOUNT_NAME, mailbox);
+      }
+    });
   });
 
   // ---------------------------------------------------------------------------

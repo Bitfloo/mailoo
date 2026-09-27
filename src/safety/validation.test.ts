@@ -39,6 +39,14 @@ describe('sanitizeMailboxName', () => {
     expect(sanitizeMailboxName('[Gmail]/All Mail')).toBe('[Gmail]/All Mail');
   });
 
+  it('accepts a name that contains parentheses', () => {
+    expect(sanitizeMailboxName('Archive (2024)')).toBe('Archive (2024)');
+  });
+
+  it('accepts a name that contains a quote', () => {
+    expect(sanitizeMailboxName('a"b')).toBe('a"b');
+  });
+
   it.each([
     'INBOX\r\nSent',
     'IN\x00BOX',
@@ -288,6 +296,14 @@ describe('validateLabelName', () => {
 
   it('allows a nested label', () => {
     expect(validateLabelName('Work/Urgent')).toBe('Work/Urgent');
+  });
+
+  it('accepts a Gmail system label', () => {
+    expect(validateLabelName('\\Starred')).toBe('\\Starred');
+  });
+
+  it('accepts a label that contains parentheses', () => {
+    expect(validateLabelName('Receipts (2024)')).toBe('Receipts (2024)');
   });
 
   it.each([
