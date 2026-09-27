@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { SCHEDULED_DIR, SCHEDULED_SENT_DIR } from '../config/xdg.js';
+import { SCHEDULED_DIR } from '../config/xdg.js';
 import { recipientEmail, validateInputLength } from '../safety/validation.js';
 import type { ScheduledEmail } from '../types/index.js';
 import type ImapService from './imap.service.js';
@@ -145,7 +145,7 @@ export default class SchedulerService {
     queueDir: string = SCHEDULED_DIR,
   ) {
     this.pendingDir = queueDir;
-    this.sentDir = queueDir === SCHEDULED_DIR ? SCHEDULED_SENT_DIR : path.join(queueDir, 'sent');
+    this.sentDir = path.join(queueDir, 'sent');
   }
 
   // -------------------------------------------------------------------------
