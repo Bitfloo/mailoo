@@ -18,7 +18,6 @@ import {
   sanitizeAttachmentFilename,
   specificRoot,
 } from '../safety/local-paths.js';
-import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
 
 /** Max size when streaming to disk (base64 responses stay at 5MB). */
@@ -241,6 +240,8 @@ export default function registerAttachmentTools(
           maxSize,
         );
 
+        // Filename and base64 stay raw. The fence is letters and "_", which
+        // base64 decoding accepts, and send/download need the exact name.
         if (savePath) {
           const savedTo = await writeAttachmentFile(
             savePath,
@@ -253,7 +254,7 @@ export default function registerAttachmentTools(
                 type: 'text' as const,
                 text: JSON.stringify(
                   {
-                    filename: delimitUntrusted(result.filename),
+                    filename: result.filename,
                     mimeType: result.mimeType,
                     size: result.size,
                     sizeHuman: `${Math.round(result.size / 1024)}KB`,
@@ -273,7 +274,7 @@ export default function registerAttachmentTools(
               type: 'text' as const,
               text: JSON.stringify(
                 {
-                  filename: delimitUntrusted(result.filename),
+                  filename: result.filename,
                   mimeType: result.mimeType,
                   size: result.size,
                   sizeHuman: `${Math.round(result.size / 1024)}KB`,
@@ -284,7 +285,7 @@ export default function registerAttachmentTools(
             },
             {
               type: 'text' as const,
-              text: `\n--- Base64 Content ---\n${delimitUntrusted(result.contentBase64)}`,
+              text: `\n--- Base64 Content ---\n${result.contentBase64}`,
             },
           ],
         };
