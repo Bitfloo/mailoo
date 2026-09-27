@@ -125,6 +125,16 @@ describe('applyBodyFormat', () => {
     );
   });
 
+  it('for text format, keeps paragraph text when HTML starts with a data-URI image larger than a megabyte', () => {
+    const html = `<img src="data:image/png;base64,${'A'.repeat(1_100_000)}"><p>Meet at noon.</p>`;
+    expect(applyBodyFormat(undefined, html, 'text')).toBe('Meet at noon.');
+  });
+
+  it('for full format, keeps the paragraph when HTML starts with a data-URI image larger than a megabyte', () => {
+    const html = `<img src="data:image/png;base64,${'A'.repeat(1_100_000)}"><p>Meet at noon.</p>`;
+    expect(applyBodyFormat(undefined, html, 'full')).toBe('<p>Meet at noon.</p>');
+  });
+
   it('truncates the body and reports remaining characters when maxLength is exceeded', () => {
     const bodyText =
       'Offer expires 2026-04-01. Terms apply. More details in the full campaign follow-up including eligibility, refund windows, and the activation steps for each recipient.';
