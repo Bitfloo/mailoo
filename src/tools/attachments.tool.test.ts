@@ -9,12 +9,36 @@ import registerAttachmentTools, {
   writeAttachmentFile,
 } from './attachments.tool.js';
 
-async function withCwdTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
-  const dir = await fs.mkdtemp(path.join(process.cwd(), '.tmp-mailoo-att-'));
+async function withPinnedRoots<T>(cwd: string, home: string, fn: () => Promise<T>): Promise<T> {
+  const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(cwd);
+  const homeSpy = vi.spyOn(os, 'homedir').mockReturnValue(home);
   try {
-    return await fn(dir);
+    return await fn();
+  } finally {
+    cwdSpy.mockRestore();
+    homeSpy.mockRestore();
+  }
+}
+
+async function withCwdTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-att-'));
+  try {
+    return await withPinnedRoots(dir, dir, async () => fn(dir));
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function withTempCwdAndHome<T>(
+  fn: (dirs: { cwd: string; home: string }) => Promise<T>,
+): Promise<T> {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-cwd-'));
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-home-'));
+  try {
+    return await withPinnedRoots(cwd, home, async () => fn({ cwd, home }));
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true });
+    await fs.rm(home, { recursive: true, force: true });
   }
 }
 
@@ -46,12 +70,103 @@ describe('writeAttachmentFile', () => {
     );
   });
 
-  it('allows a working-directory file whose name starts with two dots', async () => {
+  it('should refuse a savePath whose file name starts with a dot', async () => {
+    await withTempCwdAndHome(async ({ cwd }) => {
+      await expect(
+        writeAttachmentFile('.secret.txt', 'notes.txt', Buffer.from('pwned')),
+      ).rejects.toThrow(/not allowed/);
+      await expect(fs.access(path.join(cwd, '.secret.txt'))).rejects.toThrow();
+    });
+  });
+
+  it('should refuse a hidden directory segment in savePath', async () => {
+    await withTempCwdAndHome(async ({ cwd }) => {
+      await expect(
+        writeAttachmentFile(path.join('.x', 'file'), 'file', Buffer.from('pwned')),
+      ).rejects.toThrow(/not allowed/);
+      await expect(fs.access(path.join(cwd, '.x'))).rejects.toThrow();
+    });
+  });
+
+  it('should refuse savePath under Library/LaunchAgents in the home directory', async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-home-'));
+    try {
+      await withPinnedRoots(home, home, async () => {
+        await expect(
+          writeAttachmentFile(
+            path.join('Library', 'LaunchAgents', 'x.plist'),
+            'x.plist',
+            Buffer.from('pwned'),
+          ),
+        ).rejects.toThrow(/not allowed/);
+      });
+      await expect(fs.access(path.join(home, 'Library'))).rejects.toThrow();
+    } finally {
+      await fs.rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('should refuse a savePath whose resolved path is under Library/LaunchAgents', async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-home-'));
+    const agents = path.join(home, 'Library', 'LaunchAgents');
+    await fs.mkdir(agents, { recursive: true });
+    await fs.symlink(agents, path.join(home, 'Documents'));
+    try {
+      await withPinnedRoots(home, home, async () => {
+        await expect(
+          writeAttachmentFile(path.join('Documents', 'x.plist'), 'x.plist', Buffer.from('pwned')),
+        ).rejects.toThrow(/not allowed/);
+      });
+      expect(await fs.readdir(agents)).toEqual([]);
+    } finally {
+      await fs.rm(home, { recursive: true, force: true });
+    }
+  });
+
+  // "/" is the POSIX filesystem root. A Windows drive root is a different path shape.
+  it.skipIf(process.platform === 'win32')(
+    'should refuse savePath when the working directory is /',
+    async () => {
+      const target = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-root-target-'));
+      // macOS /tmp and /var are symlinks, which the segment walk already refuses.
+      // The resolved directory is a real path under /, so confinement to / would create it.
+      const realTarget = await fs.realpath(target);
+      const home = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-home-'));
+      const dest = path.join(realTarget, 'nested', 'probe.txt');
+      try {
+        await withPinnedRoots('/', home, async () => {
+          await expect(
+            writeAttachmentFile(dest, 'probe.txt', Buffer.from('pwned')),
+          ).rejects.toThrow(/not allowed/);
+        });
+        await expect(fs.access(dest)).rejects.toThrow();
+        await expect(fs.access(path.dirname(dest))).rejects.toThrow();
+      } finally {
+        await fs.rm(target, { recursive: true, force: true });
+        await fs.rm(home, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('should write a file in a subdirectory of a specific working directory', async () => {
+    await withTempCwdAndHome(async ({ cwd }) => {
+      const saved = await writeAttachmentFile(
+        path.join('nested', 'a.txt'),
+        'a.txt',
+        Buffer.from('ok'),
+      );
+      expect(saved).toBe(path.join(cwd, 'nested', 'a.txt'));
+      expect(await fs.readFile(saved, 'utf8')).toBe('ok');
+    });
+  });
+
+  it('should refuse a savePath whose file name starts with two dots', async () => {
     await withCwdTempDir(async (dir) => {
       const dest = path.join(dir, '..notes.txt');
-      const saved = await writeAttachmentFile(dest, '..notes.txt', Buffer.from('dots'));
-      expect(saved).toBe(dest);
-      expect(await fs.readFile(dest, 'utf8')).toBe('dots');
+      await expect(writeAttachmentFile(dest, '..notes.txt', Buffer.from('dots'))).rejects.toThrow(
+        /not allowed/,
+      );
+      await expect(fs.access(dest)).rejects.toThrow();
     });
   });
 

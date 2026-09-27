@@ -4,15 +4,19 @@
 
 import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 import {
+  broadRootPaths,
+  isDisallowedLocalPath,
   isInsideRoot,
   realpathPreservingCase,
   sanitizeAttachmentFilename,
+  specificRoot,
 } from '../safety/local-paths.js';
 import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
@@ -21,6 +25,7 @@ import type ImapService from '../services/imap.service.js';
 export const SAVE_PATH_MAX_BYTES = 50 * 1024 * 1024;
 
 const OUTSIDE_ROOT = 'savePath must stay under the working directory';
+const SAVE_NOT_ALLOWED = 'savePath is not allowed';
 
 export function downloadRoot(): string {
   return path.resolve(process.cwd());
@@ -65,6 +70,47 @@ async function ensurePathSegment(parent: string, part: string, rootReal: string)
   return current;
 }
 
+async function resolveExistingPrefix(filePath: string): Promise<string> {
+  const missing: string[] = [];
+  let current = path.resolve(filePath);
+  const filesystemRoot = path.parse(current).root;
+  while (current !== filesystemRoot) {
+    try {
+      // eslint-disable-next-line no-await-in-loop -- the new file is not on disk, so the parent is the next candidate
+      const real = await realpathPreservingCase(current);
+      return path.join(real, ...missing);
+    } catch (err) {
+      if (!isEnoent(err)) throw err;
+      missing.unshift(path.basename(current));
+      current = path.dirname(current);
+    }
+  }
+  return path.join(current, ...missing);
+}
+
+async function assertSaveDestinationAllowed(
+  dest: string,
+  rootReal: string,
+  homeDir: string,
+): Promise<void> {
+  let homeReal = homeDir;
+  try {
+    homeReal = await realpathPreservingCase(homeDir);
+  } catch {
+    // A missing home has no application-data tree to compare.
+  }
+  if (isDisallowedLocalPath(dest, homeDir) || isDisallowedLocalPath(dest, homeReal)) {
+    throw new Error(SAVE_NOT_ALLOWED);
+  }
+  const realDest = await resolveExistingPrefix(dest);
+  if (!isInsideRoot(realDest, rootReal)) {
+    throw new Error(OUTSIDE_ROOT);
+  }
+  if (isDisallowedLocalPath(realDest, homeDir) || isDisallowedLocalPath(realDest, homeReal)) {
+    throw new Error(SAVE_NOT_ALLOWED);
+  }
+}
+
 async function mkdirInside(dir: string, rootLogical: string, rootReal: string): Promise<void> {
   assertPathInsideRoot(dir, rootLogical);
   const relative = path.relative(rootLogical, dir);
@@ -89,6 +135,12 @@ export async function writeAttachmentFile(
   }
 
   const rootLogical = downloadRoot();
+  const homeDir = path.resolve(os.homedir());
+  const broad = await broadRootPaths();
+  // A root of / or a direct child such as /tmp would let savePath create files anywhere under it.
+  if ((await specificRoot(rootLogical, broad)) === undefined) {
+    throw new Error(SAVE_NOT_ALLOWED);
+  }
   const rootReal = await realpathPreservingCase(rootLogical);
   const resolved = path.resolve(rootLogical, savePath);
   assertPathInsideRoot(resolved, rootLogical);
@@ -113,6 +165,7 @@ export async function writeAttachmentFile(
   }
 
   const parent = path.dirname(dest);
+  await assertSaveDestinationAllowed(dest, rootReal, homeDir);
   await mkdirInside(parent, rootLogical, rootReal);
   const parentReal = await realpathPreservingCase(parent);
   assertPathInsideRoot(path.join(parentReal, path.basename(dest)), rootReal);
