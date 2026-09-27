@@ -41,6 +41,11 @@ export interface HttpListenPolicy {
   port: number;
   token?: string;
   allowedHostnames: string[];
+  /**
+   * Names written in MCP_EMAIL_HTTP_ALLOWED_HOSTS, and a specific non-loopback bind.
+   * A reverse proxy or a published container port does not use the listen port in Host.
+   */
+  portAgnosticHostnames: string[];
   bodyLimitBytes: number;
 }
 
@@ -77,16 +82,29 @@ function refused(status: number, message: string): HttpAccessDecision {
   return { ok: false, status, message };
 }
 
+/**
+ * A single colon plus a port is host:port. Bracketing that form makes the URL
+ * parser treat it as IPv6 and reject names operators copy from a proxy or Docker.
+ */
+function hostTokenShape(trimmed: string): string {
+  if (trimmed.startsWith('[')) return trimmed;
+  if (/^[^:]+:\d{1,5}$/.test(trimmed)) return trimmed;
+  if (trimmed.includes(':')) return `[${trimmed}]`;
+  return trimmed;
+}
+
 function hostnameKey(host: string): string {
   const trimmed = host.trim().toLowerCase().replace(/\.$/, '');
   if (!trimmed) {
     throw new Error(`Invalid HTTP host: ${host}`);
   }
-  const bracketed = trimmed.includes(':') && !trimmed.startsWith('[') ? `[${trimmed}]` : trimmed;
   let url: URL;
   try {
-    url = new URL(`http://${bracketed}`);
+    url = new URL(`http://${hostTokenShape(trimmed)}`);
   } catch {
+    throw new Error(`Invalid HTTP host: ${host}`);
+  }
+  if (url.username || url.password || url.search || url.hash || url.pathname !== '/') {
     throw new Error(`Invalid HTTP host: ${host}`);
   }
   return url.hostname.toLowerCase().replace(/\.$/, '');
@@ -158,6 +176,7 @@ export function resolveHttpListen(input: {
   }
 
   const allowed: string[] = [];
+  const portAgnostic: string[] = [];
   if (exposed.length === 0) {
     LOOPBACK_HOSTNAMES.forEach((name) => {
       addAllowed(allowed, name);
@@ -166,6 +185,7 @@ export function resolveHttpListen(input: {
   hosts.forEach((host) => {
     if (isWildcardBind(host) || isLoopbackBindHost(host)) return;
     addAllowed(allowed, host);
+    addAllowed(portAgnostic, host);
   });
   hosts.forEach((host) => {
     if (
@@ -181,6 +201,7 @@ export function resolveHttpListen(input: {
   (input.allowedHosts ?? []).forEach((host) => {
     if (host.trim()) {
       addAllowed(allowed, host);
+      addAllowed(portAgnostic, host);
     }
   });
 
@@ -198,6 +219,7 @@ export function resolveHttpListen(input: {
     port: input.port,
     token,
     allowedHostnames: allowed,
+    portAgnosticHostnames: portAgnostic,
     bodyLimitBytes,
   };
 }
@@ -228,6 +250,19 @@ function oneHeader(value: string | string[] | undefined): string | null | undefi
   return value;
 }
 
+function requestHostAllowed(hostname: string, port: number, policy: HttpListenPolicy): boolean {
+  if (!policy.allowedHostnames.includes(hostname)) return false;
+  if (policy.portAgnosticHostnames.includes(hostname)) return true;
+  return port === policy.port;
+}
+
+/** Omitted port is the scheme default. Host is parsed as http, so a missing Host port is 80. */
+function headerPort(url: URL): number {
+  if (url.port !== '') return Number(url.port);
+  if (url.protocol === 'https:') return 443;
+  return 80;
+}
+
 function hostDecision(
   raw: string | null | undefined,
   policy: HttpListenPolicy,
@@ -249,10 +284,9 @@ function hostDecision(
   if (url.username || url.password || url.search || url.hash || url.pathname !== '/') {
     return refused(403, 'Invalid Host header');
   }
-  const port = url.port === '' ? 80 : Number(url.port);
-  if (port !== policy.port) return refused(403, 'Invalid Host header');
+  const port = headerPort(url);
   const hostname = url.hostname.toLowerCase().replace(/\.$/, '');
-  if (!policy.allowedHostnames.includes(hostname)) {
+  if (!requestHostAllowed(hostname, port, policy)) {
     return refused(403, 'Invalid Host header');
   }
   return undefined;
@@ -270,13 +304,17 @@ function originDecision(
   } catch {
     return refused(403, 'Invalid Origin header');
   }
-  if (raw !== url.origin || url.protocol !== 'http:' || url.username || url.password) {
+  if (
+    raw !== url.origin ||
+    (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+    url.username ||
+    url.password
+  ) {
     return refused(403, 'Invalid Origin header');
   }
-  const port = url.port === '' ? 80 : Number(url.port);
-  if (port !== policy.port) return refused(403, 'Invalid Origin header');
+  const port = headerPort(url);
   const hostname = url.hostname.toLowerCase().replace(/\.$/, '');
-  if (!policy.allowedHostnames.includes(hostname)) {
+  if (!requestHostAllowed(hostname, port, policy)) {
     return refused(403, 'Invalid Origin header');
   }
   return undefined;
@@ -518,6 +556,7 @@ export async function startGuardedHttpServers(
   const active: HttpListenPolicy = {
     ...policy,
     allowedHostnames: [...policy.allowedHostnames],
+    portAgnosticHostnames: [...policy.portAgnosticHostnames],
   };
   const servers: http.Server[] = [];
   const addresses: { address: string; port: number }[] = [];

@@ -499,6 +499,85 @@ describe('evaluateHttpAccess', () => {
       ).status,
     ).toBe(403);
   });
+
+  it('rejects a loopback Host that omits the listen port', () => {
+    expect(
+      deny(evaluateHttpAccess({ method: 'GET', headers: { host: '127.0.0.1' } }, policy)).status,
+    ).toBe(403);
+  });
+});
+
+describe('allowlisted hosts behind a proxy or a published port', () => {
+  it('allows a Host without a port when that name is listed in MCP_EMAIL_HTTP_ALLOWED_HOSTS', () => {
+    const policy = resolveHttpListen({
+      port: 8080,
+      host: '127.0.0.1',
+      allowedHosts: ['mail.example'],
+    });
+    expect(
+      evaluateHttpAccess({ method: 'GET', headers: { host: 'mail.example' } }, policy).ok,
+    ).toBe(true);
+  });
+
+  it('allows a published host:port when the process listens on another port', () => {
+    // 443 is only how the name is written. 18080 is the published port; the process listens on 8080.
+    const policy = resolveHttpListen({
+      port: 8080,
+      host: '0.0.0.0',
+      token: TOKEN,
+      allowedHosts: ['mail.example:443'],
+    });
+    expect(
+      evaluateHttpAccess(
+        {
+          method: 'GET',
+          headers: { host: 'mail.example:18080', authorization: `Bearer ${TOKEN}` },
+        },
+        policy,
+      ).ok,
+    ).toBe(true);
+  });
+
+  it('allows an https Origin for an allowlisted host behind a TLS proxy', () => {
+    const policy = resolveHttpListen({
+      port: 8080,
+      host: '127.0.0.1',
+      allowedHosts: ['mail.example'],
+    });
+    expect(
+      evaluateHttpAccess(
+        {
+          method: 'POST',
+          headers: {
+            host: 'mail.example',
+            origin: 'https://mail.example',
+            'content-type': 'application/json',
+          },
+        },
+        policy,
+      ).ok,
+    ).toBe(true);
+  });
+
+  it('rejects a Host that is not listed, so a rebound name cannot pass', () => {
+    const policy = resolveHttpListen({
+      port: 8080,
+      host: '0.0.0.0',
+      token: TOKEN,
+      allowedHosts: ['mail.example'],
+    });
+    expect(
+      deny(
+        evaluateHttpAccess(
+          {
+            method: 'GET',
+            headers: { host: 'rebind.example:18080', authorization: `Bearer ${TOKEN}` },
+          },
+          policy,
+        ),
+      ),
+    ).toEqual({ status: 403, message: 'Invalid Host header' });
+  });
 });
 
 describe('bearerAuthorizationMatches', () => {
