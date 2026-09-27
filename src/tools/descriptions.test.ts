@@ -1,13 +1,14 @@
 /**
  * Tool and parameter descriptions are the contract a client reads before it
- * calls a tool. A backticked name that is neither a tool nor a parameter
- * sends the client after something this server does not expose.
+ * calls a tool. A snake_case token that is not a tool, a parameter, an enum
+ * value, or an add-to-calendar status sends the client after something this
+ * server does not expose.
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-
 import createServer from '../server.js';
+import { ADD_EVENT_STATUSES } from '../services/local-calendar.service.js';
 import type { AppConfig } from '../types/index.js';
 import { registerCalendarAllTools } from './calendar.tool.js';
 import registerAllTools from './register.js';
@@ -103,6 +104,18 @@ function parameterNames(schema: unknown): Set<string> {
   return names;
 }
 
+function enumValues(schema: unknown): Set<string> {
+  const values = new Set<string>();
+  walkSchema(schema, (node) => {
+    const { enum: options } = node;
+    if (!Array.isArray(options)) return;
+    for (const option of options) {
+      if (typeof option === 'string') values.add(option);
+    }
+  });
+  return values;
+}
+
 function descriptionTexts(tool: ListedTool): string[] {
   const texts: string[] = [];
   if (typeof tool.description === 'string') texts.push(tool.description);
@@ -112,40 +125,34 @@ function descriptionTexts(tool: ListedTool): string[] {
   return texts;
 }
 
-/** A backticked span that is one identifier, not a quoted phrase. */
-function backtickedIdentifiers(text: string): string[] {
-  const spans = text.match(/`([^`]+)`/g) ?? [];
-  return spans
-    .map((span) => span.slice(1, -1))
-    .filter((inner) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(inner));
-}
+/** An underscore is required so ordinary words are not treated as identifiers. */
+const SNAKE_CASE = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;
 
 describe('tool descriptions', () => {
-  it('should treat every backticked identifier as an existing tool name or parameter', async () => {
+  it('should only mention a tool, parameter, enum value, or calendar status', async () => {
     const tools = await listedTools();
     const toolNames = new Set(tools.map((tool) => tool.name));
+    const parameters = new Set<string>();
+    const enums = new Set<string>();
+    for (const tool of tools) {
+      for (const name of parameterNames(tool.inputSchema)) parameters.add(name);
+      for (const value of enumValues(tool.inputSchema)) enums.add(value);
+    }
+    const statuses = new Set<string>(ADD_EVENT_STATUSES);
     const problems: string[] = [];
     for (const tool of tools) {
-      const parameters = parameterNames(tool.inputSchema);
       for (const text of descriptionTexts(tool)) {
-        for (const identifier of backtickedIdentifiers(text)) {
-          if (!toolNames.has(identifier) && !parameters.has(identifier)) {
-            problems.push(`${tool.name}: \`${identifier}\``);
-          }
+        for (const token of text.match(SNAKE_CASE) ?? []) {
+          const known =
+            toolNames.has(token) ||
+            parameters.has(token) ||
+            enums.has(token) ||
+            statuses.has(token);
+          if (!known) problems.push(`${tool.name}: ${token}`);
         }
       }
     }
     expect(problems).toEqual([]);
-  });
-
-  it('should not name list_emails_metadata in a tool or parameter description', async () => {
-    const tools = await listedTools();
-    const hits = tools.flatMap((tool) =>
-      descriptionTexts(tool)
-        .filter((text) => text.includes('list_emails_metadata'))
-        .map((text) => `${tool.name}: ${text}`),
-    );
-    expect(hits).toEqual([]);
   });
 
   it('should say forward_email does not include the original attachments', async () => {
