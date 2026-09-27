@@ -334,7 +334,7 @@ export default function registerEmailsTools(
       }
 
       return {
-        ...(errors.length > 0 ? { isError: true as const } : {}),
+        ...(results.length === 0 ? { isError: true as const } : {}),
         content: [{ type: 'text' as const, text: parts.join('\n') }],
       };
     },

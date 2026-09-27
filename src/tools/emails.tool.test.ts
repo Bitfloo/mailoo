@@ -131,6 +131,56 @@ describe('untrusted mail text', () => {
   });
 });
 
+function fetchedEmail(subject: string) {
+  return {
+    subject,
+    from: { name: 'Ada', address: 'ada@example.com' },
+    date: '2026-02-01T10:00:00.000Z',
+    bodyText: 'See you then',
+    bodyHtml: '',
+    attachments: [],
+    seen: true,
+    flagged: false,
+    answered: false,
+    labels: [],
+  };
+}
+
+describe('get_emails partial failure', () => {
+  it('should return the fetched subject and the failed id without isError', async () => {
+    const getEmail = vi.fn(async (_account: string, emailId: string) => {
+      if (emailId === '9') throw new Error('not in mailbox');
+      return fetchedEmail('Standup');
+    });
+    const run = captureNamedHandler('get_emails', { getEmail });
+    const result = await run({
+      account: 'personal',
+      ids: ['1', '9'],
+      mailbox: 'INBOX',
+      format: 'text',
+    });
+    const text = result.content[0]?.text ?? '';
+    expect(result.isError).toBeUndefined();
+    expect(text).toContain('━━━ [1] Standup');
+    expect(text).toContain('--- Errors ---');
+    expect(text).toContain('[9] Error: not in mailbox');
+  });
+
+  it('should return isError when every requested message fails', async () => {
+    const getEmail = vi.fn(async () => Promise.reject(new Error('not in mailbox')));
+    const run = captureNamedHandler('get_emails', { getEmail });
+    const result = await run({
+      account: 'personal',
+      ids: ['8', '9'],
+      mailbox: 'INBOX',
+      format: 'text',
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain('[8] Error: not in mailbox');
+    expect(result.content[0]?.text).toContain('[9] Error: not in mailbox');
+  });
+});
+
 describe('search_emails date aliases', () => {
   it('maps start_date and end_date onto since and before when those are omitted', async () => {
     const searchEmails = vi.fn().mockResolvedValue({
