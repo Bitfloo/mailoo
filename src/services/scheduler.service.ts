@@ -35,7 +35,10 @@ export const MAX_PENDING_SCHEDULES = 100;
 /** crypto.randomUUID() values. Anything else is not a safe filename. */
 const SCHEDULE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const SEND_AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+/** Seconds may be omitted. An offset is required because the server's local zone is ambiguous. */
+export const SEND_AT_FORMAT = 'ISO 8601 date-time with UTC offset, e.g. 2026-10-01T09:00:00+02:00';
+
+const SEND_AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 function scheduleIdFromFilename(filename: string): string | undefined {
   if (!filename.endsWith('.json')) return undefined;
@@ -106,11 +109,11 @@ async function countLiveSchedules(dir: string): Promise<number> {
 
 function parseSendAt(sendAt: string, now = Date.now()): Date {
   if (sendAt.length > 40 || !SEND_AT_RE.test(sendAt)) {
-    throw new Error(`Invalid send_at date: ${sendAt}`);
+    throw new Error(`Invalid send_at date: ${sendAt}. Expected ${SEND_AT_FORMAT}`);
   }
   const date = new Date(sendAt);
   if (Number.isNaN(date.getTime())) {
-    throw new Error(`Invalid send_at date: ${sendAt}`);
+    throw new Error(`Invalid send_at date: ${sendAt}. Expected ${SEND_AT_FORMAT}`);
   }
   if (date.getTime() <= now) {
     throw new Error('send_at must be in the future');

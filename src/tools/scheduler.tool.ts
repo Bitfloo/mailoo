@@ -9,6 +9,7 @@ import { z } from 'zod';
 import audit from '../safety/audit.js';
 
 import type SchedulerService from '../services/scheduler.service.js';
+import { SEND_AT_FORMAT } from '../services/scheduler.service.js';
 
 export default function registerSchedulerTools(
   server: McpServer,
@@ -26,7 +27,7 @@ export default function registerSchedulerTools(
       to: z.array(z.string()).min(1).describe('Recipient email addresses'),
       subject: z.string().describe('Email subject'),
       body: z.string().describe('Email body'),
-      send_at: z.string().describe("When to send (ISO 8601 datetime, e.g. '2025-02-20T09:00:00Z')"),
+      send_at: z.string().describe(`When to send (${SEND_AT_FORMAT})`),
       cc: z.array(z.string()).optional().describe('CC recipients'),
       bcc: z.array(z.string()).optional().describe('BCC recipients'),
       html: z.boolean().default(false).describe('Send as HTML (default: false)'),

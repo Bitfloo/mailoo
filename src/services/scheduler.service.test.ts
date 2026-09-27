@@ -15,6 +15,17 @@ function daysFromNow(days: number): string {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
+/** Two days ahead, minute precision. A numeric offset is still in the future. */
+function futureMinute(offset: 'Z' | '+02:00'): string {
+  const when = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+  const year = when.getUTCFullYear();
+  const month = String(when.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(when.getUTCDate()).padStart(2, '0');
+  const hour = String(when.getUTCHours()).padStart(2, '0');
+  const minute = String(when.getUTCMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hour}:${minute}${offset}`;
+}
+
 function createService(queueDir?: string) {
   const imap = {
     saveDraft: vi.fn().mockRejectedValue(new Error('draft unavailable')),
@@ -100,6 +111,42 @@ describe('SchedulerService queue files', () => {
 
     await service.checkAndSend();
     await expect(fs.access(outside)).rejects.toThrow();
+  });
+
+  it('accepts a send_at value with minute precision and a Z offset', async () => {
+    const { service } = createService();
+    const sendAt = futureMinute('Z');
+    const scheduled = await service.schedule('personal', {
+      to: ['user@example.com'],
+      subject: 'Hello',
+      body: 'Body',
+      sendAt,
+    });
+    expect(scheduled.sendAt).toBe(new Date(sendAt).toISOString());
+  });
+
+  it('accepts a send_at value with minute precision and a numeric UTC offset', async () => {
+    const { service } = createService();
+    const sendAt = futureMinute('+02:00');
+    const scheduled = await service.schedule('personal', {
+      to: ['user@example.com'],
+      subject: 'Hello',
+      body: 'Body',
+      sendAt,
+    });
+    expect(scheduled.sendAt).toBe(new Date(sendAt).toISOString());
+  });
+
+  it('rejects a send_at value that has no UTC offset', async () => {
+    const { service } = createService();
+    await expect(
+      service.schedule('personal', {
+        to: ['user@example.com'],
+        subject: 'Hello',
+        body: 'Body',
+        sendAt: '2026-10-01T09:00:00',
+      }),
+    ).rejects.toThrow('ISO 8601 date-time with UTC offset, e.g. 2026-10-01T09:00:00+02:00');
   });
 
   it('rejects a send_at value that is not an ISO-8601 timestamp', async () => {
