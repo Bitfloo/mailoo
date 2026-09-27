@@ -169,7 +169,6 @@ async function lstatOrNull(filePath: string): Promise<Awaited<ReturnType<typeof 
 
 function hasGroupOrOtherBits(mode: number | bigint): boolean {
   const bits = typeof mode === 'bigint' ? Number(mode) : mode;
-  // 0o077 is the group and other permission bits.
   // eslint-disable-next-line no-bitwise
   return (bits & 0o077) !== 0;
 }
@@ -412,7 +411,6 @@ async function ensureConfigDirectory(dir: string): Promise<void> {
   }
 }
 
-/** Follow links so a later rename replaces the file the link points at. */
 async function resolveWriteTarget(filePath: string): Promise<string> {
   const dest = await lstatOrNull(filePath);
   if (dest?.isSymbolicLink() || dest?.isFile()) {
@@ -432,8 +430,10 @@ async function resolveWriteTarget(filePath: string): Promise<string> {
 
 /**
  * Write config text. A symlink stays a symlink and the target file changes,
- * because renaming onto the link itself would replace the link.
- * A new file is mode 0600.
+ * because renaming onto the link itself would replace the link. Config files
+ * Mailoo writes are mode 0600 (an existing file's mode is replaced); a
+ * directory Mailoo creates is 0700. Loading never changes a mode; a file
+ * readable by group or other logs a warning.
  */
 export async function writeConfigFile(filePath: string, contents: string): Promise<void> {
   assertConfigPath(filePath);

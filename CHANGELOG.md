@@ -60,9 +60,9 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 - Sieve script names are checked before they are sent, and a script is
   limited to 1 MiB.
 
-- New config files are created with mode 0600, and a directory Mailoo creates
-  for them is mode 0700. When an existing config file is readable by group
-  or other, Mailoo logs a warning instead of changing the mode.
+- Config files Mailoo writes are mode 0600 (an existing file's mode is replaced);
+  a directory Mailoo creates is 0700. Loading never changes a mode; a file
+  readable by group or other logs a warning.
 
 - Outgoing attachment `path` values are read by Mailoo instead of being passed
   to Nodemailer, which accepted any local path and fetched `http:`, `https:`,

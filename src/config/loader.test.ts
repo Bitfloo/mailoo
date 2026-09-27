@@ -74,6 +74,28 @@ describe('Config Loader', () => {
 
   describe('loadConfig from TOML file', () => {
     it.each([
+      { label: '0600', mode: 0o600, warningLines: 0, claim: 'no warning line' },
+      { label: '0640', mode: 0o640, warningLines: 1, claim: 'one warning' },
+      { label: '0604', mode: 0o604, warningLines: 1, claim: 'one warning' },
+    ])('should log $claim when the config mode is $label', async ({ mode, warningLines }) => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      await fs.writeFile(configPath, MINIMAL_TOML, 'utf-8');
+      await fs.chmod(configPath, mode);
+
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      try {
+        await loadConfig(configPath);
+
+        const warnings = stderr.mock.calls
+          .map((call) => String(call[0]))
+          .filter((line) => line.includes('warning'));
+        expect(warnings).toHaveLength(warningLines);
+      } finally {
+        stderr.mockRestore();
+      }
+    });
+
+    it.each([
       'EROFS',
       'EPERM',
     ])('should load a group-readable config and warn when chmod throws %s', async (code) => {
