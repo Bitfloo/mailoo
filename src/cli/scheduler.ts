@@ -5,9 +5,9 @@
  * for managing the email scheduler.
  */
 
-/* eslint-disable n/no-sync -- CLI commands use execSync for launchctl/crontab */
+/* eslint-disable n/no-sync -- CLI install waits for launchctl and crontab */
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -23,6 +23,67 @@ const LAUNCHD_LABEL = 'com.bitfloo.mailoo.scheduler';
 const LAUNCHD_PLIST_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents');
 const LAUNCHD_PLIST = path.join(LAUNCHD_PLIST_DIR, `${LAUNCHD_LABEL}.plist`);
 const CRONTAB_MARKER = '# mailoo scheduler';
+
+export type CommandRunner = (file: string, args: readonly string[], input?: string) => string;
+
+export function runCommandFile(file: string, args: readonly string[], input?: string): string {
+  return execFileSync(file, [...args], {
+    encoding: 'utf-8',
+    stdio: input === undefined ? ['ignore', 'pipe', 'ignore'] : ['pipe', 'pipe', 'ignore'],
+    ...(input === undefined ? {} : { input }),
+  });
+}
+
+function quoteCronArg(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function readCrontab(run: CommandRunner): string {
+  try {
+    return run('crontab', ['-l']);
+  } catch {
+    return '';
+  }
+}
+
+export async function loadLaunchAgent(
+  plistPath: string,
+  plist: string,
+  run: CommandRunner = runCommandFile,
+): Promise<void> {
+  await fs.mkdir(path.dirname(plistPath), { recursive: true });
+  await fs.writeFile(plistPath, plist, { mode: 0o600 });
+  await fs.chmod(plistPath, 0o600);
+  try {
+    run('launchctl', ['load', plistPath]);
+  } catch {
+    // May already be loaded
+  }
+}
+
+export function installCrontabLine(
+  line: string,
+  marker: string,
+  run: CommandRunner = runCommandFile,
+): boolean {
+  const existing = readCrontab(run);
+  if (existing.includes(marker)) return false;
+  const body = existing.trim().length === 0 ? `${line}\n` : `${existing.trimEnd()}\n${line}\n`;
+  run('crontab', ['-'], body);
+  return true;
+}
+
+export function removeCrontabLine(marker: string, run: CommandRunner = runCommandFile): boolean {
+  let existing: string;
+  try {
+    existing = run('crontab', ['-l']);
+  } catch {
+    return false;
+  }
+  const lines = existing.split('\n').filter((entry) => entry.length > 0 && !entry.includes(marker));
+  run('crontab', ['-'], `${lines.join('\n')}\n`);
+  return true;
+}
 
 function getExecutablePath(): string {
   return process.argv[1] ?? 'mailoo';
@@ -129,34 +190,18 @@ async function runInstall(): Promise<void> {
 </dict>
 </plist>`;
 
-    await fs.mkdir(LAUNCHD_PLIST_DIR, { recursive: true });
-    await fs.writeFile(LAUNCHD_PLIST, plist);
-
-    try {
-      execSync(`launchctl load "${LAUNCHD_PLIST}"`, { stdio: 'pipe' });
-    } catch {
-      // May already be loaded
-    }
+    await loadLaunchAgent(LAUNCHD_PLIST, plist);
 
     console.log('✅ Installed macOS launchd scheduler');
     console.log(`   Plist: ${LAUNCHD_PLIST}`);
     console.log('   Runs every 60 seconds');
   } else if (platform === 'linux') {
     // Linux: crontab
-    const cronLine = `* * * * * ${process.execPath} ${execPath} scheduler check ${CRONTAB_MARKER}`;
+    const cronLine = `* * * * * ${quoteCronArg(process.execPath)} ${quoteCronArg(execPath)} scheduler check ${CRONTAB_MARKER}`;
 
-    try {
-      const existing = execSync('crontab -l 2>/dev/null', {
-        encoding: 'utf-8',
-      });
-      if (existing.includes(CRONTAB_MARKER)) {
-        console.log('⚠️  Scheduler crontab entry already exists');
-        return;
-      }
-      const newCrontab = `${existing.trimEnd()}\n${cronLine}\n`;
-      execSync(`echo '${newCrontab}' | crontab -`, { stdio: 'pipe' });
-    } catch {
-      execSync(`echo '${cronLine}' | crontab -`, { stdio: 'pipe' });
+    if (!installCrontabLine(cronLine, CRONTAB_MARKER)) {
+      console.log('⚠️  Scheduler crontab entry already exists');
+      return;
     }
 
     console.log('✅ Installed Linux crontab scheduler');
@@ -172,7 +217,7 @@ async function runUninstall(): Promise<void> {
 
   if (platform === 'darwin') {
     try {
-      execSync(`launchctl unload "${LAUNCHD_PLIST}"`, { stdio: 'pipe' });
+      runCommandFile('launchctl', ['unload', LAUNCHD_PLIST]);
     } catch {
       // May not be loaded
     }
@@ -184,15 +229,9 @@ async function runUninstall(): Promise<void> {
       console.log('ℹ️  No launchd scheduler found');
     }
   } else if (platform === 'linux') {
-    try {
-      const existing = execSync('crontab -l 2>/dev/null', {
-        encoding: 'utf-8',
-      });
-      const lines = existing.split('\n').filter((line) => !line.includes(CRONTAB_MARKER));
-      const newCrontab = lines.join('\n');
-      execSync(`echo '${newCrontab}' | crontab -`, { stdio: 'pipe' });
+    if (removeCrontabLine(CRONTAB_MARKER)) {
       console.log('✅ Removed Linux crontab scheduler');
-    } catch {
+    } else {
       console.log('ℹ️  No crontab scheduler found');
     }
   } else {
@@ -207,9 +246,7 @@ async function runStatus(): Promise<void> {
     try {
       await fs.access(LAUNCHD_PLIST);
       try {
-        const output = execSync(`launchctl list ${LAUNCHD_LABEL} 2>/dev/null`, {
-          encoding: 'utf-8',
-        });
+        const output = runCommandFile('launchctl', ['list', LAUNCHD_LABEL]);
         const pidMatch = /"PID"\s*=\s*(\d+)/.exec(output);
         console.log('✅ macOS launchd scheduler: INSTALLED');
         console.log(`   Plist: ${LAUNCHD_PLIST}`);
@@ -225,9 +262,7 @@ async function runStatus(): Promise<void> {
     }
   } else if (platform === 'linux') {
     try {
-      const existing = execSync('crontab -l 2>/dev/null', {
-        encoding: 'utf-8',
-      });
+      const existing = runCommandFile('crontab', ['-l']);
       if (existing.includes(CRONTAB_MARKER)) {
         console.log('✅ Linux crontab scheduler: INSTALLED');
       } else {
