@@ -21,15 +21,24 @@ const STALE_LOCK_MS = 5 * 60 * 1000;
 /** Max retry attempts before marking as "failed" */
 const MAX_ATTEMPTS = 3;
 
-/** Local queue horizon. Longer delays belong in the mailbox, not on disk. */
-export const MAX_SCHEDULE_AHEAD_MS = 366 * 24 * 60 * 60 * 1000;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+/** Local queue horizon. Longer delays belong in the mailbox, not on disk. */
+export const MAX_SCHEDULE_AHEAD_MS = 366 * MS_PER_DAY;
+
+/** Chosen cap so one queued message cannot fan out across an unbounded recipient list. */
 export const MAX_SCHEDULE_RECIPIENTS = 50;
 
-export const MAX_SCHEDULE_SUBJECT_CHARS = 998;
+/**
+ * Chosen cap for Subject, In-Reply-To, and References, aligned with the
+ * RFC 5322 §2.1.1 limit of 998 characters on a line. A folded header may be longer.
+ */
+export const MAX_HEADER_LINE_CHARS = 998;
 
+/** Chosen cap. The body is stored in the queue file, so one message cannot fill the disk. */
 export const MAX_SCHEDULE_BODY_CHARS = 5_000_000;
 
+/** Chosen cap. This process retries pending and sending messages, so that set stays small. */
 export const MAX_PENDING_SCHEDULES = 100;
 
 /** crypto.randomUUID() values. Anything else is not a safe filename. */
@@ -51,21 +60,22 @@ function queueFile(dir: string, id: string): string {
   if (!SCHEDULE_ID_RE.test(id)) {
     throw new Error('Schedule id is not valid');
   }
-  const root = path.resolve(dir);
-  const filePath = path.resolve(root, `${id}.json`);
-  const relative = path.relative(root, filePath);
-  if (relative.startsWith('..') || path.isAbsolute(relative) || relative.includes(path.sep)) {
-    throw new Error('Schedule id is not valid');
-  }
-  return filePath;
+  return path.resolve(dir, `${id}.json`);
 }
+
+/** Chosen bound. An account name is a local label stored in the queue file, not a protocol field. */
+const MAX_ACCOUNT_NAME_CHARS = 128;
 
 function assertAccount(account: string): void {
   /* eslint-disable no-control-regex */
   // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional — reject control chars in account names
   const control = /[\u0000-\u001F\u007F]/;
   /* eslint-enable no-control-regex */
-  if (account.trim().length === 0 || account.length > 128 || control.test(account)) {
+  if (
+    account.trim().length === 0 ||
+    account.length > MAX_ACCOUNT_NAME_CHARS ||
+    control.test(account)
+  ) {
     throw new Error('Account name is not valid');
   }
 }
@@ -119,7 +129,7 @@ function parseSendAt(sendAt: string, now = Date.now()): Date {
     throw new Error('send_at must be in the future');
   }
   if (date.getTime() - now > MAX_SCHEDULE_AHEAD_MS) {
-    throw new Error('send_at must be within 366 days');
+    throw new Error(`send_at must be within ${MAX_SCHEDULE_AHEAD_MS / MS_PER_DAY} days`);
   }
   return date;
 }
@@ -167,13 +177,13 @@ export default class SchedulerService {
     assertAddresses(options.to);
     assertAddresses(options.cc);
     assertAddresses(options.bcc);
-    assertHeaderField(options.subject, 'Subject', MAX_SCHEDULE_SUBJECT_CHARS);
+    assertHeaderField(options.subject, 'Subject', MAX_HEADER_LINE_CHARS);
     validateInputLength(options.body, MAX_SCHEDULE_BODY_CHARS, 'Body');
     if (options.inReplyTo !== undefined) {
-      assertHeaderField(options.inReplyTo, 'In-Reply-To', MAX_SCHEDULE_SUBJECT_CHARS);
+      assertHeaderField(options.inReplyTo, 'In-Reply-To', MAX_HEADER_LINE_CHARS);
     }
     options.references?.forEach((reference) => {
-      assertHeaderField(reference, 'References', MAX_SCHEDULE_SUBJECT_CHARS);
+      assertHeaderField(reference, 'References', MAX_HEADER_LINE_CHARS);
     });
     const sendAtDate = parseSendAt(options.sendAt);
 

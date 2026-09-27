@@ -62,6 +62,10 @@ function quoteSieve(value: string): string {
 /** PUTSCRIPT literal cap. Larger scripts are refused before a socket is opened. */
 export const MAX_SIEVE_SCRIPT_BYTES = 1024 * 1024;
 
+/**
+ * Chosen bound. RFC 5804 sets no script-name length; 255 matches a typical
+ * filename limit so the name cannot fill the command.
+ */
 const MAX_SIEVE_SCRIPT_NAME_CHARS = 255;
 
 function assertSieveScriptName(name: string, allowEmpty = false): void {
