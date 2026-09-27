@@ -10,6 +10,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { SCHEDULED_DIR, SCHEDULED_SENT_DIR } from '../config/xdg.js';
+import { recipientEmail, validateInputLength } from '../safety/validation.js';
 import type { ScheduledEmail } from '../types/index.js';
 import type ImapService from './imap.service.js';
 import type SmtpService from './smtp.service.js';
@@ -19,6 +20,84 @@ const STALE_LOCK_MS = 5 * 60 * 1000;
 
 /** Max retry attempts before marking as "failed" */
 const MAX_ATTEMPTS = 3;
+
+/** Local queue horizon. Longer delays belong in the mailbox, not on disk. */
+export const MAX_SCHEDULE_AHEAD_MS = 366 * 24 * 60 * 60 * 1000;
+
+export const MAX_SCHEDULE_RECIPIENTS = 50;
+
+export const MAX_SCHEDULE_SUBJECT_CHARS = 998;
+
+export const MAX_SCHEDULE_BODY_CHARS = 5_000_000;
+
+export const MAX_PENDING_SCHEDULES = 100;
+
+/** crypto.randomUUID() values. Anything else is not a safe filename. */
+const SCHEDULE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const SEND_AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function scheduleIdFromFilename(filename: string): string | undefined {
+  if (!filename.endsWith('.json')) return undefined;
+  const id = filename.slice(0, -'.json'.length);
+  if (!SCHEDULE_ID_RE.test(id)) return undefined;
+  return id;
+}
+
+function queueFile(dir: string, id: string): string {
+  if (!SCHEDULE_ID_RE.test(id)) {
+    throw new Error('Schedule id is not valid');
+  }
+  const root = path.resolve(dir);
+  const filePath = path.resolve(root, `${id}.json`);
+  const relative = path.relative(root, filePath);
+  if (relative.startsWith('..') || path.isAbsolute(relative) || relative.includes(path.sep)) {
+    throw new Error('Schedule id is not valid');
+  }
+  return filePath;
+}
+
+function assertAccount(account: string): void {
+  /* eslint-disable no-control-regex */
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional — reject control chars in account names
+  const control = /[\u0000-\u001F\u007F]/;
+  /* eslint-enable no-control-regex */
+  if (account.trim().length === 0 || account.length > 128 || control.test(account)) {
+    throw new Error('Account name is not valid');
+  }
+}
+
+function assertHeaderField(value: string, field: string, max: number): void {
+  if (value.includes('\r') || value.includes('\n') || value.includes('\0')) {
+    throw new Error(`${field} must not contain line breaks`);
+  }
+  validateInputLength(value, max, field);
+}
+
+function assertAddresses(values: string[] | undefined): void {
+  values?.forEach((value) => {
+    if (!recipientEmail.safeParse(value).success) {
+      throw new Error(`Invalid recipient: ${value}`);
+    }
+  });
+}
+
+function parseSendAt(sendAt: string, now = Date.now()): Date {
+  if (sendAt.length > 40 || !SEND_AT_RE.test(sendAt)) {
+    throw new Error(`Invalid send_at date: ${sendAt}`);
+  }
+  const date = new Date(sendAt);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid send_at date: ${sendAt}`);
+  }
+  if (date.getTime() <= now) {
+    throw new Error('send_at must be in the future');
+  }
+  if (date.getTime() - now > MAX_SCHEDULE_AHEAD_MS) {
+    throw new Error('send_at must be within 366 days');
+  }
+  return date;
+}
 
 export default class SchedulerService {
   constructor(
@@ -44,12 +123,32 @@ export default class SchedulerService {
       references?: string[];
     },
   ): Promise<ScheduledEmail> {
-    const sendAtDate = new Date(options.sendAt);
-    if (Number.isNaN(sendAtDate.getTime())) {
-      throw new Error(`Invalid send_at date: ${options.sendAt}`);
+    assertAccount(account);
+    const recipients = [...options.to, ...(options.cc ?? []), ...(options.bcc ?? [])];
+    if (options.to.length === 0) {
+      throw new Error('At least one recipient is required');
     }
-    if (sendAtDate.getTime() <= Date.now()) {
-      throw new Error('send_at must be in the future');
+    if (recipients.length > MAX_SCHEDULE_RECIPIENTS) {
+      throw new Error(`Too many recipients (maximum ${MAX_SCHEDULE_RECIPIENTS})`);
+    }
+    assertAddresses(options.to);
+    assertAddresses(options.cc);
+    assertAddresses(options.bcc);
+    assertHeaderField(options.subject, 'Subject', MAX_SCHEDULE_SUBJECT_CHARS);
+    validateInputLength(options.body, MAX_SCHEDULE_BODY_CHARS, 'Body');
+    if (options.inReplyTo !== undefined) {
+      assertHeaderField(options.inReplyTo, 'In-Reply-To', MAX_SCHEDULE_SUBJECT_CHARS);
+    }
+    options.references?.forEach((reference) => {
+      assertHeaderField(reference, 'References', MAX_SCHEDULE_SUBJECT_CHARS);
+    });
+    const sendAtDate = parseSendAt(options.sendAt);
+
+    await SchedulerService.ensureDirs();
+    const pendingNames = await fs.readdir(SCHEDULED_DIR);
+    const pendingCount = pendingNames.filter((name) => scheduleIdFromFilename(name)).length;
+    if (pendingCount >= MAX_PENDING_SCHEDULES) {
+      throw new Error(`Too many scheduled emails (maximum ${MAX_PENDING_SCHEDULES})`);
     }
 
     const scheduled: ScheduledEmail = {
@@ -127,7 +226,7 @@ export default class SchedulerService {
   // -------------------------------------------------------------------------
 
   async cancel(scheduleId: string): Promise<{ cancelled: boolean; draftDeleted: boolean }> {
-    const filePath = path.join(SCHEDULED_DIR, `${scheduleId}.json`);
+    const filePath = queueFile(SCHEDULED_DIR, scheduleId);
     let draftDeleted = false;
 
     try {
@@ -186,17 +285,20 @@ export default class SchedulerService {
       return result;
     }
 
-    const jsonFiles = files.filter((f) => f.endsWith('.json'));
+    const jsonFiles = files.filter((f) => scheduleIdFromFilename(f));
     const now = Date.now();
 
     // Process files sequentially — must not double-send
     // eslint-disable-next-line no-restricted-syntax
     for (const file of jsonFiles) {
-      const filePath = path.join(SCHEDULED_DIR, file);
+      const id = scheduleIdFromFilename(file);
+      if (!id) continue;
+      const filePath = queueFile(SCHEDULED_DIR, id);
 
       try {
         const content = await fs.readFile(filePath, 'utf-8');
         const scheduled = JSON.parse(content) as ScheduledEmail;
+        if (scheduled.id !== id) continue;
 
         // Reset stale locks
         if (scheduled.status === 'sending' && scheduled.lastError !== undefined) {
@@ -244,7 +346,7 @@ export default class SchedulerService {
         scheduled.sentAt = new Date().toISOString();
         scheduled.sentMessageId = sendResult.messageId;
 
-        const sentPath = path.join(SCHEDULED_SENT_DIR, file);
+        const sentPath = queueFile(SCHEDULED_SENT_DIR, id);
         await fs.writeFile(sentPath, JSON.stringify(scheduled, null, 2));
         await fs.unlink(filePath);
 
@@ -296,7 +398,7 @@ export default class SchedulerService {
 
   private static async writeScheduledFile(scheduled: ScheduledEmail): Promise<void> {
     await SchedulerService.ensureDirs();
-    const filePath = path.join(SCHEDULED_DIR, `${scheduled.id}.json`);
+    const filePath = queueFile(SCHEDULED_DIR, scheduled.id);
     await fs.writeFile(filePath, JSON.stringify(scheduled, null, 2));
   }
 
@@ -306,10 +408,13 @@ export default class SchedulerService {
       const files = await fs.readdir(dirPath);
       // eslint-disable-next-line no-restricted-syntax
       for (const file of files) {
-        if (!file.endsWith('.json')) continue; // eslint-disable-line no-continue
+        const id = scheduleIdFromFilename(file);
+        if (!id) continue; // eslint-disable-line no-continue
         try {
-          const content = await fs.readFile(path.join(dirPath, file), 'utf-8'); // eslint-disable-line no-await-in-loop
-          emails.push(JSON.parse(content) as ScheduledEmail);
+          const content = await fs.readFile(queueFile(dirPath, id), 'utf-8'); // eslint-disable-line no-await-in-loop
+          const scheduled = JSON.parse(content) as ScheduledEmail;
+          if (scheduled.id !== id) continue; // eslint-disable-line no-continue
+          emails.push(scheduled);
         } catch {
           // Skip corrupted files
         }
