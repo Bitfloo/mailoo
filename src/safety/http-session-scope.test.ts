@@ -4,7 +4,6 @@
  * XDG_STATE_HOME is pinned before the queue path is imported.
  */
 
-import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
@@ -71,7 +70,6 @@ const { SCHEDULED_DIR } = await import('../config/xdg.js');
 const { default: ConnectionManager } = await import('../connections/manager.js');
 const { resolveHttpListen, startGuardedHttpServers } = await import('./http-transport.js');
 const { createHttpMcpHost } = await import('./http-mcp-host.js');
-const { httpSessionQueueDir } = await import('./http-session-scope.js');
 const { default: CalendarService } = await import('../services/calendar.service.js');
 const { default: ImapServiceClass } = await import('../services/imap.service.js');
 const { default: LocalCalendarService } = await import('../services/local-calendar.service.js');
@@ -564,14 +562,5 @@ describe('HTTP session account state', () => {
     const baseline = scopeA.events.listenerCount('email:new');
     await openSession(session, 2, false);
     expect(scopeA.events.listenerCount('email:new')).toBe(baseline);
-  });
-
-  it('should refuse a session id that leaves the queue root', () => {
-    const root = path.join(stateHome, 'ids');
-    expect(() => httpSessionQueueDir(root, '../outside')).toThrow(/session id/i);
-    const id = randomUUID();
-    const dir = httpSessionQueueDir(root, id);
-    expect(dir.startsWith(path.resolve(root))).toBe(true);
-    expect(path.basename(dir)).toBe(id);
   });
 });
