@@ -47,6 +47,15 @@ describe('buildCalendarNotes', () => {
     expect(result).toContain('…');
   });
 
+  it('drops an encoded script from an HTML excerpt', () => {
+    const result = buildCalendarNotes({
+      bodyExcerpt: '&lt;script&gt;alert(1)&lt;/script&gt;<p>Meet at noon</p>',
+    });
+    expect(result).toContain('Meet at noon');
+    expect(result).not.toMatch(/<script/i);
+    expect(result).not.toContain('alert(1)');
+  });
+
   it('strips HTML from body excerpt', () => {
     const result = buildCalendarNotes({
       bodyExcerpt: '<p>Hello <b>world</b></p>',

@@ -48,6 +48,38 @@ describe('stripHtml', () => {
   it('removes tags and keeps text content', () => {
     expect(stripHtml('<p>Hello</p>')).toBe('Hello');
   });
+
+  it('decodes a named entity in text', () => {
+    expect(stripHtml('<p>a &amp; b</p>')).toBe('a & b');
+  });
+
+  it('drops script content when the closing tag is missing', () => {
+    expect(stripHtml('<p>Hello</p><script>alert(1)')).toBe('Hello');
+  });
+
+  it('does not leave an encoded script tag in the text', () => {
+    expect(stripHtml('&lt;script&gt;alert(1)&lt;/script&gt;<p>Hello</p>')).not.toMatch(/<script/i);
+    expect(stripHtml('&lt;script&gt;alert(1)&lt;/script&gt;<p>Hello</p>')).toContain('Hello');
+  });
+
+  it('drops a style block and its remote URL', () => {
+    expect(stripHtml('<style>@import url(https://evil.example/a.css);</style>Hi')).toBe('Hi');
+    expect(stripHtml('<style>@import url(https://evil.example/a.css)')).not.toContain(
+      'evil.example',
+    );
+  });
+
+  it('drops an unclosed tag that points at a remote resource', () => {
+    expect(stripHtml('<p>Hi</p><img src="https://evil.example/pixel.gif"')).toBe('Hi');
+  });
+
+  it('caps a huge body and still drops script', () => {
+    const html = `<script>alert(1)</script><p>${'A'.repeat(2_000_000)}</p>`;
+    const text = stripHtml(html);
+    expect(text).not.toContain('alert(1)');
+    expect(text.length).toBeLessThanOrEqual(1_000_000);
+    expect(text).toContain('A');
+  });
 });
 
 describe('applyBodyFormat', () => {
@@ -58,6 +90,12 @@ describe('applyBodyFormat', () => {
       'text',
     );
     expect(body).toContain('Offer expires 2026-04-01');
+  });
+
+  it('for full format, drops script, style, and remote resources', () => {
+    const html =
+      '<p>Hello</p><script>alert(1)</script><style>@import "https://evil.example/a.css";</style><img src="https://evil.example/p.png">';
+    expect(applyBodyFormat(undefined, html, 'full')).toBe('<p>Hello</p>');
   });
 
   it('for full format, skips raw MIME dumps in favour of HTML', () => {
