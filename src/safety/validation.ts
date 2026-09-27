@@ -76,8 +76,18 @@ export function sanitizeSearchQuery(query: string): string {
 
 /**
  * Non-global addresses a webhook must not reach unless the operator opts in.
- * IPv4: this-host, RFC1918, loopback, link-local (includes cloud metadata).
- * IPv6: unspecified, loopback, unique-local, link-local.
+ * Taken from the IANA IPv4 Special-Purpose Address Registry and the IANA
+ * IPv6 Special-Purpose Address Registry.
+ * IPv4: 0.0.0.0/8 (this host), 10.0.0.0/8, 172.16.0.0/12, and 192.168.0.0/16
+ * (private-use), 100.64.0.0/10 (shared address space), 127.0.0.0/8 (loopback),
+ * 169.254.0.0/16 (link-local, includes cloud metadata), 192.0.0.0/24 (IETF
+ * protocol assignments), 198.18.0.0/15 (benchmarking), 240.0.0.0/4 (reserved).
+ * IPv6: :: (unspecified), ::1 (loopback), fc00::/7 (unique-local),
+ * fe80::/10 (link-local), fec0::/10 (site-local).
+ * An embedded IPv4 address in ::ffff:0:0/96 (mapped), ::/96 (compatible),
+ * 64:ff9b::/96 (NAT64), or 2002::/16 (6to4) is judged as that IPv4 address.
+ * Documentation prefixes are omitted; they are not a route onto the
+ * operator's network.
  */
 const BLOCKED_WEBHOOK_ADDRESSES = new BlockList();
 BLOCKED_WEBHOOK_ADDRESSES.addSubnet('0.0.0.0', 8, 'ipv4');
@@ -86,9 +96,6 @@ BLOCKED_WEBHOOK_ADDRESSES.addSubnet('127.0.0.0', 8, 'ipv4');
 BLOCKED_WEBHOOK_ADDRESSES.addSubnet('169.254.0.0', 16, 'ipv4');
 BLOCKED_WEBHOOK_ADDRESSES.addSubnet('172.16.0.0', 12, 'ipv4');
 BLOCKED_WEBHOOK_ADDRESSES.addSubnet('192.168.0.0', 16, 'ipv4');
-// IANA IPv4/IPv6 Special-Purpose Address Registries: these are not ordinary
-// global unicast (shared address space, protocol assignments, benchmarking,
-// reserved, site-local).
 BLOCKED_WEBHOOK_ADDRESSES.addSubnet('100.64.0.0', 10, 'ipv4');
 BLOCKED_WEBHOOK_ADDRESSES.addSubnet('192.0.0.0', 24, 'ipv4');
 BLOCKED_WEBHOOK_ADDRESSES.addSubnet('198.18.0.0', 15, 'ipv4');
