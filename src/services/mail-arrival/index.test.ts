@@ -1,3 +1,4 @@
+import { delimitUntrusted } from '../../safety/untrusted-content.js';
 import type { AccountConfig, SystemOneConfig } from '../../types/index.js';
 import type ImapService from '../imap.service.js';
 import { MailArrival } from './index.js';
@@ -291,7 +292,7 @@ describe('MailArrival.handle', () => {
       | { state?: { message?: { attachments?: unknown } } }
       | undefined;
     expect(payload?.state?.message?.attachments).toEqual([
-      { filename: 'inv.pdf', mime: 'application/pdf' },
+      { filename: delimitUntrusted('inv.pdf'), mime: 'application/pdf' },
     ]);
     expect(imap.getEmail).not.toHaveBeenCalled();
   });

@@ -720,11 +720,14 @@ describe('startGuardedHttpServers', () => {
 describe('HTTP entrypoint', () => {
   it('starts through the guarded listener and does not advertise every interface', async () => {
     const source = await readFile(new URL('../main.ts', import.meta.url), 'utf8');
+    const host = await readFile(new URL('./http-mcp-host.ts', import.meta.url), 'utf8');
     expect(source).toContain('startGuardedHttpServers');
-    expect(source).toContain('readLimitedBody');
-    expect(source).toContain('resolveHttpRoute');
+    expect(source).toContain('createHttpMcpHost');
+    expect(host).toContain('readLimitedBody');
+    expect(host).toContain('resolveHttpRoute');
     expect(source).not.toContain('http://0.0.0.0:');
     expect(source).not.toMatch(/\.listen\(\s*port\s*[,)]/);
+    expect(host).not.toMatch(/\.listen\(\s*port\s*[,)]/);
   });
 
   it('documents loopback as the HTTP default', async () => {
