@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
@@ -99,5 +99,72 @@ describe('pinned GitHub Actions', () => {
       }
     }
     expect(unpinned).toEqual([]);
+  });
+});
+
+function workflowName(yaml: string): string {
+  const match = yaml.match(/^name:\s*(\S+)\s*$/m);
+  if (!match) {
+    throw new Error('missing name');
+  }
+  return match[1];
+}
+
+function permissionBlock(yaml: string): string {
+  const match = yaml.match(/^permissions:\n((?: {2}[a-z-]+: (?:read|write|none)\n)+)/m);
+  if (!match) {
+    throw new Error('missing permissions');
+  }
+  return match[1];
+}
+
+function weeklyCron(yaml: string): string[] {
+  const match = yaml.match(/cron:\s*"([^"]+)"/);
+  if (!match) {
+    throw new Error('missing cron');
+  }
+  return match[1].split(/\s+/);
+}
+
+describe('code scanning workflows', () => {
+  it('runs CodeQL for javascript-typescript on develop pull requests and weekly', () => {
+    const path = join(workflowDir, 'codeql.yml');
+    expect(existsSync(path)).toBe(true);
+    const yaml = readFileSync(path, 'utf8');
+    expect(workflowName(yaml)).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+    expect(permissionBlock(yaml)).toBe('  contents: read\n  security-events: write\n');
+    const on = onBlock(yaml);
+    expect(on).toContain('pull_request:');
+    expect(on).toContain('develop');
+    expect(on).toContain('schedule:');
+    expect(on).not.toMatch(/^\s+push:/m);
+    const cron = weeklyCron(yaml);
+    expect(cron).toHaveLength(5);
+    expect(cron[2]).toBe('*');
+    expect(cron[3]).toBe('*');
+    expect(cron[4]).toMatch(/^[0-6]$/);
+    expect(yaml).toContain('languages: javascript-typescript');
+    expect(yaml).toContain('github/codeql-action/init@');
+    expect(yaml).toContain('github/codeql-action/analyze@');
+  });
+
+  it('runs OpenSSF Scorecard weekly and when branch protection changes', () => {
+    const path = join(workflowDir, 'scorecard.yml');
+    expect(existsSync(path)).toBe(true);
+    const yaml = readFileSync(path, 'utf8');
+    expect(workflowName(yaml)).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+    expect(permissionBlock(yaml)).toBe(
+      '  contents: read\n  security-events: write\n  id-token: write\n',
+    );
+    const on = onBlock(yaml);
+    expect(on).toContain('schedule:');
+    expect(on).toContain('branch_protection_rule:');
+    expect(on).not.toMatch(/^\s+push:/m);
+    const cron = weeklyCron(yaml);
+    expect(cron).toHaveLength(5);
+    expect(cron[2]).toBe('*');
+    expect(cron[3]).toBe('*');
+    expect(cron[4]).toMatch(/^[0-6]$/);
+    expect(yaml).toContain('ossf/scorecard-action@');
   });
 });
