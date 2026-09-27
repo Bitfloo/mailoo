@@ -70,6 +70,9 @@ export const MAX_WEBHOOK_URL_CHARS = 2048;
 /** Fixed sound file. Runtime alert settings cannot replace this path. */
 const FREEDESKTOP_MESSAGE_SOUND = '/usr/share/sounds/freedesktop/stereo/message-new-instant.oga';
 
+/** Desktop banners show a short line; bound the text passed to the OS notifier. */
+const MAX_NOTIFICATION_FIELD_CHARS = 200;
+
 export interface DesktopNotificationCommand {
   bin: string;
   args: string[];
@@ -139,7 +142,7 @@ export function applyAlertsPatch(
 }
 
 function notificationField(text: string): string {
-  return text.replace(/\0/g, '').slice(0, 200);
+  return text.replace(/\0/g, '').slice(0, MAX_NOTIFICATION_FIELD_CHARS);
 }
 
 /**
@@ -161,10 +164,23 @@ export function desktopNotificationCommands(
 
   if (platform === 'darwin') {
     const soundClause = sound ? ' sound name "Glass"' : '';
-    const script =
-      'display notification (system attribute "MAILOO_NOTIFY_BODY") ' +
-      `with title (system attribute "MAILOO_NOTIFY_TITLE")${soundClause}`;
-    return [{ bin: 'osascript', args: ['-e', script], env }];
+    return [
+      {
+        bin: 'osascript',
+        args: [
+          '-e',
+          'on run argv',
+          '-e',
+          `display notification (item 2 of argv) with title (item 1 of argv)${soundClause}`,
+          '-e',
+          'end run',
+          // osascript would parse a trailing argument starting with -e as another statement
+          '--',
+          safeTitle,
+          safeBody,
+        ],
+      },
+    ];
   }
 
   if (platform === 'linux') {

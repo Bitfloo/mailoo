@@ -10,6 +10,8 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Behaviour changes
 
+- Desktop notifications pass message text to the OS notifier as data, not as script source.
+
 - `send_at` must be an ISO 8601 date-time with a UTC offset, for example
   `2026-10-01T09:00:00+02:00`. Seconds may be omitted (`2026-10-01T09:00Z`
   and `2026-10-01T09:00+02:00`). A time with no offset is rejected, because

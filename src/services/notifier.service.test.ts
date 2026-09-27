@@ -223,6 +223,37 @@ describe('desktop notification commands', () => {
     ]);
   });
 
+  it('passes a non-ASCII subject to osascript argv unchanged on macOS', async () => {
+    // This subject is the MacRoman failure (and a quote a script escape would rewrite).
+    const subject = 'zażółć ’quote’';
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+    execFileMock.mockClear();
+    const notifier = new NotifierService({
+      desktop: true,
+      sound: false,
+      urgencyThreshold: 'low',
+      webhookUrl: '',
+      webhookEvents: [],
+    });
+    try {
+      await notifier.alert({
+        account: 'work',
+        sender: { address: 'ada@example.com' },
+        subject,
+        priority: 'urgent',
+      });
+      const calls = execFileMock.mock.calls.filter((call) => call[0] === 'osascript');
+      expect(calls).toHaveLength(1);
+      const args = calls[0][1] as string[];
+      const statements = args.filter((_, index) => args[index - 1] === '-e');
+      expect(statements.join('\n')).not.toContain(subject);
+      expect(args).toContain(`From: ada@example.com\n${subject}`);
+    } finally {
+      platform.mockRestore();
+      notifier.stop();
+    }
+  });
+
   it('does not place the message subject inside the desktop command script', async () => {
     execFileMock.mockClear();
     const notifier = new NotifierService({
