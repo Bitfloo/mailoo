@@ -156,10 +156,24 @@ describe('published identity', () => {
     }
   });
 
-  it('keeps smithery on the npm package name without pretending npx works', () => {
+  it('launches smithery with npx and maps config onto MCP_EMAIL_* variables', () => {
+    expect(smithery).toContain('npx');
     expect(smithery).toContain(pkg.name);
-    expect(smithery).toContain('node');
-    expect(smithery).toContain('dist/main.js');
-    expect(smithery).not.toMatch(/"npx"/);
+    expect(smithery).not.toMatch(/not on npm/i);
+    expect(smithery).not.toContain('dist/main.js');
+    const names = server.packages?.[0]?.environmentVariables?.map((item) => item.name) ?? [];
+    expect(names.length).toBeGreaterThan(0);
+    names.forEach((name) => {
+      expect(smithery).toContain(name);
+    });
+  });
+
+  it('documents npx as an install path and does not say the package is unpublished', async () => {
+    const readme = await readFile(join(root, 'README.md'), 'utf8');
+    expect(readme).toContain('npx -y @bitfloo/mailoo');
+    expect(readme).toContain('ghcr.io/bitfloo/mailoo');
+    expect(readme).not.toMatch(/not on npm/i);
+    expect(readme).not.toMatch(/npx @bitfloo\/mailoo` will fail/);
+    expect(readme).not.toMatch(/until npm/i);
   });
 });

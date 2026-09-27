@@ -1,15 +1,171 @@
 # Smithery configuration — https://smithery.ai/docs/build
 # Lists mailoo on the Smithery MCP marketplace.
-# `@bitfloo/mailoo` is not on npmjs yet — launch the built clone, not npx.
-# Config is stored locally via `node dist/main.js account add`; no runtime secrets here.
+# Config keys are MCP_EMAIL_* names and are passed through as the process environment.
 startCommand:
   type: stdio
   configSchema:
     type: object
-    properties: {}
+    required:
+      - MCP_EMAIL_ADDRESS
+      - MCP_EMAIL_IMAP_HOST
+      - MCP_EMAIL_SMTP_HOST
+    properties:
+      MCP_EMAIL_ADDRESS:
+        type: string
+        description: "Email address. Required for the environment-variable account."
+      MCP_EMAIL_PASSWORD:
+        type: string
+        description: "Password or app password. Required unless MCP_EMAIL_OAUTH2_PROVIDER is set."
+      MCP_EMAIL_IMAP_HOST:
+        type: string
+        description: "IMAP server hostname."
+      MCP_EMAIL_SMTP_HOST:
+        type: string
+        description: "SMTP server hostname."
+      MCP_EMAIL_ACCOUNT_NAME:
+        type: string
+        description: "Account name. Defaults to default."
+      MCP_EMAIL_FULL_NAME:
+        type: string
+        description: "Display name on sent mail."
+      MCP_EMAIL_USERNAME:
+        type: string
+        description: "Login username. Defaults to the email address."
+      MCP_EMAIL_IMAP_PORT:
+        type: string
+        description: "IMAP port. Defaults to 993."
+      MCP_EMAIL_IMAP_TLS:
+        type: string
+        description: "Set to false to turn off implicit IMAP TLS. Defaults to true."
+      MCP_EMAIL_IMAP_STARTTLS:
+        type: string
+        description: "Set to true to upgrade IMAP with STARTTLS. Defaults to false."
+      MCP_EMAIL_IMAP_VERIFY_SSL:
+        type: string
+        description: "Set to false to skip IMAP certificate verification. Defaults to true."
+      MCP_EMAIL_IMAP_DISABLE_IMAP4REV2:
+        type: string
+        description: "Set to true to force IMAP4rev1 SEARCH."
+      MCP_EMAIL_SIEVE_HOST:
+        type: string
+        description: "ManageSieve hostname. Defaults to the IMAP host."
+      MCP_EMAIL_SIEVE_PORT:
+        type: string
+        description: "ManageSieve port. Defaults to 4190."
+      MCP_EMAIL_SMTP_PORT:
+        type: string
+        description: "SMTP port. Defaults to 465."
+      MCP_EMAIL_SMTP_TLS:
+        type: string
+        description: "Set to false to turn off implicit SMTP TLS. Defaults to true."
+      MCP_EMAIL_SMTP_STARTTLS:
+        type: string
+        description: "Set to true to upgrade SMTP with STARTTLS. Defaults to false."
+      MCP_EMAIL_SMTP_VERIFY_SSL:
+        type: string
+        description: "Set to false to skip SMTP certificate verification. Defaults to true."
+      MCP_EMAIL_SMTP_POOL_ENABLED:
+        type: string
+        description: "Set to false to disable SMTP connection pooling. Defaults to true."
+      MCP_EMAIL_SMTP_POOL_MAX_CONNECTIONS:
+        type: string
+        description: "Maximum pooled SMTP connections. Defaults to 1."
+      MCP_EMAIL_SMTP_POOL_MAX_MESSAGES:
+        type: string
+        description: "Maximum messages per pooled SMTP connection. Defaults to 100."
+      MCP_EMAIL_OAUTH2_PROVIDER:
+        type: string
+        description: "OAuth2 provider: google, microsoft, or custom."
+      MCP_EMAIL_OAUTH2_CLIENT_ID:
+        type: string
+        description: "OAuth2 client id."
+      MCP_EMAIL_OAUTH2_CLIENT_SECRET:
+        type: string
+        description: "OAuth2 client secret."
+      MCP_EMAIL_OAUTH2_REFRESH_TOKEN:
+        type: string
+        description: "OAuth2 refresh token."
+      MCP_EMAIL_RATE_LIMIT:
+        type: string
+        description: "Maximum sends per minute. Defaults to 10."
+      MCP_EMAIL_READ_ONLY:
+        type: string
+        description: "Set to true to omit write tools and mailbox writers."
+      MCP_EMAIL_SAVE_TO_SENT:
+        type: string
+        description: "Set to false to skip the IMAP Sent copy after SMTP. Defaults to true."
+      MCP_EMAIL_WATCHER_ENABLED:
+        type: string
+        description: "Set to true to start the IMAP IDLE watcher."
+      MCP_EMAIL_WATCHER_FOLDERS:
+        type: string
+        description: "Comma-separated folders to watch. Defaults to INBOX."
+      MCP_EMAIL_WATCHER_IDLE_TIMEOUT:
+        type: string
+        description: "IMAP IDLE timeout in seconds. Defaults to 1740."
+      MCP_EMAIL_HOOK_ON_NEW_EMAIL:
+        type: string
+        description: "What to do on arrival: triage, notify, or none."
+      MCP_EMAIL_HOOK_PRESET:
+        type: string
+        description: "Hook preset: inbox-zero, gtd, priority-focus, notification-only, or custom."
+      MCP_EMAIL_HOOK_AUTO_LABEL:
+        type: string
+        description: "Set to true to apply labels from hook triage."
+      MCP_EMAIL_HOOK_AUTO_FLAG:
+        type: string
+        description: "Set to true to flag mail from hook triage."
+      MCP_EMAIL_HOOK_BATCH_DELAY:
+        type: string
+        description: "Seconds to batch arrivals before hooks run. Defaults to 5."
+      MCP_EMAIL_HOOK_CUSTOM_INSTRUCTIONS:
+        type: string
+        description: "Extra instructions appended to the hook preset."
+      MCP_EMAIL_ALERT_DESKTOP:
+        type: string
+        description: "Set to true for desktop notifications."
+      MCP_EMAIL_ALERT_SOUND:
+        type: string
+        description: "Set to true to play a sound with desktop notifications."
+      MCP_EMAIL_ALERT_URGENCY_THRESHOLD:
+        type: string
+        description: "Minimum urgency for an alert: urgent, high, normal, or low."
+      MCP_EMAIL_ALERT_WEBHOOK_URL:
+        type: string
+        description: "HTTP or HTTPS URL that receives alert POSTs."
+      MCP_EMAIL_ALERT_WEBHOOK_ALLOW_PRIVATE:
+        type: string
+        description: "Set to true to allow webhook targets on a LAN, VPN, or tailnet."
+      MCP_EMAIL_HOOK_AUTO_CALENDAR:
+        type: string
+        description: "Set to true to create calendar events from hook triage."
+      MCP_EMAIL_HOOK_CALENDAR_NAME:
+        type: string
+        description: "Calendar name for automatic events."
+      MCP_EMAIL_HOOK_CALENDAR_ALARM_MINUTES:
+        type: string
+        description: "Minutes before an automatic event to alarm. Defaults to 15."
+      MCP_EMAIL_HOOK_CALENDAR_CONFIRM:
+        type: string
+        description: "Set to false to skip confirming automatic calendar events. Defaults to true."
+      MCP_EMAIL_SYSTEM_ONE_ENABLED:
+        type: string
+        description: "Set to true to classify residue mail with System One. Off by default."
+      MCP_EMAIL_HTTP_HOST:
+        type: string
+        description: "HTTP listen address. Defaults to loopback. The host argument wins."
+      MCP_EMAIL_HTTP_TOKEN:
+        type: string
+        description: "Bearer token. Required when the HTTP listen address is not loopback."
+      MCP_EMAIL_HTTP_ALLOWED_HOSTS:
+        type: string
+        description: "Comma-separated Host names. Required for 0.0.0.0 and ::."
     additionalProperties: false
   commandFunction: |-
     (config) => ({
-      command: "node",
-      args: ["dist/main.js", "stdio"]
+      command: "npx",
+      args: ["-y", "@bitfloo/mailoo"],
+      env: Object.fromEntries(
+        Object.entries(config).filter(([, value]) => value !== undefined && value !== "")
+      )
     })
