@@ -4,7 +4,8 @@ Runtime TOML lives at `$XDG_CONFIG_HOME/mailoo/config.toml` (default
 `~/.config/mailoo/config.toml`). The [README](../README.md#configuration)
 covers install, the wizard, and the common `[settings]` / `[[accounts]]`
 shape. This page is the SSOT for behaviour added around Sent copies,
-IMAP4rev2, ManageSieve, read-only side effects, and stdio lifecycle.
+IMAP4rev2, ManageSieve, read-only side effects, stdio lifecycle,
+and webhook targets.
 
 Vulnerability reports: [SECURITY.md](../SECURITY.md). Do not open public
 issues for credential leaks.
@@ -54,6 +55,21 @@ bytes under a specific working directory — that is a disk write, not an
 IMAP write. Details: [tools.md](tools.md#download_attachment).
 
 Env: `MCP_EMAIL_READ_ONLY=true`.
+
+## `settings.hooks.alerts.allow_private_webhooks`
+
+Default **false**. A webhook URL must use `http` or `https`. While this is
+off, the host must not be a loopback, private, link-local, or other
+non-global address, including a name that resolves to one. Set it to
+**true** to allow a webhook on the local network, a VPN, or a tailnet.
+The protocol check still applies.
+
+Env: `MCP_EMAIL_ALERT_WEBHOOK_ALLOW_PRIVATE=true`.
+
+```toml
+[settings.hooks.alerts]
+allow_private_webhooks = false
+```
 
 ## IMAP4rev2 (`disable_imap4rev2`)
 
@@ -138,3 +154,4 @@ These supplement the table in the README (single-account env overlay).
 | `MCP_EMAIL_IMAP_DISABLE_IMAP4REV2` | `false` | Force IMAP4rev1 SEARCH |
 | `MCP_EMAIL_SIEVE_HOST` | IMAP host | ManageSieve hostname |
 | `MCP_EMAIL_SIEVE_PORT` | `4190` | ManageSieve port |
+| `MCP_EMAIL_ALERT_WEBHOOK_ALLOW_PRIVATE` | `false` | Allow webhook targets on a LAN, VPN, or tailnet |

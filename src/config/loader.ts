@@ -524,7 +524,7 @@ save_to_sent = true  # IMAP APPEND to \\Sent after SMTP send (set false for Gmai
 # urgency_threshold = "high" # minimum priority: "urgent" | "high" | "normal" | "low"
 # webhook_url = ""        # HTTP POST to Slack/Discord/ntfy.sh/etc.
 # webhook_events = ["urgent", "high"]  # which priorities trigger webhook
-# allow_private_webhooks = false  # set true to permit loopback and private webhook URLs
+# allow_private_webhooks = false  # off by default; true permits LAN, VPN, and tailnet webhook URLs
 
 # [settings.system_one]
 # enabled = false          # requires watcher.enabled too; TYPESAFE_API_KEY from env only
