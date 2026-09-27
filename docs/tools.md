@@ -10,7 +10,8 @@ Reporting security issues: [SECURITY.md](../SECURITY.md).
 ## `download_attachment`
 
 Always registered (including `read_only`). Default response is base64,
-capped at **5 MB**.
+capped at **5 MB**. When `read_only` is true, `savePath` is rejected and
+no file is written.
 
 `savePath` (optional) writes a new file under a **specific** working
 directory and returns metadata only — no base64. Cap is **50 MB**.
@@ -21,8 +22,10 @@ except iCloud Drive and CloudStorage, `~/AppData`, `~/snap`) are refused,
 and Mailoo does not create directories for a refused path. Use base64,
 or start the server in a dedicated folder. Absolute paths or `..` that
 escape the working directory are rejected. `readOnlyHint` is **false**
-because this path writes disk. A directory `savePath` uses the attachment
-filename (one path segment). An existing file is left unchanged. A
+on a writable server because this path writes disk, and **true** when
+`read_only` is set because `savePath` is rejected. A directory `savePath`
+uses the attachment filename (one path segment). An existing file is left
+unchanged. A
 symlink is rejected.
 
 ## `list_emails` / `search_emails` dates

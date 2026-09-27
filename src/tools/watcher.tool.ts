@@ -12,7 +12,7 @@ import { listPresets as listAllPresets } from '../services/presets.js';
 import type WatcherService from '../services/watcher.service.js';
 import type { AlertsConfig } from '../types/index.js';
 
-export default function registerWatcherTools(
+export function registerWatcherReadTools(
   server: McpServer,
   watcherService: WatcherService,
   hooksService: HooksService,
@@ -254,6 +254,10 @@ export default function registerWatcherTools(
       };
     },
   );
+}
+
+export function registerWatcherWriteTools(server: McpServer, hooksService: HooksService): void {
+  const hooksConfig = hooksService.getHooksConfig();
 
   // -------------------------------------------------------------------------
   // test_notification — send a test notification
@@ -429,4 +433,13 @@ export default function registerWatcherTools(
       }
     },
   );
+}
+
+export default function registerWatcherTools(
+  server: McpServer,
+  watcherService: WatcherService,
+  hooksService: HooksService,
+): void {
+  registerWatcherReadTools(server, watcherService, hooksService);
+  registerWatcherWriteTools(server, hooksService);
 }

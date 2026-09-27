@@ -195,7 +195,11 @@ export async function writeAttachmentFile(
   return dest;
 }
 
-export default function registerAttachmentTools(server: McpServer, imapService: ImapService): void {
+export default function registerAttachmentTools(
+  server: McpServer,
+  imapService: ImapService,
+  readOnly = false,
+): void {
   server.registerTool(
     'download_attachment',
     {
@@ -216,14 +220,18 @@ export default function registerAttachmentTools(server: McpServer, imapService: 
           ),
       },
       annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
+        // savePath writes disk on a writable server. read_only rejects it, so the hint matches that server.
+        readOnlyHint: readOnly,
+        destructiveHint: !readOnly,
         idempotentHint: true,
         openWorldHint: true,
       },
     },
     async ({ account, id, mailbox, filename, savePath }) => {
       try {
+        if (readOnly && savePath !== undefined) {
+          throw new Error('savePath is not allowed in read_only mode');
+        }
         const maxSize = savePath ? SAVE_PATH_MAX_BYTES : 5 * 1024 * 1024;
         const result = await imapService.downloadAttachment(
           account,

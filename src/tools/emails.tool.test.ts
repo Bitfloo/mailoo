@@ -6,16 +6,35 @@ type Handler = (args: Record<string, unknown>) => Promise<{
   content: { type: string; text: string }[];
 }>;
 
-function captureNamedHandler(name: string, imap: unknown): Handler {
+function captureNamedHandler(name: string, imap: unknown, readOnly = false): Handler {
   let handler: Handler | undefined;
   const server = {
     registerTool: (toolName: string, _config: unknown, fn: Handler) => {
       if (toolName === name) handler = fn;
     },
   };
-  registerEmailsTools(server as never, imap as ImapService);
+  registerEmailsTools(server as never, imap as ImapService, readOnly);
   if (!handler) throw new Error(`${name} handler was not registered`);
   return handler;
+}
+
+function unreadEmail() {
+  return {
+    id: '1',
+    subject: 'Status note',
+    from: { name: 'Eve', address: 'eve@example.com' },
+    to: [{ name: 'Me', address: 'me@example.com' }],
+    date: '2026-01-01T00:00:00.000Z',
+    messageId: '<m@example.com>',
+    seen: false,
+    flagged: false,
+    answered: false,
+    labels: [],
+    hasAttachments: false,
+    attachments: [],
+    headers: {},
+    bodyText: 'hello',
+  };
 }
 
 const UNTRUSTED_BEGIN = '<<<UNTRUSTED_EXTERNAL_CONTENT>>>';
@@ -29,6 +48,29 @@ function fenced(text: string): string {
   expect(text.indexOf(UNTRUSTED_END)).toBe(end);
   return text.slice(begin + UNTRUSTED_BEGIN.length, end);
 }
+
+describe('get_email markRead', () => {
+  it('should leave the message unseen when read_only is true and markRead is true', async () => {
+    const setFlags = vi.fn();
+    const getEmail = vi.fn().mockResolvedValue(unreadEmail());
+    const run = captureNamedHandler('get_email', { getEmail, setFlags }, true);
+    const result = await run({ account: 'box', emailId: '1', mailbox: 'INBOX', markRead: true });
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0]?.text).toContain('Status note');
+    expect(result.content[0]?.text).toContain('Unread');
+    expect(setFlags).not.toHaveBeenCalled();
+  });
+
+  it('should mark the message seen when markRead is true and read_only is false', async () => {
+    const setFlags = vi.fn().mockResolvedValue(undefined);
+    const getEmail = vi.fn().mockResolvedValue(unreadEmail());
+    const run = captureNamedHandler('get_email', { getEmail, setFlags }, false);
+    const result = await run({ account: 'box', emailId: '1', mailbox: 'INBOX', markRead: true });
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0]?.text).toContain('Status note');
+    expect(setFlags).toHaveBeenCalledWith('box', '1', 'INBOX', 'read');
+  });
+});
 
 describe('untrusted mail text', () => {
   it('delimits get_email subject, headers, and body as external content', async () => {

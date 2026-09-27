@@ -22,23 +22,23 @@ import registerAccountsTools from './accounts.tool.js';
 import registerAnalyticsTools from './analytics.tool.js';
 import registerAttachmentTools from './attachments.tool.js';
 import registerBulkTools from './bulk.tool.js';
-import registerCalendarTools from './calendar.tool.js';
+import { registerCalendarAllTools, registerCalendarReadTools } from './calendar.tool.js';
 import registerContactsTools from './contacts.tool.js';
 import registerDraftTools from './drafts.tool.js';
 import registerEmailsTools from './emails.tool.js';
 import registerFolderTools from './folders.tool.js';
 import registerHealthTools from './health.tool.js';
-import registerLabelTools from './label.tool.js';
+import { registerLabelReadTools, registerLabelWriteTools } from './label.tool.js';
 import registerLocateTools from './locate.tool.js';
 import registerMailboxesTools from './mailboxes.tool.js';
 import registerManageTools from './manage.tool.js';
-import registerSchedulerTools from './scheduler.tool.js';
+import registerSchedulerTools, { registerSchedulerReadTools } from './scheduler.tool.js';
 import registerSecurityTools from './security.tool.js';
 import registerSendTools from './send.tool.js';
 import { registerSieveReadTools, registerSieveWriteTools } from './sieve.tool.js';
 import { registerTemplateReadTools, registerTemplateWriteTools } from './templates.tool.js';
 import registerThreadTools from './thread.tool.js';
-import registerWatcherTools from './watcher.tool.js';
+import { registerWatcherReadTools, registerWatcherWriteTools } from './watcher.tool.js';
 
 export default function registerAllTools(
   server: McpServer,
@@ -59,35 +59,53 @@ export default function registerAllTools(
   // Read tools — always registered
   registerAccountsTools(server, connections);
   registerMailboxesTools(server, imapService);
-  registerEmailsTools(server, imapService);
-  registerAttachmentTools(server, imapService);
+  registerEmailsTools(server, imapService, readOnly);
+  registerAttachmentTools(server, imapService, readOnly);
   registerContactsTools(server, imapService);
   registerThreadTools(server, imapService);
   registerTemplateReadTools(server, templateService);
-  registerCalendarTools(
-    server,
-    imapService,
-    calendarService,
-    localCalendarService,
-    remindersService,
-  );
+  if (readOnly) {
+    registerCalendarReadTools(
+      server,
+      imapService,
+      calendarService,
+      localCalendarService,
+      remindersService,
+    );
+  } else {
+    registerCalendarAllTools(
+      server,
+      imapService,
+      calendarService,
+      localCalendarService,
+      remindersService,
+    );
+  }
   registerAnalyticsTools(server, imapService);
   registerHealthTools(server, connections, imapService);
   registerLocateTools(server, imapService);
-  registerWatcherTools(server, watcherService, hooksService);
+  registerWatcherReadTools(server, watcherService, hooksService);
+  if (!readOnly) {
+    registerWatcherWriteTools(server, hooksService);
+  }
   registerSecurityTools(server, imapService);
   registerSieveReadTools(server, connections, sieveService);
 
-  // Write tools — skipped in read-only mode
+  // Write tools — skipped in read-only mode. list_labels and list_scheduled
+  // stay registered; their modules also contain writes.
   if (!readOnly) {
     registerSendTools(server, smtpService);
     registerManageTools(server, imapService);
-    registerLabelTools(server, imapService);
+    registerLabelReadTools(server, imapService);
+    registerLabelWriteTools(server, imapService);
     registerBulkTools(server, imapService);
     registerDraftTools(server, imapService, smtpService);
     registerFolderTools(server, imapService);
     registerTemplateWriteTools(server, templateService, imapService, smtpService);
     registerSchedulerTools(server, schedulerService);
     registerSieveWriteTools(server, connections, sieveService);
+  } else {
+    registerLabelReadTools(server, imapService);
+    registerSchedulerReadTools(server, schedulerService);
   }
 }

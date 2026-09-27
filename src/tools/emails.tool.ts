@@ -50,7 +50,11 @@ function formatEmailStatus(email: Pick<Email, 'seen' | 'flagged' | 'answered' | 
 
 // ---------------------------------------------------------------------------
 
-export default function registerEmailsTools(server: McpServer, imapService: ImapService): void {
+export default function registerEmailsTools(
+  server: McpServer,
+  imapService: ImapService,
+  readOnly = false,
+): void {
   // ---------------------------------------------------------------------------
   // list_emails
   // ---------------------------------------------------------------------------
@@ -172,7 +176,8 @@ export default function registerEmailsTools(server: McpServer, imapService: Imap
           ),
       },
       annotations: {
-        readOnlyHint: false,
+        // Writable servers can set \Seen. read_only ignores markRead, so the hint matches that server.
+        readOnlyHint: readOnly,
         destructiveHint: false,
         idempotentHint: true,
         openWorldHint: true,
@@ -211,7 +216,8 @@ export default function registerEmailsTools(server: McpServer, imapService: Imap
           applyBodyFormat(email.bodyText, email.bodyHtml, format as BodyFormat, maxLength),
         );
 
-        if (markRead) {
+        // read_only keeps get_email registered. markRead must not set \Seen.
+        if (markRead && !readOnly) {
           await imapService.setFlags(account, emailId, mailbox, 'read');
         }
 

@@ -45,14 +45,30 @@ sent_mailbox = "INBOX.Sent Messages"
 
 ## `settings.read_only`
 
-Default **false**. When **true**:
+Default **false**. When **true**, hooks, the IMAP IDLE watcher, and the
+in-process scheduler **do not start**, and tools that write are not
+registered.
 
-- write MCP tools are not registered (send, drafts, labels, sieve writes, …)
-- hooks, the IMAP IDLE watcher, and the in-process scheduler **do not start**
+The registered tools are exactly:
 
-`download_attachment` stays registered. Passing `savePath` still writes
-bytes under a specific working directory — that is a disk write, not an
-IMAP write. Details: [tools.md](tools.md#download_attachment).
+`analyze_email_for_scheduling`, `check_calendar_permissions`,
+`check_health`, `check_notification_setup`, `download_attachment`,
+`extract_calendar`, `extract_contacts`, `find_email_folder`, `get_email`,
+`get_email_security`, `get_email_stats`, `get_email_status`, `get_emails`,
+`get_hooks_config`, `get_thread`, `get_watcher_status`, `list_accounts`,
+`list_calendars`, `list_emails`, `list_events`, `list_labels`,
+`list_mailboxes`, `list_presets`, `list_reminders`, `list_scheduled`,
+`list_templates`, `search_emails`, `sieve_get_script`, `sieve_list_scripts`,
+`sieve_status`.
+
+`get_email` ignores `markRead` and does not set `\Seen`.
+`download_attachment` rejects `savePath` and does not write a file; the
+response is base64, as when `savePath` is omitted. In this mode both tools
+are advertised as read-only.
+
+Every other tool is omitted. That includes `add_to_calendar`,
+`create_reminder`, `test_notification`, `configure_alerts`, and the send,
+draft, label-change, mailbox, schedule-write, and sieve-write tools.
 
 Env: `MCP_EMAIL_READ_ONLY=true`.
 

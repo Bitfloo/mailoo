@@ -86,22 +86,6 @@ const EXPECTED_TOOL_ANNOTATIONS = {
   sieve_activate_script: hints(false, true, true, true),
 } satisfies Record<string, ToolHints>;
 
-/**
- * registerAllTools still skips write modules as a group. A writable tool in a
- * read module stays listed, and a read-only tool in a write module stays
- * hidden. These names are that gap, not a silent skip.
- */
-const READ_ONLY_EXPOSES_DESPITE_HINT = [
-  'add_to_calendar',
-  'configure_alerts',
-  'create_reminder',
-  'download_attachment',
-  'get_email',
-  'test_notification',
-] as const;
-
-const READ_ONLY_OMITS_DESPITE_HINT = ['list_labels', 'list_scheduled'] as const;
-
 interface ListedTool {
   name: string;
   annotations?: Partial<ToolHints>;
@@ -272,20 +256,24 @@ describe('tool annotations', () => {
     });
   });
 
-  it('should expose only readOnlyHint tools when read_only is true, except tools still split by module', async () => {
+  it('should expose only readOnlyHint tools when read_only is true', async () => {
     await withCatalog(true, async (catalog) => {
-      const readable = new Set(
-        Object.entries(EXPECTED_TOOL_ANNOTATIONS)
-          .filter(([, toolHints]) => toolHints.readOnlyHint)
-          .map(([name]) => name),
-      );
-      const exposed = catalog.tools.map((tool) => tool.name);
-      const extra = exposed.filter((name) => !readable.has(name)).sort();
-      const hidden = [...readable].filter((name) => !exposed.includes(name)).sort();
-      expect({ extra, hidden }).toEqual({
-        extra: [...READ_ONLY_EXPOSES_DESPITE_HINT],
-        hidden: [...READ_ONLY_OMITS_DESPITE_HINT],
-      });
+      const exposed = catalog.tools.map((tool) => tool.name).sort();
+      const liveReadOnly = catalog.tools
+        .filter((tool) => tool.annotations?.readOnlyHint === true)
+        .map((tool) => tool.name)
+        .sort();
+      // Every listed tool must declare itself read-only. get_email and
+      // download_attachment stay registered; their write paths are off, so
+      // their hints are true in this mode.
+      expect(exposed).toEqual(liveReadOnly);
+      expect(exposed).toEqual(expect.arrayContaining(['download_attachment', 'get_email']));
+
+      const required = Object.entries(EXPECTED_TOOL_ANNOTATIONS)
+        .filter(([, toolHints]) => toolHints.readOnlyHint)
+        .map(([name]) => name)
+        .sort();
+      expect(required.filter((name) => !exposed.includes(name))).toEqual([]);
     });
   });
 });

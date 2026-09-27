@@ -275,6 +275,109 @@ describe('download_attachment tool', () => {
     expect(hints?.readOnlyHint).toBe(false);
   });
 
+  it('should declare download_attachment read-only when read_only is true', () => {
+    let hints: { readOnlyHint?: boolean; destructiveHint?: boolean } | undefined;
+    const server = {
+      registerTool: (
+        _name: string,
+        config: { annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean } },
+      ) => {
+        hints = config.annotations;
+      },
+    };
+    registerAttachmentTools(server as never, { downloadAttachment: vi.fn() } as never, true);
+    expect(hints?.readOnlyHint).toBe(true);
+    expect(hints?.destructiveHint).toBe(false);
+  });
+
+  it('should reject savePath in read_only mode without writing a file', async () => {
+    type Handler = (args: {
+      account: string;
+      id: string;
+      mailbox: string;
+      filename: string;
+      savePath?: string;
+    }) => Promise<{ isError?: boolean; content: { type: string; text: string }[] }>;
+
+    let handler: Handler | undefined;
+    const server = {
+      registerTool: (...args: unknown[]) => {
+        handler = args[2] as Handler;
+      },
+    };
+    const imap = {
+      downloadAttachment: vi.fn().mockResolvedValue({
+        filename: 'a.txt',
+        mimeType: 'text/plain',
+        size: 5,
+        contentBase64: Buffer.from('hello').toString('base64'),
+      }),
+    };
+    registerAttachmentTools(server as never, imap as unknown as ImapService, true);
+    if (!handler) throw new Error('download_attachment handler was not registered');
+    const run = handler;
+
+    await withCwdTempDir(async (dir) => {
+      const dest = path.join(dir, 'a.txt');
+      const result = await run({
+        account: 'test',
+        id: '1',
+        mailbox: 'INBOX',
+        filename: 'a.txt',
+        savePath: dest,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content[0]?.text).toContain('savePath is not allowed in read_only mode');
+      await expect(fs.access(dest)).rejects.toThrow();
+      expect(imap.downloadAttachment).not.toHaveBeenCalled();
+    });
+  });
+
+  it('should return base64 in read_only mode when savePath is omitted', async () => {
+    type Handler = (args: {
+      account: string;
+      id: string;
+      mailbox: string;
+      filename: string;
+    }) => Promise<{ isError?: boolean; content: { type: string; text: string }[] }>;
+
+    let handler: Handler | undefined;
+    const server = {
+      registerTool: (...args: unknown[]) => {
+        handler = args[2] as Handler;
+      },
+    };
+    const raw = Buffer.from('hello');
+    const imap = {
+      downloadAttachment: vi.fn().mockResolvedValue({
+        filename: 'a.txt',
+        mimeType: 'text/plain',
+        size: 5,
+        contentBase64: raw.toString('base64'),
+      }),
+    };
+    registerAttachmentTools(server as never, imap as unknown as ImapService, true);
+    if (!handler) throw new Error('download_attachment handler was not registered');
+
+    const result = await handler({
+      account: 'test',
+      id: '1',
+      mailbox: 'INBOX',
+      filename: 'a.txt',
+    });
+    const combined = result.content.map((part) => part.text).join('\n');
+    expect(result.isError).toBeUndefined();
+    expect(combined).toContain('--- Base64 Content ---');
+    expect(combined).toContain(raw.toString('base64'));
+    expect(imap.downloadAttachment).toHaveBeenCalledWith(
+      'test',
+      '1',
+      'INBOX',
+      'a.txt',
+      5 * 1024 * 1024,
+    );
+  });
+
   it('returns savedTo and no base64 body when savePath is set', async () => {
     type Handler = (args: {
       account: string;
