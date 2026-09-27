@@ -150,6 +150,20 @@ describe('Connection Modes', () => {
       expect(mailboxes.find((m) => m.path === 'INBOX')).toBeDefined();
     });
 
+    it('refuses IMAPS when certificate verification stays on', async () => {
+      const strict = buildSslAccount();
+      strict.name = 'integration-ssl-verify';
+      strict.imap = { ...strict.imap, verifySsl: true };
+      const strictServices = createTestServices(strict);
+      try {
+        await expect(strictServices.imapService.listMailboxes(strict.name)).rejects.toThrow(
+          /certificate|self.signed|unable to verify|UNABLE_TO_VERIFY/i,
+        );
+      } finally {
+        await strictServices.connections.closeAll();
+      }
+    });
+
     it('should list emails via IMAPS', async () => {
       const list = await services.imapService.listEmails(account.name);
       expect(list.items).toBeInstanceOf(Array);

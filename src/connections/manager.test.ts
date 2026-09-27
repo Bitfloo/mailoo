@@ -40,6 +40,10 @@ const account: AccountConfig = {
 };
 
 describe('buildImapFlowOptions', () => {
+  beforeEach(() => {
+    vi.mocked(mcpLog).mockClear();
+  });
+
   it('passes disableIMAP4rev2 through to ImapFlow', () => {
     const opts = buildImapFlowOptions(account) as {
       disableIMAP4rev2?: boolean;
@@ -47,6 +51,38 @@ describe('buildImapFlowOptions', () => {
     };
     expect(opts.disableIMAP4rev2).toBe(true);
     expect(opts.host).toBe('imap.strato.de');
+  });
+
+  it('keeps certificate verification on when verifySsl is omitted', () => {
+    const imap = { ...account.imap };
+    delete (imap as { verifySsl?: boolean }).verifySsl;
+    const opts = buildImapFlowOptions({ ...account, imap }) as {
+      tls?: { rejectUnauthorized?: boolean };
+    };
+    expect(opts.tls?.rejectUnauthorized).toBe(true);
+    expect(mcpLog).not.toHaveBeenCalled();
+  });
+
+  it('does not let extra TLS options turn certificate verification off', () => {
+    const opts = buildImapFlowOptions(account, {
+      tls: { rejectUnauthorized: false, servername: 'imap.example.com' },
+    }) as { tls?: { rejectUnauthorized?: boolean; servername?: string } };
+    expect(opts.tls?.rejectUnauthorized).toBe(true);
+    expect(opts.tls?.servername).toBe('imap.example.com');
+    expect(mcpLog).not.toHaveBeenCalled();
+  });
+
+  it('disables certificate verification only when verifySsl is false and logs that', () => {
+    const opts = buildImapFlowOptions({
+      ...account,
+      imap: { ...account.imap, verifySsl: false },
+    }) as { tls?: { rejectUnauthorized?: boolean } };
+    expect(opts.tls?.rejectUnauthorized).toBe(false);
+    expect(mcpLog).toHaveBeenCalledWith(
+      'warning',
+      'imap',
+      expect.stringContaining('certificate verification is disabled'),
+    );
   });
 });
 

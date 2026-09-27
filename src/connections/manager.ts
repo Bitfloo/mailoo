@@ -20,20 +20,36 @@ type SmtpAuth =
   | { user: string; pass?: string }
   | { type: string; user: string; accessToken: string };
 
+function certificatesRequired(verifySsl: boolean | undefined): boolean {
+  return verifySsl !== false;
+}
+
 export function buildImapFlowOptions(
   account: AccountConfig,
   extra: Record<string, unknown> = {},
 ): ConstructorParameters<typeof ImapFlow>[0] {
+  const verifyCertificates = certificatesRequired(account.imap.verifySsl);
+  if (!verifyCertificates && (account.imap.tls || account.imap.starttls)) {
+    mcpLog(
+      'warning',
+      'imap',
+      `IMAP certificate verification is disabled for "${account.name}"`,
+    ).catch(() => {});
+  }
+  const { tls: extraTls, ...rest } = extra;
+  const tlsExtras =
+    extraTls !== null && typeof extraTls === 'object' ? (extraTls as Record<string, unknown>) : {};
   return {
     host: account.imap.host,
     port: account.imap.port,
     secure: account.imap.tls,
-    tls: {
-      rejectUnauthorized: account.imap.verifySsl,
-    },
     logger: false,
     ...(account.imap.disableImap4rev2 ? { disableIMAP4rev2: true } : {}),
-    ...extra,
+    ...rest,
+    tls: {
+      ...tlsExtras,
+      rejectUnauthorized: verifyCertificates,
+    },
   } as ConstructorParameters<typeof ImapFlow>[0];
 }
 
