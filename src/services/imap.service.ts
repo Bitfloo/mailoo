@@ -28,6 +28,7 @@ import { looksLikeRawMime, preferRicherPlain } from '../utils/email-body.js';
 import compileRfc822 from '../utils/mail-compose.js';
 import type { LabelStrategy } from './label-strategy.js';
 import { detectLabelStrategy } from './label-strategy.js';
+import { resolveOutgoingAttachments } from './outgoing-attachments.js';
 
 // ---------------------------------------------------------------------------
 // Helpers (must be defined before ImapService)
@@ -1112,32 +1113,14 @@ export default class ImapService {
       attachments?: OutgoingAttachment[];
     },
   ): Promise<{ id: number; mailbox: string }> {
+    const nodemailerAttachments = await resolveOutgoingAttachments(options.attachments);
+
     const client = await this.connections.getImapClient(accountName);
     const account = this.connections.getAccount(accountName);
 
     const mailboxes = await client.list();
     const drafts = mailboxes.find((mb) => mb.specialUse === '\\Drafts');
     const draftsPath = drafts?.path ?? 'Drafts';
-
-    const nodemailerAttachments = (options.attachments ?? [])
-      .map((att) => {
-        if (att.path) {
-          return {
-            filename: att.filename ?? att.path.split(/[/\\]/).pop(),
-            path: att.path,
-            contentType: att.contentType,
-          };
-        }
-        if (att.base64) {
-          return {
-            filename: att.filename ?? 'attachment',
-            content: Buffer.from(att.base64, 'base64'),
-            contentType: att.contentType,
-          };
-        }
-        return null;
-      })
-      .filter((a): a is NonNullable<typeof a> => a !== null);
 
     const rawMessage = await compileRfc822({
       from: account.fullName ? `"${account.fullName}" <${account.email}>` : account.email,
@@ -1147,6 +1130,8 @@ export default class ImapService {
       subject: options.subject,
       inReplyTo: options.inReplyTo,
       attachments: nodemailerAttachments,
+      disableFileAccess: true,
+      disableUrlAccess: true,
       ...(options.html ? { html: options.body } : { text: options.body }),
     });
 

@@ -1,3 +1,7 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
 import type { TestServices } from './helpers/index.js';
 import {
   buildTestAccount,
@@ -48,6 +52,48 @@ describe('Email Draft Operations', () => {
       });
 
       expect(result.id).toBeTruthy();
+    });
+
+    it('should save a draft attachment read from the working directory', async () => {
+      const dir = await fs.mkdtemp(path.join(process.cwd(), 'tmp-mailoo-out-'));
+      const marker = `draft-payload-${Date.now()}`;
+      try {
+        const file = path.join(dir, 'note.txt');
+        await fs.writeFile(file, marker);
+        const result = await services.imapService.saveDraft(TEST_ACCOUNT_NAME, {
+          to: ['bob@localhost'],
+          subject: `Draft attachment ${marker}`,
+          body: 'See attached',
+          attachments: [{ path: file, filename: 'note.txt', contentType: 'text/plain' }],
+        });
+
+        const downloaded = await services.imapService.downloadAttachment(
+          TEST_ACCOUNT_NAME,
+          String(result.id),
+          result.mailbox,
+          'note.txt',
+        );
+        expect(Buffer.from(downloaded.contentBase64, 'base64').toString('utf8')).toBe(marker);
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('should refuse a draft attachment path outside the working directory', async () => {
+      const outside = path.join(os.tmpdir(), `mailoo-draft-outside-${Date.now()}.txt`);
+      await fs.writeFile(outside, 'outside-marker');
+      try {
+        await expect(
+          services.imapService.saveDraft(TEST_ACCOUNT_NAME, {
+            to: ['bob@localhost'],
+            subject: 'Outside draft attachment',
+            body: 'Should not save',
+            attachments: [{ path: outside }],
+          }),
+        ).rejects.toThrow(/not allowed/);
+      } finally {
+        await fs.unlink(outside);
+      }
     });
   });
 

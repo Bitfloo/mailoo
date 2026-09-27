@@ -1,3 +1,9 @@
+import fs from 'node:fs/promises';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+
 import type { TestServices } from './helpers/index.js';
 import {
   buildSecondTestAccount,
@@ -72,6 +78,85 @@ describe('Email Send Operations', () => {
       });
 
       expect(result.items.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should deliver a file attachment read from the working directory', async () => {
+      const dir = await fs.mkdtemp(path.join(process.cwd(), 'tmp-mailoo-out-'));
+      const marker = `payload-${Date.now()}`;
+      try {
+        const file = path.join(dir, 'note.txt');
+        await fs.writeFile(file, marker);
+        await services.smtpService.sendEmail(TEST_ACCOUNT_NAME, {
+          to: ['bob@localhost'],
+          subject: `Attachment delivery ${marker}`,
+          body: 'See attached',
+          attachments: [{ path: file, filename: 'note.txt', contentType: 'text/plain' }],
+        });
+
+        await waitForDelivery();
+
+        const list = await services.imapService.listEmails('integration-2', {
+          subject: `Attachment delivery ${marker}`,
+        });
+        expect(list.items.length).toBeGreaterThanOrEqual(1);
+
+        const downloaded = await services.imapService.downloadAttachment(
+          'integration-2',
+          list.items[0].id,
+          'INBOX',
+          'note.txt',
+        );
+        expect(Buffer.from(downloaded.contentBase64, 'base64').toString('utf8')).toBe(marker);
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('should refuse an attachment path outside the working directory', async () => {
+      const outside = path.join(os.tmpdir(), `mailoo-outside-${Date.now()}.txt`);
+      await fs.writeFile(outside, 'outside-marker');
+      try {
+        await expect(
+          services.smtpService.sendEmail(TEST_ACCOUNT_NAME, {
+            to: ['bob@localhost'],
+            subject: 'Outside attachment',
+            body: 'Should not send',
+            attachments: [{ path: outside }],
+          }),
+        ).rejects.toThrow(/not allowed/);
+      } finally {
+        await fs.unlink(outside);
+      }
+    });
+
+    it('should refuse an http attachment path without fetching it', async () => {
+      const hits: string[] = [];
+      const server = http.createServer((req, res) => {
+        hits.push(req.url ?? '');
+        res.end('remote-secret');
+      });
+      await new Promise<void>((resolve) => {
+        server.listen(0, '127.0.0.1', () => resolve());
+      });
+      const { port } = server.address() as AddressInfo;
+      try {
+        await expect(
+          services.smtpService.sendEmail(TEST_ACCOUNT_NAME, {
+            to: ['bob@localhost'],
+            subject: 'Remote attachment',
+            body: 'Should not send',
+            attachments: [{ path: `http://127.0.0.1:${port}/secret` }],
+          }),
+        ).rejects.toThrow(/local file/);
+        expect(hits).toEqual([]);
+      } finally {
+        await new Promise<void>((resolve, reject) => {
+          server.close((err) => {
+            if (err) reject(err);
+            else resolve();
+          });
+        });
+      }
     });
   });
 

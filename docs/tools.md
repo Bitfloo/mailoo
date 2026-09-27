@@ -56,6 +56,14 @@ Write tools are omitted when `read_only` is true.
 or **`emailId` + `filename`** (copy from an existing message; `mailbox`
 defaults to INBOX). Optional `contentType`.
 
-`save_draft` accepts `path` or `base64` the same way. Drafts and Sent
-APPENDs go through nodemailer MailComposer so **non-ASCII subjects are
-RFC 2047 encoded**.
+`path` must be a regular file under the process working directory or
+the user's home directory. A path segment that starts with `.` is
+refused, as are system locations (`/etc`, `/proc`, `/sys`, `/dev`),
+`http:` / `https:` / `file:` / `data:` URLs, macOS Keychains and Cookies
+directories, and a symlink whose target leaves the allowed directories.
+Each attachment, and the attachments on one message together, must be
+at most **50 MB**. The service reads the bytes itself.
+
+`save_draft` accepts `path` or `base64` with the same rules. Drafts and
+Sent APPENDs go through nodemailer MailComposer so **non-ASCII subjects
+are RFC 2047 encoded**.

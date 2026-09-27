@@ -4,8 +4,6 @@
  * No MCP dependency — fully unit-testable.
  */
 
-import path from 'node:path';
-
 import type { SendMailOptions } from 'nodemailer';
 import type { IConnectionManager } from '../connections/types.js';
 import { mcpLog } from '../logging.js';
@@ -13,6 +11,10 @@ import type RateLimiter from '../safety/rate-limiter.js';
 import type { OutgoingAttachment, SendResult } from '../types/index.js';
 import compileRfc822 from '../utils/mail-compose.js';
 import type ImapService from './imap.service.js';
+import {
+  MAX_OUTGOING_ATTACHMENT_BYTES,
+  resolveOutgoingAttachments,
+} from './outgoing-attachments.js';
 
 function providerFilesSentMail(smtpHost: string, oauthProvider?: string): boolean {
   const host = smtpHost.toLowerCase();
@@ -142,6 +144,7 @@ export default class SmtpService {
   ): Promise<SendResult> {
     this.checkRateLimit(accountName);
     const account = this.connections.getAccount(accountName);
+    const attachments = await this.resolveAttachments(accountName, options.attachments);
     const original = await this.imapService.getEmail(accountName, options.emailId, options.mailbox);
     const fromDisplay = original.from.name
       ? `${original.from.name} <${original.from.address}>`
@@ -152,7 +155,7 @@ export default class SmtpService {
       to: options.to.join(', '),
       cc: options.cc?.join(', '),
       subject: original.subject.startsWith('Fwd:') ? original.subject : `Fwd: ${original.subject}`,
-      attachments: await this.resolveAttachments(accountName, options.attachments),
+      attachments,
       messageId: options.messageId,
     };
     if (options.html) {
@@ -212,7 +215,7 @@ export default class SmtpService {
           String(draftId),
           draftsPath,
           meta.filename,
-          50 * 1024 * 1024,
+          MAX_OUTGOING_ATTACHMENT_BYTES,
         );
         return {
           filename: downloaded.filename,
@@ -244,52 +247,30 @@ export default class SmtpService {
   private async resolveAttachments(
     accountName: string,
     attachments: OutgoingAttachment[] | undefined,
-  ): Promise<{ filename: string; content?: Buffer; path?: string; contentType?: string }[]> {
-    if (!attachments?.length) return [];
-    return Promise.all(
-      attachments.map(async (att) => {
-        if (att.path) {
-          return {
-            filename: att.filename ?? path.basename(att.path),
-            path: att.path,
-            contentType: att.contentType,
-          };
-        }
-        if (att.base64) {
-          return {
-            filename: att.filename ?? 'attachment',
-            content: Buffer.from(att.base64, 'base64'),
-            contentType: att.contentType,
-          };
-        }
-        if (att.emailId && att.filename) {
-          const downloaded = await this.imapService.downloadAttachment(
-            accountName,
-            att.emailId,
-            att.mailbox ?? 'INBOX',
-            att.filename,
-            50 * 1024 * 1024,
-          );
-          return {
-            filename: downloaded.filename,
-            content: Buffer.from(downloaded.contentBase64, 'base64'),
-            contentType: downloaded.mimeType,
-          };
-        }
-        throw new Error('Each attachment needs path, base64, or emailId+filename');
-      }),
-    );
+  ): Promise<{ filename: string; content: Buffer; contentType?: string }[]> {
+    const downloadMessageAttachment = async (
+      emailId: string,
+      mailbox: string,
+      filename: string,
+      maxBytes: number,
+    ) => this.imapService.downloadAttachment(accountName, emailId, mailbox, filename, maxBytes);
+    return resolveOutgoingAttachments(attachments, { downloadMessageAttachment });
   }
 
   private async sendAndAppend(accountName: string, mail: SendMailOptions): Promise<SendResult> {
     const transport = await this.connections.getSmtpTransport(accountName);
-    const result = await transport.sendMail(mail);
+    const safeMail: SendMailOptions = {
+      ...mail,
+      disableFileAccess: true,
+      disableUrlAccess: true,
+    };
+    const result = await transport.sendMail(safeMail);
     const messageId =
       result.messageId ?? (typeof mail.messageId === 'string' ? mail.messageId : '');
 
     let savedToSent = true;
     try {
-      await this.appendSentCopy(accountName, { ...mail, messageId });
+      await this.appendSentCopy(accountName, { ...safeMail, messageId });
     } catch (err) {
       savedToSent = false;
       const reason = err instanceof Error ? err.message : String(err);

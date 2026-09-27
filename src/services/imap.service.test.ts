@@ -1,3 +1,9 @@
+import fs from 'node:fs/promises';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+
 import type { IConnectionManager } from '../connections/types.js';
 import ImapService, { findTextMimeParts } from './imap.service.js';
 
@@ -477,6 +483,78 @@ describe('ImapService', () => {
       expect(client.append).toHaveBeenCalledOnce();
       const raw = client.append.mock.calls[0][1] as Buffer;
       expect(raw.toString('utf8')).toMatch(/Subject:\s*=\?UTF-8\?[BQ]\?/i);
+    });
+
+    it('should embed a draft attachment read from the working directory', async () => {
+      const dir = await fs.mkdtemp(path.join(process.cwd(), 'tmp-mailoo-out-'));
+      try {
+        const file = path.join(dir, 'note.txt');
+        await fs.writeFile(file, 'draft-file-marker');
+        client.list.mockResolvedValue([{ name: 'Drafts', path: 'Drafts', specialUse: '\\Drafts' }]);
+        await service.saveDraft('test', {
+          to: ['a@example.com'],
+          subject: 'Draft',
+          body: 'Body',
+          attachments: [{ path: file, filename: 'note.txt' }],
+        });
+        const raw = client.append.mock.calls[0][1] as Buffer;
+        const text = raw.toString('utf8');
+        expect(text).toContain('note.txt');
+        expect(text).toContain(Buffer.from('draft-file-marker').toString('base64'));
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('should reject a draft attachment outside the working directory', async () => {
+      const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-draft-outside-'));
+      try {
+        const file = path.join(outside, 'secret.txt');
+        await fs.writeFile(file, 'draft-secret-marker');
+        client.list.mockResolvedValue([{ name: 'Drafts', path: 'Drafts', specialUse: '\\Drafts' }]);
+        await expect(
+          service.saveDraft('test', {
+            to: ['a@example.com'],
+            subject: 'Draft',
+            body: 'Body',
+            attachments: [{ path: file }],
+          }),
+        ).rejects.toThrow(/not allowed/);
+        expect(client.append).not.toHaveBeenCalled();
+        const appended = JSON.stringify(client.append.mock.calls);
+        expect(appended).not.toContain('draft-secret-marker');
+      } finally {
+        await fs.rm(outside, { recursive: true, force: true });
+      }
+    });
+
+    it('should reject an http attachment path when saving a draft', async () => {
+      const hits: string[] = [];
+      const server = http.createServer((req, res) => {
+        hits.push(req.url ?? '');
+        res.end('remote-secret');
+      });
+      await new Promise<void>((resolve) => {
+        server.listen(0, '127.0.0.1', () => resolve());
+      });
+      const { port } = server.address() as AddressInfo;
+      try {
+        client.list.mockResolvedValue([{ name: 'Drafts', path: 'Drafts', specialUse: '\\Drafts' }]);
+        await expect(
+          service.saveDraft('test', {
+            to: ['a@example.com'],
+            subject: 'Draft',
+            body: 'Body',
+            attachments: [{ path: `http://127.0.0.1:${port}/secret` }],
+          }),
+        ).rejects.toThrow(/local file/);
+        expect(client.append).not.toHaveBeenCalled();
+        expect(hits).toEqual([]);
+      } finally {
+        await new Promise<void>((resolve, reject) => {
+          server.close((err) => (err ? reject(err) : resolve()));
+        });
+      }
     });
   });
 });
