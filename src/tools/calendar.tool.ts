@@ -17,6 +17,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 import { CALENDAR_ATTACHMENTS_DIR } from '../config/xdg.js';
+import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type CalendarService from '../services/calendar.service.js';
 import type ImapService from '../services/imap.service.js';
 import type LocalCalendarService from '../services/local-calendar.service.js';
@@ -58,16 +59,12 @@ export default function registerCalendarTools(
           content: [
             {
               type: 'text' as const,
-              text: JSON.stringify(
-                {
-                  email_subject: email.subject,
-                  events: [],
-                  count: 0,
-                  message: 'No calendar/ICS content found in this email',
-                },
-                null,
-                2,
-              ),
+              text: [
+                delimitUntrusted(
+                  JSON.stringify({ email_subject: email.subject, events: [], count: 0 }, null, 2),
+                ),
+                'No calendar/ICS content found in this email',
+              ].join('\n'),
             },
           ],
         };
@@ -79,10 +76,12 @@ export default function registerCalendarTools(
         content: [
           {
             type: 'text' as const,
-            text: JSON.stringify(
-              { email_subject: email.subject, events, count: events.length },
-              null,
-              2,
+            text: delimitUntrusted(
+              JSON.stringify(
+                { email_subject: email.subject, events, count: events.length },
+                null,
+                2,
+              ),
             ),
           },
         ],
@@ -259,17 +258,21 @@ export default function registerCalendarTools(
       }
       if (result.status === 'added') {
         details.event = {
-          title: email.subject,
+          title: delimitUntrusted(email.subject),
           start: eventStart.toISOString(),
           end: eventEnd.toISOString(),
-          location: eventLocation,
+          location: eventLocation === undefined ? undefined : delimitUntrusted(eventLocation),
           calendar: result.calendarName,
-          meetingUrl: meetingUrl?.url,
-          dialIn: conference?.dialIn,
-          meetingId: conference?.meetingId,
+          meetingUrl: meetingUrl?.url === undefined ? undefined : delimitUntrusted(meetingUrl.url),
+          dialIn:
+            conference?.dialIn === undefined ? undefined : delimitUntrusted(conference.dialIn),
+          meetingId:
+            conference?.meetingId === undefined
+              ? undefined
+              : delimitUntrusted(conference.meetingId),
           attachmentsSaved: savedAttachments.length,
           attachments: savedAttachments.map((a) => ({
-            filename: a.filename,
+            filename: delimitUntrusted(a.filename),
             size: a.size,
             localPath: a.localPath,
           })),
@@ -612,13 +615,16 @@ export default function registerCalendarTools(
           detectedEvent = {
             source: 'ics_attachment',
             confidence: 'high',
-            title: ev.summary,
+            title: delimitUntrusted(ev.summary),
             start: ev.start,
             end: ev.end,
-            location: ev.location,
+            location: ev.location === undefined ? undefined : delimitUntrusted(ev.location),
             uid: ev.uid,
-            organizer: ev.organizer?.address,
-            attendees: ev.attendees.map((a) => a.address),
+            organizer:
+              ev.organizer?.address === undefined
+                ? undefined
+                : delimitUntrusted(ev.organizer.address),
+            attendees: ev.attendees.map((a) => delimitUntrusted(a.address)),
           };
         }
       }
@@ -629,11 +635,11 @@ export default function registerCalendarTools(
         detectedEvent = {
           source: 'meeting_url',
           confidence: 'medium',
-          title: email.subject,
+          title: delimitUntrusted(email.subject),
           start: email.date,
           end: new Date(new Date(email.date).getTime() + 60 * 60 * 1000).toISOString(),
-          meetingUrl: meetingUrl.url,
-          provider: meetingUrl.label,
+          meetingUrl: delimitUntrusted(meetingUrl.url),
+          provider: delimitUntrusted(meetingUrl.label),
         };
       }
 
@@ -645,9 +651,11 @@ export default function registerCalendarTools(
       const detectedReminder = reminderMatch
         ? {
             confidence: 'medium',
-            keyword: reminderMatch[0],
-            title: email.subject,
-            suggestedNotes: `From: ${email.from.address}\n\n${(bodyText !== '' ? bodyText : bodyHtml).substring(0, 300)}`,
+            keyword: delimitUntrusted(reminderMatch[0]),
+            title: delimitUntrusted(email.subject),
+            suggestedNotes: delimitUntrusted(
+              `From: ${email.from.address}\n\n${(bodyText !== '' ? bodyText : bodyHtml).substring(0, 300)}`,
+            ),
           }
         : null;
 
@@ -672,8 +680,8 @@ export default function registerCalendarTools(
 
       const analysis = {
         emailId,
-        subject: email.subject,
-        from: email.from.address,
+        subject: delimitUntrusted(email.subject),
+        from: delimitUntrusted(email.from.address),
         date: email.date,
         attachmentCount: email.attachments.length,
         recommendation,
@@ -681,7 +689,24 @@ export default function registerCalendarTools(
         autoProcessedEntry: processedEntry?.entry ?? null,
         detectedEvent,
         detectedReminder,
-        conferenceDetails: conference ?? null,
+        conferenceDetails: conference
+          ? {
+              dialIn:
+                conference.dialIn === undefined ? undefined : delimitUntrusted(conference.dialIn),
+              meetingId:
+                conference.meetingId === undefined
+                  ? undefined
+                  : delimitUntrusted(conference.meetingId),
+              passcode:
+                conference.passcode === undefined
+                  ? undefined
+                  : delimitUntrusted(conference.passcode),
+              provider:
+                conference.provider === undefined
+                  ? undefined
+                  : delimitUntrusted(conference.provider),
+            }
+          : null,
         availableActions: {
           add_to_calendar: detectedEvent !== null || meetingUrl !== undefined,
           create_reminder: detectedReminder !== null,

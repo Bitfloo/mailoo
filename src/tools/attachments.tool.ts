@@ -9,6 +9,7 @@ import path from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
+import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
 
 /** Max size when streaming to disk (base64 responses stay at 5MB). */
@@ -200,7 +201,7 @@ export default function registerAttachmentTools(server: McpServer, imapService: 
                 type: 'text' as const,
                 text: JSON.stringify(
                   {
-                    filename: result.filename,
+                    filename: delimitUntrusted(result.filename),
                     mimeType: result.mimeType,
                     size: result.size,
                     sizeHuman: `${Math.round(result.size / 1024)}KB`,
@@ -220,7 +221,7 @@ export default function registerAttachmentTools(server: McpServer, imapService: 
               type: 'text' as const,
               text: JSON.stringify(
                 {
-                  filename: result.filename,
+                  filename: delimitUntrusted(result.filename),
                   mimeType: result.mimeType,
                   size: result.size,
                   sizeHuman: `${Math.round(result.size / 1024)}KB`,
@@ -231,7 +232,7 @@ export default function registerAttachmentTools(server: McpServer, imapService: 
             },
             {
               type: 'text' as const,
-              text: `\n--- Base64 Content ---\n${result.contentBase64}`,
+              text: `\n--- Base64 Content ---\n${delimitUntrusted(result.contentBase64)}`,
             },
           ],
         };

@@ -1,3 +1,4 @@
+import { delimitUntrusted } from '../../safety/untrusted-content.js';
 import type { EmailMeta } from '../../types/index.js';
 import type { SenderAuthSignals } from '../../utils/auth-headers.js';
 import { preferRicherPlain, stripReplyChain } from '../../utils/email-body.js';
@@ -65,13 +66,16 @@ export function buildMailState(input: {
   return {
     message: {
       sender: {
-        display_name: input.email.meta.from.name ?? '',
+        display_name: delimitUntrusted(input.email.meta.from.name ?? ''),
         email: input.email.meta.from.address,
       },
-      subject: input.email.meta.subject,
-      body,
-      links,
-      attachments: input.attachmentNames,
+      subject: delimitUntrusted(input.email.meta.subject),
+      body: body.length === 0 ? '' : delimitUntrusted(body),
+      links: links.map((link) => ({ text: delimitUntrusted(link.text), url: link.url })),
+      attachments: input.attachmentNames.map((item) => ({
+        filename: delimitUntrusted(item.filename),
+        mime: item.mime,
+      })),
     },
     auth: {
       spf: input.security.spf,

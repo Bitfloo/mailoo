@@ -1,3 +1,4 @@
+import { delimitUntrusted } from '../../safety/untrusted-content.js';
 import type { EmailMeta } from '../../types/index.js';
 import type { SenderAuthSignals } from '../../utils/auth-headers.js';
 import type { ArrivalEmail } from './state.js';
@@ -50,11 +51,17 @@ describe('buildMailState', () => {
     });
     expect(state.message.body).toBe('');
     expect(state.message.sender.email).toBe('billing@example.com');
-    expect(state.message.sender.display_name).toBe('Billing');
+    expect(state.message.sender.display_name).toBe(delimitUntrusted('Billing'));
+    expect(state.message.subject).toBe(delimitUntrusted('Invoice https://billing.example.com/pay'));
     expect(state.message.links).toEqual([
-      { text: 'https://billing.example.com/pay', url: 'https://billing.example.com/pay' },
+      {
+        text: delimitUntrusted('https://billing.example.com/pay'),
+        url: 'https://billing.example.com/pay',
+      },
     ]);
-    expect(state.message.attachments).toEqual([{ filename: 'inv.pdf', mime: 'application/pdf' }]);
+    expect(state.message.attachments).toEqual([
+      { filename: delimitUntrusted('inv.pdf'), mime: 'application/pdf' },
+    ]);
   });
 
   it('truncates body when includeBody is true', () => {
@@ -66,6 +73,6 @@ describe('buildMailState', () => {
       includeBody: true,
       bodyMaxChars: 4,
     });
-    expect(state.message.body).toBe('abcd');
+    expect(state.message.body).toBe(delimitUntrusted('abcd'));
   });
 });

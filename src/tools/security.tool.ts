@@ -5,6 +5,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
+import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
 
 export default function registerSecurityTools(server: McpServer, imapService: ImapService): void {
@@ -25,7 +26,7 @@ export default function registerSecurityTools(server: McpServer, imapService: Im
           content: [
             {
               type: 'text' as const,
-              text: JSON.stringify(signals, null, 2),
+              text: delimitUntrusted(JSON.stringify(signals, null, 2)),
             },
           ],
         };

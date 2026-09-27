@@ -10,6 +10,8 @@
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
 
+import { delimitUntrusted } from '../safety/untrusted-content.js';
+
 const execFile = promisify(execFileCb);
 
 // ---------------------------------------------------------------------------
@@ -84,7 +86,7 @@ function reminderStatusMessage(
 ): string {
   switch (status) {
     case 'added':
-      return `\u2705 Reminder added: "${title}" \u2192 ${listName ?? 'Reminders'}.`;
+      return `\u2705 Reminder added: "${delimitUntrusted(title)}" \u2192 ${listName ?? 'Reminders'}.`;
     case 'cancelled':
       return '\uD83D\uDEAB Cancelled \u2014 reminder was not added.';
     case 'timed_out':

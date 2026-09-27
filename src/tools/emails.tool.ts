@@ -5,6 +5,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
+import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
 import type { Email, EmailMeta } from '../types/index.js';
 import type { BodyFormat } from '../utils/email-body.js';
@@ -33,7 +34,9 @@ function formatEmailMeta(email: EmailMeta): string {
   const from = email.from.name ? `${email.from.name} <${email.from.address}>` : email.from.address;
   const labelStr = email.labels.length > 0 ? `\n  🏷️ ${email.labels.join(', ')}` : '';
 
-  return `[${email.id}] ${flags} ${email.subject}\n  From: ${from} | ${email.date}${labelStr}${email.preview ? `\n  ${email.preview}` : ''}`;
+  return delimitUntrusted(
+    `[${email.id}] ${flags} ${email.subject}\n  From: ${from} | ${email.date}${labelStr}${email.preview ? `\n  ${email.preview}` : ''}`,
+  );
 }
 
 /** Renders the current read/flag/label state as a concise status line. */
@@ -195,7 +198,7 @@ export default function registerEmailsTools(server: McpServer, imapService: Imap
         }
 
         return {
-          content: [{ type: 'text' as const, text: parts.join('\n') }],
+          content: [{ type: 'text' as const, text: delimitUntrusted(parts.join('\n')) }],
         };
       } catch (err) {
         return {
@@ -269,17 +272,19 @@ export default function registerEmailsTools(server: McpServer, imapService: Imap
               : '';
 
           results.push(
-            [
-              `━━━ [${emailId}] ${email.subject}`,
-              `Status: ${formatEmailStatus(email)}`,
-              `From:   ${from}`,
-              `Date:   ${email.date}`,
-              attachLine,
-              '',
-              body,
-            ]
-              .filter((l) => l !== '')
-              .join('\n'),
+            delimitUntrusted(
+              [
+                `━━━ [${emailId}] ${email.subject}`,
+                `Status: ${formatEmailStatus(email)}`,
+                `From:   ${from}`,
+                `Date:   ${email.date}`,
+                attachLine,
+                '',
+                body,
+              ]
+                .filter((l) => l !== '')
+                .join('\n'),
+            ),
           );
         } else {
           const err = outcome.reason as unknown;
@@ -336,7 +341,7 @@ export default function registerEmailsTools(server: McpServer, imapService: Imap
         ];
 
         return {
-          content: [{ type: 'text' as const, text: lines.join('\n') }],
+          content: [{ type: 'text' as const, text: delimitUntrusted(lines.join('\n')) }],
         };
       } catch (err) {
         return {

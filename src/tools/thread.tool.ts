@@ -8,6 +8,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
+import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
 import { applyBodyFormat } from '../utils/email-body.js';
 
@@ -66,10 +67,13 @@ export default function registerThreadTools(server: McpServer, imapService: Imap
         const ordered = newestFirst ? [...thread.messages].reverse() : thread.messages;
         const total = thread.messageCount;
 
+        const participants = thread.participants
+          .map((p) => (p.name ? `${p.name} <${p.address}>` : p.address))
+          .join(', ');
         const parts: string[] = [
           `🧵 Thread: ${total} message${total === 1 ? '' : 's'}`,
           `Thread-ID: ${thread.threadId}`,
-          `Participants: ${thread.participants.map((p) => (p.name ? `${p.name} <${p.address}>` : p.address)).join(', ')}`,
+          delimitUntrusted(`Participants: ${participants}`),
           '',
         ];
 
@@ -85,24 +89,25 @@ export default function registerThreadTools(server: McpServer, imapService: Imap
             ? `${email.from.name} <${email.from.address}>`
             : email.from.address;
 
-          parts.push(`--- ${label} ---`);
-          parts.push(`From: ${from}`);
-          parts.push(`To: ${email.to.map((a) => a.address).join(', ')}`);
-          parts.push(`Date: ${email.date}`);
-          parts.push(`Subject: ${email.subject}`);
-
+          const messageLines = [
+            `From: ${from}`,
+            `To: ${email.to.map((a) => a.address).join(', ')}`,
+            `Date: ${email.date}`,
+            `Subject: ${email.subject}`,
+          ];
           if (email.attachments.length > 0) {
-            parts.push(`📎 ${email.attachments.map((a) => a.filename).join(', ')}`);
+            messageLines.push(`📎 ${email.attachments.map((a) => a.filename).join(', ')}`);
           }
-
-          // In newestFirst mode, only render body for the newest (first) message
           if (newestFirst && idx > 0) {
-            parts.push('(body omitted — use get_email to read this message)');
+            messageLines.push('(body omitted — use get_email to read this message)');
           } else {
-            parts.push('');
-            parts.push(applyBodyFormat(email.bodyText, email.bodyHtml, format, maxLength));
+            messageLines.push(
+              '',
+              applyBodyFormat(email.bodyText, email.bodyHtml, format, maxLength),
+            );
           }
-
+          parts.push(`--- ${label} ---`);
+          parts.push(delimitUntrusted(messageLines.join('\n')));
           parts.push('');
         });
 

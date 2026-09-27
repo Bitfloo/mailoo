@@ -16,6 +16,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
+import { delimitUntrusted } from '../safety/untrusted-content.js';
+
 const execFile = promisify(execFileCb);
 
 export const LIST_EVENTS_TIMEOUT_MS = 90_000;
@@ -314,9 +316,9 @@ function buildICS(event: LocalCalendarEventInput): string {
 function statusMessage(status: AddEventStatus, title: string, calName: string | undefined): string {
   switch (status) {
     case 'added':
-      return `\u2705 Event added: "${title}" \u2192 ${calName ?? 'calendar'}.`;
+      return `\u2705 Event added: "${delimitUntrusted(title)}" \u2192 ${calName ?? 'calendar'}.`;
     case 'duplicate':
-      return `\u26A0\uFE0F Event already exists in ${calName ?? 'calendar'}: "${title}". Skipped.`;
+      return `\u26A0\uFE0F Event already exists in ${calName ?? 'calendar'}: "${delimitUntrusted(title)}". Skipped.`;
     case 'cancelled':
       return '\uD83D\uDEAB Cancelled \u2014 event was not added to the calendar.';
     case 'timed_out':
@@ -463,7 +465,7 @@ async function addEventLinux(
     await execFile('xdg-open', [tmpFile], { timeout: 10_000 });
     return {
       status: 'added',
-      message: `Calendar file opened: ${event.title}. Confirm import in your calendar application.`,
+      message: `Calendar file opened: ${delimitUntrusted(event.title)}. Confirm import in your calendar application.`,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

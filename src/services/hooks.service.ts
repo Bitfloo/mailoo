@@ -11,6 +11,7 @@
 
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { mcpLog } from '../logging.js';
+import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type { EmailMeta, HookRule, HooksConfig } from '../types/index.js';
 import type { EmailEventBus, NewEmailEvent } from './event-bus.js';
 import eventBus from './event-bus.js';
@@ -500,11 +501,11 @@ export default class HooksService {
       e.meta.seen ? '👁️' : '🆕',
       e.meta.hasAttachments ? '📎' : '',
     ].join('');
-    return (
+    return delimitUntrusted(
       `[${index + 1}] From: ${e.meta.from.name ?? e.meta.from.address}\n` +
-      `    Subject: ${e.meta.subject}\n` +
-      `    Date: ${e.meta.date}\n` +
-      `    Flags: ${flagIcons}`
+        `    Subject: ${e.meta.subject}\n` +
+        `    Date: ${e.meta.date}\n` +
+        `    Flags: ${flagIcons}`,
     );
   }
 

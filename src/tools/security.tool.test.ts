@@ -1,6 +1,14 @@
+import { UNTRUSTED_BEGIN, UNTRUSTED_END } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
 import { parseSenderAuth } from '../utils/auth-headers.js';
 import registerSecurityTools from './security.tool.js';
+
+function unwrapUntrusted(text: string): string {
+  const begin = text.indexOf(UNTRUSTED_BEGIN);
+  const end = text.lastIndexOf(UNTRUSTED_END);
+  if (begin < 0 || end <= begin) throw new Error('sender-auth result was not delimited');
+  return text.slice(begin + UNTRUSTED_BEGIN.length, end).trim();
+}
 
 const FOLDED = [
   'From: Brand <noreply@brand.example>',
@@ -57,11 +65,11 @@ describe('get_email_security tool', () => {
       emailId: '10',
       mailbox: 'INBOX',
     });
-    const payload = JSON.parse(result.content[0].text) as typeof signals;
+    const payload = JSON.parse(unwrapUntrusted(result.content[0].text)) as typeof signals;
     expect(payload).toEqual(signals);
     expect(payload.fromDomain).toBe('brand.example');
     expect(payload.spf).toBe('pass');
-    expect(result.content[0].text).not.toContain('https://brand.example/unsub');
+    expect(unwrapUntrusted(result.content[0].text)).not.toContain('https://brand.example/unsub');
     expect(result.content[0].text).not.toContain('token=secret');
   });
 
