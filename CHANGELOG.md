@@ -10,6 +10,10 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Behaviour changes
 
+- New config files are created with mode 0600, and a directory Mailoo creates
+  for them is mode 0700. When an existing config file is readable by group
+  or other, Mailoo logs a warning instead of changing the mode.
+
 - Outgoing attachment `path` values are read by Mailoo instead of being passed
   to Nodemailer, which accepted any local path and fetched `http:`, `https:`,
   and `data:` URLs itself. Refused:
