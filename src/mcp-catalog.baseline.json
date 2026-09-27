@@ -643,7 +643,7 @@
           },
           "email_id": {
             "type": "string",
-            "description": "Email ID from list_emails_metadata"
+            "description": "Email ID from list_emails or get_email"
           },
           "mailbox": {
             "default": "INBOX",
@@ -700,7 +700,7 @@
           },
           "email_id": {
             "type": "string",
-            "description": "Email ID from list_emails_metadata"
+            "description": "Email ID from list_emails or get_email"
           },
           "mailbox": {
             "default": "INBOX",
@@ -1170,7 +1170,7 @@
     },
     {
       "name": "forward_email",
-      "description": "Forward an email to new recipients with optional additional message. Original email is quoted below.",
+      "description": "Forward an email to new recipients with optional additional message. Original email is quoted below. Original attachments are not included.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1503,7 +1503,7 @@
     },
     {
       "name": "bulk_action",
-      "description": "Batch operation on multiple emails by UID list. Supports mark_read, mark_unread, flag, unflag, move, and delete. Max 100 IDs per call. Returns success/failure counts.",
+      "description": "Batch operation on multiple emails by UID list. Supports mark_read, mark_unread, flag, unflag, move, and delete. delete moves the messages to Trash. Max 100 IDs per call. Returns success/failure counts.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1885,7 +1885,7 @@
     },
     {
       "name": "cancel_scheduled",
-      "description": "Cancel a scheduled email. Removes it from the queue and deletes the associated draft.",
+      "description": "Cancel a scheduled email. Removes it from the queue and moves the associated draft to Trash.",
       "inputSchema": {
         "type": "object",
         "properties": {

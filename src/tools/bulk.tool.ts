@@ -15,7 +15,7 @@ export default function registerBulkTools(server: McpServer, imapService: ImapSe
     {
       title: 'Run Bulk Action',
       description:
-        'Batch operation on multiple emails by UID list. Supports mark_read, mark_unread, flag, unflag, move, and delete. Max 100 IDs per call. Returns success/failure counts.',
+        'Batch operation on multiple emails by UID list. Supports mark_read, mark_unread, flag, unflag, move, and delete. delete moves the messages to Trash. Max 100 IDs per call. Returns success/failure counts.',
       inputSchema: {
         account: z.string().describe('Account name from list_accounts'),
         mailbox: z.string().default('INBOX').describe('Source mailbox containing the emails'),

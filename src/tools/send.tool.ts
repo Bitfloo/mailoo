@@ -167,7 +167,7 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
     {
       title: 'Forward Email',
       description:
-        'Forward an email to new recipients with optional additional message. Original email is quoted below.',
+        'Forward an email to new recipients with optional additional message. Original email is quoted below. Original attachments are not included.',
       inputSchema: {
         account: z.string().describe('Account name from list_accounts'),
         emailId: z.string().describe('Email ID to forward (from list_emails or get_email)'),

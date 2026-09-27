@@ -145,7 +145,7 @@ function registerSchedulerGroup(
       {
         title: 'Cancel Scheduled Email',
         description:
-          'Cancel a scheduled email. Removes it from the queue and deletes the associated draft.',
+          'Cancel a scheduled email. Removes it from the queue and moves the associated draft to Trash.',
         inputSchema: {
           schedule_id: z.string().describe('Schedule ID to cancel'),
         },

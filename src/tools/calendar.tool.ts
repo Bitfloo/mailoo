@@ -275,8 +275,7 @@ function registerCalendarGroup(
         };
         if (result.status === 'duplicate') {
           details.duplicate = result.duplicate;
-          details.hint =
-            'Event already exists. Use skipDuplicateCheck or update the existing event.';
+          details.hint = 'Event already exists. Update the existing event.';
         }
         if (result.status === 'added') {
           details.event = {
@@ -580,7 +579,7 @@ function registerCalendarGroup(
         ].join(' '),
         inputSchema: {
           account: z.string().describe('Email account name'),
-          email_id: z.string().describe('Email ID from list_emails_metadata'),
+          email_id: z.string().describe('Email ID from list_emails or get_email'),
           mailbox: z.string().default('INBOX').describe('Mailbox containing the email'),
           title: z.string().optional().describe('Reminder title (defaults to email subject)'),
           notes: z
@@ -672,7 +671,7 @@ function registerCalendarGroup(
         ].join(' '),
         inputSchema: {
           account: z.string().describe('Email account name'),
-          email_id: z.string().describe('Email ID from list_emails_metadata'),
+          email_id: z.string().describe('Email ID from list_emails or get_email'),
           mailbox: z.string().default('INBOX').describe('Mailbox containing the email'),
         },
         annotations: {
