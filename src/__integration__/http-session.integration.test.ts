@@ -1,6 +1,6 @@
 /**
- * Two HTTP clients on one process. Each initialize gets its own session.
- * Scheduled mail and expiry stay with that session.
+ * Two HTTP clients on one process. Each initialize gets its own MCP session.
+ * Scheduled mail stays in the process queue after a session closes.
  */
 
 import fs from 'node:fs/promises';
@@ -119,8 +119,9 @@ function postInitialize(
 describe('HTTP session isolation', () => {
   const ttlMs = 5_000;
 
-  it('should keep scheduled mail inside the HTTP session that created it', async () => {
+  it('should keep scheduled mail after the HTTP session that created it closes', async () => {
     const queueRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-http-host-'));
+    const scheduledDir = path.join(queueRoot, 'scheduled');
     const connections = new ConnectionManager([]);
     const host = await createHttpMcpHost({
       config: testConfig(),
@@ -131,7 +132,7 @@ describe('HTTP session isolation', () => {
       localCalendarService: new LocalCalendarService(),
       remindersService: new RemindersService(),
       bodyLimitBytes: 1024 * 1024,
-      queueRoot,
+      scheduledDir,
       ttlMs,
       now: () => 1_000,
     });
@@ -151,13 +152,22 @@ describe('HTTP session isolation', () => {
         throw new Error('missing session scope');
       }
       const sendAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      await scopeA.scheduler.schedule('box', {
+      const scheduled = await scopeA.scheduler.schedule('box', {
         to: ['a@example.com'],
-        subject: 'only-first',
+        subject: 'shared',
         body: 'hidden',
         sendAt,
       });
-      expect(await scopeB.scheduler.list({ status: 'all' })).toEqual([]);
+      expect((await scopeB.scheduler.list({ status: 'pending' })).map((item) => item.id)).toEqual([
+        scheduled.id,
+      ]);
+      expect(host.scopeFor(first.sessionId)).toBeDefined();
+      await host.close();
+      const queueFile = path.join(scheduledDir, `${scheduled.id}.json`);
+      expect(JSON.parse(await fs.readFile(queueFile, 'utf8'))).toMatchObject({
+        subject: 'shared',
+        status: 'pending',
+      });
     } finally {
       await host.close();
       await listener.close();
@@ -165,9 +175,10 @@ describe('HTTP session isolation', () => {
     }
   });
 
-  it('should drop an idle session queue after the session expires', async () => {
+  it('should drop an idle HTTP session without deleting scheduled mail', async () => {
     let now = 1_000;
     const queueRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-http-host-'));
+    const scheduledDir = path.join(queueRoot, 'scheduled');
     const connections = new ConnectionManager([]);
     const host = await createHttpMcpHost({
       config: testConfig(),
@@ -178,7 +189,7 @@ describe('HTTP session isolation', () => {
       localCalendarService: new LocalCalendarService(),
       remindersService: new RemindersService(),
       bodyLimitBytes: 1024 * 1024,
-      queueRoot,
+      scheduledDir,
       ttlMs,
       now: () => now,
     });
@@ -194,31 +205,30 @@ describe('HTTP session isolation', () => {
         throw new Error('missing session scope');
       }
       const sendAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      await scopeA.scheduler.schedule('box', {
+      const expired = await scopeA.scheduler.schedule('box', {
         to: ['a@example.com'],
-        subject: 'expires',
+        subject: 'from-idle-session',
         body: 'hidden',
         sendAt,
       });
       await scopeB.scheduler.schedule('box', {
         to: ['b@example.com'],
-        subject: 'stays',
+        subject: 'from-live-session',
         body: 'hidden',
         sendAt,
       });
-      const expiredDir = scopeA.queueDir;
       now = 1_000 + ttlMs + 1;
       const third = await postInitialize(listener.port, 3);
       expect(third.status).toBe(200);
-      await vi.waitFor(async () => {
-        await expect(fs.access(expiredDir)).rejects.toThrow();
-      });
       expect(host.scopeFor(first.sessionId)).toBeUndefined();
       expect(
-        (await host.scopeFor(second.sessionId)?.scheduler.list({ status: 'pending' }))?.map(
-          (item) => item.subject,
-        ),
-      ).toEqual(['stays']);
+        (await host.scheduler.list({ status: 'pending' })).map((item) => item.subject).sort(),
+      ).toEqual(['from-idle-session', 'from-live-session']);
+      expect(
+        JSON.parse(await fs.readFile(path.join(scheduledDir, `${expired.id}.json`), 'utf8')),
+      ).toMatchObject({
+        subject: 'from-idle-session',
+      });
     } finally {
       await host.close();
       await listener.close();

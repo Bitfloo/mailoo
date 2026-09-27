@@ -236,8 +236,9 @@ async function runServer(): Promise<void> {
 async function runHttpServer(policy: ReturnType<typeof readHttpLaunchOptions>): Promise<void> {
   const config = await loadConfig();
 
-  // Account connections stay process-wide. Session-owned state is created
-  // inside createHttpMcpHost so one HTTP client cannot see another's.
+  // One bearer token is one principal. The host keeps the rate limit, schedule
+  // queue, watcher, and hooks process-wide, as on stdio. Each HTTP session only
+  // owns an McpServer and its transport.
   const oauthService = new OAuthService();
   const connections = new ConnectionManager(config.accounts, oauthService);
   const imapService = new ImapService(connections);

@@ -1,36 +1,26 @@
 /**
- * Per-client state for one Streamable HTTP session.
- * Watchers, resource updates, rate limits, and scheduled mail stay inside
- * that session and are removed when the session is closed.
+ * Per-session MCP objects for one Streamable HTTP client.
+ * Account state stays on the process. Dispose closes only this session's
+ * bus listeners. Session id checks stay here because the id is the session key.
  */
 
-import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import type { IConnectionManager } from '../connections/types.js';
-import { EmailEventBus } from '../services/event-bus.js';
-import HooksService from '../services/hooks.service.js';
-import type ImapService from '../services/imap.service.js';
-import SchedulerService from '../services/scheduler.service.js';
-import SmtpService from '../services/smtp.service.js';
-import WatcherService from '../services/watcher.service.js';
-import type { AccountConfig, HooksConfig, WatcherConfig } from '../types/index.js';
-import RateLimiter from './rate-limiter.js';
+import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+
+import type { EmailEventBus, NewEmailEvent } from '../services/event-bus.js';
+import type SchedulerService from '../services/scheduler.service.js';
+import type SmtpService from '../services/smtp.service.js';
 
 const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const SCHEDULER_INTERVAL_MS = 60_000;
-
 export interface HttpSessionScope {
   readonly id: string;
-  readonly queueDir: string;
-  readonly rateLimiter: RateLimiter;
+  readonly events: EmailEventBus;
   readonly smtp: SmtpService;
   readonly scheduler: SchedulerService;
-  readonly watcher: WatcherService;
-  readonly hooks: HooksService;
-  readonly events: EmailEventBus;
-  armScheduler: () => void;
+  readonly server: Server;
+  attachClient: () => void;
   dispose: () => Promise<void>;
 }
 
@@ -47,57 +37,44 @@ export function httpSessionQueueDir(root: string, sessionId: string): string {
   return dir;
 }
 
+function listenForResourceUpdates(events: EmailEventBus, server: Server): () => void {
+  const onNew = (event: NewEmailEvent): void => {
+    const uris = [`email://${event.account}/unread`, `email://${event.account}/mailboxes`];
+    uris.forEach((uri) => {
+      server.sendResourceUpdated({ uri }).catch(() => {});
+    });
+  };
+  events.on('email:new', onNew);
+  return () => {
+    events.off('email:new', onNew);
+  };
+}
+
 export function createHttpSessionScope(input: {
   id: string;
-  queueDir: string;
-  rateLimit: number;
-  saveToSent: boolean;
-  watcher: WatcherConfig;
-  accounts: AccountConfig[];
-  hooks: HooksConfig;
-  connections: IConnectionManager;
-  imap: ImapService;
+  server: Server;
+  events: EmailEventBus;
+  smtp: SmtpService;
+  scheduler: SchedulerService;
+  onDispose: () => void;
 }): HttpSessionScope {
-  const events = new EmailEventBus();
-  const rateLimiter = new RateLimiter(input.rateLimit);
-  const smtp = new SmtpService(input.connections, rateLimiter, input.imap, input.saveToSent);
-  const scheduler = new SchedulerService(smtp, input.imap, input.queueDir);
-  const watcher = new WatcherService(input.watcher, input.accounts, events);
-  const hooks = new HooksService(input.hooks, input.imap, { events });
-
-  let disposed = false;
-  let schedulerTimer: ReturnType<typeof setInterval> | undefined;
+  let detach: (() => void) | undefined;
   let disposePromise: Promise<void> | undefined;
 
   return {
     id: input.id,
-    queueDir: input.queueDir,
-    rateLimiter,
-    smtp,
-    scheduler,
-    watcher,
-    hooks,
-    events,
-    armScheduler() {
-      if (disposed || schedulerTimer) return;
-      schedulerTimer = setInterval(() => {
-        if (disposed) return;
-        scheduler.checkAndSend().catch(() => {});
-      }, SCHEDULER_INTERVAL_MS);
-      schedulerTimer.unref();
-      scheduler.checkAndSend().catch(() => {});
+    events: input.events,
+    smtp: input.smtp,
+    scheduler: input.scheduler,
+    server: input.server,
+    attachClient() {
+      detach ??= listenForResourceUpdates(input.events, input.server);
     },
     async dispose() {
       disposePromise ??= (async () => {
-        disposed = true;
-        if (schedulerTimer) {
-          clearInterval(schedulerTimer);
-          schedulerTimer = undefined;
-        }
-        hooks.stop();
-        await watcher.stop();
-        events.removeAllListeners();
-        await fs.rm(input.queueDir, { recursive: true, force: true });
+        detach?.();
+        detach = undefined;
+        input.onDispose();
       })();
       await disposePromise;
     },

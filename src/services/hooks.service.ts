@@ -111,6 +111,9 @@ export default class HooksService {
 
   private readonly events: EmailEventBus;
 
+  /** HTTP sessions notify their own clients; this service must not fan out to one server. */
+  private readonly sessionResourceListeners: boolean;
+
   private static readonly MAX_SAMPLING_PER_MIN = 10;
 
   private readonly handleNewEmail = (event: NewEmailEvent): void => {
@@ -120,12 +123,17 @@ export default class HooksService {
   constructor(
     config: HooksConfig,
     imapService: ImapService,
-    deps?: { mailArrival?: MailArrival | null; events?: EmailEventBus },
+    deps?: {
+      mailArrival?: MailArrival | null;
+      events?: EmailEventBus;
+      sessionResourceListeners?: boolean;
+    },
   ) {
     this.config = config;
     this.imapService = imapService;
     this.mailArrival = deps?.mailArrival ?? null;
     this.events = deps?.events ?? eventBus;
+    this.sessionResourceListeners = deps?.sessionResourceListeners === true;
     this.notifier = new NotifierService(config.alerts);
     this.localCalendar = new LocalCalendarService();
     this.resolvedSystemPrompt = buildSystemPrompt(config.preset, {
@@ -149,22 +157,13 @@ export default class HooksService {
   }
 
   /**
-   * Start listening for email events.
-   * Call after MCP server is connected so we can access the low-level server.
+   * Start listening for email events once.
+   * A later call does not move the sampling target; use `setSamplingTarget`.
    */
   start(lowLevelServer: Server, clientCapabilities: { sampling?: boolean }): void {
+    if (this.started) return;
     this.lowLevelServer = lowLevelServer;
     this.samplingSupported = clientCapabilities.sampling === true;
-
-    if (this.started) {
-      // Client reconnected — server reference updated above, no need to re-register listeners.
-      mcpLog(
-        'info',
-        'hooks',
-        `Hooks reconnected: sampling=${this.samplingSupported ? 'yes' : 'no'}`,
-      ).catch(() => {});
-      return;
-    }
     this.started = true;
 
     if (this.config.onNewEmail === 'none') {
@@ -192,6 +191,14 @@ export default class HooksService {
       `Hooks active: mode=${this.config.onNewEmail}, preset=${this.config.preset}, ` +
         `rules=${ruleCount}, sampling=${this.samplingSupported ? 'yes' : 'no'}`,
     ).catch(() => {});
+  }
+
+  /**
+   * Point sampling at a live client. Null keeps static rules and does not call createMessage.
+   */
+  setSamplingTarget(server: Server | null): void {
+    this.lowLevelServer = server;
+    this.samplingSupported = server !== null;
   }
 
   stop(): void {
@@ -414,7 +421,7 @@ export default class HooksService {
   // -------------------------------------------------------------------------
 
   private async sendResourceUpdates(emails: BatchEmail[]): Promise<void> {
-    if (!this.lowLevelServer) return;
+    if (this.sessionResourceListeners || !this.lowLevelServer) return;
 
     const accounts = [...new Set(emails.map((e) => e.account))];
     const srv = this.lowLevelServer;

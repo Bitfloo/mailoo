@@ -1,38 +1,50 @@
 /**
- * Streamable HTTP entry that gives each MCP session its own scope.
- * Idle sessions are closed by the session table, which drops that scope.
+ * Streamable HTTP entry. One bearer token is one principal, so account
+ * state is process-wide. Each session owns an McpServer and a transport.
+ * Idle sessions are closed by the session table.
  */
 
 import { randomUUID } from 'node:crypto';
-import fs from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import os from 'node:os';
-import path from 'node:path';
 
+import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 
+import { SCHEDULED_DIR } from '../config/xdg.js';
 import type ConnectionManager from '../connections/manager.js';
 import { bindServer, markInitialized, mcpLog } from '../logging.js';
 import registerAllPrompts from '../prompts/register.js';
 import registerAllResources from '../resources/register.js';
 import createServer, { PKG_VERSION } from '../server.js';
 import type CalendarService from '../services/calendar.service.js';
+import { EmailEventBus } from '../services/event-bus.js';
+import HooksService from '../services/hooks.service.js';
 import type ImapService from '../services/imap.service.js';
 import type LocalCalendarService from '../services/local-calendar.service.js';
 import { MailArrival } from '../services/mail-arrival/index.js';
 import type RemindersService from '../services/reminders.service.js';
+import SchedulerService from '../services/scheduler.service.js';
+import SmtpService from '../services/smtp.service.js';
 import type TemplateService from '../services/template.service.js';
+import WatcherService from '../services/watcher.service.js';
 import registerAllTools from '../tools/register.js';
 import type { AppConfig } from '../types/index.js';
 import type { HttpSessionScope } from './http-session-scope.js';
-import { createHttpSessionScope, httpSessionQueueDir } from './http-session-scope.js';
+import { createHttpSessionScope } from './http-session-scope.js';
 import HttpSessionStore, {
   DEFAULT_HTTP_MAX_SESSIONS,
   DEFAULT_HTTP_SESSION_TTL_MS,
 } from './http-sessions.js';
 import { readLimitedBody, resolveHttpRoute } from './http-transport.js';
+import RateLimiter from './rate-limiter.js';
 import { maybeStartMailboxWriters } from './write-side-effects.js';
+
+/**
+ * Matches the OS scheduler cadence (launchd StartInterval 60 / cron "* * * * *"
+ * in src/cli/scheduler.ts).
+ */
+const SCHEDULER_INTERVAL_MS = 60_000;
 
 export interface HttpMcpHostOptions {
   config: AppConfig;
@@ -43,7 +55,8 @@ export interface HttpMcpHostOptions {
   localCalendarService: LocalCalendarService;
   remindersService: RemindersService;
   bodyLimitBytes: number;
-  queueRoot?: string;
+  /** Test override. Production uses SCHEDULED_DIR. */
+  scheduledDir?: string;
   maxSessions?: number;
   ttlMs?: number;
   now?: () => number;
@@ -52,13 +65,37 @@ export interface HttpMcpHostOptions {
 export interface HttpMcpHost {
   handle: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   scopeFor: (sessionId: string) => HttpSessionScope | undefined;
+  readonly ready: Promise<void>;
+  readonly scheduler: SchedulerService;
+  readonly events: EmailEventBus;
   close: () => Promise<void>;
 }
 
+interface SamplingCandidate {
+  server: Server;
+  sampling: boolean;
+  order: number;
+}
+
 export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<HttpMcpHost> {
-  const queueRoot = options.queueRoot ?? path.join(os.tmpdir(), 'mailoo-http-sessions');
-  await fs.mkdir(queueRoot, { recursive: true, mode: 0o700 });
-  await fs.chmod(queueRoot, 0o700);
+  const events = new EmailEventBus();
+  const rateLimiter = new RateLimiter(options.config.settings.rateLimit);
+  const smtp = new SmtpService(
+    options.connections,
+    rateLimiter,
+    options.imap,
+    options.config.settings.saveToSent,
+  );
+  const scheduler = new SchedulerService(smtp, options.imap, options.scheduledDir ?? SCHEDULED_DIR);
+  const watcher = new WatcherService(
+    options.config.settings.watcher,
+    options.config.accounts,
+    events,
+  );
+  const hooks = new HooksService(options.config.settings.hooks, options.imap, {
+    events,
+    sessionResourceListeners: true,
+  });
 
   const sessions = new HttpSessionStore<StreamableHTTPServerTransport>(
     options.maxSessions ?? DEFAULT_HTTP_MAX_SESSIONS,
@@ -68,6 +105,91 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
   const scopes = new Map<string, HttpSessionScope>();
   const disposing: Promise<void>[] = [];
   const canWrite = !options.config.settings.readOnly;
+
+  // Sampling target policy: hooks start ONCE per process; the sampling target is
+  // the most recently initialised LIVE session whose client declares the sampling
+  // capability; a session without sampling never takes the target; when the target
+  // session is disposed, switch to another live session with sampling, or, if none,
+  // run hooks without sampling (static rules); never call a disposed session's server.
+  const candidates = new Map<string, SamplingCandidate>();
+  let samplingOrder = 0;
+  let hooksListening = false;
+  let bootStarted = false;
+  let ready: Promise<void> = Promise.resolve();
+  let schedulerTimer: ReturnType<typeof setInterval> | undefined;
+
+  const pickSamplingTarget = (): Server | null => {
+    const best = [...candidates.values()]
+      .filter((candidate) => candidate.sampling)
+      .reduce<SamplingCandidate | undefined>((current, candidate) => {
+        if (!current || candidate.order > current.order) return candidate;
+        return current;
+      }, undefined);
+    return best?.server ?? null;
+  };
+
+  const applySamplingTarget = (): void => {
+    if (!hooksListening) return;
+    hooks.setSamplingTarget(pickSamplingTarget());
+  };
+
+  const armScheduler = (): void => {
+    if (schedulerTimer) return;
+    schedulerTimer = setInterval(() => {
+      scheduler.checkAndSend().catch(() => {});
+    }, SCHEDULER_INTERVAL_MS);
+    schedulerTimer.unref();
+    scheduler.checkAndSend().catch(() => {});
+  };
+
+  const bootWriters = async (fallback: Server): Promise<void> => {
+    try {
+      const mailArrival = await MailArrival.tryCreate({
+        config: options.config.settings.systemOne,
+        imap: options.imap,
+        apiKey: process.env.TYPESAFE_API_KEY,
+        accounts: options.config.accounts,
+        moveToPaths: options.config.settings.hooks.rules
+          .map((rule) => rule.actions.moveTo)
+          .filter((folder): folder is string => Boolean(folder)),
+      });
+      hooks.setMailArrival(mailArrival);
+      if (mailArrival && !options.config.settings.watcher.enabled) {
+        await mcpLog(
+          'warning',
+          'server',
+          'system_one is enabled but watcher is off — no arrivals will be classified',
+        );
+      }
+
+      const started = await maybeStartMailboxWriters(canWrite, {
+        startHooks: () => {
+          // Register hooks once for the process so the HTTP path also wires up
+          // email:new → sampling/createMessage. Without this, only stdio mode
+          // triggered the hooks (see 36eb8ca).
+          const target = pickSamplingTarget();
+          hooks.start(target ?? fallback, { sampling: target !== null });
+          hooks.setSamplingTarget(target);
+          hooksListening = true;
+        },
+        startWatcher: async () => {
+          await watcher.start();
+        },
+        startScheduler: () => {
+          armScheduler();
+        },
+      });
+      if (!started) {
+        await mcpLog('info', 'server', 'read_only: skipping hooks (HTTP mode)');
+        return;
+      }
+      await mcpLog('info', 'server', 'Mailoo ready (HTTP mode)');
+    } catch (err) {
+      process.stderr.write(
+        `[mailoo] hooks init error: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    }
+  };
 
   const release = (sid: string, scope: HttpSessionScope): void => {
     sessions.delete(sid);
@@ -127,19 +249,18 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
     } else if (!sessionId && req.method === 'POST' && isInitializeRequest(body)) {
       try {
         const sid = randomUUID();
-        const queueDir = httpSessionQueueDir(queueRoot, sid);
-        await fs.mkdir(queueDir, { mode: 0o700 });
-        await fs.chmod(queueDir, 0o700);
+        // SDK binds one transport per McpServer.
+        const mcpServer = createServer();
         const scope = createHttpSessionScope({
           id: sid,
-          queueDir,
-          rateLimit: options.config.settings.rateLimit,
-          saveToSent: options.config.settings.saveToSent,
-          watcher: options.config.settings.watcher,
-          accounts: options.config.accounts,
-          hooks: options.config.settings.hooks,
-          connections: options.connections,
-          imap: options.imap,
+          server: mcpServer.server,
+          events,
+          smtp,
+          scheduler,
+          onDispose: () => {
+            candidates.delete(sid);
+            applySamplingTarget();
+          },
         });
         created = scope;
         const newTransport = new StreamableHTTPServerTransport({
@@ -155,28 +276,27 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
         newTransport.onclose = () => {
           release(newTransport.sessionId ?? sid, scope);
         };
-        const mcpServer = createServer();
         bindServer(mcpServer);
         registerAllTools(
           mcpServer,
           options.connections,
           options.imap,
-          scope.smtp,
+          smtp,
           options.config,
           options.templateService,
           options.calendarService,
           options.localCalendarService,
           options.remindersService,
-          scope.scheduler,
-          scope.watcher,
-          scope.hooks,
+          scheduler,
+          watcher,
+          hooks,
         );
         registerAllResources(
           mcpServer,
           options.connections,
           options.imap,
           options.templateService,
-          scope.scheduler,
+          scheduler,
         );
         registerAllPrompts(mcpServer);
         await mcpServer.connect(newTransport);
@@ -184,50 +304,19 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
         const ls = mcpServer.server;
         ls.oninitialized = () => {
           markInitialized();
-          // eslint-disable-next-line no-void
-          void (async () => {
-            try {
-              const mailArrival = await MailArrival.tryCreate({
-                config: options.config.settings.systemOne,
-                imap: options.imap,
-                apiKey: process.env.TYPESAFE_API_KEY,
-                accounts: options.config.accounts,
-                moveToPaths: options.config.settings.hooks.rules
-                  .map((rule) => rule.actions.moveTo)
-                  .filter((folder): folder is string => Boolean(folder)),
-              });
-              scope.hooks.setMailArrival(mailArrival);
-              if (mailArrival && !options.config.settings.watcher.enabled) {
-                await mcpLog(
-                  'warning',
-                  'server',
-                  'system_one is enabled but watcher is off — no arrivals will be classified',
-                );
-              }
-
-              const started = await maybeStartMailboxWriters(canWrite, {
-                startHooks: () => {
-                  const clientCaps = ls.getClientCapabilities?.() ?? {};
-                  scope.hooks.start(ls, { sampling: clientCaps.sampling != null });
-                },
-                startWatcher: async () => {
-                  await scope.watcher.start();
-                },
-                startScheduler: () => {
-                  scope.armScheduler();
-                },
-              });
-              if (!started) {
-                await mcpLog('info', 'server', 'read_only: skipping hooks (HTTP mode)');
-                return;
-              }
-              await mcpLog('info', 'server', 'Mailoo ready (HTTP mode)');
-            } catch (err) {
-              process.stderr.write(
-                `[mailoo] hooks init error: ${err instanceof Error ? err.message : String(err)}\n`,
-              );
-            }
-          })();
+          scope.attachClient();
+          candidates.set(sid, {
+            server: ls,
+            sampling: (ls.getClientCapabilities?.()?.sampling ?? null) != null,
+            order: samplingOrder,
+          });
+          samplingOrder += 1;
+          if (!bootStarted) {
+            bootStarted = true;
+            ready = bootWriters(ls);
+          } else {
+            applySamplingTarget();
+          }
         };
 
         transport = newTransport;
@@ -265,8 +354,19 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
     scopeFor(sessionId: string) {
       return scopes.get(sessionId);
     },
+    get ready() {
+      return ready;
+    },
+    scheduler,
+    events,
     async close() {
       await Promise.allSettled(sessions.values().map(async (transport) => transport.close()));
+      if (schedulerTimer) {
+        clearInterval(schedulerTimer);
+        schedulerTimer = undefined;
+      }
+      hooks.stop();
+      await watcher.stop();
       await Promise.allSettled(disposing);
       await Promise.allSettled([...scopes.values()].map(async (scope) => scope.dispose()));
     },
