@@ -1,6 +1,11 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+
+vi.mock('node:child_process', () => ({
+  execFileSync: vi.fn(),
+}));
 
 import type { CommandRunner } from './scheduler.js';
 import { installCrontabLine, loadLaunchAgent, removeCrontabLine } from './scheduler.js';
@@ -140,5 +145,65 @@ describe('scheduler install commands', () => {
     expect(calls[1]?.args).toEqual(['-']);
     expect(calls[1]?.input).toBe('0 0 * * * /usr/bin/true\n');
     expect(calls[1]?.input).not.toContain('mailoo scheduler');
+  });
+
+  // execFileSync puts child stderr on the error only when that stream is piped.
+  // The message stays "Command failed: ..." and does not include the crontab text.
+  function crontabListError(stderrText: string): Error {
+    const err = new Error('Command failed: crontab -l');
+    return Object.assign(err, { status: 1, stderr: stderrText });
+  }
+
+  function mockCrontab(onList: () => string): { written: () => string | undefined } {
+    let written: string | undefined;
+    // eslint-disable-next-line n/no-sync -- mocked OS boundary; this does not spawn
+    vi.mocked(execFileSync).mockImplementation((file, args, options) => {
+      const input =
+        typeof options === 'object' && options !== null && 'input' in options
+          ? options.input
+          : undefined;
+      if (file === 'crontab' && args?.[0] === '-l') return onList();
+      if (file === 'crontab' && args?.[0] === '-') written = typeof input === 'string' ? input : '';
+      return '';
+    });
+    return { written: () => written };
+  }
+
+  it('should install one crontab line when the user has no crontab', () => {
+    const line =
+      "* * * * * '/usr/bin/node' '/opt/mailoo/main.js' scheduler check # mailoo scheduler";
+    const { written } = mockCrontab(() => {
+      throw crontabListError('crontab: no crontab for user\n');
+    });
+    expect(installCrontabLine(line, '# mailoo scheduler')).toBe(true);
+    expect(written()).toBe(`${line}\n`);
+    // eslint-disable-next-line n/no-sync -- mocked OS boundary; this does not spawn
+    const { calls } = vi.mocked(execFileSync).mock;
+    expect(calls[0]?.[2]).toMatchObject({ stdio: ['ignore', 'pipe', 'pipe'] });
+    expect(calls[1]?.[2]).toMatchObject({ stdio: ['pipe', 'pipe', 'pipe'] });
+  });
+
+  it('should abort crontab install when listing fails for another reason', () => {
+    const { written } = mockCrontab(() => {
+      throw crontabListError('crontab: permission denied\n');
+    });
+    expect(() =>
+      installCrontabLine('* * * * * /usr/bin/true # mailoo scheduler', '# mailoo scheduler'),
+    ).toThrow(/permission denied/);
+    expect(written()).toBeUndefined();
+  });
+
+  it('should keep blank lines when removing a crontab entry', () => {
+    const existing = [
+      '0 0 * * * /usr/bin/true',
+      '',
+      '* * * * * /opt/mailoo check # mailoo scheduler',
+      '',
+      '30 1 * * * /usr/bin/true',
+      '',
+    ].join('\n');
+    const { written } = mockCrontab(() => existing);
+    expect(removeCrontabLine('# mailoo scheduler')).toBe(true);
+    expect(written()).toBe('0 0 * * * /usr/bin/true\n\n\n30 1 * * * /usr/bin/true\n');
   });
 });

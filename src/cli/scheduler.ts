@@ -27,22 +27,44 @@ const CRONTAB_MARKER = '# mailoo scheduler';
 export type CommandRunner = (file: string, args: readonly string[], input?: string) => string;
 
 export function runCommandFile(file: string, args: readonly string[], input?: string): string {
+  // crontab reports a missing table on stderr. Discarding it leaves stderr null
+  // and the Error message omits the text, so a permission failure looks empty.
+  const stderr = file === 'crontab' ? 'pipe' : 'ignore';
   return execFileSync(file, [...args], {
     encoding: 'utf-8',
-    stdio: input === undefined ? ['ignore', 'pipe', 'ignore'] : ['pipe', 'pipe', 'ignore'],
+    stdio: input === undefined ? ['ignore', 'pipe', stderr] : ['pipe', 'pipe', stderr],
     ...(input === undefined ? {} : { input }),
   });
+}
+
+function stderrText(err: unknown): string {
+  if (typeof err !== 'object' || err === null || !('stderr' in err)) return '';
+  const { stderr } = err as { stderr?: unknown };
+  return typeof stderr === 'string' ? stderr : '';
+}
+
+// Exit status 1 is also used when crontab cannot be read. Only this stderr text
+// means the user has no crontab. The Error message does not contain it.
+function isNoCrontab(err: unknown): boolean {
+  return /no crontab for/i.test(stderrText(err));
+}
+
+function crontabReadError(err: unknown): Error {
+  const detail = stderrText(err).trim();
+  const fallback = err instanceof Error ? err.message : String(err);
+  return new Error(`Could not read the crontab: ${detail.length > 0 ? detail : fallback}`);
 }
 
 function quoteCronArg(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-function readCrontab(run: CommandRunner): string {
+function readCrontab(run: CommandRunner): string | undefined {
   try {
     return run('crontab', ['-l']);
-  } catch {
-    return '';
+  } catch (err) {
+    if (isNoCrontab(err)) return undefined;
+    throw crontabReadError(err);
   }
 }
 
@@ -66,7 +88,7 @@ export function installCrontabLine(
   marker: string,
   run: CommandRunner = runCommandFile,
 ): boolean {
-  const existing = readCrontab(run);
+  const existing = readCrontab(run) ?? '';
   if (existing.includes(marker)) return false;
   const body = existing.trim().length === 0 ? `${line}\n` : `${existing.trimEnd()}\n${line}\n`;
   run('crontab', ['-'], body);
@@ -74,14 +96,11 @@ export function installCrontabLine(
 }
 
 export function removeCrontabLine(marker: string, run: CommandRunner = runCommandFile): boolean {
-  let existing: string;
-  try {
-    existing = run('crontab', ['-l']);
-  } catch {
-    return false;
-  }
-  const lines = existing.split('\n').filter((entry) => entry.length > 0 && !entry.includes(marker));
-  run('crontab', ['-'], `${lines.join('\n')}\n`);
+  const existing = readCrontab(run);
+  if (existing === undefined) return false;
+  const lines = existing.split('\n').filter((entry) => !entry.includes(marker));
+  const body = lines.join('\n');
+  run('crontab', ['-'], body.endsWith('\n') ? body : `${body}\n`);
   return true;
 }
 
