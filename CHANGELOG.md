@@ -10,6 +10,15 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Behaviour changes
 
+- Webhook host names that resolve to a non-global address are refused
+  (previously only IP literals were). Redirects are not followed. A failed
+  or timed-out lookup refuses the webhook. The POST uses the address that
+  was checked, so a name whose answer changes before connect is still
+  refused. Shared address space (`100.64.0.0/10`, including tailnet
+  addresses), benchmarking, reserved, site-local, and IPv4 embedded in a
+  compatible, NAT64, or 6to4 address are refused too. Webhooks to a LAN,
+  VPN, or tailnet service need `allow_private_webhooks = true`.
+
 - A single-message id must be one UID greater than 0. Ranges and lists such as
   `1:*` and `1,2`, and leading zeros such as `01`, are rejected. Previously
   `1:*` addressed every message in the mailbox.
