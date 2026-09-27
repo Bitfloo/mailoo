@@ -8,6 +8,14 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Behaviour changes
+
+- Nodemailer 10 checks TLS certificates on remote URL fetches and OAuth token
+  requests. A fetch to an untrusted certificate is refused. SMTP itself is
+  unchanged: `verifySsl` still controls the mail connection, and Mailoo still
+  passes a ready access token rather than asking Nodemailer to refresh one.
+  Node.js 20 or newer is required; Mailoo already requires 24.
+
 - Sent IMAP APPEND after SMTP (`save_to_sent`; skipped for Gmail)
 - IMAP4rev2 opt-out for broken SEARCH (e.g. Strato)
 - ManageSieve tools (TLS required for PLAIN)

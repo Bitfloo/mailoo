@@ -2,7 +2,7 @@
  * Compile a nodemailer mail object into an RFC 822 buffer (RFC 2047 headers).
  */
 
-import MailComposer from 'nodemailer/lib/mail-composer/index.js';
+import MailComposer from 'nodemailer/lib/mail-composer';
 
 export default async function compileRfc822(mail: Record<string, unknown>): Promise<Buffer> {
   const composer = new MailComposer(mail);

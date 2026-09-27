@@ -20,7 +20,9 @@
     "noUnusedParameters": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
-    "types": ["vitest/globals"]
+    // Vitest's globals entry no longer pulls Node types, and "types" turns off
+    // automatic @types inclusion, so Node has to be listed beside the test globals.
+    "types": ["node", "vitest/globals"]
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "src/__integration__"]

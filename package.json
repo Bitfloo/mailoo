@@ -83,12 +83,12 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.0.1",
-    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@modelcontextprotocol/sdk": "^1.30.1",
     "@typesafe-ai/sdk": "^0.6.0",
     "imapflow": "^1.7.8",
     "node-ical": "^0.25.2",
-    "nodemailer": "^8.0.1",
-    "smol-toml": "^1.6.0",
+    "nodemailer": "^10.0.11",
+    "smol-toml": "^1.9.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -96,15 +96,14 @@
     "@eslint/compat": "^2.0.2",
     "@eslint/js": "^9.39.2",
     "@types/node": "^25.2.3",
-    "@types/nodemailer": "^7.0.10",
-    "@vitest/coverage-v8": "^4.0.18",
+    "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^9.39.2",
     "eslint-config-airbnb-extended": "^3.0.1",
     "lefthook": "^2.1.1",
     "testcontainers": "^11.12.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=24.0.0"
