@@ -10,6 +10,23 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Behaviour changes
 
+- `send_at` must be an ISO 8601 date-time with a UTC offset, for example
+  `2026-10-01T09:00:00+02:00`. Seconds may be omitted (`2026-10-01T09:00Z`
+  and `2026-10-01T09:00+02:00`). A time with no offset is rejected, because
+  the server's local zone is ambiguous.
+
+- Scheduled mail is limited to 366 days ahead, 100 pending schedules
+  (a message still being sent counts; a failed one does not), 50 recipients,
+  998 characters for the subject and for In-Reply-To and References, and a
+  body of 5 million characters.
+
+- `configure_alerts` refuses a webhook URL that includes credentials
+  (`user:password@`). The config file still accepts one, because that file
+  is operator-controlled.
+
+- Sieve script names are checked before they are sent, and a script is
+  limited to 1 MiB.
+
 - New config files are created with mode 0600, and a directory Mailoo creates
   for them is mode 0700. When an existing config file is readable by group
   or other, Mailoo logs a warning instead of changing the mode.
