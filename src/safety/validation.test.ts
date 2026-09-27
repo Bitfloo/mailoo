@@ -8,6 +8,7 @@ import {
   validateInputLength,
   validateLabelName,
   validateWebhookUrl,
+  WebhookLookupTimeoutError,
 } from './validation.js';
 
 describe('sanitizeMailboxName', () => {
@@ -276,7 +277,27 @@ describe('validateWebhookUrl', () => {
         lookup: async () => new Promise<string[]>(() => {}),
         lookupTimeoutMs: 20,
       }),
-    ).rejects.toThrow(/timed out/);
+    ).rejects.toThrow(WebhookLookupTimeoutError);
+  });
+
+  it('reports a failed lookup instead of a private-address refusal', async () => {
+    await expect(
+      resolveWebhookUrl('https://hooks.example.com/hook', {
+        lookup: async () => {
+          throw new Error('getaddrinfo ENOTFOUND');
+        },
+      }),
+    ).rejects.toThrow(/webhook address lookup failed/i);
+  });
+
+  it('does not treat the timeout text on an ordinary error as a timeout', async () => {
+    await expect(
+      resolveWebhookUrl('https://hooks.example.com/hook', {
+        lookup: async () => {
+          throw new Error('Webhook address lookup timed out');
+        },
+      }),
+    ).rejects.toThrow(/webhook address lookup failed/i);
   });
 });
 

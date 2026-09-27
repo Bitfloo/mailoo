@@ -104,6 +104,14 @@ const METADATA_WEBHOOK_HOSTS = new Set(['metadata.google.internal', 'metadata.go
 /** How long a webhook hostname lookup may take before it is refused. */
 export const WEBHOOK_LOOKUP_TIMEOUT_MS = 2_000;
 
+/** A resolver failure can repeat the timeout sentence; callers match this class. */
+export class WebhookLookupTimeoutError extends Error {
+  constructor() {
+    super('Webhook address lookup timed out');
+    this.name = 'WebhookLookupTimeoutError';
+  }
+}
+
 export interface WebhookUrlOptions {
   /** When true, loopback and non-global addresses are allowed. Protocol is still checked. */
   allowPrivate?: boolean;
@@ -292,7 +300,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {
-      reject(new Error('Webhook address lookup timed out'));
+      reject(new WebhookLookupTimeoutError());
     }, timeoutMs);
   });
   try {
@@ -322,8 +330,8 @@ export async function resolveWebhookUrl(
   try {
     addresses = await withTimeout(lookupHost(bare), timeoutMs);
   } catch (err) {
-    if (err instanceof Error && err.message === 'Webhook address lookup timed out') throw err;
-    throw new Error(`Webhook URL must not point to a loopback or private address: ${bare}`);
+    if (err instanceof WebhookLookupTimeoutError) throw err;
+    throw new Error(`Webhook address lookup failed: ${bare}`);
   }
   if (addresses.length === 0 || addresses.some((address) => isBlockedWebhookHost(address))) {
     throw new Error(`Webhook URL must not point to a loopback or private address: ${bare}`);
