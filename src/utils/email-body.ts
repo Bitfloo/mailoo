@@ -7,6 +7,13 @@
 
 export type BodyFormat = 'full' | 'text' | 'stripped';
 
+/**
+ * Each pass decodes one entity layer and then strips tags that layer exposed.
+ * Three passes drop a tag written as `&amp;amp;lt;script&amp;amp;gt;`; two leave
+ * `&lt;script&gt;`. Further layers stay as text so decoding has a ceiling.
+ */
+const MAX_DECODE_PASSES = 3;
+
 const NAMED_ENTITIES: Record<string, string> = {
   nbsp: ' ',
   lt: '<',
@@ -180,8 +187,7 @@ function walkHtml(html: string, mode: 'text' | 'html'): string {
 /** Strips HTML markup and decodes common entities to produce readable plain text. */
 export function stripHtml(html: string): string {
   let current = html;
-  // A second pass catches entities that only become tags after the first decode.
-  for (let pass = 0; pass < 3; pass += 1) {
+  for (let pass = 0; pass < MAX_DECODE_PASSES; pass += 1) {
     const text = walkHtml(decodeEntities(current), 'text')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
