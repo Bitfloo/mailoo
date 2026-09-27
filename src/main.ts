@@ -11,24 +11,17 @@
  *   scheduler Email scheduling management
  */
 
-import { randomUUID } from 'node:crypto';
-import type { IncomingMessage, ServerResponse } from 'node:http';
-
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 
 import { loadConfig } from './config/loader.js';
 import ConnectionManager from './connections/manager.js';
 import { bindServer, markInitialized, mcpLog } from './logging.js';
 import registerAllPrompts from './prompts/register.js';
 import registerAllResources from './resources/register.js';
-import HttpSessionStore from './safety/http-sessions.js';
+import { createHttpMcpHost } from './safety/http-mcp-host.js';
 import {
   formatHttpListenLines,
   readHttpLaunchOptions,
-  readLimitedBody,
-  resolveHttpRoute,
   startGuardedHttpServers,
 } from './safety/http-transport.js';
 import RateLimiter from './safety/rate-limiter.js';
@@ -243,217 +236,31 @@ async function runServer(): Promise<void> {
 async function runHttpServer(policy: ReturnType<typeof readHttpLaunchOptions>): Promise<void> {
   const config = await loadConfig();
 
-  // Shared services — created once for the process lifetime
+  // Account connections stay process-wide. Session-owned state is created
+  // inside createHttpMcpHost so one HTTP client cannot see another's.
   const oauthService = new OAuthService();
   const connections = new ConnectionManager(config.accounts, oauthService);
-  const rateLimiter = new RateLimiter(config.settings.rateLimit);
   const imapService = new ImapService(connections);
-  const smtpService = new SmtpService(
-    connections,
-    rateLimiter,
-    imapService,
-    config.settings.saveToSent,
-  );
   const templateService = new TemplateService();
   const calendarService = new CalendarService();
   const localCalendarService = new LocalCalendarService();
   const remindersService = new RemindersService();
-  const schedulerService = new SchedulerService(smtpService, imapService);
-  const watcherService = new WatcherService(config.settings.watcher, config.accounts);
-  const hooksService = new HooksService(config.settings.hooks, imapService);
-
-  // Per-session factory: tools share service instances but each MCP session
-  // needs its own McpServer because the SDK binds one transport per server.
-  function buildMcpSession() {
-    const server = createServer();
-    bindServer(server);
-    registerAllTools(
-      server,
-      connections,
-      imapService,
-      smtpService,
-      config,
-      templateService,
-      calendarService,
-      localCalendarService,
-      remindersService,
-      schedulerService,
-      watcherService,
-      hooksService,
-    );
-    registerAllResources(server, connections, imapService, templateService, schedulerService);
-    registerAllPrompts(server);
-    return server;
-  }
-
-  const sessions = new HttpSessionStore<StreamableHTTPServerTransport>();
-  const canWrite = !config.settings.readOnly;
-
-  const handleHttpRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
-    const route = resolveHttpRoute(req.method, req.url);
-    if (route === 'method') {
-      res.writeHead(405, { Allow: req.url === '/health' ? 'GET' : 'GET, POST, DELETE' });
-      res.end();
-      return;
-    }
-    if (route === 'missing') {
-      res.writeHead(404);
-      res.end('Not Found');
-      return;
-    }
-    if (route === 'health') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, version: PKG_VERSION }));
-      return;
-    }
-
-    let body: unknown;
-    if (req.method === 'POST') {
-      const raw = await readLimitedBody(req, policy.bodyLimitBytes);
-      if (raw.length > 0) {
-        try {
-          body = JSON.parse(raw.toString());
-        } catch {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(
-            JSON.stringify({
-              jsonrpc: '2.0',
-              error: { code: -32700, message: 'Parse error' },
-              id: null,
-            }),
-          );
-          return;
-        }
-      }
-    }
-
-    const sessionIdHeader = req.headers['mcp-session-id'];
-    const sessionId = Array.isArray(sessionIdHeader) ? sessionIdHeader[0] : sessionIdHeader;
-    let transport: StreamableHTTPServerTransport;
-    let trackedId = sessionId;
-
-    const existing = sessionId ? sessions.get(sessionId) : undefined;
-    if (existing && sessionId) {
-      transport = existing;
-      sessions.touch(sessionId);
-    } else if (!sessionId && req.method === 'POST' && isInitializeRequest(body)) {
-      const newTransport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (sid) => {
-          sessions.set(sid, newTransport);
-        },
-      });
-      newTransport.onclose = () => {
-        const sid = newTransport.sessionId;
-        if (sid) sessions.delete(sid);
-      };
-      const mcpServer = buildMcpSession();
-      await mcpServer.connect(newTransport);
-
-      // Register hooks on the *first* client init for this session so the
-      // HTTP path also wires up email:new → sampling/createMessage. Without
-      // this, only stdio mode triggered the hooks (see 36eb8ca on main).
-      const ls = mcpServer.server;
-      ls.oninitialized = () => {
-        markInitialized();
-        // eslint-disable-next-line no-void
-        void (async () => {
-          try {
-            const mailArrival = await MailArrival.tryCreate({
-              config: config.settings.systemOne,
-              imap: imapService,
-              apiKey: process.env.TYPESAFE_API_KEY,
-              accounts: config.accounts,
-              moveToPaths: config.settings.hooks.rules
-                .map((rule) => rule.actions.moveTo)
-                .filter((path): path is string => Boolean(path)),
-            });
-            hooksService.setMailArrival(mailArrival);
-            if (mailArrival && !config.settings.watcher.enabled) {
-              await mcpLog(
-                'warning',
-                'server',
-                'system_one is enabled but watcher is off — no arrivals will be classified',
-              );
-            }
-
-            const started = await maybeStartMailboxWriters(canWrite, {
-              startHooks: () => {
-                const clientCaps = ls.getClientCapabilities?.() ?? {};
-                hooksService.start(ls, { sampling: clientCaps.sampling != null });
-              },
-            });
-            if (!started) {
-              await mcpLog('info', 'server', 'read_only: skipping hooks (HTTP mode)');
-              return;
-            }
-            await mcpLog('info', 'server', 'Mailoo ready (HTTP mode)');
-          } catch (err) {
-            process.stderr.write(
-              `[mailoo] hooks init error: ${err instanceof Error ? err.message : String(err)}\n`,
-            );
-          }
-        })();
-      };
-
-      transport = newTransport;
-      trackedId = newTransport.sessionId;
-    } else {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          error: {
-            code: -32000,
-            message: 'Bad Request: provide mcp-session-id or send an initialize request',
-          },
-          id: null,
-        }),
-      );
-      return;
-    }
-
-    if (trackedId) sessions.beginRequest(trackedId);
-    try {
-      await transport.handleRequest(req, res, body);
-    } finally {
-      if (trackedId) sessions.endRequest(trackedId);
-      sessions.evict();
-    }
-  };
-
-  let checkInterval: ReturnType<typeof setInterval> | undefined;
-  await maybeStartMailboxWriters(canWrite, {
-    startWatcher: async () => watcherService.start(),
-    startScheduler: async () => {
-      checkInterval = setInterval(async () => {
-        try {
-          await schedulerService.checkAndSend();
-        } catch {
-          // Silent
-        }
-      }, 60_000);
-      checkInterval.unref();
-
-      try {
-        const result = await schedulerService.checkAndSend();
-        if (result.sent > 0) {
-          process.stderr.write(`[scheduler] Sent ${result.sent} overdue email(s) on startup\n`);
-        }
-      } catch {
-        // Non-fatal
-      }
-    },
+  const host = await createHttpMcpHost({
+    config,
+    connections,
+    imap: imapService,
+    templateService,
+    calendarService,
+    localCalendarService,
+    remindersService,
+    bodyLimitBytes: policy.bodyLimitBytes,
   });
 
-  const listener = await startGuardedHttpServers(policy, handleHttpRequest);
+  const listener = await startGuardedHttpServers(policy, host.handle);
   process.stderr.write(`${formatHttpListenLines(listener.addresses)}\n`);
 
   const shutdown = async () => {
-    if (checkInterval) clearInterval(checkInterval);
-    hooksService.stop();
-    await watcherService.stop();
-    await Promise.allSettled(sessions.values().map(async (t) => t.close()));
+    await host.close();
     await connections.closeAll();
     await listener.close();
   };

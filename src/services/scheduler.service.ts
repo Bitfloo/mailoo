@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { SCHEDULED_DIR, SCHEDULED_SENT_DIR } from '../config/xdg.js';
+import { SCHEDULED_DIR } from '../config/xdg.js';
 import { recipientEmail, validateInputLength } from '../safety/validation.js';
 import type { ScheduledEmail } from '../types/index.js';
 import type ImapService from './imap.service.js';
@@ -100,10 +100,18 @@ function parseSendAt(sendAt: string, now = Date.now()): Date {
 }
 
 export default class SchedulerService {
+  private readonly pendingDir: string;
+
+  private readonly sentDir: string;
+
   constructor(
     private smtpService: SmtpService,
     private imapService: ImapService,
-  ) {}
+    queueDir: string = SCHEDULED_DIR,
+  ) {
+    this.pendingDir = queueDir;
+    this.sentDir = path.join(queueDir, 'sent');
+  }
 
   // -------------------------------------------------------------------------
   // Schedule a new email
@@ -144,8 +152,8 @@ export default class SchedulerService {
     });
     const sendAtDate = parseSendAt(options.sendAt);
 
-    await SchedulerService.ensureDirs();
-    const pendingNames = await fs.readdir(SCHEDULED_DIR);
+    await this.ensureDirs();
+    const pendingNames = await fs.readdir(this.pendingDir);
     const pendingCount = pendingNames.filter((name) => scheduleIdFromFilename(name)).length;
     if (pendingCount >= MAX_PENDING_SCHEDULES) {
       throw new Error(`Too many scheduled emails (maximum ${MAX_PENDING_SCHEDULES})`);
@@ -183,7 +191,7 @@ export default class SchedulerService {
       // Draft mirror is best-effort
     }
 
-    await SchedulerService.writeScheduledFile(scheduled);
+    await this.writeScheduledFile(scheduled);
     return scheduled;
   }
 
@@ -191,7 +199,6 @@ export default class SchedulerService {
   // List scheduled emails
   // -------------------------------------------------------------------------
 
-  // eslint-disable-next-line class-methods-use-this
   async list(
     options: { account?: string; status?: 'pending' | 'sent' | 'failed' | 'all' } = {},
   ): Promise<ScheduledEmail[]> {
@@ -200,13 +207,13 @@ export default class SchedulerService {
 
     // Read pending/sending/failed from main dir
     if (status !== 'sent') {
-      const pending = await SchedulerService.readDir(SCHEDULED_DIR);
+      const pending = await SchedulerService.readDir(this.pendingDir);
       emails.push(...pending);
     }
 
     // Read sent from sent/ subdir
     if (status === 'sent' || status === 'all') {
-      const sent = await SchedulerService.readDir(SCHEDULED_SENT_DIR);
+      const sent = await SchedulerService.readDir(this.sentDir);
       emails.push(...sent);
     }
 
@@ -226,7 +233,7 @@ export default class SchedulerService {
   // -------------------------------------------------------------------------
 
   async cancel(scheduleId: string): Promise<{ cancelled: boolean; draftDeleted: boolean }> {
-    const filePath = queueFile(SCHEDULED_DIR, scheduleId);
+    const filePath = queueFile(this.pendingDir, scheduleId);
     let draftDeleted = false;
 
     try {
@@ -276,11 +283,11 @@ export default class SchedulerService {
     errors: string[];
   }> {
     const result = { sent: 0, failed: 0, errors: [] as string[] };
-    await SchedulerService.ensureDirs();
+    await this.ensureDirs();
 
     let files: string[];
     try {
-      files = await fs.readdir(SCHEDULED_DIR);
+      files = await fs.readdir(this.pendingDir);
     } catch {
       return result;
     }
@@ -293,7 +300,7 @@ export default class SchedulerService {
     for (const file of jsonFiles) {
       const id = scheduleIdFromFilename(file);
       if (!id) continue;
-      const filePath = queueFile(SCHEDULED_DIR, id);
+      const filePath = queueFile(this.pendingDir, id);
 
       try {
         const content = await fs.readFile(filePath, 'utf-8');
@@ -321,7 +328,7 @@ export default class SchedulerService {
         if (scheduled.attempts >= MAX_ATTEMPTS) {
           scheduled.status = 'failed';
           scheduled.lastError = 'Max retry attempts exceeded';
-          await SchedulerService.writeScheduledFile(scheduled);
+          await this.writeScheduledFile(scheduled);
           result.failed += 1;
           continue;
         }
@@ -329,7 +336,7 @@ export default class SchedulerService {
         // Acquire lock
         scheduled.status = 'sending';
         scheduled.attempts += 1;
-        await SchedulerService.writeScheduledFile(scheduled);
+        await this.writeScheduledFile(scheduled);
 
         // Send
         const sendResult = await this.smtpService.sendEmail(scheduled.account, {
@@ -346,7 +353,7 @@ export default class SchedulerService {
         scheduled.sentAt = new Date().toISOString();
         scheduled.sentMessageId = sendResult.messageId;
 
-        const sentPath = queueFile(SCHEDULED_SENT_DIR, id);
+        const sentPath = queueFile(this.sentDir, id);
         await fs.writeFile(sentPath, JSON.stringify(scheduled, null, 2));
         await fs.unlink(filePath);
 
@@ -391,14 +398,14 @@ export default class SchedulerService {
   // Private helpers
   // -------------------------------------------------------------------------
 
-  private static async ensureDirs(): Promise<void> {
-    await fs.mkdir(SCHEDULED_DIR, { recursive: true });
-    await fs.mkdir(SCHEDULED_SENT_DIR, { recursive: true });
+  private async ensureDirs(): Promise<void> {
+    await fs.mkdir(this.pendingDir, { recursive: true });
+    await fs.mkdir(this.sentDir, { recursive: true });
   }
 
-  private static async writeScheduledFile(scheduled: ScheduledEmail): Promise<void> {
-    await SchedulerService.ensureDirs();
-    const filePath = queueFile(SCHEDULED_DIR, scheduled.id);
+  private async writeScheduledFile(scheduled: ScheduledEmail): Promise<void> {
+    await this.ensureDirs();
+    const filePath = queueFile(this.pendingDir, scheduled.id);
     await fs.writeFile(filePath, JSON.stringify(scheduled, null, 2));
   }
 

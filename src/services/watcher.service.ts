@@ -14,6 +14,7 @@ import { ImapFlow } from 'imapflow';
 import { buildImapFlowOptions } from '../connections/manager.js';
 import { mcpLog } from '../logging.js';
 import type { AccountConfig, EmailMeta, WatcherConfig } from '../types/index.js';
+import type { EmailEventBus } from './event-bus.js';
 import eventBus from './event-bus.js';
 
 // ---------------------------------------------------------------------------
@@ -108,7 +109,11 @@ export default class WatcherService {
 
   private accounts: AccountConfig[];
 
-  constructor(config: WatcherConfig, accounts: AccountConfig[]) {
+  constructor(
+    config: WatcherConfig,
+    accounts: AccountConfig[],
+    private readonly events: EmailEventBus = eventBus,
+  ) {
     this.config = config;
     this.accounts = accounts;
   }
@@ -299,7 +304,7 @@ export default class WatcherService {
       }
 
       if (emails.length > 0) {
-        eventBus.emit('email:new', {
+        this.events.emit('email:new', {
           account: state.account.name,
           mailbox: state.folder,
           emails,

@@ -12,7 +12,7 @@
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { mcpLog } from '../logging.js';
 import type { EmailMeta, HookRule, HooksConfig } from '../types/index.js';
-import type { NewEmailEvent } from './event-bus.js';
+import type { EmailEventBus, NewEmailEvent } from './event-bus.js';
 import eventBus from './event-bus.js';
 import type ImapService from './imap.service.js';
 import LocalCalendarService from './local-calendar.service.js';
@@ -108,16 +108,23 @@ export default class HooksService {
 
   private mailArrival: MailArrival | null = null;
 
+  private readonly events: EmailEventBus;
+
   private static readonly MAX_SAMPLING_PER_MIN = 10;
+
+  private readonly handleNewEmail = (event: NewEmailEvent): void => {
+    this.onNewEmail(event);
+  };
 
   constructor(
     config: HooksConfig,
     imapService: ImapService,
-    deps?: { mailArrival?: MailArrival | null },
+    deps?: { mailArrival?: MailArrival | null; events?: EmailEventBus },
   ) {
     this.config = config;
     this.imapService = imapService;
     this.mailArrival = deps?.mailArrival ?? null;
+    this.events = deps?.events ?? eventBus;
     this.notifier = new NotifierService(config.alerts);
     this.localCalendar = new LocalCalendarService();
     this.resolvedSystemPrompt = buildSystemPrompt(config.preset, {
@@ -170,9 +177,7 @@ export default class HooksService {
       return;
     }
 
-    eventBus.on('email:new', (event: NewEmailEvent) => {
-      this.onNewEmail(event);
-    });
+    this.events.on('email:new', this.handleNewEmail);
 
     // Rate limit reset every 60s
     this.rateResetTimer = setInterval(() => {
@@ -200,7 +205,7 @@ export default class HooksService {
       this.rateResetTimer = null;
     }
     this.notifier.stop();
-    eventBus.removeAllListeners('email:new');
+    this.events.off('email:new', this.handleNewEmail);
   }
 
   // -------------------------------------------------------------------------
