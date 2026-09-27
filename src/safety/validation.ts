@@ -40,7 +40,7 @@ export function sanitizeMailboxName(name: string): string {
 }
 
 /**
- * One IMAP UID (RFC 9051 nz-number, 1 through 2^32-1).
+ * Exactly one IMAP UID (bounds: MAX_MESSAGE_UID).
  * A sequence-set (`1:*`, `1,2`) or a non-integer prefix addresses a different
  * message than the single id the caller passed.
  * @param emailId - Caller-supplied message id.

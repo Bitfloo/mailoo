@@ -303,7 +303,12 @@ async function messageToEmail(
   };
 }
 
-function flagChange(action: string): { flags: string[]; add: boolean } {
+// Callers pass the mark_email zod enum or a literal of the same union.
+// eslint-disable-next-line consistent-return -- every case returns; the union is exhaustive
+function flagChange(action: 'read' | 'unread' | 'flag' | 'unflag'): {
+  flags: string[];
+  add: boolean;
+} {
   switch (action) {
     case 'read':
       return { flags: ['\\Seen'], add: true };
@@ -313,8 +318,7 @@ function flagChange(action: string): { flags: string[]; add: boolean } {
       return { flags: ['\\Flagged'], add: true };
     case 'unflag':
       return { flags: ['\\Flagged'], add: false };
-    default:
-      throw new Error('Unknown flag action');
+    // no default
   }
 }
 

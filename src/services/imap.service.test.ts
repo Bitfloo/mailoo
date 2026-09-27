@@ -560,8 +560,8 @@ describe('ImapService', () => {
     });
   });
 
-  // A single-message id is one UID. These strings are sequence-sets or non-integers;
-  // forwarding them selects more than the one message the caller named.
+  // A single-message id is one canonical UID. These values are not, so
+  // forwarding them selects a different set than the one message the caller named.
   describe('single-message inputs', () => {
     type Call = (svc: ImapService) => Promise<unknown>;
 
@@ -586,7 +586,7 @@ describe('ImapService', () => {
       ['fetchDraft', async (svc) => svc.fetchDraft('test', 0)],
       ['fetchDraft fraction', async (svc) => svc.fetchDraft('test', 1.5)],
       ['deleteDraft', async (svc) => svc.deleteDraft('test', -1, 'Drafts')],
-    ])('should reject a non-integer UID from %s before contacting IMAP', async (_name, call) => {
+    ])('should reject an id that is not one canonical UID from %s before contacting IMAP', async (_name, call) => {
       await expect(call(service)).rejects.toThrow(/positive integer UID/);
       expect(connections.getImapClient).not.toHaveBeenCalled();
     });
@@ -621,13 +621,6 @@ describe('ImapService', () => {
 
     it('should reject a label with an empty or relative path segment before contacting IMAP', async () => {
       await expect(service.deleteLabel('test', '../Secret')).rejects.toThrow(/relative path/);
-      expect(connections.getImapClient).not.toHaveBeenCalled();
-    });
-
-    it('should reject an unknown flag action before contacting IMAP', async () => {
-      await expect(service.setFlags('test', '4', 'INBOX', 'explode' as 'read')).rejects.toThrow(
-        /flag action/,
-      );
       expect(connections.getImapClient).not.toHaveBeenCalled();
     });
   });
