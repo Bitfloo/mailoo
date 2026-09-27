@@ -212,6 +212,56 @@ describe('SchedulerService queue files', () => {
     ).rejects.toThrow(/[Ss]ubject/);
   });
 
+  it('rejects an In-Reply-To value that contains a line break', async () => {
+    const { service } = createService();
+    await expect(
+      service.schedule('personal', {
+        to: ['user@example.com'],
+        subject: 'Hello',
+        body: 'Body',
+        sendAt: daysFromNow(2),
+        inReplyTo: 'x\r\nBcc: y@example.com',
+      }),
+    ).rejects.toThrow(/In-Reply-To/);
+  });
+
+  it('rejects a References item that contains a newline', async () => {
+    const { service } = createService();
+    await expect(
+      service.schedule('personal', {
+        to: ['user@example.com'],
+        subject: 'Hello',
+        body: 'Body',
+        sendAt: daysFromNow(2),
+        references: ['<id@example.com>\n'],
+      }),
+    ).rejects.toThrow(/References/);
+  });
+
+  it('accepts an account name of exactly 128 characters', async () => {
+    const { service } = createService();
+    const account = 'a'.repeat(128);
+    const scheduled = await service.schedule(account, {
+      to: ['user@example.com'],
+      subject: 'Hello',
+      body: 'Body',
+      sendAt: daysFromNow(2),
+    });
+    expect(scheduled.account).toBe(account);
+  });
+
+  it('rejects an account name one character over 128', async () => {
+    const { service } = createService();
+    await expect(
+      service.schedule('a'.repeat(129), {
+        to: ['user@example.com'],
+        subject: 'Hello',
+        body: 'Body',
+        sendAt: daysFromNow(2),
+      }),
+    ).rejects.toThrow(/Account name/);
+  });
+
   it('rejects an address that is not an email', async () => {
     const { service } = createService();
     await expect(
