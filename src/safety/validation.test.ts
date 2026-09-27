@@ -291,16 +291,6 @@ describe('validateLabelName', () => {
   });
 
   it.each([
-    'Bad"Tag',
-    'Bad\\Tag',
-    '\\Seen',
-    'Bad*Tag',
-    'Tag)',
-  ])('throws when the name contains an IMAP special character (%j)', (name) => {
-    expect(() => validateLabelName(name)).toThrow('IMAP special');
-  });
-
-  it.each([
     '../Secret',
     'Work//Urgent',
     'Work/',

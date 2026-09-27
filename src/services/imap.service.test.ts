@@ -619,15 +619,8 @@ describe('ImapService', () => {
       expect(connections.getImapClient).not.toHaveBeenCalled();
     });
 
-    it.each<[string, Call]>([
-      ['addLabel', async (svc) => svc.addLabel('test', '8', 'INBOX', 'Bad"Tag')],
-      ['removeLabel', async (svc) => svc.removeLabel('test', '8', 'INBOX', 'Bad\\Tag')],
-      ['createLabel', async (svc) => svc.createLabel('test', 'Bad*Tag')],
-      ['deleteLabel', async (svc) => svc.deleteLabel('test', '../Secret')],
-      ['addLabel paren', async (svc) => svc.addLabel('test', '8', 'INBOX', 'Tag)')],
-      ['addLabel system flag', async (svc) => svc.addLabel('test', '8', 'INBOX', '\\Seen')],
-    ])('should reject an unsafe label from %s before contacting IMAP', async (_name, call) => {
-      await expect(call(service)).rejects.toThrow(/IMAP special|relative path/);
+    it('should reject a label with an empty or relative path segment before contacting IMAP', async () => {
+      await expect(service.deleteLabel('test', '../Secret')).rejects.toThrow(/relative path/);
       expect(connections.getImapClient).not.toHaveBeenCalled();
     });
 

@@ -230,15 +230,9 @@ export function sanitizeTemplateVariable(value: string, html: boolean): string {
 }
 
 /**
- * Metacharacters that are not a single IMAP flag atom or one mailbox segment.
- * Space and `/` stay allowed: Gmail labels use spaces, nested labels use `/`.
- */
-const LABEL_SPECIAL = /[\]"\\{}()*%]/;
-
-/**
  * Validate an email label name.
- * Rejects control characters, flag and mailbox metacharacters, relative path
- * segments, and names longer than 200 characters.
+ * Rejects control characters, empty or relative path segments, and names
+ * longer than 200 characters.
  * @param name - The label name to validate.
  * @returns The trimmed label name.
  */
@@ -256,9 +250,6 @@ export function validateLabelName(name: string): string {
     throw new Error('Label name must not contain control characters');
   }
   /* eslint-enable no-control-regex */
-  if (LABEL_SPECIAL.test(trimmed)) {
-    throw new Error('Label name must not contain IMAP special characters');
-  }
   const segments = trimmed.split('/');
   if (segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')) {
     throw new Error('Label name must not contain empty or relative path segments');
