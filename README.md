@@ -4,7 +4,7 @@
 [![license](https://img.shields.io/github/license/bitfloo/mailoo.svg?style=flat-square)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/bitfloo/mailoo/ci.yml?branch=develop&style=flat-square&label=CI)](https://github.com/bitfloo/mailoo/actions/workflows/ci.yml)
 
-**Mailoo** is Bitfloo's IMAP/SMTP [MCP](https://modelcontextprotocol.io) server:
+**Mailoo** is Bitfloo's IMAP, SMTP, and ManageSieve [MCP](https://modelcontextprotocol.io) server:
 multi-mailbox, with profiles per account and per folder.
 
 This is a public **LGPL-3.0-or-later fork** of [email-mcp](https://github.com/codefuturist/email-mcp).
@@ -41,6 +41,7 @@ Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, and read-onl
 - [Background](#background)
 - [Install](#install)
 - [Usage](#usage)
+- [Capabilities & data flows](#capabilities--data-flows)
 - [API](#api)
 - [Maintainers](#maintainers)
 - [Upstream / Attribution](#upstream--attribution)
@@ -709,6 +710,80 @@ description = "Invoices, receipts, and payment confirmations."
 ```
 
 `on_new_email = "notify"` or `"triage"` both feed System One when it is on. `none` stays off.
+
+## Capabilities & data flows
+
+Outbound calls, child processes, files, and environment variables below are what `src/` actually does. Hook triage that uses MCP sampling stays inside the connected client; Mailoo does not dial a separate model host for that path.
+
+### Network
+
+| Destination | When | Code |
+|---|---|---|
+| Configured IMAP host and port | Reads, writes, IDLE | `src/connections/manager.ts`, `src/services/watcher.service.ts` |
+| Configured SMTP host and port | Sends | `src/connections/manager.ts` |
+| ManageSieve host (IMAP host if unset) port 4190 | Filter scripts | `src/services/sieve.service.ts` |
+| `https://oauth2.googleapis.com/token` | Google token refresh and code exchange | `src/services/oauth.service.ts` |
+| `https://accounts.google.com/o/oauth2/v2/auth` | Authorization URL for the operator's browser; the process does not fetch it | `src/services/oauth.service.ts` |
+| `https://login.microsoftonline.com/common/oauth2/v2.0/token` | Microsoft token refresh and code exchange | `src/services/oauth.service.ts` |
+| `https://login.microsoftonline.com/common/oauth2/v2.0/authorize` | Authorization URL for the operator's browser; the process does not fetch it | `src/services/oauth.service.ts` |
+| Custom `token_url` / `auth_url` | Same split when `oauth2.provider` is `custom` | `src/services/oauth.service.ts` |
+| Configured webhook URL (`http` or `https` POST) | Alerts, after a DNS lookup of that host | `src/services/notifier.service.ts`, `src/safety/validation.ts` |
+| `https://api.typesafe.ai` (or `TYPESAFE_BASE_URL`) | System One classification, only when that integration is on | `src/services/mail-arrival/index.ts` |
+
+`mailoo http` listens. It does not add an outbound destination. Provider presets in `src/cli/providers.ts` only fill the IMAP, SMTP, and OAuth hosts the wizard saves.
+
+### Processes
+
+| Program | When | Code |
+|---|---|---|
+| `osascript` | macOS notifications, calendar events, reminders | `src/services/notifier.service.ts`, `src/services/local-calendar.service.ts`, `src/services/reminders.service.ts` |
+| `notify-send` | Linux desktop notifications | `src/services/notifier.service.ts` |
+| `paplay` | Linux notification sound | `src/services/notifier.service.ts` |
+| `powershell` | Windows balloon notifications | `src/services/notifier.service.ts` |
+| `which` (Windows: `where`) | Checks that `osascript`, `afplay`, `notify-send`, `paplay`, or `powershell` exists. `afplay` is only probed; macOS sound goes through `osascript` | `src/services/notifier.service.ts` |
+| `xdg-open` | Opens a temporary calendar file on Linux | `src/services/local-calendar.service.ts` |
+| `launchctl` | Installs or removes the macOS scheduler agent | `src/cli/scheduler.ts` |
+| `crontab` | Installs or removes the Linux scheduler line | `src/cli/scheduler.ts` |
+
+### Files
+
+Paths follow the XDG defaults in `src/config/xdg.ts` unless `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, or `XDG_STATE_HOME` is set.
+
+| Path | What is written | Code |
+|---|---|---|
+| `$XDG_CONFIG_HOME/mailoo/config.toml` (mode `0600` for a new file) | Accounts and settings, including passwords and OAuth secrets | `src/config/loader.ts` |
+| `$XDG_DATA_HOME/mailoo/audit.log` | Append-only audit lines | `src/safety/audit.ts` |
+| `$XDG_STATE_HOME/mailoo/scheduled/` and `scheduled/sent/` | Scheduled-send JSON | `src/services/scheduler.service.ts` |
+| `$XDG_DATA_HOME/mailoo/calendar-attachments/` | Attachment files saved for a calendar event | `src/services/imap.service.ts` |
+| `$XDG_STATE_HOME/mailoo/calendar-processed.json` and `.lock` | Which messages already created an automatic event or reminder | `src/utils/calendar-state.ts` |
+| `savePath` under the working directory | `download_attachment` when that argument is set | `src/tools/attachments.tool.ts` |
+| OS temp directory, `mailoo-event-*.ics` | Linux calendar file passed to `xdg-open` | `src/services/local-calendar.service.ts` |
+| `~/Library/LaunchAgents/com.bitfloo.mailoo.scheduler.plist` | macOS scheduler agent. Its stdout and stderr are `/tmp/mailoo-scheduler.log` | `src/cli/scheduler.ts` |
+| User crontab | One Mailoo line on Linux | `src/cli/scheduler.ts` |
+| MCP client config (Claude, Cursor, Windsurf) | `mailoo install` merges the launch entry | `src/cli/install-commands.ts` |
+
+Templates under `$XDG_CONFIG_HOME/mailoo/templates/` are read, not written by the server.
+
+### Environment
+
+Single-account setup reads `MCP_EMAIL_*` (`src/config/loader.ts`). HTTP listens reads `MCP_EMAIL_HTTP_HOST`, `MCP_EMAIL_HTTP_TOKEN`, and `MCP_EMAIL_HTTP_ALLOWED_HOSTS` (`src/safety/http-transport.ts`). The same names are the Smithery config keys and the `packages[].environmentVariables` list in `server.json`.
+
+| Name | Role |
+|---|---|
+| `MCP_EMAIL_ADDRESS`, `MCP_EMAIL_PASSWORD`, `MCP_EMAIL_IMAP_HOST`, `MCP_EMAIL_SMTP_HOST` | Account. Password is required unless `MCP_EMAIL_OAUTH2_PROVIDER` is set |
+| `MCP_EMAIL_ACCOUNT_NAME`, `MCP_EMAIL_FULL_NAME`, `MCP_EMAIL_USERNAME` | Identity |
+| `MCP_EMAIL_IMAP_PORT`, `MCP_EMAIL_IMAP_TLS`, `MCP_EMAIL_IMAP_STARTTLS`, `MCP_EMAIL_IMAP_VERIFY_SSL`, `MCP_EMAIL_IMAP_DISABLE_IMAP4REV2`, `MCP_EMAIL_SIEVE_HOST`, `MCP_EMAIL_SIEVE_PORT` | IMAP and ManageSieve |
+| `MCP_EMAIL_SMTP_PORT`, `MCP_EMAIL_SMTP_TLS`, `MCP_EMAIL_SMTP_STARTTLS`, `MCP_EMAIL_SMTP_VERIFY_SSL`, `MCP_EMAIL_SMTP_POOL_ENABLED`, `MCP_EMAIL_SMTP_POOL_MAX_CONNECTIONS`, `MCP_EMAIL_SMTP_POOL_MAX_MESSAGES` | SMTP |
+| `MCP_EMAIL_OAUTH2_PROVIDER`, `MCP_EMAIL_OAUTH2_CLIENT_ID`, `MCP_EMAIL_OAUTH2_CLIENT_SECRET`, `MCP_EMAIL_OAUTH2_REFRESH_TOKEN` | OAuth2 |
+| `MCP_EMAIL_RATE_LIMIT`, `MCP_EMAIL_READ_ONLY`, `MCP_EMAIL_SAVE_TO_SENT` | Settings |
+| `MCP_EMAIL_WATCHER_ENABLED`, `MCP_EMAIL_WATCHER_FOLDERS`, `MCP_EMAIL_WATCHER_IDLE_TIMEOUT` | IDLE watcher |
+| `MCP_EMAIL_HOOK_ON_NEW_EMAIL`, `MCP_EMAIL_HOOK_PRESET`, `MCP_EMAIL_HOOK_AUTO_LABEL`, `MCP_EMAIL_HOOK_AUTO_FLAG`, `MCP_EMAIL_HOOK_BATCH_DELAY`, `MCP_EMAIL_HOOK_CUSTOM_INSTRUCTIONS` | Hooks |
+| `MCP_EMAIL_ALERT_DESKTOP`, `MCP_EMAIL_ALERT_SOUND`, `MCP_EMAIL_ALERT_URGENCY_THRESHOLD`, `MCP_EMAIL_ALERT_WEBHOOK_URL`, `MCP_EMAIL_ALERT_WEBHOOK_ALLOW_PRIVATE` | Alerts |
+| `MCP_EMAIL_HOOK_AUTO_CALENDAR`, `MCP_EMAIL_HOOK_CALENDAR_NAME`, `MCP_EMAIL_HOOK_CALENDAR_ALARM_MINUTES`, `MCP_EMAIL_HOOK_CALENDAR_CONFIRM` | Automatic calendar |
+| `MCP_EMAIL_SYSTEM_ONE_ENABLED` | System One switch. The API key is `TYPESAFE_API_KEY`, not a `MCP_EMAIL_*` variable |
+| `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL` | System One credential and optional API root. The SDK reads `TYPESAFE_BASE_URL` |
+| `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `APPDATA` | Override the directories above. `APPDATA` is the Windows Claude config directory used by `mailoo install` |
+| `MCP_EMAIL_HTTP_HOST`, `MCP_EMAIL_HTTP_TOKEN`, `MCP_EMAIL_HTTP_ALLOWED_HOSTS` | HTTP listen policy |
 
 ## API
 
