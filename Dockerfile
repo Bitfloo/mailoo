@@ -1,5 +1,5 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM node:24-slim AS builder
+FROM node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS builder
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ RUN pnpm build
 RUN pnpm prune --prod
 
 # ── Production stage ──────────────────────────────────────────────────────────
-FROM node:24-slim AS production
+FROM node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS production
 
 LABEL org.opencontainers.image.title="Mailoo" \
       org.opencontainers.image.description="Mailoo — IMAP/SMTP MCP server. Multi-account, per-folder profiles." \
@@ -40,6 +40,7 @@ RUN mkdir -p /home/node/.config/mailoo && chown -R node:node /home/node/.config
 
 ENV NODE_ENV=production
 
+# No HEALTHCHECK: the default command is stdio and does not listen on a port.
 USER node
 
 ENTRYPOINT ["node", "dist/main.js"]
