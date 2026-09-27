@@ -34,9 +34,9 @@ function formatEmailMeta(email: EmailMeta): string {
   const from = email.from.name ? `${email.from.name} <${email.from.address}>` : email.from.address;
   const labelStr = email.labels.length > 0 ? `\n  🏷️ ${email.labels.join(', ')}` : '';
 
-  return delimitUntrusted(
-    `[${email.id}] ${flags} ${email.subject}\n  From: ${from} | ${email.date}${labelStr}${email.preview ? `\n  ${email.preview}` : ''}`,
-  );
+  // Callers fence the joined page once. A fence on every row repeats the markers.
+  const preview = email.preview ? `\n  ${email.preview}` : '';
+  return `[${email.id}] ${flags} ${email.subject}\n  From: ${from} | ${email.date}${labelStr}${preview}`;
 }
 
 /** Renders the current read/flag/label state as a concise status line. */
@@ -118,7 +118,7 @@ export default function registerEmailsTools(
           `📬 [${params.mailbox}] ${result.total} emails ` +
           `(page ${result.page}/${Math.ceil(result.total / result.pageSize)})` +
           `${result.hasMore ? ' — more pages available' : ''}\n`;
-        const emails = result.items.map(formatEmailMeta).join('\n\n');
+        const emails = delimitUntrusted(result.items.map(formatEmailMeta).join('\n\n'));
 
         return {
           content: [{ type: 'text' as const, text: `${header}\n${emails}` }],
@@ -474,7 +474,7 @@ export default function registerEmailsTools(
         const header =
           `🔍 [${params.mailbox}] ${result.total} result(s) for ${queryLabel} ` +
           `(page ${result.page}/${Math.ceil(result.total / result.pageSize)})\n`;
-        const emails = result.items.map(formatEmailMeta).join('\n\n');
+        const emails = delimitUntrusted(result.items.map(formatEmailMeta).join('\n\n'));
 
         return {
           content: [{ type: 'text' as const, text: `${header}\n${emails}` }],

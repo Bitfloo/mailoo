@@ -129,6 +129,95 @@ describe('untrusted mail text', () => {
     expect(inside).toContain('see the attached numbers');
     expect(inside).toContain('lead@example.com');
   });
+
+  it('should mark a multi-message list_emails page as one external block', async () => {
+    const listEmails = vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: '4',
+          subject: 'Quarterly report',
+          from: { name: 'Ada', address: 'ada@example.com' },
+          to: [{ address: 'me@example.com' }],
+          date: '2026-01-02T00:00:00.000Z',
+          seen: true,
+          flagged: false,
+          answered: false,
+          labels: [],
+          hasAttachments: false,
+          preview: 'see the attached numbers',
+        },
+        {
+          id: '5',
+          subject: 'Second subject',
+          from: { address: 'bee@example.com' },
+          to: [{ address: 'me@example.com' }],
+          date: '2026-01-03T00:00:00.000Z',
+          seen: false,
+          flagged: false,
+          answered: false,
+          labels: [],
+          hasAttachments: false,
+          preview: 'follow up tomorrow',
+        },
+      ],
+      total: 2,
+      page: 1,
+      pageSize: 20,
+      hasMore: false,
+    });
+    const run = captureNamedHandler('list_emails', { listEmails });
+    const result = await run({ account: 'box', mailbox: 'INBOX' });
+    const text = result.content[0]?.text ?? '';
+    expect(text.split(UNTRUSTED_BEGIN).length - 1).toBe(1);
+    expect(text.split(UNTRUSTED_END).length - 1).toBe(1);
+    const inside = fenced(text);
+    expect(inside).toContain('Quarterly report');
+    expect(inside).toContain('Second subject');
+    expect(inside).toContain('Ada');
+  });
+
+  it('should mark a multi-message search_emails page as one external block', async () => {
+    const searchEmails = vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: '4',
+          subject: 'Quarterly report',
+          from: { address: 'ada@example.com' },
+          to: [{ address: 'me@example.com' }],
+          date: '2026-01-02T00:00:00.000Z',
+          seen: true,
+          flagged: false,
+          answered: false,
+          labels: [],
+          hasAttachments: false,
+        },
+        {
+          id: '5',
+          subject: 'Second subject',
+          from: { address: 'bee@example.com' },
+          to: [{ address: 'me@example.com' }],
+          date: '2026-01-03T00:00:00.000Z',
+          seen: false,
+          flagged: false,
+          answered: false,
+          labels: [],
+          hasAttachments: false,
+        },
+      ],
+      total: 2,
+      page: 1,
+      pageSize: 20,
+      hasMore: false,
+    });
+    const run = captureNamedHandler('search_emails', { searchEmails });
+    const result = await run({ account: 'box', mailbox: 'INBOX', query: 'report' });
+    const text = result.content[0]?.text ?? '';
+    expect(text.split(UNTRUSTED_BEGIN).length - 1).toBe(1);
+    expect(text.split(UNTRUSTED_END).length - 1).toBe(1);
+    const inside = fenced(text);
+    expect(inside).toContain('Quarterly report');
+    expect(inside).toContain('Second subject');
+  });
 });
 
 function fetchedEmail(subject: string) {
