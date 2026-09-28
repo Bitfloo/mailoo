@@ -262,6 +262,42 @@ function toContract(live: LiveCatalog): unknown {
   });
 }
 
+const configurationDocPath = join(srcRoot, '..', 'docs', 'configuration.md');
+const READ_ONLY_ROSTER_LEAD = 'The registered tools are exactly:';
+
+// The configuration page copies the read_only roster. Nothing else binds that copy.
+function documentedReadOnlyToolNames(markdown: string): string[] {
+  const at = markdown.indexOf(READ_ONLY_ROSTER_LEAD);
+  if (at < 0) {
+    throw new Error(`docs/configuration.md is missing ${JSON.stringify(READ_ONLY_ROSTER_LEAD)}`);
+  }
+  const rest = markdown.slice(at + READ_ONLY_ROSTER_LEAD.length).replace(/^\s+/, '');
+  const paragraphEnd = rest.search(/\n[ \t]*\n/);
+  const heading = rest.search(/^#{1,6}\s/m);
+  const ends = [paragraphEnd, heading].filter((index) => index >= 0);
+  const end = ends.length > 0 ? Math.min(...ends) : rest.length;
+  return [...rest.slice(0, end).matchAll(/`([^`]+)`/g)].map((match) => match[1] ?? '');
+}
+
+function contractToolNames(live: LiveCatalog): string[] {
+  const contract = toContract(live) as { tools: { name: string }[] };
+  return contract.tools.map((tool) => tool.name);
+}
+
+async function listedReadOnlyToolNames(): Promise<string[]> {
+  const server = buildCatalog({ readOnly: true, accounts: [] });
+  const client = new Client({ name: 'mailoo-read-only-docs', version: '0.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+  try {
+    const listed = await client.listTools();
+    if (listed.nextCursor) throw new Error('tools/list paginated; the test would drop a page');
+    return contractToolNames({ tools: listed.tools, prompts: [], resources: [] });
+  } finally {
+    await Promise.allSettled([client.close(), server.close()]);
+  }
+}
+
 async function collectLive(): Promise<LiveCatalog> {
   const server = buildCatalog({ readOnly: false, accounts: ['work'] });
   const client = new Client({ name: 'mailoo-catalog', version: '0.0.0' });
@@ -367,5 +403,14 @@ describe('MCP registration catalog', () => {
     await expect(
       await formatCatalogJson(`${JSON.stringify(toContract(live), null, 2)}\n`),
     ).toMatchFileSnapshot('./mcp-catalog.baseline.json');
+  });
+});
+
+describe('read_only roster in configuration.md', () => {
+  it('should name the same tools the read_only catalog registers', async () => {
+    const documented = documentedReadOnlyToolNames(
+      await readFile(configurationDocPath, 'utf8'),
+    ).sort(compareText);
+    expect(documented).toEqual(await listedReadOnlyToolNames());
   });
 });
