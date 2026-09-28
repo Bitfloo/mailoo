@@ -19,8 +19,9 @@ const CHILD_PROCESS_NAMES = new Set(['execFile', 'execFileSync', 'spawn', 'spawn
 // is the module object, so it can still call exec.
 const CHILD_PROCESS_IMPORT =
   /(?:^|\n)[ \t]*import\s+(?:type\s+)?([^;]*?)\s+from\s+['"](?:node:)?child_process['"]/g;
-const CHILD_PROCESS_MODULE =
-  /(?:^|\n)[ \t]*(?:import|require)\s*\(?\s*['"](?:node:)?child_process['"]/;
+// A line-start anchor misses `const { execSync } = await import('node:child_process')`.
+const CHILD_PROCESS_MODULE = /(?:import|require)\s*\(\s*['"](?:node:)?child_process['"]/;
+const SHELL_LITERAL = /['"](?:[^'"]*\/)?(sh|bash|zsh|dash|cmd|pwsh|powershell)(?:\.exe)?['"]/g;
 
 // desktopNotificationCommands runs one fixed PowerShell script built from string
 // literals. Title and body are environment values, not the -Command text.
@@ -53,12 +54,30 @@ function childProcessImportHits(text: string): string[] {
   return [...fromImports, ...moduleImport];
 }
 
+// A leading quote is not the whole argument: `'crontab -l | ' + line` still appends a variable.
+function isWholeStringLiteral(arg: string): boolean {
+  const text = arg.trim();
+  const quote = text[0];
+  if ((quote !== "'" && quote !== '"') || text.length < 2) return false;
+  let i = 1;
+  while (i < text.length) {
+    if (text[i] === '\\') {
+      i += 2;
+    } else if (text[i] === quote) {
+      return i === text.length - 1;
+    } else {
+      i += 1;
+    }
+  }
+  return false;
+}
+
 function variableShellHits(file: string, text: string): string[] {
-  return [...text.matchAll(/['"](sh|bash|cmd|powershell)['"]/g)].flatMap((match) => {
+  return [...text.matchAll(SHELL_LITERAL)].flatMap((match) => {
     const at = match.index ?? 0;
-    const flag = /['"](-c|\/c|-Command)['"]\s*,\s*([^,\]\n]+)/.exec(text.slice(at, at + 400));
+    const flag = /['"](-c|\/c|-Command)['"]\s*,\s*([^,\]\n)]+)/.exec(text.slice(at, at + 400));
     const arg = flag?.[2]?.trim() ?? '';
-    if (!flag || arg.startsWith("'") || arg.startsWith('"')) return [];
+    if (!flag || isWholeStringLiteral(arg)) return [];
     const reason = `${match[1]} ${flag[1]} ${arg}`;
     // The Windows notifier is the one constant script. Other shells in that file still fail.
     if (file.endsWith(CONSTANT_POWERSHELL_NOTIFIER) && reason.startsWith('powershell -Command')) {
