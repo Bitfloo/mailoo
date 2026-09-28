@@ -185,6 +185,34 @@ async function releaseClaim(dir: string, id: string, token: string): Promise<voi
   }
 }
 
+async function readScheduled(filePath: string): Promise<ScheduledEmail | undefined> {
+  try {
+    const content = await fs.readFile(filePath, 'utf-8');
+    return JSON.parse(content) as ScheduledEmail;
+  } catch (err) {
+    if (errnoCode(err) === 'ENOENT') return undefined;
+    throw err;
+  }
+}
+
+function isDue(scheduled: ScheduledEmail, id: string, now: number): boolean {
+  return (
+    scheduled.id === id &&
+    scheduled.status !== 'failed' &&
+    scheduled.status !== 'sent' &&
+    new Date(scheduled.sendAt).getTime() <= now
+  );
+}
+
+function assertCancellable(scheduled: ScheduledEmail): void {
+  if (scheduled.status === 'sending') {
+    throw new Error('Cannot cancel email that is already being sent');
+  }
+  if (scheduled.status !== 'pending') {
+    throw new Error(`Cannot cancel email with status "${scheduled.status}"`);
+  }
+}
+
 /** Chosen bound. An account name is a local label stored in the queue file, not a protocol field. */
 const MAX_ACCOUNT_NAME_CHARS = 128;
 
@@ -249,6 +277,17 @@ function daysInMonth(year: number, month: number): number {
   return 31;
 }
 
+function sendAtFieldsInvalid(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+): boolean {
+  return month > 12 || day > daysInMonth(year, month) || hour > 23 || minute > 59 || second > 59;
+}
+
 function parseSendAt(sendAt: string, now = Date.now()): Date {
   const match = sendAt.length <= 40 ? SEND_AT_RE.exec(sendAt) : null;
   if (!match) {
@@ -261,7 +300,7 @@ function parseSendAt(sendAt: string, now = Date.now()): Date {
   const minute = Number(match[5]);
   const second = Number(match[6] ?? 0);
   // Date rolls 30 February and hour 24 forward. Check the fields before that.
-  if (month > 12 || day > daysInMonth(year, month) || hour > 23 || minute > 59 || second > 59) {
+  if (sendAtFieldsInvalid(year, month, day, hour, minute, second)) {
     throw new Error(`Invalid send_at date: ${sendAt}. Expected ${SEND_AT_FORMAT}`);
   }
   const date = new Date(sendAt);
@@ -422,34 +461,18 @@ export default class SchedulerService {
     try {
       const content = await fs.readFile(filePath, 'utf-8');
       const scheduled = JSON.parse(content) as ScheduledEmail;
-
-      if (scheduled.status === 'sending') {
-        throw new Error('Cannot cancel email that is already being sent');
-      }
-      if (scheduled.status !== 'pending') {
-        throw new Error(`Cannot cancel email with status "${scheduled.status}"`);
-      }
+      assertCancellable(scheduled);
 
       claimToken = await claimSchedule(this.pendingDir, scheduleId);
       if (!claimToken) {
         throw new Error('Cannot cancel email that is already being sent');
       }
 
-      let current: ScheduledEmail;
-      try {
-        current = JSON.parse(await fs.readFile(filePath, 'utf-8')) as ScheduledEmail;
-      } catch (err) {
-        if (errnoCode(err) === 'ENOENT') {
-          throw new Error(`Scheduled email "${scheduleId}" not found`);
-        }
-        throw err;
+      const current = await readScheduled(filePath);
+      if (!current) {
+        throw new Error(`Scheduled email "${scheduleId}" not found`);
       }
-      if (current.status === 'sending') {
-        throw new Error('Cannot cancel email that is already being sent');
-      }
-      if (current.status !== 'pending') {
-        throw new Error(`Cannot cancel email with status "${current.status}"`);
-      }
+      assertCancellable(current);
 
       if (current.draftMessageId && current.draftMailbox) {
         try {
@@ -501,90 +524,12 @@ export default class SchedulerService {
 
     // eslint-disable-next-line no-restricted-syntax
     for (const file of jsonFiles) {
-      const id = scheduleIdFromFilename(file);
-      if (!id) continue;
-      const filePath = queueFile(this.pendingDir, id);
-      let claimToken: string | undefined;
-      let stopRenewal: (() => void) | undefined;
-
-      try {
-        const content = await fs.readFile(filePath, 'utf-8');
-        const scheduled = JSON.parse(content) as ScheduledEmail;
-        if (scheduled.id !== id) continue;
-        if (scheduled.status === 'failed' || scheduled.status === 'sent') continue;
-        if (new Date(scheduled.sendAt).getTime() > now) continue;
-
-        claimToken = await claimSchedule(this.pendingDir, id, now);
-        if (!claimToken) continue;
-
-        let fresh: ScheduledEmail;
-        try {
-          fresh = JSON.parse(await fs.readFile(filePath, 'utf-8')) as ScheduledEmail;
-        } catch (err) {
-          if (errnoCode(err) === 'ENOENT') continue;
-          throw err;
-        }
-        if (fresh.id !== id || fresh.status === 'failed' || fresh.status === 'sent') continue;
-        if (new Date(fresh.sendAt).getTime() > now) continue;
-        if (fresh.attempts >= MAX_ATTEMPTS) {
-          fresh.status = 'failed';
-          fresh.lastError = 'Max retry attempts exceeded';
-          await this.writeScheduledFile(fresh);
-          result.failed += 1;
-          continue;
-        }
-
-        fresh.status = 'sending';
-        fresh.attempts += 1;
-        await this.writeScheduledFile(fresh);
-
-        stopRenewal = startClaimRenewal(lockFile(this.pendingDir, id));
-        const sendResult = await this.smtpService.sendEmail(fresh.account, {
-          to: fresh.to,
-          subject: fresh.subject,
-          body: fresh.body,
-          cc: fresh.cc,
-          bcc: fresh.bcc,
-          html: fresh.html,
-        });
-
-        fresh.status = 'sent';
-        fresh.sentAt = new Date().toISOString();
-        fresh.sentMessageId = sendResult.messageId;
-        await fs.writeFile(queueFile(this.sentDir, id), JSON.stringify(fresh, null, 2));
-        await fs.unlink(filePath);
-
-        if (fresh.draftMessageId && fresh.draftMailbox) {
-          try {
-            await this.imapService.deleteEmail(
-              fresh.account,
-              fresh.draftMessageId,
-              fresh.draftMailbox,
-            );
-          } catch {
-            // Best-effort
-          }
-        }
-
-        result.sent += 1;
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        result.errors.push(`${file}: ${errorMsg}`);
-
-        try {
-          const content = await fs.readFile(filePath, 'utf-8');
-          const scheduled = JSON.parse(content) as ScheduledEmail;
-          scheduled.status = scheduled.attempts >= MAX_ATTEMPTS ? 'failed' : 'pending';
-          scheduled.lastError = errorMsg;
-          await fs.writeFile(filePath, JSON.stringify(scheduled, null, 2));
-        } catch {
-          // If we can't even update the file, skip
-        }
-
+      const delivery = await this.processQueueFile(file, now);
+      if (delivery.outcome === 'skipped') continue;
+      if (delivery.outcome === 'sent') result.sent += 1;
+      else if (delivery.outcome === 'failed') {
         result.failed += 1;
-      } finally {
-        stopRenewal?.();
-        if (claimToken) await releaseClaim(this.pendingDir, id, claimToken);
+        if (delivery.error !== undefined) result.errors.push(`${file}: ${delivery.error}`);
       }
     }
 
@@ -614,6 +559,97 @@ export default class SchedulerService {
     await this.ensureDirs();
     const filePath = queueFile(this.pendingDir, scheduled.id);
     await fs.writeFile(filePath, JSON.stringify(scheduled, null, 2));
+  }
+
+  private async processQueueFile(
+    file: string,
+    now: number,
+  ): Promise<{ outcome: 'sent' | 'failed' | 'skipped'; error?: string }> {
+    const id = scheduleIdFromFilename(file);
+    if (!id) return { outcome: 'skipped' };
+    const filePath = queueFile(this.pendingDir, id);
+    let claimToken: string | undefined;
+
+    try {
+      const content = await fs.readFile(filePath, 'utf-8');
+      const scheduled = JSON.parse(content) as ScheduledEmail;
+      if (!isDue(scheduled, id, now)) return { outcome: 'skipped' };
+
+      claimToken = await claimSchedule(this.pendingDir, id, now);
+      if (!claimToken) return { outcome: 'skipped' };
+
+      const fresh = await readScheduled(filePath);
+      if (!fresh || !isDue(fresh, id, now)) return { outcome: 'skipped' };
+      if (fresh.attempts >= MAX_ATTEMPTS) {
+        fresh.status = 'failed';
+        fresh.lastError = 'Max retry attempts exceeded';
+        await this.writeScheduledFile(fresh);
+        return { outcome: 'failed' };
+      }
+
+      await this.sendClaimedEmail(fresh, id);
+      return { outcome: 'sent' };
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      await this.writeSendFailure(id, errorMsg);
+      return { outcome: 'failed', error: errorMsg };
+    } finally {
+      if (claimToken) await releaseClaim(this.pendingDir, id, claimToken);
+    }
+  }
+
+  private async sendClaimedEmail(queued: ScheduledEmail, id: string): Promise<void> {
+    const filePath = queueFile(this.pendingDir, id);
+    const sending: ScheduledEmail = {
+      ...queued,
+      status: 'sending',
+      attempts: queued.attempts + 1,
+    };
+    await this.writeScheduledFile(sending);
+
+    const stopRenewal = startClaimRenewal(lockFile(this.pendingDir, id));
+    try {
+      const sendResult = await this.smtpService.sendEmail(sending.account, {
+        to: sending.to,
+        subject: sending.subject,
+        body: sending.body,
+        cc: sending.cc,
+        bcc: sending.bcc,
+        html: sending.html,
+      });
+
+      const sent: ScheduledEmail = {
+        ...sending,
+        status: 'sent',
+        sentAt: new Date().toISOString(),
+        sentMessageId: sendResult.messageId,
+      };
+      await fs.writeFile(queueFile(this.sentDir, id), JSON.stringify(sent, null, 2));
+      await fs.unlink(filePath);
+
+      if (sent.draftMessageId && sent.draftMailbox) {
+        try {
+          await this.imapService.deleteEmail(sent.account, sent.draftMessageId, sent.draftMailbox);
+        } catch {
+          // Best-effort
+        }
+      }
+    } finally {
+      stopRenewal();
+    }
+  }
+
+  private async writeSendFailure(id: string, errorMsg: string): Promise<void> {
+    const filePath = queueFile(this.pendingDir, id);
+    try {
+      const content = await fs.readFile(filePath, 'utf-8');
+      const scheduled = JSON.parse(content) as ScheduledEmail;
+      scheduled.status = scheduled.attempts >= MAX_ATTEMPTS ? 'failed' : 'pending';
+      scheduled.lastError = errorMsg;
+      await fs.writeFile(filePath, JSON.stringify(scheduled, null, 2));
+    } catch {
+      // If we can't even update the file, skip
+    }
   }
 
   private static async readDir(dirPath: string): Promise<ScheduledEmail[]> {
