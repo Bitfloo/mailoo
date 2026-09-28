@@ -169,7 +169,7 @@ describe('published identity', () => {
   });
 
   it('copies each server.json environment description into smithery.yaml', () => {
-    // The registry and Smithery are published apart; one edited description would describe the same variable twice.
+    // The registry and Smithery are published apart; an edit to one would describe the same variable two ways.
     const declared = server.packages?.[0]?.environmentVariables ?? [];
     expect(declared.length).toBeGreaterThan(0);
     declared.forEach((item) => {

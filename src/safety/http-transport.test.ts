@@ -98,8 +98,7 @@ describe('resolveHttpListen', () => {
     expect(policy.token).toBeUndefined();
   });
 
-  it('starts without a bearer token when bound to app.localhost', () => {
-    // A name under .localhost is loopback, so this bind does not need a token.
+  it('treats app.localhost as loopback and does not require a bearer token', () => {
     const policy = resolveHttpListen({ port: 8080, host: 'app.localhost' });
     expect(policy.hosts).toEqual(['app.localhost']);
     expect(policy.token).toBeUndefined();
