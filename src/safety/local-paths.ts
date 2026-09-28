@@ -29,13 +29,8 @@ const SYSTEM_PREFIXES = ['/etc', '/private/etc', '/proc', '/sys', '/dev', '/boot
 
 const APP_DATA_TREES = new Set(['Library', 'AppData', 'snap']);
 
-/**
- * Deliberate cap on a sanitised attachment name, not the filesystem limit.
- * NAME_MAX is 255 bytes. UTF-8 uses more than one byte per character, so a
- * byte limit would measure bytes. This value is a chosen length passed to
- * String.slice.
- */
-export const SANITIZED_ATTACHMENT_NAME_MAX_CHARS = 200;
+/** NAME_MAX is 255 bytes on Linux ext4/overlayfs (the container image). */
+export const SANITIZED_ATTACHMENT_NAME_MAX_BYTES = 255;
 
 const FILENAME_UNSAFE = new Set(['/', '\\', '?', '%', '*', ':', '|', '"', '<', '>']);
 
@@ -147,6 +142,36 @@ function isUnsafeFilenameChar(char: string): boolean {
   return code <= 0x1f || code === 0x7f || FILENAME_UNSAFE.has(char);
 }
 
+function prefixWithinUtf8Bytes(value: string, maxBytes: number): string {
+  const chars = Array.from(value);
+  let used = 0;
+  let end = 0;
+  while (end < chars.length) {
+    const next = used + Buffer.byteLength(chars[end] ?? '');
+    if (next > maxBytes) break;
+    used = next;
+    end += 1;
+  }
+  return chars.slice(0, end).join('');
+}
+
+function limitAttachmentFilename(cleaned: string): string {
+  if (Buffer.byteLength(cleaned) <= SANITIZED_ATTACHMENT_NAME_MAX_BYTES) return cleaned;
+  const dot = cleaned.lastIndexOf('.');
+  if (dot > 0) {
+    const extension = cleaned.slice(dot);
+    const extensionBytes = Buffer.byteLength(extension);
+    if (extensionBytes < SANITIZED_ATTACHMENT_NAME_MAX_BYTES) {
+      const stem = prefixWithinUtf8Bytes(
+        cleaned.slice(0, dot),
+        SANITIZED_ATTACHMENT_NAME_MAX_BYTES - extensionBytes,
+      );
+      if (stem) return `${stem}${extension}`;
+    }
+  }
+  return prefixWithinUtf8Bytes(cleaned, SANITIZED_ATTACHMENT_NAME_MAX_BYTES);
+}
+
 /** One path segment. `..`, separators, and control characters cannot escape the directory. */
 export function sanitizeAttachmentFilename(filename: string): string {
   const base = path.posix.basename(filename.replaceAll('\\', '/').replaceAll('\0', ''));
@@ -156,5 +181,5 @@ export function sanitizeAttachmentFilename(filename: string): string {
     .replace(/^\.+/, '')
     .trim();
   if (!cleaned || cleaned === '.' || cleaned === '..') return 'attachment';
-  return cleaned.slice(0, SANITIZED_ATTACHMENT_NAME_MAX_CHARS);
+  return limitAttachmentFilename(cleaned);
 }
