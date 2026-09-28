@@ -18,6 +18,9 @@ import type SmtpService from './smtp.service.js';
 /** Max age (ms) of a queue claim before another check may send that email. */
 export const STALE_LOCK_MS = 5 * 60 * 1000;
 
+// Renew well inside the stale window so only a dead holder's claim goes stale.
+const CLAIM_RENEW_MS = STALE_LOCK_MS / 5;
+
 /** Beside `<id>.json`. Exclusive create (`wx`) is the only claim. */
 export const SCHEDULE_CLAIM_SUFFIX = '.lock';
 
@@ -80,9 +83,9 @@ function errnoCode(err: unknown): string | undefined {
   return typeof code === 'string' ? code : undefined;
 }
 
-async function createClaim(lockPath: string, now: number): Promise<boolean> {
+async function createClaim(lockPath: string, token: string): Promise<boolean> {
   try {
-    await fs.writeFile(lockPath, String(now), { flag: 'wx' });
+    await fs.writeFile(lockPath, token, { flag: 'wx' });
     return true;
   } catch (err) {
     if (errnoCode(err) === 'EEXIST') return false;
@@ -105,6 +108,7 @@ async function stealStaleClaim(
   id: string,
   lockPath: string,
   now: number,
+  token: string,
 ): Promise<boolean> {
   const parked = path.resolve(dir, `${id}${SCHEDULE_CLAIM_SUFFIX}.${crypto.randomUUID()}`);
   try {
@@ -117,13 +121,14 @@ async function stealStaleClaim(
     const age = await claimAge(parked, now);
     if (age === undefined || age <= STALE_LOCK_MS) {
       try {
-        await fs.rename(parked, lockPath);
+        // rename would replace a claim created after the park.
+        await fs.link(parked, lockPath);
       } catch (err) {
         if (errnoCode(err) !== 'EEXIST') throw err;
       }
       return false;
     }
-    return await createClaim(lockPath, now);
+    return await createClaim(lockPath, token);
   } finally {
     await fs.unlink(parked).catch(() => undefined);
   }
@@ -132,21 +137,49 @@ async function stealStaleClaim(
 /**
  * Exclusive right to send or cancel this id.
  * The in-process timer and `mailoo scheduler` can both read a pending file;
- * only the caller that creates the claim continues. A claim older than
- * STALE_LOCK_MS was left by a crash and may be taken again.
+ * only the caller that creates the claim continues. While a claimed email is
+ * being sent, that holder refreshes the claim's mtime every CLAIM_RENEW_MS.
+ * A claim older than STALE_LOCK_MS has not been refreshed within that window
+ * and may be taken again. Release deletes the lock when its content is this
+ * holder's token, and leaves the lock in place when the content is not.
  */
-async function claimSchedule(dir: string, id: string, now = Date.now()): Promise<boolean> {
+async function claimSchedule(
+  dir: string,
+  id: string,
+  now = Date.now(),
+): Promise<string | undefined> {
   const lockPath = lockFile(dir, id);
-  if (await createClaim(lockPath, now)) return true;
+  const token = crypto.randomUUID();
+  if (await createClaim(lockPath, token)) return token;
   const age = await claimAge(lockPath, now);
-  if (age === undefined) return createClaim(lockPath, now);
-  if (age <= STALE_LOCK_MS) return false;
-  return stealStaleClaim(dir, id, lockPath, now);
+  if (age === undefined) {
+    return (await createClaim(lockPath, token)) ? token : undefined;
+  }
+  if (age <= STALE_LOCK_MS) return undefined;
+  return (await stealStaleClaim(dir, id, lockPath, now, token)) ? token : undefined;
 }
 
-async function releaseClaim(dir: string, id: string): Promise<void> {
+function startClaimRenewal(lockPath: string): () => void {
+  const timer = setInterval(() => {
+    fs.utimes(lockPath, new Date(), new Date()).catch(() => undefined);
+  }, CLAIM_RENEW_MS);
+  timer.unref();
+  return () => {
+    clearInterval(timer);
+  };
+}
+
+async function releaseClaim(dir: string, id: string, token: string): Promise<void> {
+  const lockPath = lockFile(dir, id);
   try {
-    await fs.unlink(lockFile(dir, id));
+    const current = await fs.readFile(lockPath, 'utf8');
+    if (current !== token) return;
+  } catch (err) {
+    if (errnoCode(err) === 'ENOENT') return;
+    throw err;
+  }
+  try {
+    await fs.unlink(lockPath);
   } catch (err) {
     if (errnoCode(err) !== 'ENOENT') throw err;
   }
@@ -384,7 +417,7 @@ export default class SchedulerService {
   async cancel(scheduleId: string): Promise<{ cancelled: boolean; draftDeleted: boolean }> {
     const filePath = queueFile(this.pendingDir, scheduleId);
     let draftDeleted = false;
-    let claimed = false;
+    let claimToken: string | undefined;
 
     try {
       const content = await fs.readFile(filePath, 'utf-8');
@@ -397,8 +430,8 @@ export default class SchedulerService {
         throw new Error(`Cannot cancel email with status "${scheduled.status}"`);
       }
 
-      claimed = await claimSchedule(this.pendingDir, scheduleId);
-      if (!claimed) {
+      claimToken = await claimSchedule(this.pendingDir, scheduleId);
+      if (!claimToken) {
         throw new Error('Cannot cancel email that is already being sent');
       }
 
@@ -439,7 +472,7 @@ export default class SchedulerService {
       }
       throw err;
     } finally {
-      if (claimed) await releaseClaim(this.pendingDir, scheduleId);
+      if (claimToken) await releaseClaim(this.pendingDir, scheduleId, claimToken);
     }
   }
 
@@ -466,13 +499,13 @@ export default class SchedulerService {
     const jsonFiles = files.filter((f) => scheduleIdFromFilename(f));
     const now = Date.now();
 
-    // One claim per id. Overlapping checks both see pending; only the claim owner sends.
     // eslint-disable-next-line no-restricted-syntax
     for (const file of jsonFiles) {
       const id = scheduleIdFromFilename(file);
       if (!id) continue;
       const filePath = queueFile(this.pendingDir, id);
-      let claimed = false;
+      let claimToken: string | undefined;
+      let stopRenewal: (() => void) | undefined;
 
       try {
         const content = await fs.readFile(filePath, 'utf-8');
@@ -481,8 +514,8 @@ export default class SchedulerService {
         if (scheduled.status === 'failed' || scheduled.status === 'sent') continue;
         if (new Date(scheduled.sendAt).getTime() > now) continue;
 
-        claimed = await claimSchedule(this.pendingDir, id, now);
-        if (!claimed) continue;
+        claimToken = await claimSchedule(this.pendingDir, id, now);
+        if (!claimToken) continue;
 
         let fresh: ScheduledEmail;
         try {
@@ -505,6 +538,7 @@ export default class SchedulerService {
         fresh.attempts += 1;
         await this.writeScheduledFile(fresh);
 
+        stopRenewal = startClaimRenewal(lockFile(this.pendingDir, id));
         const sendResult = await this.smtpService.sendEmail(fresh.account, {
           to: fresh.to,
           subject: fresh.subject,
@@ -549,7 +583,8 @@ export default class SchedulerService {
 
         result.failed += 1;
       } finally {
-        if (claimed) await releaseClaim(this.pendingDir, id);
+        stopRenewal?.();
+        if (claimToken) await releaseClaim(this.pendingDir, id, claimToken);
       }
     }
 

@@ -10,6 +10,11 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Behaviour changes
 
+- A scheduled message can be sent again if the process dies after the SMTP
+  server has accepted it but before the queue records it as sent. Another
+  check may send it after the claim goes stale. That is at least once, not
+  exactly once.
+
 - IMAP accounts with `starttls = true` now refuse a server that does not
   offer STARTTLS instead of continuing without TLS. Use `tls = true` on the
   implicit-TLS port, or fix the server.

@@ -614,4 +614,110 @@ describe('overlapping queue checks', () => {
       await fs.rm(queueDir, { recursive: true, force: true });
     }
   });
+
+  async function mtimeOf(lockPath: string): Promise<number> {
+    const stat = await fs.stat(lockPath);
+    return stat.mtimeMs;
+  }
+
+  it('sends a due email once when a second check runs while SMTP is still sending', async () => {
+    // The claim mtime is the filesystem clock. Fake timers start at that same
+    // time and are not pinned with setSystemTime, so a renewal is a newer mtime.
+    vi.useFakeTimers();
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-renew-'));
+    const id = queueId(2);
+    const lockPath = path.join(queueDir, `${id}${SCHEDULE_CLAIM_SUFFIX}`);
+    const first = createService(queueDir);
+    let releaseSend: (value: { messageId: string }) => void = () => {};
+    const pending = new Promise<{ messageId: string }>((resolve) => {
+      releaseSend = resolve;
+    });
+    first.smtp.sendEmail.mockReturnValue(pending);
+    let sending: Promise<unknown> = Promise.resolve();
+    try {
+      await writeDue(queueDir, id, 'pending');
+      sending = first.service.checkAndSend();
+      await vi.waitFor(() => {
+        expect(first.smtp.sendEmail).toHaveBeenCalledTimes(1);
+      });
+      const before = await mtimeOf(lockPath);
+      await vi.advanceTimersByTimeAsync(STALE_LOCK_MS + 1);
+      await vi.waitFor(async () => {
+        expect(await mtimeOf(lockPath)).toBeGreaterThan(before);
+      });
+      const second = createService(queueDir);
+      await second.service.checkAndSend();
+      releaseSend({ messageId: '<scheduled@example.com>' });
+      await sending;
+      const calls =
+        first.smtp.sendEmail.mock.calls.length + second.smtp.sendEmail.mock.calls.length;
+      const sent = await first.service.list({ status: 'sent' });
+      expect(calls).toBe(1);
+      expect(sent).toHaveLength(1);
+    } finally {
+      releaseSend({ messageId: '<scheduled@example.com>' });
+      await sending.catch(() => undefined);
+      vi.useRealTimers();
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not remove the new holder lock when the previous holder finishes', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-release-'));
+    const id = queueId(3);
+    const lockPath = path.join(queueDir, `${id}${SCHEDULE_CLAIM_SUFFIX}`);
+    const stolen = 'stolen-holder';
+    const { service, smtp } = createService(queueDir);
+    let releaseSend: (value: { messageId: string }) => void = () => {};
+    const pending = new Promise<{ messageId: string }>((resolve) => {
+      releaseSend = resolve;
+    });
+    smtp.sendEmail.mockReturnValue(pending);
+    let sending: Promise<unknown> = Promise.resolve();
+    try {
+      await writeDue(queueDir, id, 'pending');
+      sending = service.checkAndSend();
+      await vi.waitFor(() => {
+        expect(smtp.sendEmail).toHaveBeenCalledTimes(1);
+      });
+      await fs.unlink(lockPath);
+      await fs.writeFile(lockPath, stolen, { flag: 'wx' });
+      releaseSend({ messageId: '<scheduled@example.com>' });
+      await sending;
+      expect(await fs.readFile(lockPath, 'utf8')).toBe(stolen);
+    } finally {
+      releaseSend({ messageId: '<scheduled@example.com>' });
+      await sending.catch(() => undefined);
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves a newer claim in place when a stale claim is restored', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-restore-'));
+    const id = queueId(4);
+    const lockPath = path.join(queueDir, `${id}${SCHEDULE_CLAIM_SUFFIX}`);
+    const newer = 'newer-holder';
+    const originalRename = fs.rename.bind(fs);
+    const spy = vi.spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+      await originalRename(from, to);
+      if (String(from) === lockPath) {
+        const fresh = new Date();
+        await fs.utimes(to, fresh, fresh);
+        await fs.writeFile(lockPath, newer, { flag: 'wx' });
+      }
+    });
+    try {
+      await writeDue(queueDir, id, 'sending');
+      await fs.writeFile(lockPath, 'abandoned', { flag: 'wx' });
+      const abandonedAt = new Date(Date.now() - STALE_LOCK_MS - 1000);
+      await fs.utimes(lockPath, abandonedAt, abandonedAt);
+      const { service } = createService(queueDir);
+      const result = await service.checkAndSend();
+      expect(await fs.readFile(lockPath, 'utf8')).toBe(newer);
+      expect(result.errors).toEqual([]);
+    } finally {
+      spy.mockRestore();
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
 });
