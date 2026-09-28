@@ -39,9 +39,9 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 - `read_only` does not register tools that write. `add_to_calendar`,
   `create_reminder`, `test_notification`, and `configure_alerts` are
   omitted, along with send, draft, label-change, mailbox, schedule-write,
-  and sieve-write tools. `list_labels` and `list_scheduled` are now available in read_only.
-  `get_email` and `download_attachment` stay registered: `markRead` does
-  not set `\Seen`, and `savePath` is rejected.
+  and sieve-write tools. `list_labels` and `list_scheduled` are now
+  available in read_only. `get_email` and `download_attachment` stay
+  registered: `markRead` does not set `\Seen`, and `savePath` is rejected.
 
 - Webhook host names that resolve to a non-global address are refused
   (previously only IP literals were). Redirects are not followed. A failed
