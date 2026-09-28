@@ -1,6 +1,6 @@
 import type { StartedTestContainer } from 'testcontainers';
 import { GenericContainer, Wait } from 'testcontainers';
-import type { GlobalSetupContext } from 'vitest/node';
+import type { TestProject } from 'vitest/node';
 
 /** Throwaway IMAP/SMTP mailbox for protocol tests — not a database. Docker only wraps this image. */
 const GREENMAIL_IMAGE = 'greenmail/standalone:2.1.8';
@@ -11,7 +11,7 @@ const IMAPS_PORT = 3993;
 
 let container: StartedTestContainer;
 
-export async function setup({ provide }: GlobalSetupContext) {
+export async function setup(project: TestProject) {
   console.log('🚀 Starting GreenMail container...');
 
   container = await new GenericContainer(GREENMAIL_IMAGE)
@@ -33,11 +33,11 @@ export async function setup({ provide }: GlobalSetupContext) {
   const imapPort = container.getMappedPort(IMAP_PORT);
   const imapsPort = container.getMappedPort(IMAPS_PORT);
 
-  provide('greenmailHost', host);
-  provide('greenmailSmtpPort', smtpPort);
-  provide('greenmailSmtpsPort', smtpsPort);
-  provide('greenmailImapPort', imapPort);
-  provide('greenmailImapsPort', imapsPort);
+  project.provide('greenmailHost', host);
+  project.provide('greenmailSmtpPort', smtpPort);
+  project.provide('greenmailSmtpsPort', smtpsPort);
+  project.provide('greenmailImapPort', imapPort);
+  project.provide('greenmailImapsPort', imapsPort);
 
   console.log(
     `✅ GreenMail ready — SMTP :${smtpPort}, SMTPS :${smtpsPort}, IMAP :${imapPort}, IMAPS :${imapsPort}`,
