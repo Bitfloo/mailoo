@@ -7,11 +7,10 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import createServer from '../server.js';
+
 import { ADD_EVENT_STATUSES } from '../services/local-calendar.service.js';
-import type { AppConfig } from '../types/index.js';
+import buildCatalog from '../test-support/mcp-catalog-harness.js';
 import { registerCalendarAllTools } from './calendar.tool.js';
-import registerAllTools from './register.js';
 
 interface ListedTool {
   name: string;
@@ -19,49 +18,8 @@ interface ListedTool {
   inputSchema?: unknown;
 }
 
-function registerCatalog(): ReturnType<typeof createServer> {
-  const server = createServer();
-  const connections = {
-    getAccountNames: () => [] as string[],
-    getAccount: (name: string) => ({
-      name,
-      email: 'owner@example.com',
-      fullName: 'Owner',
-    }),
-  };
-  const templateService = { listTemplates: async () => [] };
-  const hooksService = {
-    getHooksConfig: () => ({
-      onNewEmail: 'notify',
-      preset: 'priority-focus',
-      autoLabel: false,
-      autoFlag: false,
-      batchDelay: 5,
-      rules: [],
-      alerts: {},
-    }),
-  };
-  const config = { settings: { readOnly: false } } as AppConfig;
-  const unused = {} as never;
-  registerAllTools(
-    server,
-    connections as never,
-    unused,
-    unused,
-    config,
-    templateService as never,
-    unused,
-    unused,
-    unused,
-    unused,
-    unused,
-    hooksService as never,
-  );
-  return server;
-}
-
 async function listedTools(): Promise<ListedTool[]> {
-  const server = registerCatalog();
+  const server = buildCatalog({ readOnly: false, accounts: [] });
   const client = new Client({ name: 'mailoo-tool-descriptions', version: '0.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);

@@ -6,11 +6,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
-import registerAllPrompts from '../prompts/register.js';
-import registerAllResources from '../resources/register.js';
-import createServer from '../server.js';
-import type { AppConfig } from '../types/index.js';
-import registerAllTools from './register.js';
+import buildCatalog from '../test-support/mcp-catalog-harness.js';
 
 const HINT_KEYS = ['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint'] as const;
 
@@ -98,49 +94,10 @@ interface ListedCatalog {
   resourceTemplates: { name: string }[];
 }
 
-function registerCatalog(readOnly: boolean): ReturnType<typeof createServer> {
-  const server = createServer();
+function registerCatalog(readOnly: boolean): ReturnType<typeof buildCatalog> {
   // Empty accounts keep template list() callbacks from adding concrete URIs,
   // so resources/list stays the static registrations.
-  const connections = {
-    getAccountNames: () => [] as string[],
-    getAccount: (name: string) => ({
-      name,
-      email: 'owner@example.com',
-      fullName: 'Owner',
-    }),
-  };
-  const templateService = { listTemplates: async () => [] };
-  const hooksService = {
-    getHooksConfig: () => ({
-      onNewEmail: 'notify',
-      preset: 'priority-focus',
-      autoLabel: false,
-      autoFlag: false,
-      batchDelay: 5,
-      rules: [],
-      alerts: {},
-    }),
-  };
-  const config = { settings: { readOnly } } as AppConfig;
-  const unused = {} as never;
-  registerAllTools(
-    server,
-    connections as never,
-    unused,
-    unused,
-    config,
-    templateService as never,
-    unused,
-    unused,
-    unused,
-    unused,
-    unused,
-    hooksService as never,
-  );
-  registerAllResources(server, connections as never, unused, templateService as never, unused);
-  registerAllPrompts(server);
-  return server;
+  return buildCatalog({ readOnly, accounts: [] });
 }
 
 async function withCatalog<T>(

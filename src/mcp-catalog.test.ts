@@ -13,11 +13,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import { TEMPLATES_DIR } from './config/xdg.js';
-import registerAllPrompts from './prompts/register.js';
-import registerAllResources from './resources/register.js';
-import createServer from './server.js';
-import registerAllTools from './tools/register.js';
-import type { AppConfig } from './types/index.js';
+import buildCatalog from './test-support/mcp-catalog-harness.js';
 
 const srcRoot = dirname(fileURLToPath(import.meta.url));
 const baselinePath = join(srcRoot, 'mcp-catalog.baseline.json');
@@ -219,46 +215,7 @@ function toContract(live: LiveCatalog): unknown {
 }
 
 async function collectLive(): Promise<LiveCatalog> {
-  const server = createServer();
-  const connections = {
-    getAccountNames: () => ['work'],
-    getAccount: (name: string) => ({
-      name,
-      email: 'owner@example.com',
-      fullName: 'Owner',
-    }),
-  };
-  const templateService = { listTemplates: async () => [] };
-  const hooksService = {
-    getHooksConfig: () => ({
-      onNewEmail: 'notify',
-      preset: 'priority-focus',
-      autoLabel: false,
-      autoFlag: false,
-      batchDelay: 5,
-      rules: [],
-      alerts: {},
-    }),
-  };
-  const config = { settings: { readOnly: false } } as AppConfig;
-  const unused = {} as never;
-  registerAllTools(
-    server,
-    connections as never,
-    unused,
-    unused,
-    config,
-    templateService as never,
-    unused,
-    unused,
-    unused,
-    unused,
-    unused,
-    hooksService as never,
-  );
-  registerAllResources(server, connections as never, unused, templateService as never, unused);
-  registerAllPrompts(server);
-
+  const server = buildCatalog({ readOnly: false, accounts: ['work'] });
   const client = new Client({ name: 'mailoo-catalog', version: '0.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
