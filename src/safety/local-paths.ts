@@ -8,7 +8,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-/** A cwd directly under / (or its realpath, e.g. /private/tmp on macOS) would admit other users' files. */
+/** `/` and shared top-level directories such as /home, /Users, /tmp and /var (and their real paths) would admit other users' files. */
 const BROAD_ROOT_NAMES = new Set([
   'Users',
   'home',

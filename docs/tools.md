@@ -15,9 +15,10 @@ no file is written.
 
 `savePath` (optional) writes a new file under a **specific** working
 directory and returns metadata only — no base64. Cap is **50 MB**.
-A working directory of `/`, or a directory directly under `/` (or that
-directory's real path), is refused. Hidden path segments, a file name
-that starts with `.`, and application-data directories (`~/Library`
+A working directory of `/`, or a shared top-level directory such as
+`/home`, `/Users`, `/tmp` and `/var` (and their real paths), is refused.
+Hidden path segments, a file name that starts with `.`, and
+application-data directories (`~/Library`
 except iCloud Drive and CloudStorage, `~/AppData`, `~/snap`) are refused,
 and Mailoo does not create directories for a refused path. Use base64,
 or start the server in a dedicated folder. Absolute paths or `..` that
@@ -70,8 +71,9 @@ defaults to INBOX). Optional `contentType`.
 the user's home directory. A path segment that starts with `.` is
 refused, as are system locations (`/etc`, `/proc`, `/sys`, `/dev`, `/boot`),
 `http:` / `https:` / `file:` / `data:` URLs, and a symlink whose target
-leaves the allowed directories. A working directory directly under `/`,
-or the real path of that directory, is refused. Application-data trees
+leaves the allowed directories. A working directory of `/`, or a shared
+top-level directory such as `/home`, `/Users`, `/tmp` and `/var` (and their
+real paths), is refused. Application-data trees
 under the home directory (`~/Library`, `~/AppData`, `~/snap`) are
 refused, except `~/Library/Mobile Documents` (iCloud Drive) and
 `~/Library/CloudStorage`.
