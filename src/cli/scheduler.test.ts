@@ -226,6 +226,19 @@ describe('scheduler install commands', () => {
   );
 
   it.runIf(process.platform !== 'win32')(
+    'should not write the crontab when the marker line is already installed',
+    async () => {
+      const existing = '0 0 * * * /usr/bin/true\n* * * * * /opt/mailoo check # mailoo scheduler\n';
+      const line =
+        "* * * * * '/usr/bin/node' '/opt/mailoo/main.js' scheduler check # mailoo scheduler";
+      await withFakeCrontab({ stdout: existing }, async (written) => {
+        expect(installCrontabLine(line, '# mailoo scheduler')).toBe(false);
+        expect(await written()).toBeUndefined();
+      });
+    },
+  );
+
+  it.runIf(process.platform !== 'win32')(
     'should abort crontab install when listing fails for another reason',
     async () => {
       await withFakeCrontab({ stderr: 'crontab: permission denied\n' }, async (written) => {
