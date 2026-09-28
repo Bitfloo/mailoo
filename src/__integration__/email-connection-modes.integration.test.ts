@@ -97,9 +97,6 @@ describe('Connection Modes', () => {
     });
 
     it('should reject SMTP send when the server does not offer STARTTLS', async () => {
-      // GreenMail's SMTP does not support the STARTTLS upgrade command.
-      // Verify the connection attempt produces the expected STARTTLS error
-      // rather than a generic connection failure.
       await expect(
         services.smtpService.sendEmail(account.name, {
           to: ['bob@localhost'],
