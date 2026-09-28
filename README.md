@@ -522,7 +522,7 @@ npx -y @bitfloo/mailoo scheduler check
 npx -y @bitfloo/mailoo scheduler uninstall
 ```
 
-Scheduled emails are stored as JSON files in `~/.local/state/mailoo/scheduled/` with status-based locking. Each entry tracks attempts (max 3) and the last error, so you can inspect failures with `scheduler list`.
+Scheduled emails are JSON files in `~/.local/state/mailoo/scheduled/`. Before sending, a check claims the entry with a lock file next to it and keeps that claim fresh while SMTP runs, so the in-process timer and `mailoo scheduler check` do not both send it. If the process dies after the server accepted a message but before it was recorded as sent, the entry can be sent again after the claim goes stale (at least once, not exactly once). Each entry tracks attempts (max 3) and the last error, so you can inspect failures with `scheduler list`.
 
 ### Real-time Watcher & AI Hooks
 
