@@ -1,3 +1,8 @@
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+
+import createServer from '../server.js';
+import registerEmailsTools from '../tools/emails.tool.js';
 import type { TestServices } from './helpers/index.js';
 import {
   buildTestAccount,
@@ -8,6 +13,35 @@ import {
   TEST_ACCOUNT_NAME,
   waitForDelivery,
 } from './helpers/index.js';
+
+interface TextToolResult {
+  isError?: boolean;
+  content: { type: string; text?: string }[];
+}
+
+function isTextToolResult(result: unknown): result is TextToolResult {
+  if (typeof result !== 'object' || result === null || !('content' in result)) return false;
+  return Array.isArray(result.content);
+}
+
+function hasSeen(flags: string[]): boolean {
+  return flags.some((flag) => flag.toLowerCase() === '\\seen');
+}
+
+async function fetchFlags(services: TestServices, emailId: string): Promise<string[]> {
+  const client = await services.connections.getImapClient(TEST_ACCOUNT_NAME);
+  const lock = await client.getMailboxLock('INBOX');
+  try {
+    const msg = await client.fetchOne(emailId, { flags: true }, { uid: true });
+    if (!msg || typeof msg !== 'object') {
+      throw new Error(`FETCH FLAGS returned nothing for UID ${emailId}`);
+    }
+    const flags = 'flags' in msg ? msg.flags : undefined;
+    return [...(flags ?? [])].map(String);
+  } finally {
+    lock.release();
+  }
+}
 
 describe('Email Read Operations', () => {
   let services: TestServices;
@@ -193,6 +227,43 @@ describe('Email Read Operations', () => {
       expect(stats).toBeDefined();
       expect(stats.totalReceived).toBeGreaterThanOrEqual(5);
       expect(stats.period).toBe('week');
+    });
+  });
+
+  describe('get_email markRead when read_only', () => {
+    it('should leave \\Seen unset when read_only get_email is called with markRead', async () => {
+      const subject = 'Read-only markRead leaves unseen';
+      await seedEmail({ subject });
+      await waitForDelivery();
+      const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { subject });
+      expect(list.items.length).toBeGreaterThanOrEqual(1);
+      const emailId = list.items[0].id;
+      expect(hasSeen(await fetchFlags(services, emailId))).toBe(false);
+
+      const server = createServer();
+      registerEmailsTools(server, services.imapService, true);
+      const mcp = new Client({ name: 'mailoo-read-only-mark', version: '0.0.0' });
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await Promise.all([mcp.connect(clientTransport), server.connect(serverTransport)]);
+      try {
+        const result = await mcp.callTool({
+          name: 'get_email',
+          arguments: {
+            account: TEST_ACCOUNT_NAME,
+            emailId,
+            mailbox: 'INBOX',
+            markRead: true,
+          },
+        });
+        if (!isTextToolResult(result)) throw new Error('tool result has no text content');
+        expect(result.isError).not.toBe(true);
+        expect(result.content[0]?.text).toContain(subject);
+      } finally {
+        await Promise.allSettled([mcp.close(), server.close()]);
+      }
+
+      // get_email fetches with BODY.PEEK, so \Seen here would come from markRead.
+      expect(hasSeen(await fetchFlags(services, emailId))).toBe(false);
     });
   });
 });
