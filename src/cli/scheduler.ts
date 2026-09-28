@@ -44,7 +44,7 @@ function stderrText(err: unknown): string {
 }
 
 // Exit status 1 is also used when crontab cannot be read. Only this stderr text
-// means the user has no crontab. The Error message does not contain it.
+// means the user has no crontab.
 function isNoCrontab(err: unknown): boolean {
   return /no crontab for/i.test(stderrText(err));
 }
