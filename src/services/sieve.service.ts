@@ -64,7 +64,8 @@ export const MAX_SIEVE_SCRIPT_BYTES = 1024 * 1024;
 
 /**
  * RFC 5804 §1.6: servers must accept names up to 128 characters and may accept
- * longer. 255 is a chosen ceiling above that floor; a server at the minimum
+ * longer. 255 is a chosen client-side ceiling above that floor so an oversized
+ * name is refused before a connection is opened. A server at the minimum
  * refuses 129-255 itself.
  */
 const MAX_SIEVE_SCRIPT_NAME_CHARS = 255;

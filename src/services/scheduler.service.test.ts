@@ -407,3 +407,28 @@ describe('send_at calendar dates', () => {
     expect(scheduled.sendAt).toBe('2028-02-29T09:00:00.000Z');
   });
 });
+
+describe('send_at century years', () => {
+  beforeEach(() => {
+    // Faking timers as well hangs the async queue writes.
+    // 2100-03-01 is inside the horizon from 2099-06-01, and Date rolls 29 February onto it.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2099-06-01T00:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('rejects 29 February when the century year is not divisible by 400', async () => {
+    const { service } = createService();
+    await expect(
+      service.schedule('personal', {
+        to: ['user@example.com'],
+        subject: 'Hello',
+        body: 'Body',
+        sendAt: '2100-02-29T09:00:00Z',
+      }),
+    ).rejects.toThrow('Expected ISO 8601 date-time with UTC offset');
+  });
+});

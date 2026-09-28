@@ -26,7 +26,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /** Local queue horizon. Longer delays belong in the mailbox, not on disk. */
 export const MAX_SCHEDULE_AHEAD_MS = 366 * MS_PER_DAY;
 
-/** Chosen cap, not a protocol limit. */
+/** Chosen cap, not a protocol limit: one queued send cannot reach an unbounded recipient list. */
 export const MAX_SCHEDULE_RECIPIENTS = 50;
 
 /**
@@ -120,7 +120,6 @@ async function countLiveSchedules(dir: string): Promise<number> {
 
 function daysInMonth(year: number, month: number): number {
   if (month === 2) {
-    // A century year is a leap year only when it is divisible by 400.
     const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
     return leap ? 29 : 28;
   }
