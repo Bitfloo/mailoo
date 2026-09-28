@@ -26,7 +26,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /** Local queue horizon. Longer delays belong in the mailbox, not on disk. */
 export const MAX_SCHEDULE_AHEAD_MS = 366 * MS_PER_DAY;
 
-/** Chosen cap so one queued message cannot fan out across an unbounded recipient list. */
+/** Chosen cap, not a protocol limit. */
 export const MAX_SCHEDULE_RECIPIENTS = 50;
 
 /**
@@ -38,7 +38,7 @@ export const MAX_HEADER_LINE_CHARS = 998;
 /** Chosen cap. The body is stored in the queue file, so one message cannot fill the disk. */
 export const MAX_SCHEDULE_BODY_CHARS = 5_000_000;
 
-/** Chosen cap. This process retries pending and sending messages, so that set stays small. */
+/** Chosen cap. Each schedule call and each tick reads every live queue file. */
 export const MAX_PENDING_SCHEDULES = 100;
 
 /** crypto.randomUUID() values. Anything else is not a safe filename. */
