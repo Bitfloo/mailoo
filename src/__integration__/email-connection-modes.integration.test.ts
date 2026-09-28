@@ -10,7 +10,8 @@ import {
 
 /**
  * Tests the three connection modes in the IMAP/SMTP config.
- * GreenMail's plain ports do not offer STARTTLS, so a starttls account must fail there.
+ * GreenMail's plain ports do not offer STARTTLS, so a starttls account must fail there
+ * instead of continuing in clear.
  *   1. Plain (tls false, starttls false) — SMTP :3025  / IMAP :3143
  *   2. STARTTLS required                 — same plain ports, connection rejected
  *   3. Implicit SSL/TLS                  — SMTPS :3465 / IMAPS :3993
@@ -56,20 +57,22 @@ describe('Connection Modes', () => {
     });
 
     it('should fetch full email content without encryption', async () => {
-      const list = await services.imapService.listEmails(account.name, { pageSize: 1 });
-      if (list.items.length > 0) {
-        const email = await services.imapService.getEmail(account.name, list.items[0].id);
-        expect(email.subject).toBeTruthy();
-      }
+      const list = await services.imapService.listEmails(account.name, {
+        subject: 'Plain mode test',
+      });
+      expect(list.items.length).toBeGreaterThanOrEqual(1);
+      const email = await services.imapService.getEmail(account.name, list.items[0].id);
+      expect(email.subject).toBeTruthy();
     });
 
     it('should set flags without encryption', async () => {
-      const list = await services.imapService.listEmails(account.name, { pageSize: 1 });
-      if (list.items.length > 0) {
-        await services.imapService.setFlags(account.name, list.items[0].id, 'INBOX', 'read');
-        const flags = await services.imapService.getEmailFlags(account.name, list.items[0].id);
-        expect(flags.seen).toBe(true);
-      }
+      const list = await services.imapService.listEmails(account.name, {
+        subject: 'Plain mode test',
+      });
+      expect(list.items.length).toBeGreaterThanOrEqual(1);
+      await services.imapService.setFlags(account.name, list.items[0].id, 'INBOX', 'read');
+      const flags = await services.imapService.getEmailFlags(account.name, list.items[0].id);
+      expect(flags.seen).toBe(true);
     });
   });
 
@@ -89,13 +92,11 @@ describe('Connection Modes', () => {
       await services.connections.closeAll();
     });
 
-    it('should connect via IMAP with STARTTLS', async () => {
-      // GreenMail's plain IMAP port does not offer STARTTLS. The account
-      // requires it, so the connect must fail instead of continuing in clear.
+    it('should reject IMAP when the server does not offer STARTTLS', async () => {
       await expect(services.imapService.listMailboxes(account.name)).rejects.toThrow(/STARTTLS/);
     });
 
-    it('should send email via SMTP with STARTTLS', async () => {
+    it('should reject SMTP send when the server does not offer STARTTLS', async () => {
       // GreenMail's SMTP does not support the STARTTLS upgrade command.
       // Verify the connection attempt produces the expected STARTTLS error
       // rather than a generic connection failure.
@@ -106,41 +107,6 @@ describe('Connection Modes', () => {
           body: 'Sent over STARTTLS connection',
         }),
       ).rejects.toThrow(/STARTTLS/i);
-    });
-  });
-
-  describe('Plaintext IMAP (tls false, starttls false)', () => {
-    let services: TestServices;
-    const account = buildTestAccount({ name: 'integration-plaintext' });
-
-    beforeAll(async () => {
-      services = createTestServices(account);
-    });
-
-    afterAll(async () => {
-      await services.connections.closeAll();
-    });
-
-    it('should list emails via plaintext IMAP', async () => {
-      const list = await services.imapService.listEmails(account.name);
-      expect(list.items).toBeInstanceOf(Array);
-    });
-
-    it('should fetch full email content via plaintext IMAP', async () => {
-      const list = await services.imapService.listEmails(account.name, { pageSize: 1 });
-      if (list.items.length > 0) {
-        const email = await services.imapService.getEmail(account.name, list.items[0].id);
-        expect(email.subject).toBeTruthy();
-      }
-    });
-
-    it('should set flags via plaintext IMAP', async () => {
-      const list = await services.imapService.listEmails(account.name, { pageSize: 1 });
-      if (list.items.length > 0) {
-        await services.imapService.setFlags(account.name, list.items[0].id, 'INBOX', 'read');
-        const flags = await services.imapService.getEmailFlags(account.name, list.items[0].id);
-        expect(flags.seen).toBe(true);
-      }
     });
   });
 
