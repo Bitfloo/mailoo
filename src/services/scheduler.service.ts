@@ -26,7 +26,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /** Local queue horizon. Longer delays belong in the mailbox, not on disk. */
 export const MAX_SCHEDULE_AHEAD_MS = 366 * MS_PER_DAY;
 
-/** Chosen cap, not a protocol limit: one queued send cannot reach an unbounded recipient list. */
+/** Chosen cap, not a protocol limit. */
 export const MAX_SCHEDULE_RECIPIENTS = 50;
 
 /**
