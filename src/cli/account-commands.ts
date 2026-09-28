@@ -39,8 +39,7 @@ class CancelledError extends Error {
   }
 }
 
-// `asserts value is T` leaves clack's unique CANCEL_SYMBOL in T.
-function assertNotCancel<T>(value: T): asserts value is Exclude<T, symbol> {
+function assertNotCancel<T>(value: T | symbol): asserts value is T {
   if (isCancel(value)) {
     cancel('Operation cancelled.');
     throw new CancelledError();
