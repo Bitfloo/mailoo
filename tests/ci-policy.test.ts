@@ -118,6 +118,24 @@ function permissionBlock(yaml: string): string {
   return match[1];
 }
 
+/** Job keys are indented, so a column-0 match stays on the workflow permissions. */
+function topLevelPermissions(yaml: string): string {
+  const match = yaml.match(/^permissions:[^\n]*(?:\n {2}[^\n]*)*/m);
+  if (!match) {
+    throw new Error('missing top-level permissions');
+  }
+  return match[0];
+}
+
+/** One chunk per job so a token can be required on the scorecard job only. */
+function jobSections(yaml: string): string[] {
+  const parts = yaml.split(/^jobs:\n/m);
+  if (parts.length < 2) {
+    throw new Error('missing jobs');
+  }
+  return parts[1].split(/\n(?= {2}[a-zA-Z0-9_-]+:\n)/);
+}
+
 function weeklyCron(yaml: string): string[] {
   const match = yaml.match(/cron:\s*"([^"]+)"/);
   if (!match) {
@@ -153,9 +171,12 @@ describe('code scanning workflows', () => {
     expect(existsSync(path)).toBe(true);
     const yaml = readFileSync(path, 'utf8');
     expect(workflowName(yaml)).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
-    expect(permissionBlock(yaml)).toBe(
-      '  contents: read\n  security-events: write\n  id-token: write\n',
-    );
+    expect(topLevelPermissions(yaml)).not.toMatch(/write/);
+    const jobs = jobSections(yaml);
+    const scorecardJobs = jobs.filter((job) => job.includes('ossf/scorecard-action@'));
+    expect(scorecardJobs).toHaveLength(1);
+    expect(scorecardJobs[0]).toContain('id-token: write');
+    expect(yaml.replace(scorecardJobs[0], '')).not.toContain('id-token: write');
     const on = onBlock(yaml);
     expect(on).toContain('schedule:');
     expect(on).toContain('branch_protection_rule:');
