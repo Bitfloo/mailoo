@@ -52,12 +52,12 @@ Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, and read-onl
 
 Policy and how to report a vulnerability: **[SECURITY.md](SECURITY.md)**.
 
-- `tls` is implicit TLS. `starttls` requires STARTTLS, and the connection fails if the server does not offer it. When both are false the protocols differ: SMTP never attempts STARTTLS, while IMAP still upgrades if the server offers STARTTLS and then checks the certificate according to `verify_ssl` (`src/connections/manager.ts`). ManageSieve `AUTHENTICATE PLAIN` requires TLS and always checks the certificate (`src/services/sieve.service.ts`) — [docs](docs/configuration.md#managesieve)
+- `tls` is implicit TLS and `starttls` is required. Both false is not the same for IMAP and SMTP — [Security considerations](SECURITY.md#security-considerations)
 - The audit log redacts passwords and message bodies. It records send, draft, folder, label, bulk, manage, sieve, template, and schedule writes, not every local write (`src/safety/audit.ts`) — [SECURITY.md](SECURITY.md)
-- Token-bucket rate limiter prevents abuse (configurable per account)
+- One global `rate_limit` (default 10 per minute) sizes a separate send bucket for each account (`src/config/schema.ts`)
 - OAuth2 XOAUTH2 authentication for Gmail and Microsoft 365 _(experimental)_
-- `savePath` writes a new file under the working directory when that directory is specific (`src/safety/local-paths.ts` refuses `/` and the broad roots named there). Hidden segments, `~/Library` except Mobile Documents and CloudStorage, `~/AppData`, and `~/snap` are refused. An existing file is left unchanged, and a symlink is refused ([docs](docs/tools.md#download_attachment))
-- Outgoing attachment paths must be regular files under the working directory or home. The same application-data directories are refused, and a symlink that leaves the allowed directory is refused ([docs](docs/tools.md#attachments-on-send-and-drafts))
+- `savePath` writes a new file only under a specific working directory — [Security considerations](SECURITY.md#security-considerations)
+- Outgoing attachment paths must be regular files under the working directory or home — [Security considerations](SECURITY.md#security-considerations)
 
 ## Docs
 
@@ -353,8 +353,6 @@ For MCP client configuration (e.g. Claude Desktop):
 </details>
 
 ### CLI Commands
-
-Invoke these as `npx -y @bitfloo/mailoo <command>`, or as `mailoo <command>` after a global install.
 
 ```
 npx -y @bitfloo/mailoo [command]
@@ -713,7 +711,7 @@ description = "Invoices, receipts, and payment confirmations."
 
 ## Capabilities & data flows
 
-Outbound calls, child processes, files, and environment variables below are what `src/` actually does. Hook triage that uses MCP sampling stays inside the connected client; Mailoo does not dial a separate model host for that path.
+Outbound calls, child processes, files, and environment variables below are what `src/` does. Hook triage that uses MCP sampling stays inside the connected client; Mailoo does not dial a separate model host for that path.
 
 ### Network
 
@@ -721,7 +719,7 @@ Outbound calls, child processes, files, and environment variables below are what
 |---|---|---|
 | Configured IMAP host and port | Reads, writes, IDLE | `src/connections/manager.ts`, `src/services/watcher.service.ts` |
 | Configured SMTP host and port | Sends | `src/connections/manager.ts` |
-| ManageSieve host (IMAP host if unset) port 4190 | Filter scripts | `src/services/sieve.service.ts` |
+| ManageSieve host (IMAP host if unset) port 4190 by default (`sieve_port` / `MCP_EMAIL_SIEVE_PORT`) | Filter scripts | `src/services/sieve.service.ts` |
 | `https://oauth2.googleapis.com/token` | Google token refresh and code exchange | `src/services/oauth.service.ts` |
 | `https://accounts.google.com/o/oauth2/v2/auth` | Authorization URL for the operator's browser; the process does not fetch it | `src/services/oauth.service.ts` |
 | `https://login.microsoftonline.com/common/oauth2/v2.0/token` | Microsoft token refresh and code exchange | `src/services/oauth.service.ts` |
@@ -730,7 +728,7 @@ Outbound calls, child processes, files, and environment variables below are what
 | Configured webhook URL (`http` or `https` POST) | Alerts, after a DNS lookup of that host | `src/services/notifier.service.ts`, `src/safety/validation.ts` |
 | `https://api.typesafe.ai` (or `TYPESAFE_BASE_URL`) | System One classification, only when that integration is on | `src/services/mail-arrival/index.ts` |
 
-`mailoo http` listens. It does not add an outbound destination. Provider presets in `src/cli/providers.ts` only fill the IMAP, SMTP, and OAuth hosts the wizard saves.
+`mailoo http` listens. It does not add an outbound destination. Provider presets in `src/cli/providers.ts` fill the IMAP and SMTP hosts the wizard saves.
 
 ### Processes
 
@@ -751,7 +749,7 @@ Paths follow the XDG defaults in `src/config/xdg.ts` unless `XDG_CONFIG_HOME`, `
 
 | Path | What is written | Code |
 |---|---|---|
-| `$XDG_CONFIG_HOME/mailoo/config.toml` (mode `0600` for a new file) | Accounts and settings, including passwords and OAuth secrets | `src/config/loader.ts` |
+| `$XDG_CONFIG_HOME/mailoo/config.toml` (mode `0600`) | Accounts and settings, including passwords and OAuth secrets | `src/config/loader.ts` |
 | `$XDG_DATA_HOME/mailoo/audit.log` | Append-only audit lines | `src/safety/audit.ts` |
 | `$XDG_STATE_HOME/mailoo/scheduled/` and `scheduled/sent/` | Scheduled-send JSON | `src/services/scheduler.service.ts` |
 | `$XDG_DATA_HOME/mailoo/calendar-attachments/` | Attachment files saved for a calendar event | `src/services/imap.service.ts` |
