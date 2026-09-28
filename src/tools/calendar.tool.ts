@@ -32,14 +32,14 @@ const REMINDER_KEYWORDS =
   /\b(deadline|due by|respond by|reply by|action required|follow.?up|please review|please send|please confirm|submit by|complete by|return by|RSVP by|by (monday|tuesday|wednesday|thursday|friday|saturday|sunday)|by (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))\b/i;
 
 function registerCalendarGroup(
-  group: 'read' | 'all',
+  group: 'read' | 'write',
   server: McpServer,
   imapService: ImapService,
   calendarService: CalendarService,
   localCalendarService: LocalCalendarService,
   remindersService: RemindersService,
 ): void {
-  if (group === 'read' || group === 'all') {
+  if (group === 'read') {
     // ---------------------------------------------------------------------------
     // extract_calendar
     // ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@ function registerCalendarGroup(
     );
   }
 
-  if (group === 'all') {
+  if (group === 'write') {
     // ---------------------------------------------------------------------------
     // add_to_calendar
     // ---------------------------------------------------------------------------
@@ -309,7 +309,7 @@ function registerCalendarGroup(
     );
   }
 
-  if (group === 'read' || group === 'all') {
+  if (group === 'read') {
     // ---------------------------------------------------------------------------
     // check_calendar_permissions
     // ---------------------------------------------------------------------------
@@ -563,7 +563,7 @@ function registerCalendarGroup(
     );
   }
 
-  if (group === 'all') {
+  if (group === 'write') {
     // ---------------------------------------------------------------------------
     // create_reminder
     // ---------------------------------------------------------------------------
@@ -655,7 +655,7 @@ function registerCalendarGroup(
     );
   }
 
-  if (group === 'read' || group === 'all') {
+  if (group === 'read') {
     // ---------------------------------------------------------------------------
     // analyze_email_for_scheduling
     // ---------------------------------------------------------------------------
@@ -832,7 +832,7 @@ export function registerCalendarReadTools(
   );
 }
 
-export function registerCalendarAllTools(
+export function registerCalendarWriteTools(
   server: McpServer,
   imapService: ImapService,
   calendarService: CalendarService,
@@ -840,7 +840,7 @@ export function registerCalendarAllTools(
   remindersService: RemindersService,
 ): void {
   registerCalendarGroup(
-    'all',
+    'write',
     server,
     imapService,
     calendarService,

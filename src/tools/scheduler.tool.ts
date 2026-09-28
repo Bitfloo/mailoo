@@ -12,11 +12,11 @@ import type SchedulerService from '../services/scheduler.service.js';
 import { SEND_AT_FORMAT } from '../services/scheduler.service.js';
 
 function registerSchedulerGroup(
-  group: 'read' | 'all',
+  group: 'read' | 'write',
   server: McpServer,
   schedulerService: SchedulerService,
 ): void {
-  if (group === 'all') {
+  if (group === 'write') {
     // ---------------------------------------------------------------------------
     // schedule_email (write)
     // ---------------------------------------------------------------------------
@@ -78,7 +78,7 @@ function registerSchedulerGroup(
     );
   }
 
-  if (group === 'read' || group === 'all') {
+  if (group === 'read') {
     // ---------------------------------------------------------------------------
     // list_scheduled (read)
     // ---------------------------------------------------------------------------
@@ -135,7 +135,7 @@ function registerSchedulerGroup(
     );
   }
 
-  if (group === 'all') {
+  if (group === 'write') {
     // ---------------------------------------------------------------------------
     // cancel_scheduled (write)
     // ---------------------------------------------------------------------------
@@ -188,9 +188,9 @@ export function registerSchedulerReadTools(
   registerSchedulerGroup('read', server, schedulerService);
 }
 
-export default function registerSchedulerTools(
+export function registerSchedulerWriteTools(
   server: McpServer,
   schedulerService: SchedulerService,
 ): void {
-  registerSchedulerGroup('all', server, schedulerService);
+  registerSchedulerGroup('write', server, schedulerService);
 }

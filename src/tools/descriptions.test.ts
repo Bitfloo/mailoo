@@ -10,7 +10,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import { ADD_EVENT_STATUSES } from '../services/local-calendar.service.js';
 import buildCatalog from '../test-support/mcp-catalog-harness.js';
-import { registerCalendarAllTools } from './calendar.tool.js';
+import { registerCalendarWriteTools } from './calendar.tool.js';
 
 interface ListedTool {
   name: string;
@@ -142,7 +142,7 @@ describe('add_to_calendar duplicate hint', () => {
         if (name === 'add_to_calendar') handler = fn;
       },
     };
-    registerCalendarAllTools(
+    registerCalendarWriteTools(
       server as never,
       {
         getEmail: async () => ({
