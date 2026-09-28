@@ -609,7 +609,7 @@ webhook_events = ["urgent", "high"]
 allow_private_webhooks = false  # default; true allows a LAN, VPN, or tailnet target
 ```
 
-`allow_private_webhooks` is **off** by default. While it is off, a webhook must not target a loopback, private, link-local, or other non-global address, including a host name that resolves to one. Set it to `true` only for a service on the local network, a VPN, or a tailnet.
+Details: [docs/configuration.md](docs/configuration.md#settingshooksalertsallow_private_webhooks).
 
 **Supported platforms:** macOS (Notification Center via `osascript`), Linux (`notify-send`), Windows (PowerShell toast). Zero npm dependencies — uses native OS commands.
 
