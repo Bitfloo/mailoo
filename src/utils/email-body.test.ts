@@ -69,7 +69,7 @@ describe('stripHtml', () => {
   });
 
   it('leaves a fourth entity layer as text', () => {
-    // The pass ceiling keeps a deep entity chain linear; a fourth layer stays text.
+    // MAX_DECODE_PASSES bounds the work on a deep entity chain; this residue is intended.
     expect(
       stripHtml('&amp;amp;amp;lt;script&amp;amp;amp;gt;w&amp;amp;amp;lt;/script&amp;amp;amp;gt;'),
     ).toBe('&lt;script&gt;w&lt;/script&gt;');
