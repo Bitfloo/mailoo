@@ -64,6 +64,17 @@ describe('stripHtml', () => {
     expect(text).toContain('Hello');
   });
 
+  it('removes a script tag hidden under three entity layers', () => {
+    expect(stripHtml('&amp;amp;lt;script&amp;amp;gt;z&amp;amp;lt;/script&amp;amp;gt;')).toBe('');
+  });
+
+  it('leaves a fourth entity layer as text', () => {
+    // The pass ceiling keeps a deep entity chain linear; a fourth layer stays text.
+    expect(
+      stripHtml('&amp;amp;amp;lt;script&amp;amp;amp;gt;w&amp;amp;amp;lt;/script&amp;amp;amp;gt;'),
+    ).toBe('&lt;script&gt;w&lt;/script&gt;');
+  });
+
   it('drops a style block and its remote URL', () => {
     expect(stripHtml('<style>@import url(https://evil.example/a.css);</style>Hi')).toBe('Hi');
     expect(stripHtml('<style>@import url(https://evil.example/a.css)')).not.toContain(
