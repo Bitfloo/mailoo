@@ -346,6 +346,15 @@ describe('writeAttachmentFile', () => {
     });
   });
 
+  it('should save an attachment named .env into a directory as env', async () => {
+    await withCwdTempDir(async (dir) => {
+      const saved = await writeAttachmentFile(dir, '.env', Buffer.from('secret'));
+      expect(saved).toBe(path.join(dir, 'env'));
+      expect(await fs.readFile(saved, 'utf8')).toBe('secret');
+      await expect(fs.access(path.join(dir, '.env'))).rejects.toThrow();
+    });
+  });
+
   // root bypasses directory permission bits
   it.skipIf(process.getuid?.() === 0)(
     'should report EACCES when the destination directory is not writable',
