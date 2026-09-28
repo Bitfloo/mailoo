@@ -107,12 +107,12 @@ async function scheduleHello(service: InstanceType<typeof SchedulerService>) {
   });
 }
 
-describe('SchedulerService queue files', () => {
-  afterAll(async () => {
-    vi.unstubAllEnvs();
-    await fs.rm(stateHome, { recursive: true, force: true });
-  });
+afterAll(async () => {
+  vi.unstubAllEnvs();
+  await fs.rm(stateHome, { recursive: true, force: true });
+});
 
+describe('SchedulerService queue files', () => {
   it('does not delete a file outside the queue when the schedule id leaves the directory', async () => {
     const canaryDir = path.join(stateHome, 'mailoo', 'canary');
     await fs.mkdir(canaryDir, { recursive: true });
