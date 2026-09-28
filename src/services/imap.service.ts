@@ -303,24 +303,17 @@ async function messageToEmail(
   };
 }
 
+export const FLAG_ACTIONS = ['read', 'unread', 'flag', 'unflag'] as const;
+
+export type FlagAction = (typeof FLAG_ACTIONS)[number];
+
 // Callers pass the mark_email zod enum or a literal of the same union.
-// eslint-disable-next-line consistent-return -- every case returns; the union is exhaustive
-function flagChange(action: 'read' | 'unread' | 'flag' | 'unflag'): {
-  flags: string[];
-  add: boolean;
-} {
-  switch (action) {
-    case 'read':
-      return { flags: ['\\Seen'], add: true };
-    case 'unread':
-      return { flags: ['\\Seen'], add: false };
-    case 'flag':
-      return { flags: ['\\Flagged'], add: true };
-    case 'unflag':
-      return { flags: ['\\Flagged'], add: false };
-    // no default
-  }
-}
+const flagChange: Record<FlagAction, { flags: string[]; add: boolean }> = {
+  read: { flags: ['\\Seen'], add: true },
+  unread: { flags: ['\\Seen'], add: false },
+  flag: { flags: ['\\Flagged'], add: true },
+  unflag: { flags: ['\\Flagged'], add: false },
+};
 
 // ---------------------------------------------------------------------------
 // Service
@@ -965,11 +958,11 @@ export default class ImapService {
     accountName: string,
     emailId: string,
     mailbox: string,
-    action: 'read' | 'unread' | 'flag' | 'unflag',
+    action: FlagAction,
   ): Promise<void> {
     const uidText = parseMessageUid(emailId);
     const safeMailbox = sanitizeMailboxName(mailbox);
-    const { flags, add } = flagChange(action);
+    const { flags, add } = flagChange[action];
     const client = await this.connections.getImapClient(accountName);
     const lock = await client.getMailboxLock(safeMailbox);
     try {

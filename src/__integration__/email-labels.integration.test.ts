@@ -111,6 +111,7 @@ describe('Email Label Operations', () => {
     });
 
     it('should add and remove a label that contains a quote', async () => {
+      // GreenMail stores a non-atom keyword; the oracle is that the quote round-trips escaped.
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Label test email',
       });

@@ -6,8 +6,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import audit from '../safety/audit.js';
 import { sanitizeMailboxName } from '../safety/validation.js';
-
 import type ImapService from '../services/imap.service.js';
+import { FLAG_ACTIONS } from '../services/imap.service.js';
 
 export default function registerManageTools(server: McpServer, imapService: ImapService): void {
   // ---------------------------------------------------------------------------
@@ -143,7 +143,7 @@ export default function registerManageTools(server: McpServer, imapService: Imap
         id: z.string().describe('Email ID (UID) from list_emails or search_emails'),
         mailbox: z.string().default('INBOX').describe('Mailbox containing the email'),
         action: z
-          .enum(['read', 'unread', 'flag', 'unflag'])
+          .enum(FLAG_ACTIONS)
           .describe('Action: read, unread, flag (star), or unflag (unstar)'),
       },
       annotations: {
