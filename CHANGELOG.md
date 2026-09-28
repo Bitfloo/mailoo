@@ -6,7 +6,7 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 <!-- next-header -->
 
-## [0.1.6] — 2026-09-28
+## [Unreleased]
 
 ### Behaviour changes
 
@@ -14,6 +14,10 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
   server has accepted it but before the queue records it as sent. Another
   check may send it after the claim goes stale. That is at least once, not
   exactly once.
+
+## [0.1.6] — 2026-09-28
+
+### Behaviour changes
 
 - IMAP accounts with `starttls = true` now refuse a server that does not
   offer STARTTLS instead of continuing without TLS. Use `tls = true` on the
