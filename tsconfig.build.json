@@ -5,6 +5,7 @@
     "dist",
     "src/**/*.test.ts",
     "src/__integration__/**",
+    "src/test-support/**",
     "src/vitest-env.d.ts"
   ]
 }
