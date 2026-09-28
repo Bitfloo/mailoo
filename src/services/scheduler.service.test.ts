@@ -7,7 +7,11 @@ import type { ScheduledEmail } from '../types/index.js';
 const stateHome = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-'));
 vi.stubEnv('XDG_STATE_HOME', stateHome);
 
-const { default: SchedulerService } = await import('./scheduler.service.js');
+const {
+  default: SchedulerService,
+  SCHEDULE_CLAIM_SUFFIX,
+  STALE_LOCK_MS,
+} = await import('./scheduler.service.js');
 
 const scheduledDir = path.join(stateHome, 'mailoo', 'scheduled');
 
@@ -417,5 +421,139 @@ describe('send_at century years', () => {
         sendAt: '2100-02-29T09:00:00Z',
       }),
     ).rejects.toThrow('Expected ISO 8601 date-time with UTC offset');
+  });
+});
+
+function isCancelled(value: unknown): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'cancelled' in value &&
+    (value as { cancelled: boolean }).cancelled
+  );
+}
+
+/**
+ * Both checks must observe the pending bytes before either continues.
+ * Otherwise one check can finish before the other starts, and a missing claim stays green.
+ */
+async function afterBothReadQueueFile(filePath: string, body: () => Promise<void>): Promise<void> {
+  let seen = 0;
+  let release: () => void = () => {};
+  const both = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const original = fs.readFile.bind(fs);
+  const spy = vi.spyOn(fs, 'readFile').mockImplementation(async (file, options) => {
+    const content = await original(file, options as { encoding: 'utf8' });
+    if (file === filePath && seen < 2) {
+      seen += 1;
+      if (seen === 2) release();
+      else await both;
+    }
+    return content;
+  });
+  try {
+    await body();
+  } finally {
+    spy.mockRestore();
+  }
+}
+
+describe('overlapping queue checks', () => {
+  async function writeDue(queueDir: string, id: string, status: ScheduledEmail['status']) {
+    const record = {
+      ...pendingRecord(id, '2020-01-01T00:00:00.000Z'),
+      status,
+    };
+    await fs.writeFile(path.join(queueDir, `${id}.json`), JSON.stringify(record));
+  }
+
+  it('sends a due email once when two checks run together', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-race-'));
+    const id = queueId(1);
+    const filePath = path.join(queueDir, `${id}.json`);
+    try {
+      await writeDue(queueDir, id, 'pending');
+      const first = createService(queueDir);
+      const second = createService(queueDir);
+      let left = { sent: 0, failed: 0, errors: [] as string[] };
+      let right = { sent: 0, failed: 0, errors: [] as string[] };
+      await afterBothReadQueueFile(filePath, async () => {
+        [left, right] = await Promise.all([
+          first.service.checkAndSend(),
+          second.service.checkAndSend(),
+        ]);
+      });
+      const calls =
+        first.smtp.sendEmail.mock.calls.length + second.smtp.sendEmail.mock.calls.length;
+      const sent = await first.service.list({ status: 'sent' });
+      expect(left.sent + right.sent).toBe(1);
+      expect(calls).toBe(1);
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toMatchObject({ id, status: 'sent' });
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not cancel and send the same due email', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-cancel-'));
+    const id = queueId(1);
+    const filePath = path.join(queueDir, `${id}.json`);
+    const checker = createService(queueDir);
+    const canceller = createService(queueDir);
+    await writeDue(queueDir, id, 'pending');
+    const original = fs.writeFile.bind(fs);
+    let started = false;
+    let cancelResult: unknown;
+    // Cancel overlaps the moment the checker records "sending", while the queue file still says pending.
+    const spy = vi.spyOn(fs, 'writeFile').mockImplementation(async (file, data, options) => {
+      if (
+        file === filePath &&
+        !started &&
+        typeof data === 'string' &&
+        data.includes('"status": "sending"')
+      ) {
+        started = true;
+        cancelResult = await canceller.service.cancel(id).then(
+          (result) => result,
+          (err: unknown) => err,
+        );
+      }
+      return original(file, data, options as { flag?: string });
+    });
+    try {
+      const outcome = await checker.service.checkAndSend();
+      const sent = await checker.service.list({ status: 'sent' });
+      const cancelled = isCancelled(cancelResult);
+      expect(cancelled && (outcome.sent > 0 || sent.length > 0)).toBe(false);
+      expect(checker.smtp.sendEmail.mock.calls.length > 0 && cancelled).toBe(false);
+      expect(cancelled || sent.length === 1).toBe(true);
+    } finally {
+      spy.mockRestore();
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+
+  it('retries a claim older than the stale lock window and sends it once', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-stale-'));
+    const id = queueId(1);
+    try {
+      await writeDue(queueDir, id, 'sending');
+      const lockPath = path.join(queueDir, `${id}${SCHEDULE_CLAIM_SUFFIX}`);
+      await fs.writeFile(lockPath, 'abandoned', { flag: 'wx' });
+      const abandonedAt = new Date(Date.now() - STALE_LOCK_MS - 1000);
+      await fs.utimes(lockPath, abandonedAt, abandonedAt);
+      const { service, smtp } = createService(queueDir);
+      const result = await service.checkAndSend();
+      const sent = await service.list({ status: 'sent' });
+      expect(result.sent).toBe(1);
+      expect(smtp.sendEmail).toHaveBeenCalledTimes(1);
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toMatchObject({ id, status: 'sent' });
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
   });
 });
