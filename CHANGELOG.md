@@ -10,6 +10,10 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Behaviour changes
 
+- Label tools refuse IMAP system flags (use `mark_email`) and, on Gmail,
+  system labels other than `\Inbox`, `\Starred` and `\Important` (use
+  `move_email` or `delete_email`).
+
 - HTTP mode: new-mail hooks use the most recent connected client that
   supports sampling, and fall back to rules when none is connected.
 

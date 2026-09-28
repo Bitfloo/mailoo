@@ -114,6 +114,16 @@ function createProtonMailStrategy(): LabelStrategy {
 // Gmail: X-GM-LABELS extension
 // ---------------------------------------------------------------------------
 
+const GMAIL_LABEL_ALLOWLIST = new Set(['\\Inbox', '\\Starred', '\\Important']);
+
+function assertGmailLabel(label: string): void {
+  // Other Gmail system labels such as \Trash, \Spam, \Draft, and \Sent change
+  // where a message lives or its state, which a non-destructive label tool must not do.
+  if (label.startsWith('\\') && !GMAIL_LABEL_ALLOWLIST.has(label)) {
+    throw new Error('Use move_email or delete_email for this.');
+  }
+}
+
 function createGmailStrategy(): LabelStrategy {
   const type: LabelStrategyType = 'gmail';
 
@@ -140,6 +150,7 @@ function createGmailStrategy(): LabelStrategy {
     },
 
     addLabel: async (client, emailId, mailbox, label) => {
+      assertGmailLabel(label);
       const lock = await client.getMailboxLock(mailbox);
       try {
         const result = await client.messageFlagsAdd(emailId, [label], {
@@ -155,6 +166,7 @@ function createGmailStrategy(): LabelStrategy {
     },
 
     removeLabel: async (client, emailId, mailbox, label) => {
+      assertGmailLabel(label);
       const lock = await client.getMailboxLock(mailbox);
       try {
         const result = await client.messageFlagsRemove(emailId, [label], {
@@ -182,6 +194,15 @@ function createGmailStrategy(): LabelStrategy {
 // ---------------------------------------------------------------------------
 // Standard IMAP: Keywords (custom flags via STORE)
 // ---------------------------------------------------------------------------
+
+function assertKeywordLabel(label: string): void {
+  // RFC 9051: flag-keyword is an atom and "\" is not an ATOM-CHAR, so a
+  // keyword never starts with a backslash. Such a string is a system flag
+  // or a flag-extension.
+  if (label.startsWith('\\')) {
+    throw new Error('System flags are not labels; use mark_email.');
+  }
+}
 
 function createKeywordStrategy(): LabelStrategy {
   const type: LabelStrategyType = 'keyword';
@@ -211,6 +232,7 @@ function createKeywordStrategy(): LabelStrategy {
     },
 
     addLabel: async (client, emailId, mailbox, label) => {
+      assertKeywordLabel(label);
       const lock = await client.getMailboxLock(mailbox);
       try {
         const result = await client.messageFlagsAdd(emailId, [label], { uid: true });
@@ -223,6 +245,7 @@ function createKeywordStrategy(): LabelStrategy {
     },
 
     removeLabel: async (client, emailId, mailbox, label) => {
+      assertKeywordLabel(label);
       const lock = await client.getMailboxLock(mailbox);
       try {
         const result = await client.messageFlagsRemove(emailId, [label], { uid: true });
