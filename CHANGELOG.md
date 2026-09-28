@@ -10,6 +10,10 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Behaviour changes
 
+- IMAP accounts with `starttls = true` now refuse a server that does not
+  offer STARTTLS instead of continuing without TLS. Use `tls = true` on the
+  implicit-TLS port, or fix the server.
+
 - `MCP_EMAIL_HTTP_ALLOWED_HOSTS` with a non-loopback name now requires
   `MCP_EMAIL_HTTP_TOKEN`. Set a token and send it as `Authorization: Bearer`.
 

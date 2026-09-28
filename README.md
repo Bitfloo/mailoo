@@ -52,7 +52,7 @@ Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, and read-onl
 
 Policy and how to report a vulnerability: **[SECURITY.md](SECURITY.md)**.
 
-- IMAP and SMTP use TLS or STARTTLS unless the account sets both `tls` and `starttls` to false. Certificate checks follow `verify_ssl` (`src/connections/manager.ts`). ManageSieve `AUTHENTICATE PLAIN` requires TLS and always checks the certificate (`src/services/sieve.service.ts`) — [docs](docs/configuration.md#managesieve)
+- `tls` is implicit TLS. `starttls` requires STARTTLS, and the connection fails if the server does not offer it. When both are false the protocols differ: SMTP never attempts STARTTLS, while IMAP still upgrades if the server offers STARTTLS and then checks the certificate according to `verify_ssl` (`src/connections/manager.ts`). ManageSieve `AUTHENTICATE PLAIN` requires TLS and always checks the certificate (`src/services/sieve.service.ts`) — [docs](docs/configuration.md#managesieve)
 - The audit log redacts passwords and message bodies. It records send, draft, folder, label, bulk, manage, sieve, template, and schedule writes, not every local write (`src/safety/audit.ts`) — [SECURITY.md](SECURITY.md)
 - Token-bucket rate limiter prevents abuse (configurable per account)
 - OAuth2 XOAUTH2 authentication for Gmail and Microsoft 365 _(experimental)_
