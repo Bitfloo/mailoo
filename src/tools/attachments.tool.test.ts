@@ -409,26 +409,15 @@ describe('writeAttachmentFile', () => {
     },
   );
 
-  describe('savePath under a mode 0555 directory', () => {
-    let lockedDir: { dir: string; locked: string } | undefined;
-
-    afterEach(async () => {
-      if (lockedDir === undefined) return;
-      await fs.chmod(lockedDir.locked, 0o700);
-      await fs.rm(lockedDir.dir, { recursive: true, force: true });
-      lockedDir = undefined;
-    });
-
-    // root bypasses directory permission bits
-    it.skipIf(process.getuid?.() === 0)(
-      'should report EACCES when savePath is locked/sub/a.txt under a mode 0555 directory',
-      async () => {
-        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-att-'));
+  // root bypasses directory permission bits
+  it.skipIf(process.getuid?.() === 0)(
+    'should report EACCES when savePath is locked/sub/a.txt under a mode 0555 directory',
+    async () => {
+      await withCwdTempDir(async (dir) => {
         const locked = path.join(dir, 'locked');
         await fs.mkdir(locked);
-        lockedDir = { dir, locked };
         await fs.chmod(locked, 0o555);
-        await withPinnedRoots(dir, dir, async () => {
+        try {
           const cwd = process.cwd();
           const realCwd = await fs.realpath(cwd);
           let message = '';
@@ -440,10 +429,12 @@ describe('writeAttachmentFile', () => {
           expect(message).toBe('Could not write savePath (EACCES)');
           expect(message).not.toContain(cwd);
           expect(message).not.toContain(realCwd);
-        });
-      },
-    );
-  });
+        } finally {
+          await fs.chmod(locked, 0o700);
+        }
+      });
+    },
+  );
 
   // lstat puts the absolute working directory in the Node error for a segment past NAME_MAX.
   it('should report ENAMETOOLONG when savePath is one 300-byte segment', async () => {
