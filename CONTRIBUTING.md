@@ -107,7 +107,10 @@ src/
 2. Export a default function that takes the MCP server + services
 3. Use `server.registerTool()` with a human-readable `title` and a Zod `inputSchema`
 4. Add tool annotations (`readOnlyHint`, `destructiveHint`, etc.) and its row in `EXPECTED_TOOL_ANNOTATIONS` (`src/tools/annotations.test.ts`)
-5. Register it in `src/tools/register.ts`
+5. Register it in `src/tools/register.ts`: read-only tools with the other
+   reads, write tools inside `if (!readOnly)`. Add a read-only tool to the
+   registered-tools list in
+   [`docs/configuration.md`](docs/configuration.md#settingsread_only).
 6. Run `pnpm test -- -u src/mcp-catalog.test.ts` and review the baseline diff.
    A changed name, input schema, or URI of an existing tool, resource, or
    prompt is a breaking change and needs a major version bump.
