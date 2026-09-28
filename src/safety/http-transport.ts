@@ -180,7 +180,7 @@ export function resolveHttpListen(input: {
   const publicAllowlist = listed.filter((host) => !isLoopbackBindHost(hostnameKey(host)));
   if (publicAllowlist.length > 0 && !token) {
     throw new Error(
-      `Refusing to listen on ${publicAllowlist.join(', ')} without MCP_EMAIL_HTTP_TOKEN`,
+      `MCP_EMAIL_HTTP_ALLOWED_HOSTS lists ${publicAllowlist.join(', ')}; set MCP_EMAIL_HTTP_TOKEN`,
     );
   }
 

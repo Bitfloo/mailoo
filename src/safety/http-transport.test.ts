@@ -98,6 +98,13 @@ describe('resolveHttpListen', () => {
     expect(policy.token).toBeUndefined();
   });
 
+  it('starts without a bearer token when bound to app.localhost', () => {
+    // A name under .localhost is loopback, so this bind does not need a token.
+    const policy = resolveHttpListen({ port: 8080, host: 'app.localhost' });
+    expect(policy.hosts).toEqual(['app.localhost']);
+    expect(policy.token).toBeUndefined();
+  });
+
   it('refuses to listen on 0.0.0.0 when no bearer token is configured', () => {
     expect(() => resolveHttpListen({ port: 8080, host: '0.0.0.0' })).toThrow(
       /MCP_EMAIL_HTTP_TOKEN/,
@@ -125,7 +132,7 @@ describe('resolveHttpListen', () => {
 
   it('refuses a non-loopback allowlist name when no bearer token is configured', () => {
     expect(() => resolveHttpListen({ port: 8080, allowedHosts: ['mail.example'] })).toThrow(
-      'Refusing to listen on mail.example without MCP_EMAIL_HTTP_TOKEN',
+      'MCP_EMAIL_HTTP_ALLOWED_HOSTS lists mail.example; set MCP_EMAIL_HTTP_TOKEN',
     );
   });
 
