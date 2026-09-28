@@ -166,6 +166,8 @@ startCommand:
       command: "npx",
       args: ["-y", "@bitfloo/mailoo"],
       env: Object.fromEntries(
-        Object.entries(config).filter(([, value]) => value !== undefined && value !== "")
+        Object.entries(config).filter(
+          ([key, value]) => /^MCP_EMAIL_/.test(key) && value !== undefined && value !== ""
+        )
       )
     })
