@@ -139,6 +139,12 @@ describe('resolveHttpListen', () => {
     expect(policy.token).toBeUndefined();
   });
 
+  it.each(['user@mail.example', 'mail.example/x'])('refuses allowlist entry %s', (entry) => {
+    expect(() => resolveHttpListen({ port: 8080, token: TOKEN, allowedHosts: [entry] })).toThrow(
+      `Invalid HTTP host: ${entry}`,
+    );
+  });
+
   it('refuses a wildcard bind when no allowed hosts are configured', () => {
     expect(() => resolveHttpListen({ port: 8080, host: '0.0.0.0', token: TOKEN })).toThrow(
       /MCP_EMAIL_HTTP_ALLOWED_HOSTS/,
@@ -484,6 +490,19 @@ describe('evaluateHttpAccess', () => {
           headers: { host: '127.0.0.1:8080', authorization: `Bearer ${TOKEN}` },
         },
         guarded,
+      ).ok,
+    ).toBe(true);
+  });
+
+  it('accepts Host 192.0.2.10:18080 when the process is bound to 192.0.2.10', () => {
+    const bound = resolveHttpListen({ port: 8080, host: '192.0.2.10', token: TOKEN });
+    expect(
+      evaluateHttpAccess(
+        {
+          method: 'GET',
+          headers: { host: '192.0.2.10:18080', authorization: `Bearer ${TOKEN}` },
+        },
+        bound,
       ).ok,
     ).toBe(true);
   });
