@@ -106,6 +106,8 @@ BLOCKED_WEBHOOK_ADDRESSES.addSubnet('fc00::', 7, 'ipv6');
 BLOCKED_WEBHOOK_ADDRESSES.addSubnet('fe80::', 10, 'ipv6');
 BLOCKED_WEBHOOK_ADDRESSES.addSubnet('fec0::', 10, 'ipv6');
 BLOCKED_WEBHOOK_ADDRESSES.addSubnet('64:ff9b:1::', 48, 'ipv6');
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('100::', 64, 'ipv6');
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('5f00::', 16, 'ipv6');
 
 const METADATA_WEBHOOK_HOSTS = new Set(['metadata.google.internal', 'metadata.goog']);
 

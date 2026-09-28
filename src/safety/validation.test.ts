@@ -174,6 +174,14 @@ describe('validateWebhookUrl', () => {
     );
   });
 
+  it('throws on a discard-only address', () => {
+    expect(() => validateWebhookUrl('http://[100::1]/hook')).toThrow('loopback or private');
+  });
+
+  it('throws on an SRv6 SID address', () => {
+    expect(() => validateWebhookUrl('http://[5f00::1]/hook')).toThrow('loopback or private');
+  });
+
   it('throws on a 6to4 address that embeds a private IPv4 address', () => {
     expect(() => validateWebhookUrl('http://[2002:a00:1::]/hook')).toThrow('loopback or private');
   });
