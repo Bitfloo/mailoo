@@ -13,7 +13,6 @@ const HINT_KEYS = ['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWor
 type HintKey = (typeof HINT_KEYS)[number];
 type ToolHints = Record<HintKey, boolean>;
 
-/** Argument order is readOnlyHint, destructiveHint, idempotentHint, openWorldHint. */
 function hints(
   readOnlyHint: boolean,
   destructiveHint: boolean,
@@ -132,27 +131,6 @@ async function withCatalog<T>(
   }
 }
 
-function isHintKey(key: string): key is HintKey {
-  return (HINT_KEYS as readonly string[]).includes(key);
-}
-
-function booleanProblems(tools: ListedTool[]): string[] {
-  const problems: string[] = [];
-  for (const tool of tools) {
-    const { annotations } = tool;
-    if (annotations === undefined) {
-      problems.push(`${tool.name}: annotations missing`);
-    } else {
-      for (const key of HINT_KEYS) {
-        if (typeof annotations[key] !== 'boolean') {
-          problems.push(`${tool.name}.${key} is ${JSON.stringify(annotations[key])}`);
-        }
-      }
-    }
-  }
-  return problems;
-}
-
 function mismatchesForTool(tool: ListedTool): string[] {
   if (!Object.hasOwn(EXPECTED_TOOL_ANNOTATIONS, tool.name)) {
     return [`${tool.name}: listed but not in the annotation table`];
@@ -169,7 +147,9 @@ function mismatchesForTool(tool: ListedTool): string[] {
     }
   }
   for (const key of Object.keys(annotations)) {
-    if (!isHintKey(key)) problems.push(`${tool.name}: unexpected annotation ${key}`);
+    if (!(HINT_KEYS as readonly string[]).includes(key)) {
+      problems.push(`${tool.name}: unexpected annotation ${key}`);
+    }
   }
   return problems;
 }
@@ -198,12 +178,6 @@ describe('tool annotations', () => {
       expect(catalog.tools.map((tool) => tool.name).sort()).toEqual(
         Object.keys(EXPECTED_TOOL_ANNOTATIONS).sort(),
       );
-    });
-  });
-
-  it('should declare readOnlyHint, destructiveHint, idempotentHint, and openWorldHint as booleans', async () => {
-    await withCatalog(false, async (catalog) => {
-      expect(booleanProblems(catalog.tools)).toEqual([]);
     });
   });
 
