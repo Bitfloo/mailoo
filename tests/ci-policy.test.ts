@@ -53,6 +53,19 @@ function releaseSteps(yaml: string): string {
     .join('\n');
 }
 
+/** Isolate one step so a hash elsewhere cannot satisfy the install check. */
+function releaseStep(yaml: string, name: string): string {
+  const steps = releaseSteps(yaml);
+  const marker = `- name: ${name}\n`;
+  const start = steps.indexOf(marker);
+  if (start < 0) {
+    throw new Error(`missing step ${name}`);
+  }
+  const rest = steps.slice(start);
+  const next = rest.indexOf('\n      - ', marker.length);
+  return next < 0 ? rest : rest.slice(0, next);
+}
+
 describe('release supply chain', () => {
   it('installs a fixed npm CLI at or above 11.5.1', () => {
     const steps = releaseSteps(releaseYml);
@@ -70,13 +83,11 @@ describe('release supply chain', () => {
     expect(atOrAbove).toBe(true);
   });
 
-  it('downloads mcp-publisher from a fixed release and checks the published checksum', () => {
-    const steps = releaseSteps(releaseYml);
-    expect(steps).not.toContain('releases/latest');
-    expect(steps).toMatch(/TAG="v\d+\.\d+\.\d+"/);
-    expect(steps).toMatch(/releases\/download\/\$\{TAG\}/);
-    expect(steps).toMatch(/registry_\$\{VER\}_checksums\.txt/);
-    expect(steps).toContain('sha256sum -c');
+  it('pins the mcp-publisher archive hash in the install step', () => {
+    const step = releaseStep(releaseYml, 'Install mcp-publisher');
+    expect(step).not.toContain('releases/latest');
+    expect(step).toMatch(/\b[0-9a-f]{64}\b/);
+    expect(step).toContain('sha256sum -c');
   });
 });
 
