@@ -22,7 +22,8 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
   `move_email` or `delete_email`).
 
 - HTTP mode: new-mail hooks use the most recent connected client that
-  supports sampling, and fall back to rules when none is connected.
+  supports sampling; when none is connected, mail that no rule matched
+  goes to notifications.
 
 - Text from incoming mail in tool results is marked as external content.
 
