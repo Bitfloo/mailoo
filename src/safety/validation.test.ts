@@ -197,9 +197,8 @@ describe('validateWebhookUrl', () => {
     );
   });
 
-  // Sibling under /62. The /63 sibling is the dummy prefix, so a wider
-  // block of the discard-only network is what would refuse this address.
-  it('allows an address outside the discard-only prefix', () => {
+  // Sibling under /62. Widening either blocked /64 to /62 would refuse it.
+  it('allows an address outside the discard-only and dummy prefixes', () => {
     expect(() => validateWebhookUrl('http://[100:0:0:2::1]/hook')).not.toThrow();
   });
 
