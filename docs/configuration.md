@@ -62,9 +62,8 @@ The registered tools are exactly:
 `sieve_status`.
 
 `get_email` ignores `markRead` and does not set `\Seen`.
-`download_attachment` rejects `savePath` and does not write a file; the
-response is base64, as when `savePath` is omitted. In this mode both tools
-are advertised as read-only.
+Passing `savePath` returns an error and writes nothing; omit it to get the
+attachment as base64. In this mode both tools are advertised as read-only.
 
 Every other tool is omitted. That includes `add_to_calendar`,
 `create_reminder`, `test_notification`, `configure_alerts`, and the send,

@@ -24,7 +24,7 @@ and Mailoo does not create directories for a refused path. Use base64,
 or start the server in a dedicated folder. Absolute paths or `..` that
 escape the working directory are rejected. `readOnlyHint` is **false**
 on a writable server because this path writes disk, and **true** when
-`read_only` is set because `savePath` is rejected. A directory `savePath`
+`read_only` is set. A directory `savePath`
 uses the attachment filename (one path segment). An existing file is left
 unchanged. A
 symlink is rejected.
