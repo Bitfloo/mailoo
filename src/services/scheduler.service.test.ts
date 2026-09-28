@@ -86,6 +86,27 @@ async function fillQueue(
   );
 }
 
+async function liveFileCount(dir: string): Promise<number> {
+  const names = await jsonNames(dir);
+  const statuses = await Promise.all(
+    names.map(async (name) => {
+      const content = await fs.readFile(path.join(dir, name), 'utf8');
+      const scheduled = JSON.parse(content) as ScheduledEmail;
+      return scheduled.status;
+    }),
+  );
+  return statuses.filter((status) => status === 'pending' || status === 'sending').length;
+}
+
+async function scheduleHello(service: InstanceType<typeof SchedulerService>) {
+  return service.schedule('personal', {
+    to: ['user@example.com'],
+    subject: 'Hello',
+    body: 'Body',
+    sendAt: daysFromNow(2),
+  });
+}
+
 describe('SchedulerService queue files', () => {
   afterAll(async () => {
     vi.unstubAllEnvs();
@@ -341,6 +362,43 @@ describe('SchedulerService queue files', () => {
           sendAt: daysFromNow(2),
         }),
       ).rejects.toThrow(/Too many scheduled emails/);
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+
+  it('admits one schedule when ten calls race at 99 live files', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-pending-'));
+    try {
+      await fillQueue(queueDir, 99, 'pending');
+      const { service } = createService(queueDir);
+      const results = await Promise.allSettled(
+        Array.from({ length: 10 }, async () => scheduleHello(service)),
+      );
+      const messages = results.flatMap((result) => {
+        if (result.status !== 'rejected') return [];
+        const { reason } = result;
+        return [reason instanceof Error ? reason.message : String(reason)];
+      });
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      expect(messages).toEqual(
+        Array.from({ length: 9 }, () => expect.stringMatching(/Too many scheduled emails/)),
+      );
+      expect(await liveFileCount(queueDir)).toBe(100);
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+
+  it('schedules an email after a raced batch once one schedule is cancelled', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-pending-'));
+    try {
+      await fillQueue(queueDir, 99, 'pending');
+      const { service } = createService(queueDir);
+      await Promise.allSettled(Array.from({ length: 10 }, async () => scheduleHello(service)));
+      await service.cancel(queueId(0));
+      const scheduled = await scheduleHello(service);
+      expect(scheduled.status).toBe('pending');
     } finally {
       await fs.rm(queueDir, { recursive: true, force: true });
     }

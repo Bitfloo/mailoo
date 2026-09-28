@@ -249,6 +249,9 @@ export default class SchedulerService {
 
   private readonly sentDir: string;
 
+  // Parallel calls would each count before any of them writes.
+  private scheduleChain: Promise<void> = Promise.resolve();
+
   constructor(
     private smtpService: SmtpService,
     private imapService: ImapService,
@@ -298,45 +301,47 @@ export default class SchedulerService {
     const sendAtDate = parseSendAt(options.sendAt);
 
     await this.ensureDirs();
-    const pendingCount = await countLiveSchedules(this.pendingDir);
-    if (pendingCount >= MAX_PENDING_SCHEDULES) {
-      throw new Error(`Too many scheduled emails (maximum ${MAX_PENDING_SCHEDULES})`);
-    }
+    return this.enqueueSchedule(async () => {
+      const pendingCount = await countLiveSchedules(this.pendingDir);
+      if (pendingCount >= MAX_PENDING_SCHEDULES) {
+        throw new Error(`Too many scheduled emails (maximum ${MAX_PENDING_SCHEDULES})`);
+      }
 
-    const scheduled: ScheduledEmail = {
-      id: crypto.randomUUID(),
-      account,
-      to: options.to,
-      cc: options.cc,
-      bcc: options.bcc,
-      subject: options.subject,
-      body: options.body,
-      html: options.html ?? false,
-      sendAt: sendAtDate.toISOString(),
-      createdAt: new Date().toISOString(),
-      status: 'pending',
-      attempts: 0,
-      inReplyTo: options.inReplyTo,
-      references: options.references,
-    };
-
-    // Save IMAP draft (best-effort)
-    try {
-      const draftResult = await this.imapService.saveDraft(account, {
+      const scheduled: ScheduledEmail = {
+        id: crypto.randomUUID(),
+        account,
         to: options.to,
-        subject: `[Scheduled: ${sendAtDate.toLocaleString()}] ${options.subject}`,
-        body: options.body,
         cc: options.cc,
-        html: options.html,
-      });
-      scheduled.draftMessageId = String(draftResult.id);
-      scheduled.draftMailbox = draftResult.mailbox;
-    } catch {
-      // Draft mirror is best-effort
-    }
+        bcc: options.bcc,
+        subject: options.subject,
+        body: options.body,
+        html: options.html ?? false,
+        sendAt: sendAtDate.toISOString(),
+        createdAt: new Date().toISOString(),
+        status: 'pending',
+        attempts: 0,
+        inReplyTo: options.inReplyTo,
+        references: options.references,
+      };
 
-    await this.writeScheduledFile(scheduled);
-    return scheduled;
+      // Save IMAP draft (best-effort)
+      try {
+        const draftResult = await this.imapService.saveDraft(account, {
+          to: options.to,
+          subject: `[Scheduled: ${sendAtDate.toLocaleString()}] ${options.subject}`,
+          body: options.body,
+          cc: options.cc,
+          html: options.html,
+        });
+        scheduled.draftMessageId = String(draftResult.id);
+        scheduled.draftMailbox = draftResult.mailbox;
+      } catch {
+        // Draft mirror is best-effort
+      }
+
+      await this.writeScheduledFile(scheduled);
+      return scheduled;
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -555,6 +560,15 @@ export default class SchedulerService {
   // -------------------------------------------------------------------------
   // Private helpers
   // -------------------------------------------------------------------------
+
+  private async enqueueSchedule<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.scheduleChain.then(task);
+    this.scheduleChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
 
   private async ensureDirs(): Promise<void> {
     await fs.mkdir(this.pendingDir, { recursive: true });
