@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
@@ -45,7 +45,7 @@ describe('CI spend policy', () => {
 
 const releaseYml = readFileSync(join(repoRoot, '.github/workflows/release.yml'), 'utf8');
 
-/** Comments are not the install steps. */
+/** Comment lines are stripped so a workflow comment mentioning a forbidden string does not trip the content assertions. */
 function releaseSteps(yaml: string): string {
   return yaml
     .split('\n')
@@ -158,7 +158,6 @@ function weeklyCron(yaml: string): string[] {
 describe('code scanning workflows', () => {
   it('runs CodeQL for javascript-typescript on develop pull requests and weekly', () => {
     const path = join(workflowDir, 'codeql.yml');
-    expect(existsSync(path)).toBe(true);
     const yaml = readFileSync(path, 'utf8');
     expect(workflowName(yaml)).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
     expect(permissionBlock(yaml)).toBe('  contents: read\n  security-events: write\n');
@@ -179,7 +178,6 @@ describe('code scanning workflows', () => {
 
   it('runs OpenSSF Scorecard weekly and when branch protection changes', () => {
     const path = join(workflowDir, 'scorecard.yml');
-    expect(existsSync(path)).toBe(true);
     const yaml = readFileSync(path, 'utf8');
     expect(workflowName(yaml)).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
     expect(topLevelPermissions(yaml)).not.toMatch(/write/);
