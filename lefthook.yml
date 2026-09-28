@@ -22,7 +22,8 @@ pre-commit:
       run: npx eslint --fix {staged_files}
       stage_fixed: true
     typecheck:
-      run: npx tsc --noEmit
+      # tsconfig.test.json adds tests/ and src/__integration__, which plain tsc skips.
+      run: pnpm typecheck
     actionlint:
       glob: '.github/workflows/*.{yml,yaml}'
       run: actionlint {staged_files}
