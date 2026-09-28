@@ -290,34 +290,21 @@ describe('SchedulerService queue files', () => {
   });
 
   it('rejects a schedule when the queue already holds 100 messages', async () => {
-    await fs.mkdir(scheduledDir, { recursive: true });
-    const existing = new Set(await jsonNames(scheduledDir));
-    const writes: Promise<void>[] = [];
-    let index = 0;
-    while (existing.size < 100) {
-      const id = `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
-      index += 1;
-      const name = `${id}.json`;
-      if (!existing.has(name)) {
-        existing.add(name);
-        writes.push(
-          fs.writeFile(
-            path.join(scheduledDir, name),
-            `${JSON.stringify(pendingRecord(id, daysFromNow(2)))}\n`,
-          ),
-        );
-      }
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-pending-'));
+    try {
+      await fillQueue(queueDir, 100, 'pending');
+      const { service } = createService(queueDir);
+      await expect(
+        service.schedule('personal', {
+          to: ['user@example.com'],
+          subject: 'Hello',
+          body: 'Body',
+          sendAt: daysFromNow(2),
+        }),
+      ).rejects.toThrow(/100/);
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
     }
-    await Promise.all(writes);
-    const { service } = createService();
-    await expect(
-      service.schedule('personal', {
-        to: ['user@example.com'],
-        subject: 'Hello',
-        body: 'Body',
-        sendAt: daysFromNow(2),
-      }),
-    ).rejects.toThrow(/100/);
   });
 
   it('schedules an email when the queue holds 100 failed messages and no pending ones', async () => {
