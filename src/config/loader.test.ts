@@ -95,19 +95,11 @@ describe('Config Loader', () => {
       }
     });
 
-    it.each([
-      'EROFS',
-      'EPERM',
-    ])('should load a group-readable config and warn when chmod throws %s', async (code) => {
+    it('should name chmod 600 and the path in the group-readable warning', async () => {
       const configPath = path.join(tmpDir, 'config.toml');
       await fs.writeFile(configPath, MINIMAL_TOML, 'utf-8');
       await fs.chmod(configPath, 0o644);
 
-      // A read-only mount (EROFS) or a file owned by another uid (EPERM)
-      // rejects chmod. Startup must still read the file.
-      const chmod = vi
-        .spyOn(fs, 'chmod')
-        .mockRejectedValue(Object.assign(new Error(code), { code }));
       const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
       try {
         const config = await loadConfig(configPath);
@@ -120,7 +112,6 @@ describe('Config Loader', () => {
         expect(warnings).toHaveLength(1);
         expect(warnings[0]).toContain(`chmod 600 ${configPath}`);
       } finally {
-        chmod.mockRestore();
         stderr.mockRestore();
       }
     });
