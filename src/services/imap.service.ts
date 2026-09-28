@@ -307,7 +307,6 @@ export const FLAG_ACTIONS = ['read', 'unread', 'flag', 'unflag'] as const;
 
 export type FlagAction = (typeof FLAG_ACTIONS)[number];
 
-// Callers pass the mark_email zod enum or a literal of the same union.
 const flagChange: Record<FlagAction, { flags: string[]; add: boolean }> = {
   read: { flags: ['\\Seen'], add: true },
   unread: { flags: ['\\Seen'], add: false },

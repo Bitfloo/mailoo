@@ -44,7 +44,7 @@ describe('keyword labels', () => {
     expect(client.messageFlagsAdd).not.toHaveBeenCalled();
   });
 
-  it('should refuse to remove a system flag and not store it', async () => {
+  it('should refuse to remove a system flag and not remove it', async () => {
     const { client, strategy } = await keywordStrategy();
 
     await expect(
@@ -81,6 +81,26 @@ describe('Gmail labels', () => {
       strategy.addLabel(client as unknown as ImapFlow, '4', 'INBOX', '\\Trash'),
     ).rejects.toThrow('Use move_email or delete_email for this.');
     expect(client.messageFlagsAdd).not.toHaveBeenCalled();
+  });
+
+  it('should remove the \\Starred system label', async () => {
+    const { client, strategy } = await gmailStrategy();
+
+    await strategy.removeLabel(client as unknown as ImapFlow, '4', 'INBOX', '\\Starred');
+
+    expect(client.messageFlagsRemove).toHaveBeenCalledWith('4', ['\\Starred'], {
+      uid: true,
+      useLabels: true,
+    });
+  });
+
+  it('should refuse to remove \\Trash', async () => {
+    const { client, strategy } = await gmailStrategy();
+
+    await expect(
+      strategy.removeLabel(client as unknown as ImapFlow, '4', 'INBOX', '\\Trash'),
+    ).rejects.toThrow('Use move_email or delete_email for this.');
+    expect(client.messageFlagsRemove).not.toHaveBeenCalled();
   });
 
   it('should add an ordinary label that contains parentheses', async () => {
