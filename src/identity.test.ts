@@ -168,6 +168,20 @@ describe('published identity', () => {
     });
   });
 
+  it('copies each server.json environment description into smithery.yaml', () => {
+    // The registry and Smithery are published apart; one edited description would describe the same variable twice.
+    const declared = server.packages?.[0]?.environmentVariables ?? [];
+    expect(declared.length).toBeGreaterThan(0);
+    declared.forEach((item) => {
+      const marker = `\n      ${item.name}:\n`;
+      const start = smithery.indexOf(marker);
+      const rest = start < 0 ? '' : smithery.slice(start + marker.length);
+      const next = rest.search(/\n {6}[A-Z0-9_]+:\n|\n {4}\S/);
+      const block = next < 0 ? rest : rest.slice(0, next);
+      expect(block).toContain(`description: "${item.description}"`);
+    });
+  });
+
   it('documents npx as an install path and does not say the package is unpublished', async () => {
     const readme = await readFile(join(root, 'README.md'), 'utf8');
     expect(readme).toContain('npx -y @bitfloo/mailoo');
