@@ -37,13 +37,21 @@ export function assertPathInsideRoot(resolvedPath: string, root: string): void {
   }
 }
 
+function errnoOf(err: unknown): string | undefined {
+  if (typeof err !== 'object' || err === null || !('code' in err)) return undefined;
+  const { code } = err as { code?: unknown };
+  return typeof code === 'string' ? code : undefined;
+}
+
 function isEnoent(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    'code' in err &&
-    (err as { code?: unknown }).code === 'ENOENT'
-  );
+  return errnoOf(err) === 'ENOENT';
+}
+
+export function attachmentOpenFailure(err: unknown): Error {
+  const code = errnoOf(err);
+  if (code === 'ELOOP') return new Error('savePath must not be a symlink');
+  if (code === 'EEXIST') return new Error('savePath already exists');
+  return new Error(`Could not write savePath (${code ?? 'UNKNOWN'})`);
 }
 
 async function ensurePathSegment(parent: string, part: string, rootReal: string): Promise<string> {
@@ -79,7 +87,8 @@ async function resolveExistingPrefix(filePath: string): Promise<string> {
       const real = await realpathPreservingCase(current);
       return path.join(real, ...missing);
     } catch (err) {
-      if (!isEnoent(err)) throw err;
+      // A name past PATH_MAX is not an existing directory. Keep walking so open() can report ENAMETOOLONG.
+      if (errnoOf(err) !== 'ENOENT' && errnoOf(err) !== 'ENAMETOOLONG') throw err;
       missing.unshift(path.basename(current));
       current = path.dirname(current);
     }
@@ -177,14 +186,7 @@ export async function writeAttachmentFile(
   try {
     fh = await fs.open(dest, flags, 0o600);
   } catch (err) {
-    const code =
-      typeof err === 'object' && err !== null && 'code' in err
-        ? (err as { code?: unknown }).code
-        : undefined;
-    if (code === 'EEXIST') {
-      throw new Error('savePath already exists');
-    }
-    throw new Error(OUTSIDE_ROOT);
+    throw attachmentOpenFailure(err);
   }
   try {
     await fh.writeFile(content);
