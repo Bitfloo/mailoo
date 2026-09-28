@@ -87,7 +87,7 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
   Download a remote file first and attach the local copy.
 
-- `download_attachment` `savePath` no longer overwrites an existing file,
+- `download_attachment` `savePath` leaves an existing file unchanged and
   refuses a symlink, and keeps the file name to one path segment. It refuses
   a hidden directory, a file name that starts with `.`, and application-data
   directories (`~/Library` except iCloud Drive (`Mobile Documents`) and

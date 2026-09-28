@@ -16,6 +16,7 @@ import {
   hiddenSegment,
   isDisallowedLocalPath,
   realpathPreservingCase,
+  resolvedHome,
   specificRoots,
 } from '../safety/local-paths.js';
 import type { OutgoingAttachment } from '../types/index.js';
@@ -122,12 +123,7 @@ async function readLocalFile(
   }
 
   const roots = await specificRoots(cwdRoot, homeDir);
-  let homeReal = homeDir;
-  try {
-    homeReal = await realpathPreservingCase(homeDir);
-  } catch {
-    // A missing home has no application-data tree to compare.
-  }
+  const homeReal = await resolvedHome(homeDir);
   let real: string;
   try {
     real = await realpathPreservingCase(resolved);

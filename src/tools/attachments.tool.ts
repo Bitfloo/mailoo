@@ -15,6 +15,7 @@ import {
   isDisallowedLocalPath,
   isInsideRoot,
   realpathPreservingCase,
+  resolvedHome,
   sanitizeAttachmentFilename,
   specificRoot,
 } from '../safety/local-paths.js';
@@ -101,12 +102,7 @@ async function assertSaveDestinationAllowed(
   rootReal: string,
   homeDir: string,
 ): Promise<void> {
-  let homeReal = homeDir;
-  try {
-    homeReal = await realpathPreservingCase(homeDir);
-  } catch {
-    // A missing home has no application-data tree to compare.
-  }
+  const homeReal = await resolvedHome(homeDir);
   if (isDisallowedLocalPath(dest, homeDir) || isDisallowedLocalPath(dest, homeReal)) {
     throw new Error(SAVE_NOT_ALLOWED);
   }

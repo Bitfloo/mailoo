@@ -39,6 +39,15 @@ export async function realpathPreservingCase(filePath: string): Promise<string> 
   return fs.realpath(filePath);
 }
 
+export async function resolvedHome(homeDir: string): Promise<string> {
+  try {
+    return await realpathPreservingCase(homeDir);
+  } catch {
+    // A missing home has no application-data tree to compare.
+    return homeDir;
+  }
+}
+
 export function hiddenSegment(filePath: string): boolean {
   return filePath
     .split(/[/\\]/)
