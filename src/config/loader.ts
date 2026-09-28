@@ -431,9 +431,7 @@ async function resolveWriteTarget(filePath: string): Promise<string> {
 /**
  * Write config text. A symlink stays a symlink and the target file changes,
  * because renaming onto the link itself would replace the link. Config files
- * Mailoo writes are mode 0600 (an existing file's mode is replaced); a
- * directory Mailoo creates is 0700. Loading never changes a mode; a file
- * readable by group or other logs a warning.
+ * Mailoo writes are mode 0600 (an existing file's mode is replaced).
  */
 export async function writeConfigFile(filePath: string, contents: string): Promise<void> {
   assertConfigPath(filePath);
