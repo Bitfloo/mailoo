@@ -123,6 +123,22 @@ describe('resolveHttpListen', () => {
     expect(policy.allowedHostnames).toEqual(['192.0.2.10']);
   });
 
+  it('refuses a non-loopback allowlist name when no bearer token is configured', () => {
+    expect(() => resolveHttpListen({ port: 8080, allowedHosts: ['mail.example'] })).toThrow(
+      'Refusing to listen on mail.example without MCP_EMAIL_HTTP_TOKEN',
+    );
+  });
+
+  it.each([
+    'localhost:3000',
+    '[::1]:3000',
+    '127.0.0.2',
+    'app.localhost',
+  ])('starts without a bearer token when the allowlist is only %s', (entry) => {
+    const policy = resolveHttpListen({ port: 8080, allowedHosts: [entry] });
+    expect(policy.token).toBeUndefined();
+  });
+
   it('refuses a wildcard bind when no allowed hosts are configured', () => {
     expect(() => resolveHttpListen({ port: 8080, host: '0.0.0.0', token: TOKEN })).toThrow(
       /MCP_EMAIL_HTTP_ALLOWED_HOSTS/,
@@ -508,10 +524,17 @@ describe('allowlisted hosts behind a proxy or a published port', () => {
     const policy = resolveHttpListen({
       port: 8080,
       host: '127.0.0.1',
+      token: TOKEN,
       allowedHosts: ['mail.example'],
     });
     expect(
-      evaluateHttpAccess({ method: 'GET', headers: { host: 'mail.example' } }, policy).ok,
+      evaluateHttpAccess(
+        {
+          method: 'GET',
+          headers: { host: 'mail.example', authorization: `Bearer ${TOKEN}` },
+        },
+        policy,
+      ).ok,
     ).toBe(true);
   });
 
@@ -538,6 +561,7 @@ describe('allowlisted hosts behind a proxy or a published port', () => {
     const policy = resolveHttpListen({
       port: 8080,
       host: '127.0.0.1',
+      token: TOKEN,
       allowedHosts: ['mail.example'],
     });
     expect(
@@ -548,6 +572,7 @@ describe('allowlisted hosts behind a proxy or a published port', () => {
             host: 'mail.example',
             origin: 'https://mail.example',
             'content-type': 'application/json',
+            authorization: `Bearer ${TOKEN}`,
           },
         },
         policy,

@@ -10,6 +10,9 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Behaviour changes
 
+- `MCP_EMAIL_HTTP_ALLOWED_HOSTS` with a non-loopback name now requires
+  `MCP_EMAIL_HTTP_TOKEN`. Set a token and send it as `Authorization: Bearer`.
+
 - Label tools refuse IMAP system flags (use `mark_email`) and, on Gmail,
   system labels other than `\Inbox`, `\Starred` and `\Important` (use
   `move_email` or `delete_email`).

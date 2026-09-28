@@ -122,8 +122,9 @@ function isWildcardBind(host: string): boolean {
 }
 
 function isLoopbackBindHost(host: string): boolean {
-  if (host === 'localhost' || host === '::1') return true;
-  const parts = host.split('.');
+  const name = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+  if (name === 'localhost' || name.endsWith('.localhost') || name === '::1') return true;
+  const parts = name.split('.');
   if (parts.length !== 4) return false;
   const nums = parts.map((part) => (/^\d{1,3}$/.test(part) ? Number(part) : Number.NaN));
   if (nums.some((n) => !Number.isInteger(n) || n > 255)) return false;
@@ -173,6 +174,14 @@ export function resolveHttpListen(input: {
   const exposed = hosts.filter((host) => !isLoopbackBindHost(host));
   if (exposed.length > 0 && !token) {
     throw new Error(`Refusing to listen on ${exposed.join(', ')} without MCP_EMAIL_HTTP_TOKEN`);
+  }
+
+  const listed = (input.allowedHosts ?? []).map((host) => host.trim()).filter(Boolean);
+  const publicAllowlist = listed.filter((host) => !isLoopbackBindHost(hostnameKey(host)));
+  if (publicAllowlist.length > 0 && !token) {
+    throw new Error(
+      `Refusing to listen on ${publicAllowlist.join(', ')} without MCP_EMAIL_HTTP_TOKEN`,
+    );
   }
 
   const allowed: string[] = [];

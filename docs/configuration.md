@@ -141,9 +141,14 @@ The command's host argument wins over `MCP_EMAIL_HTTP_HOST`. Clients send `Autho
 
 ```bash
 # Proxy on this machine. Mailoo stays on loopback; the public name is allowlisted.
+MCP_EMAIL_HTTP_TOKEN='replace-with-a-long-random-secret' \
 MCP_EMAIL_HTTP_ALLOWED_HOSTS='mail.example' \
   node dist/main.js http 8080
+```
 
+The loopback allowance cannot tell a proxy on the same machine from a local client (nginx forwards `Host` `127.0.0.1:<port>` by default), so every proxied deployment needs the token.
+
+```bash
 # The container listens on 8080. The published port is 18080.
 MCP_EMAIL_HTTP_TOKEN='replace-with-a-long-random-secret' \
 MCP_EMAIL_HTTP_ALLOWED_HOSTS='mail.example:18080' \
@@ -162,7 +167,7 @@ Inside a container, loopback is the container's own loopback. Publishing the por
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MCP_EMAIL_HTTP_HOST` | `127.0.0.1` and `::1` | Single listen address. The host argument wins. |
-| `MCP_EMAIL_HTTP_TOKEN` | unset | Bearer token. Required when the listen address is not loopback. |
+| `MCP_EMAIL_HTTP_TOKEN` | unset | Bearer token. Required when the listen address is not loopback or `MCP_EMAIL_HTTP_ALLOWED_HOSTS` lists a non-loopback name. |
 | `MCP_EMAIL_HTTP_ALLOWED_HOSTS` | listen address, or the loopback names | Required for `0.0.0.0` and `::`. Names or `host:port`. A listed name is not tied to the listen port. |
 
 ## Stdio shutdown
