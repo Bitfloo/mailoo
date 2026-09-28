@@ -852,6 +852,9 @@ host = "smtp.example.com"
 /** The http command loads the MCP host before the socket accepts. */
 const HTTP_COMMAND_READY_MS = 8_000;
 
+/** The health request or the refused exit still runs after the listen wait. */
+const HTTP_COMMAND_AFTER_READY_MS = 12_000;
+
 async function freeLoopbackPort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const probe = http.createServer();
@@ -964,7 +967,6 @@ async function withHttpCommand(
 }
 
 describe('HTTP entrypoint', () => {
-  // Cold start loads the MCP host before the request can be sent.
   it(
     'rejects a disallowed Host when the http command is listening',
     async () => {
@@ -977,7 +979,7 @@ describe('HTTP entrypoint', () => {
         expect(foreign.body).not.toContain('"ok":true');
       });
     },
-    HTTP_COMMAND_READY_MS + 12_000,
+    HTTP_COMMAND_READY_MS + HTTP_COMMAND_AFTER_READY_MS,
   );
 
   it(
@@ -990,6 +992,6 @@ describe('HTTP entrypoint', () => {
         expect(output()).toMatch(/MCP_EMAIL_HTTP_TOKEN/);
       });
     },
-    HTTP_COMMAND_READY_MS + 12_000,
+    HTTP_COMMAND_READY_MS + HTTP_COMMAND_AFTER_READY_MS,
   );
 });

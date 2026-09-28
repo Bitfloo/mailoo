@@ -137,8 +137,6 @@ The command's host argument wins over `MCP_EMAIL_HTTP_HOST`. Clients send `Autho
 
 `0.0.0.0` and `::` also require `MCP_EMAIL_HTTP_ALLOWED_HOSTS`: a comma-separated list of names that may appear in `Host`. An entry is a hostname (`mail.example`) or `host:port` (`mail.example:18080`). The port in an entry is not checked. A listed name is accepted on any port, including when `Host` omits the port. That is what a reverse proxy sends, and what a client sends when Docker publishes a different port than the process listens on. Names allowed only because the process is bound to loopback still have to use the listen port.
 
-`Origin`, when the client sends one, follows the same name and port rules and may be `http:` or `https:` (a TLS-terminating proxy).
-
 ```bash
 # Proxy on this machine. Mailoo stays on loopback; the public name is allowlisted.
 MCP_EMAIL_HTTP_TOKEN='replace-with-a-long-random-secret' \
@@ -157,8 +155,8 @@ MCP_EMAIL_HTTP_ALLOWED_HOSTS='mail.example:18080' \
 
 Each request is checked before the body is handed to the MCP session:
 
-- `Host` must be an allowed name. Loopback names must also use the listen port. A name from `MCP_EMAIL_HTTP_ALLOWED_HOSTS` may use any port.
-- `Origin`, when present, must be `http:` or `https:` for an allowed host, with the same port rule as `Host`
+- `Host` must be an allowed name, on the port rule above
+- `Origin`, when present, must be `http:` or `https:` for an allowed host, with the same port rule as `Host` (a TLS-terminating proxy)
 - `POST` must be `application/json` and at most **8 MiB**
 - `X-Forwarded-Host` is ignored
 
@@ -168,7 +166,7 @@ Inside a container, loopback is the container's own loopback. Publishing the por
 |----------|---------|-------------|
 | `MCP_EMAIL_HTTP_HOST` | `127.0.0.1` and `::1` | Single listen address. The host argument wins. |
 | `MCP_EMAIL_HTTP_TOKEN` | unset | Bearer token. Required when the listen address is not loopback or `MCP_EMAIL_HTTP_ALLOWED_HOSTS` lists a non-loopback name. |
-| `MCP_EMAIL_HTTP_ALLOWED_HOSTS` | listen address, or the loopback names | Required for `0.0.0.0` and `::`. Names or `host:port`. A listed name is not tied to the listen port. |
+| `MCP_EMAIL_HTTP_ALLOWED_HOSTS` | listen address, or the loopback names | Required for `0.0.0.0` and `::`. Names or `host:port`. |
 
 ## Stdio shutdown
 
