@@ -121,8 +121,8 @@ Tool list: [tools.md](tools.md#managesieve).
 `mailoo http` listens on **127.0.0.1** and **::1**, port **8080**.
 
 ```bash
-node dist/main.js http
-node dist/main.js http 9090
+npx -y @bitfloo/mailoo http
+npx -y @bitfloo/mailoo http 9090
 ```
 
 To listen on one other address, set a bearer token in the environment. The token is not accepted as a command argument, because process arguments are visible to other users on the machine.
