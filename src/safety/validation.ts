@@ -78,36 +78,30 @@ export function sanitizeSearchQuery(query: string): string {
  * Non-global addresses a webhook must not reach unless the operator opts in.
  * Taken from the IANA IPv4 Special-Purpose Address Registry and the IANA
  * IPv6 Special-Purpose Address Registry.
- * IPv4: 0.0.0.0/8 (this host), 10.0.0.0/8, 172.16.0.0/12, and 192.168.0.0/16
- * (private-use), 100.64.0.0/10 (shared address space), 127.0.0.0/8 (loopback),
- * 169.254.0.0/16 (link-local, includes cloud metadata), 192.0.0.0/24 (IETF
- * protocol assignments), 198.18.0.0/15 (benchmarking), 240.0.0.0/4 (reserved).
- * IPv6: :: (unspecified), ::1 (loopback), fc00::/7 (unique-local),
- * fe80::/10 (link-local), fec0::/10 (site-local).
  * An embedded IPv4 address in ::ffff:0:0/96 (mapped), ::/96 (compatible),
  * 64:ff9b::/96 (NAT64), or 2002::/16 (6to4) is judged as that IPv4 address.
- * Documentation prefixes are omitted; they are not a route onto the
- * operator's network.
+ * Documentation prefixes, 2001::/23, and multicast are omitted: they are
+ * not a route onto the operator's network.
  */
 const BLOCKED_WEBHOOK_ADDRESSES = new BlockList();
-BLOCKED_WEBHOOK_ADDRESSES.addSubnet('0.0.0.0', 8, 'ipv4');
-BLOCKED_WEBHOOK_ADDRESSES.addSubnet('10.0.0.0', 8, 'ipv4');
-BLOCKED_WEBHOOK_ADDRESSES.addSubnet('127.0.0.0', 8, 'ipv4');
-BLOCKED_WEBHOOK_ADDRESSES.addSubnet('169.254.0.0', 16, 'ipv4');
-BLOCKED_WEBHOOK_ADDRESSES.addSubnet('172.16.0.0', 12, 'ipv4');
-BLOCKED_WEBHOOK_ADDRESSES.addSubnet('192.168.0.0', 16, 'ipv4');
-BLOCKED_WEBHOOK_ADDRESSES.addSubnet('100.64.0.0', 10, 'ipv4');
-BLOCKED_WEBHOOK_ADDRESSES.addSubnet('192.0.0.0', 24, 'ipv4');
-BLOCKED_WEBHOOK_ADDRESSES.addSubnet('198.18.0.0', 15, 'ipv4');
-BLOCKED_WEBHOOK_ADDRESSES.addSubnet('240.0.0.0', 4, 'ipv4');
-BLOCKED_WEBHOOK_ADDRESSES.addAddress('::', 'ipv6');
-BLOCKED_WEBHOOK_ADDRESSES.addAddress('::1', 'ipv6');
-BLOCKED_WEBHOOK_ADDRESSES.addSubnet('fc00::', 7, 'ipv6');
-BLOCKED_WEBHOOK_ADDRESSES.addSubnet('fe80::', 10, 'ipv6');
-BLOCKED_WEBHOOK_ADDRESSES.addSubnet('fec0::', 10, 'ipv6');
-BLOCKED_WEBHOOK_ADDRESSES.addSubnet('64:ff9b:1::', 48, 'ipv6');
-BLOCKED_WEBHOOK_ADDRESSES.addSubnet('100::', 64, 'ipv6');
-BLOCKED_WEBHOOK_ADDRESSES.addSubnet('5f00::', 16, 'ipv6');
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('0.0.0.0', 8, 'ipv4'); // this host
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('10.0.0.0', 8, 'ipv4'); // private-use
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('127.0.0.0', 8, 'ipv4'); // loopback
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('169.254.0.0', 16, 'ipv4'); // link-local, includes cloud metadata
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('172.16.0.0', 12, 'ipv4'); // private-use
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('192.168.0.0', 16, 'ipv4'); // private-use
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('100.64.0.0', 10, 'ipv4'); // shared address space, overlay VPNs
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('192.0.0.0', 24, 'ipv4'); // IETF protocol assignments
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('198.18.0.0', 15, 'ipv4'); // benchmarking
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('240.0.0.0', 4, 'ipv4'); // reserved
+BLOCKED_WEBHOOK_ADDRESSES.addAddress('::', 'ipv6'); // unspecified
+BLOCKED_WEBHOOK_ADDRESSES.addAddress('::1', 'ipv6'); // loopback
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('fc00::', 7, 'ipv6'); // unique-local
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('fe80::', 10, 'ipv6'); // link-local
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('fec0::', 10, 'ipv6'); // site-local
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('64:ff9b:1::', 48, 'ipv6'); // local-use NAT64
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('100::', 64, 'ipv6'); // discard-only
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('5f00::', 16, 'ipv6'); // SRv6 SIDs
 
 const METADATA_WEBHOOK_HOSTS = new Set(['metadata.google.internal', 'metadata.goog']);
 
