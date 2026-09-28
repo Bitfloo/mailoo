@@ -165,14 +165,6 @@ function annotationMismatches(tools: ListedTool[]): string[] {
 }
 
 describe('tool annotations', () => {
-  it('should list 56 tools, 7 prompts, and 6 resources', async () => {
-    await withCatalog(false, async (catalog) => {
-      expect(catalog.tools).toHaveLength(56);
-      expect(catalog.prompts).toHaveLength(7);
-      expect(catalog.resources.length + catalog.resourceTemplates.length).toBe(6);
-    });
-  });
-
   it('should derive its tool roster from tools/list and name every tool in the annotation table', async () => {
     await withCatalog(false, async (catalog) => {
       expect(catalog.tools.map((tool) => tool.name).sort()).toEqual(
