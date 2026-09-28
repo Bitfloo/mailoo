@@ -93,17 +93,13 @@ interface ListedCatalog {
   resourceTemplates: { name: string }[];
 }
 
-function registerCatalog(readOnly: boolean): ReturnType<typeof buildCatalog> {
-  // Empty accounts keep template list() callbacks from adding concrete URIs,
-  // so resources/list stays the static registrations.
-  return buildCatalog({ readOnly, accounts: [] });
-}
-
 async function withCatalog<T>(
   readOnly: boolean,
   use: (catalog: ListedCatalog) => Promise<T>,
 ): Promise<T> {
-  const server = registerCatalog(readOnly);
+  // Empty accounts keep template list() callbacks from adding concrete URIs,
+  // so resources/list stays the static registrations.
+  const server = buildCatalog({ readOnly, accounts: [] });
   const client = new Client({ name: 'mailoo-tool-annotations', version: '0.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);

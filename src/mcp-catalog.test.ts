@@ -227,8 +227,8 @@ function compareText(left: string, right: string): number {
   return 0;
 }
 
-// tools/list order is not part of the API. Sorting keeps the snapshot from
-// requiring register.ts to emit names in a fixed sequence.
+// List order (tools, prompts, resources) is not API. Concrete URIs and
+// templates come from separate list calls, so each is sorted on its own key.
 function toContract(live: LiveCatalog): unknown {
   const resources = live.resources.map((resource) => ({
     name: resource.name,
