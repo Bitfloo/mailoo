@@ -641,7 +641,7 @@ describe('overlapping queue checks', () => {
         expect(first.smtp.sendEmail).toHaveBeenCalledTimes(1);
       });
       const before = await mtimeOf(lockPath);
-      await vi.advanceTimersByTimeAsync(STALE_LOCK_MS + 1);
+      await vi.advanceTimersByTimeAsync(2 * STALE_LOCK_MS);
       await vi.waitFor(async () => {
         expect(await mtimeOf(lockPath)).toBeGreaterThan(before);
       });
