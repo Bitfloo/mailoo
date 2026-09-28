@@ -86,21 +86,20 @@ describe('buildImapFlowOptions', () => {
   });
 
   it.each([
-    [true, true],
-    [true, false],
-    [false, true],
-    [false, false],
-  ] as const)('sets secure and doSTARTTLS for tls=%s starttls=%s', (tls, starttls) => {
+    [true, true, 'absent'],
+    [true, false, 'absent'],
+    [false, true, true],
+    [false, false, 'absent'],
+  ] as const)('sets secure and doSTARTTLS for tls=%s starttls=%s (%s)', (tls, starttls, doStarttls) => {
     const opts = buildImapFlowOptions({
       ...account,
       imap: { ...account.imap, tls, starttls },
     }) as { secure?: boolean; doSTARTTLS?: boolean };
     expect(opts.secure).toBe(tls);
-    // imapflow throws if secure and doSTARTTLS are both true, so implicit TLS must omit it.
-    if (tls || !starttls) {
-      expect(opts).not.toHaveProperty('doSTARTTLS');
-    } else {
+    if (doStarttls === true) {
       expect(opts.doSTARTTLS).toBe(true);
+    } else {
+      expect(opts).not.toHaveProperty('doSTARTTLS');
     }
   });
 });
