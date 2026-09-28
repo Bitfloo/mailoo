@@ -871,7 +871,6 @@ async function freeLoopbackPort(): Promise<number> {
 }
 
 async function waitForText(child: ChildProcess, text: () => string, needle: string): Promise<void> {
-  if (text().includes(needle)) return;
   await new Promise<void>((resolve, reject) => {
     let settled = false;
     let onData: () => void = () => {};
@@ -898,18 +897,12 @@ async function waitForText(child: ChildProcess, text: () => string, needle: stri
     child.stdout?.on('data', onData);
     child.stderr?.on('data', onData);
     child.on('exit', onExit);
-    if (text().includes(needle)) settle();
-    else if (child.exitCode !== null || child.signalCode !== null) onExit();
   });
 }
 
 async function childResult(child: ChildProcess): Promise<number | null> {
   return new Promise((resolve) => {
-    const finish = (code: number | null): void => {
-      resolve(code);
-    };
-    child.once('exit', finish);
-    if (child.exitCode !== null) finish(child.exitCode);
+    child.once('exit', resolve);
   });
 }
 
@@ -946,28 +939,20 @@ async function withHttpCommand(
   const exited = new Promise<void>((resolve) => {
     child.once('exit', () => resolve());
   });
-  let stopping: Promise<void> | undefined;
   const stop = async (): Promise<void> => {
-    stopping ??= (async () => {
-      if (child.exitCode === null && child.signalCode === null) {
-        child.kill('SIGTERM');
-        const killTimer = setTimeout(() => {
-          if (child.exitCode === null) child.kill('SIGKILL');
-        }, 2_000);
-        await exited;
-        clearTimeout(killTimer);
-      }
-      await rm(root, { recursive: true, force: true });
-    })();
-    await stopping;
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGTERM');
+      const killTimer = setTimeout(() => {
+        if (child.exitCode === null) child.kill('SIGKILL');
+      }, 2_000);
+      await exited;
+      clearTimeout(killTimer);
+    }
+    await rm(root, { recursive: true, force: true });
   };
-  // Vitest does not cancel a timed-out test body, so the finally below never runs on that path.
+  // Vitest does not cancel a timed-out test body, so a finally here would never run on that path.
   onTestFinished(stop);
-  try {
-    await run(child, () => combined);
-  } finally {
-    await stop();
-  }
+  await run(child, () => combined);
 }
 
 describe('HTTP entrypoint', () => {
