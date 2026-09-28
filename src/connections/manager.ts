@@ -39,10 +39,18 @@ export function buildImapFlowOptions(
   const { tls: extraTls, ...rest } = extra;
   const tlsExtras =
     extraTls !== null && typeof extraTls === 'object' ? (extraTls as Record<string, unknown>) : {};
+  let starttlsOption: { doSTARTTLS: true } | undefined;
+  if (!account.imap.tls && account.imap.starttls) {
+    starttlsOption = { doSTARTTLS: true };
+  } else if (!account.imap.tls) {
+    // Leave doSTARTTLS unset: false would drop the opportunistic upgrade these accounts get today.
+    starttlsOption = undefined;
+  }
   return {
     host: account.imap.host,
     port: account.imap.port,
     secure: account.imap.tls,
+    ...starttlsOption,
     logger: false,
     ...(account.imap.disableImap4rev2 ? { disableIMAP4rev2: true } : {}),
     ...rest,

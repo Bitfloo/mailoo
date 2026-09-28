@@ -9,10 +9,11 @@ import {
 } from './helpers/index.js';
 
 /**
- * Tests all three connection modes supported by the IMAP/SMTP config:
- *   1. Plain (no encryption)       — SMTP :3025  / IMAP :3143
- *   2. STARTTLS (upgrade to TLS)   — SMTP :3025  / IMAP :3143
- *   3. Implicit SSL/TLS            — SMTPS :3465 / IMAPS :3993
+ * Tests the three connection modes in the IMAP/SMTP config.
+ * GreenMail's plain ports do not offer STARTTLS, so a starttls account must fail there.
+ *   1. Plain (tls false, starttls false) — SMTP :3025  / IMAP :3143
+ *   2. STARTTLS required                 — same plain ports, connection rejected
+ *   3. Implicit SSL/TLS                  — SMTPS :3465 / IMAPS :3993
  */
 describe('Connection Modes', () => {
   // -------------------------------------------------------------------------
@@ -89,13 +90,9 @@ describe('Connection Modes', () => {
     });
 
     it('should connect via IMAP with STARTTLS', async () => {
-      const mailboxes = await services.imapService.listMailboxes(account.name);
-      expect(mailboxes.find((m) => m.path === 'INBOX')).toBeDefined();
-    });
-
-    it('should list emails via IMAP with STARTTLS', async () => {
-      const list = await services.imapService.listEmails(account.name);
-      expect(list.items).toBeInstanceOf(Array);
+      // GreenMail's plain IMAP port does not offer STARTTLS. The account
+      // requires it, so the connect must fail instead of continuing in clear.
+      await expect(services.imapService.listMailboxes(account.name)).rejects.toThrow(/STARTTLS/);
     });
 
     it('should send email via SMTP with STARTTLS', async () => {
@@ -110,8 +107,26 @@ describe('Connection Modes', () => {
         }),
       ).rejects.toThrow(/STARTTLS/i);
     });
+  });
 
-    it('should fetch full email content via STARTTLS', async () => {
+  describe('Plaintext IMAP (tls false, starttls false)', () => {
+    let services: TestServices;
+    const account = buildTestAccount({ name: 'integration-plaintext' });
+
+    beforeAll(async () => {
+      services = createTestServices(account);
+    });
+
+    afterAll(async () => {
+      await services.connections.closeAll();
+    });
+
+    it('should list emails via plaintext IMAP', async () => {
+      const list = await services.imapService.listEmails(account.name);
+      expect(list.items).toBeInstanceOf(Array);
+    });
+
+    it('should fetch full email content via plaintext IMAP', async () => {
       const list = await services.imapService.listEmails(account.name, { pageSize: 1 });
       if (list.items.length > 0) {
         const email = await services.imapService.getEmail(account.name, list.items[0].id);
@@ -119,7 +134,7 @@ describe('Connection Modes', () => {
       }
     });
 
-    it('should set flags via STARTTLS', async () => {
+    it('should set flags via plaintext IMAP', async () => {
       const list = await services.imapService.listEmails(account.name, { pageSize: 1 });
       if (list.items.length > 0) {
         await services.imapService.setFlags(account.name, list.items[0].id, 'INBOX', 'read');
