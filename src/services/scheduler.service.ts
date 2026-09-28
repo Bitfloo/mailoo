@@ -206,9 +206,15 @@ function isDue(scheduled: ScheduledEmail, id: string, now: number): boolean {
   );
 }
 
+const CANCEL_ALREADY_BEING_SENT = 'Cannot cancel email that is already being sent';
+
+function scheduledEmailNotFound(scheduleId: string): string {
+  return `Scheduled email "${scheduleId}" not found`;
+}
+
 function assertCancellable(scheduled: ScheduledEmail): void {
   if (scheduled.status === 'sending') {
-    throw new Error('Cannot cancel email that is already being sent');
+    throw new Error(CANCEL_ALREADY_BEING_SENT);
   }
   if (scheduled.status !== 'pending') {
     throw new Error(`Cannot cancel email with status "${scheduled.status}"`);
@@ -467,12 +473,12 @@ export default class SchedulerService {
 
       claimToken = await claimSchedule(this.pendingDir, scheduleId);
       if (!claimToken) {
-        throw new Error('Cannot cancel email that is already being sent');
+        throw new Error(CANCEL_ALREADY_BEING_SENT);
       }
 
       const current = await readScheduled(filePath);
       if (!current) {
-        throw new Error(`Scheduled email "${scheduleId}" not found`);
+        throw new Error(scheduledEmailNotFound(scheduleId));
       }
       assertCancellable(current);
 
@@ -493,7 +499,7 @@ export default class SchedulerService {
       return { cancelled: true, draftDeleted };
     } catch (err) {
       if (errnoCode(err) === 'ENOENT') {
-        throw new Error(`Scheduled email "${scheduleId}" not found`);
+        throw new Error(scheduledEmailNotFound(scheduleId));
       }
       throw err;
     } finally {
