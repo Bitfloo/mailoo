@@ -195,7 +195,7 @@ export async function writeAttachmentFile(
 export default function registerAttachmentTools(
   server: McpServer,
   imapService: ImapService,
-  readOnly = false,
+  readOnly: boolean,
 ): void {
   server.registerTool(
     'download_attachment',

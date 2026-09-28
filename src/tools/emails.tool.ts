@@ -53,7 +53,7 @@ function formatEmailStatus(email: Pick<Email, 'seen' | 'flagged' | 'answered' | 
 export default function registerEmailsTools(
   server: McpServer,
   imapService: ImapService,
-  readOnly = false,
+  readOnly: boolean,
 ): void {
   // ---------------------------------------------------------------------------
   // list_emails

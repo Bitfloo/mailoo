@@ -61,7 +61,7 @@ async function directoryNearPathLimit(root: string): Promise<string> {
   throw new Error('path limit was not reached');
 }
 
-function captureDownload(imap: unknown, readOnly = false): DownloadHandler {
+function captureDownload(imap: unknown, readOnly: boolean): DownloadHandler {
   let handler: DownloadHandler | undefined;
   const server = {
     registerTool: (...args: unknown[]) => {
@@ -444,7 +444,7 @@ describe('download_attachment tool', () => {
         hints = config.annotations;
       },
     };
-    registerAttachmentTools(server as never, { downloadAttachment: vi.fn() } as never);
+    registerAttachmentTools(server as never, { downloadAttachment: vi.fn() } as never, false);
     expect(hints?.readOnlyHint).toBe(false);
   });
 
@@ -575,7 +575,7 @@ describe('download_attachment tool', () => {
       }),
     };
 
-    registerAttachmentTools(server as never, imap as unknown as ImapService);
+    registerAttachmentTools(server as never, imap as unknown as ImapService, false);
     if (!handler) {
       throw new Error('download_attachment handler was not registered');
     }
@@ -629,7 +629,7 @@ describe('download_attachment tool', () => {
       }),
     };
 
-    registerAttachmentTools(server as never, imap as unknown as ImapService);
+    registerAttachmentTools(server as never, imap as unknown as ImapService, false);
     if (!handler) {
       throw new Error('download_attachment handler was not registered');
     }
@@ -656,14 +656,17 @@ describe('download_attachment tool', () => {
     // 51 bytes: wrapping this payload in letter-and-underscore markers decodes to 93 bytes.
     const pdf = Buffer.alloc(51);
     pdf.write('%PDF');
-    const run = captureDownload({
-      downloadAttachment: vi.fn().mockResolvedValue({
-        filename: 'report.pdf',
-        mimeType: 'application/pdf',
-        size: pdf.length,
-        contentBase64: pdf.toString('base64'),
-      }),
-    });
+    const run = captureDownload(
+      {
+        downloadAttachment: vi.fn().mockResolvedValue({
+          filename: 'report.pdf',
+          mimeType: 'application/pdf',
+          size: pdf.length,
+          contentBase64: pdf.toString('base64'),
+        }),
+      },
+      false,
+    );
     const result = await run({
       account: 'test',
       id: '1',
@@ -707,19 +710,23 @@ describe('download_attachment tool', () => {
     registerEmailsTools(
       emailServer as never,
       { getEmail: vi.fn().mockResolvedValue(email) } as never,
+      false,
     );
     if (!getEmail) throw new Error('get_email handler was not registered');
     const shown = await getEmail({ account: 'test', emailId: '1' });
     const listed = /📎 Attachments: (.+) \(application\/pdf, /.exec(shown.content[0]?.text ?? '');
 
-    const run = captureDownload({
-      downloadAttachment: vi.fn().mockResolvedValue({
-        filename,
-        mimeType: 'application/pdf',
-        size: 51,
-        contentBase64: Buffer.from('%PDF').toString('base64'),
-      }),
-    });
+    const run = captureDownload(
+      {
+        downloadAttachment: vi.fn().mockResolvedValue({
+          filename,
+          mimeType: 'application/pdf',
+          size: 51,
+          contentBase64: Buffer.from('%PDF').toString('base64'),
+        }),
+      },
+      false,
+    );
     const result = await run({
       account: 'test',
       id: '1',
@@ -732,14 +739,17 @@ describe('download_attachment tool', () => {
 
   it('should keep the savePath metadata filename equal to the downloaded name', async () => {
     const filename = 'report.pdf';
-    const run = captureDownload({
-      downloadAttachment: vi.fn().mockResolvedValue({
-        filename,
-        mimeType: 'application/pdf',
-        size: 5,
-        contentBase64: Buffer.from('%PDF').toString('base64'),
-      }),
-    });
+    const run = captureDownload(
+      {
+        downloadAttachment: vi.fn().mockResolvedValue({
+          filename,
+          mimeType: 'application/pdf',
+          size: 5,
+          contentBase64: Buffer.from('%PDF').toString('base64'),
+        }),
+      },
+      false,
+    );
     await withCwdTempDir(async (dir) => {
       const result = await run({
         account: 'test',
