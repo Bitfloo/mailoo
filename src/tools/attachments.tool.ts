@@ -64,10 +64,15 @@ async function ensurePathSegment(parent: string, part: string, rootReal: string)
   try {
     existing = await fs.lstat(current);
   } catch (err) {
-    if (!isEnoent(err)) throw err;
+    // Node's message includes the absolute path.
+    if (!isEnoent(err)) throw attachmentOpenFailure(err);
   }
   if (!existing) {
-    await fs.mkdir(current, { mode: 0o700 });
+    try {
+      await fs.mkdir(current, { mode: 0o700 });
+    } catch (err) {
+      throw attachmentOpenFailure(err);
+    }
     return current;
   }
   // lstat, not stat: a directory symlink would otherwise be followed out of root.
@@ -165,7 +170,11 @@ export async function writeAttachmentFile(
       throw new Error(OUTSIDE_ROOT);
     }
   } catch (err) {
-    if (!isEnoent(err)) throw err;
+    // Filesystem errors include the absolute path. Refusals thrown above have no errno.
+    if (!isEnoent(err)) {
+      if (errnoOf(err) !== undefined) throw attachmentOpenFailure(err);
+      throw err;
+    }
   }
 
   const parent = path.dirname(dest);

@@ -104,6 +104,8 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
   `CloudStorage`, plus `~/AppData` and `~/snap`). A working directory of `/`
   or another broad root is refused, and Mailoo does not create directories
   on that path. Use base64 mode, or start the server in a dedicated folder.
+  A failure to check or create the path is reported by its code, without the
+  server's path.
 
 - Nodemailer 10 checks TLS certificates on remote URL fetches and OAuth token
   requests. A fetch to an untrusted certificate is refused. SMTP itself is
