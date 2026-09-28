@@ -70,7 +70,7 @@ const MCP_LOG_LEVEL_MAP: Record<UrgencyLevel, 'alert' | 'warning' | 'info' | 'de
   low: 'debug',
 };
 
-const URGENCY_LEVELS: readonly UrgencyLevel[] = ['urgent', 'high', 'normal', 'low'];
+const URGENCY_LEVELS = Object.keys(URGENCY_ORDER) as readonly UrgencyLevel[];
 
 /** Webhook URLs are stored in the config file; keep them bounded. */
 export const MAX_WEBHOOK_URL_CHARS = 2048;
