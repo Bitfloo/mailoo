@@ -71,9 +71,15 @@ async function ensurePathSegment(parent: string, part: string, rootReal: string)
     try {
       await fs.mkdir(current, { mode: 0o700 });
     } catch (err) {
-      throw attachmentOpenFailure(err);
+      // A parallel save into the same new directory created it first.
+      if (errnoOf(err) !== 'EEXIST') throw attachmentOpenFailure(err);
+      try {
+        existing = await fs.lstat(current);
+      } catch (statErr) {
+        if (!isEnoent(statErr)) throw attachmentOpenFailure(statErr);
+      }
     }
-    return current;
+    if (!existing) return current;
   }
   // lstat, not stat: a directory symlink would otherwise be followed out of root.
   if (existing.isSymbolicLink() || !existing.isDirectory()) {

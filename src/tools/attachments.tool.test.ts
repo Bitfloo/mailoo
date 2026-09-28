@@ -337,6 +337,40 @@ describe('writeAttachmentFile', () => {
     });
   });
 
+  it('should write both files when two saves create the same new directory', async () => {
+    await withCwdTempDir(async () => {
+      const [savedA, savedB] = await Promise.all([
+        writeAttachmentFile(path.join('new', 'a.txt'), 'a.txt', Buffer.from('file-a')),
+        writeAttachmentFile(path.join('new', 'b.txt'), 'b.txt', Buffer.from('file-b')),
+      ]);
+      expect(await fs.readFile(savedA, 'utf8')).toBe('file-a');
+      expect(await fs.readFile(savedB, 'utf8')).toBe('file-b');
+    });
+  });
+
+  it('should refuse savePath when a raced mkdir leaves a symlink outside the working directory', async () => {
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-att-race-'));
+    try {
+      await withCwdTempDir(async () => {
+        const mkdir = vi.spyOn(fs, 'mkdir').mockImplementationOnce(async (target) => {
+          await fs.symlink(outside, target);
+          throw Object.assign(new Error('exists'), { code: 'EEXIST' });
+        });
+        try {
+          // A later mkdir would follow this symlink out of the working directory.
+          await expect(
+            writeAttachmentFile(path.join('new', 'sub', 'a.txt'), 'a.txt', Buffer.from('pwned')),
+          ).rejects.toThrow('savePath must stay under the working directory');
+          expect(await fs.readdir(outside)).toEqual([]);
+        } finally {
+          mkdir.mockRestore();
+        }
+      });
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
+
   it('strips control characters from an attachment filename', async () => {
     await withCwdTempDir(async (dir) => {
       const saved = await writeAttachmentFile(dir, 'a\nb.txt', Buffer.from('line'));
