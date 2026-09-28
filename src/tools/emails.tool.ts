@@ -216,7 +216,6 @@ export default function registerEmailsTools(
           applyBodyFormat(email.bodyText, email.bodyHtml, format as BodyFormat, maxLength),
         );
 
-        // read_only keeps get_email registered. markRead must not set \Seen.
         if (markRead && !readOnly) {
           await imapService.setFlags(account, emailId, mailbox, 'read');
         }
