@@ -1,8 +1,8 @@
 /**
  * Clients treat a tool result as success unless isError is set. A handler
- * that throws, a get_emails fetch that fails, and a failed test notification
- * must all come back as isError text — including after an SDK upgrade that
- * stops wrapping a thrown handler.
+ * that throws, a get_emails call that fetches no message, and a failed test
+ * notification must all come back as isError text — including after an SDK
+ * upgrade that stops wrapping a thrown handler.
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
