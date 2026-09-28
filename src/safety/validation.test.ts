@@ -1,4 +1,8 @@
+import type { LookupAddress, LookupOptions } from 'node:dns';
+import type { LookupFunction } from 'node:net';
+
 import {
+  createWebhookConnectLookup,
   parseMessageUid,
   recipientEmail,
   resolveWebhookUrl,
@@ -10,6 +14,25 @@ import {
   validateWebhookUrl,
   WebhookLookupTimeoutError,
 } from './validation.js';
+
+interface ConnectLookupResult {
+  err: NodeJS.ErrnoException | null;
+  address: string | LookupAddress[];
+  family?: number;
+}
+
+/** node:http uses the callback, not the function's return value, as the socket address. */
+async function invokeConnectLookup(
+  lookup: LookupFunction,
+  hostname: string,
+  options: LookupOptions,
+): Promise<ConnectLookupResult> {
+  return new Promise((resolve) => {
+    lookup(hostname, options, (err, address, family) => {
+      resolve({ err, address, family });
+    });
+  });
+}
 
 describe('sanitizeMailboxName', () => {
   it('returns a valid trimmed name', () => {
@@ -363,6 +386,54 @@ describe('validateWebhookUrl', () => {
         },
       }),
     ).rejects.toThrow(/webhook address lookup failed/i);
+  });
+});
+
+// A name can pass an earlier check and still resolve to a blocked address
+// when the HTTP client connects.
+describe('createWebhookConnectLookup', () => {
+  it('calls back with an error and no address when the hostname resolves to loopback', async () => {
+    const connect = createWebhookConnectLookup({
+      lookup: async () => ['127.0.0.1'],
+    });
+    const result = await invokeConnectLookup(connect, 'hooks.example.com', { all: false });
+
+    expect({ message: result.err?.message ?? null, address: result.address }).toEqual({
+      message: expect.stringMatching(/loopback or private/),
+      address: [],
+    });
+  });
+
+  it('calls back with 192.0.2.10 when the hostname resolves to that address', async () => {
+    const connect = createWebhookConnectLookup({
+      lookup: async () => ['192.0.2.10'],
+    });
+    const result = await invokeConnectLookup(connect, 'hooks.example.com', { all: false });
+
+    expect(result).toEqual({ err: null, address: '192.0.2.10', family: 4 });
+  });
+
+  it('calls back with the loopback address when private webhooks are allowed', async () => {
+    const connect = createWebhookConnectLookup({
+      allowPrivate: true,
+      lookup: async () => ['127.0.0.1'],
+    });
+    const result = await invokeConnectLookup(connect, 'hooks.example.com', { all: false });
+
+    expect(result).toEqual({ err: null, address: '127.0.0.1', family: 4 });
+  });
+
+  it('calls back with the address list when every record is requested', async () => {
+    const connect = createWebhookConnectLookup({
+      lookup: async () => ['192.0.2.10'],
+    });
+    const result = await invokeConnectLookup(connect, 'hooks.example.com', { all: true });
+
+    expect(result).toEqual({
+      err: null,
+      address: [{ address: '192.0.2.10', family: 4 }],
+      family: undefined,
+    });
   });
 });
 
