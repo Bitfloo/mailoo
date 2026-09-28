@@ -518,6 +518,25 @@ async function afterBothReadQueueFile(filePath: string, body: () => Promise<void
   }
 }
 
+describe('unreadable send times', () => {
+  it('sends a pending email whose send time is not a date', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-bad-date-'));
+    const id = queueId(1);
+    const pendingPath = path.join(queueDir, `${id}.json`);
+    const sentPath = path.join(queueDir, 'sent', `${id}.json`);
+    try {
+      await fs.writeFile(pendingPath, JSON.stringify(pendingRecord(id, 'not-a-date')));
+      const { service } = createService(queueDir);
+      const result = await service.checkAndSend();
+      expect(result.sent).toBe(1);
+      await expect(fs.access(sentPath)).resolves.toBeUndefined();
+      await expect(fs.access(pendingPath)).rejects.toThrow();
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('overlapping queue checks', () => {
   async function writeDue(queueDir: string, id: string, status: ScheduledEmail['status']) {
     const record = {

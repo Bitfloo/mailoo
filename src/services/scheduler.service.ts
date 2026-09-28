@@ -196,11 +196,13 @@ async function readScheduled(filePath: string): Promise<ScheduledEmail | undefin
 }
 
 function isDue(scheduled: ScheduledEmail, id: string, now: number): boolean {
+  const sendAt = new Date(scheduled.sendAt).getTime();
   return (
     scheduled.id === id &&
     scheduled.status !== 'failed' &&
     scheduled.status !== 'sent' &&
-    new Date(scheduled.sendAt).getTime() <= now
+    // Not `<=`: a NaN sendAt (a damaged queue file) must still count as due.
+    !(sendAt > now)
   );
 }
 
