@@ -221,25 +221,44 @@ async function formatCatalogJson(raw: string): Promise<string> {
   });
 }
 
+function compareText(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+// tools/list order is not part of the API. Sorting keeps the snapshot from
+// requiring register.ts to emit names in a fixed sequence.
 function toContract(live: LiveCatalog): unknown {
+  const resources = live.resources.map((resource) => ({
+    name: resource.name,
+    description: resource.description ?? null,
+    uri: resource.uri ?? null,
+    uriTemplate: resource.uriTemplate ?? null,
+  }));
+  const concrete = resources
+    .filter((resource) => resource.uriTemplate === null)
+    .sort((left, right) => compareText(left.uri ?? '', right.uri ?? ''));
+  const templates = resources
+    .filter((resource) => resource.uriTemplate !== null)
+    .sort((left, right) => compareText(left.uriTemplate ?? '', right.uriTemplate ?? ''));
   return scrubMachinePaths({
-    tools: live.tools.map((tool) => ({
-      name: tool.name,
-      description: tool.description ?? null,
-      inputSchema: tool.inputSchema,
-      annotations: tool.annotations ?? null,
-    })),
-    prompts: live.prompts.map((prompt) => ({
-      name: prompt.name,
-      description: prompt.description ?? null,
-      arguments: prompt.arguments ?? null,
-    })),
-    resources: live.resources.map((resource) => ({
-      name: resource.name,
-      description: resource.description ?? null,
-      uri: resource.uri ?? null,
-      uriTemplate: resource.uriTemplate ?? null,
-    })),
+    tools: live.tools
+      .map((tool) => ({
+        name: tool.name,
+        description: tool.description ?? null,
+        inputSchema: tool.inputSchema,
+        annotations: tool.annotations ?? null,
+      }))
+      .sort((left, right) => compareText(left.name, right.name)),
+    prompts: live.prompts
+      .map((prompt) => ({
+        name: prompt.name,
+        description: prompt.description ?? null,
+        arguments: prompt.arguments ?? null,
+      }))
+      .sort((left, right) => compareText(left.name, right.name)),
+    resources: [...concrete, ...templates],
   });
 }
 

@@ -1,6 +1,1011 @@
 {
   "tools": [
     {
+      "name": "add_label",
+      "description": "Add a label to an email. For ProtonMail, this copies the email into the corresponding Labels/<name> folder. For Gmail and standard IMAP, this sets a keyword flag on the message.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "emailId": {
+            "type": "string",
+            "description": "Email ID (UID) from list_emails"
+          },
+          "mailbox": {
+            "type": "string",
+            "description": "Mailbox containing the email (must be a real folder)"
+          },
+          "label": {
+            "type": "string",
+            "description": "Label name to add (e.g., \"Important\", \"Project-X\")"
+          }
+        },
+        "required": ["account", "emailId", "mailbox", "label"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "add_to_calendar",
+      "description": "Add an email event to the local calendar (macOS Calendar.app / Linux via xdg-open). Automatically extracts event data from the email: ICS attachments, meeting URL (Zoom/Teams/Meet), conference dial-in / ID / passcode, attendees, and email body excerpt. All relevant email attachments (PDFs, docs, etc.) are saved locally and linked in the event notes. A native confirmation dialog is shown on macOS before the event is written. Returns one of: added | cancelled | timed_out | no_display | duplicate.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name"
+          },
+          "email_id": {
+            "type": "string",
+            "description": "Email UID"
+          },
+          "mailbox": {
+            "default": "INBOX",
+            "description": "Mailbox path (default: INBOX)",
+            "type": "string"
+          },
+          "calendar_name": {
+            "description": "Target calendar name (empty = default calendar)",
+            "type": "string"
+          },
+          "alarm_minutes": {
+            "default": 15,
+            "description": "Minutes before event to show an alert (default: 15)",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1440
+          },
+          "save_attachments": {
+            "default": true,
+            "description": "Save non-ICS email attachments locally and link them in the event notes",
+            "type": "boolean"
+          },
+          "confirm": {
+            "default": true,
+            "description": "Show native confirmation dialog before adding (default: true)",
+            "type": "boolean"
+          }
+        },
+        "required": ["account", "email_id"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "analyze_email_for_scheduling",
+      "description": "Analyze an email to detect calendar events and/or reminder-worthy content. Returns structured analysis so the AI can decide whether to call add_to_calendar, create_reminder, both, or neither. Use this as the first step before creating any scheduling resource.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Email account name"
+          },
+          "email_id": {
+            "type": "string",
+            "description": "Email ID from list_emails or get_email"
+          },
+          "mailbox": {
+            "default": "INBOX",
+            "description": "Mailbox containing the email",
+            "type": "string"
+          }
+        },
+        "required": ["account", "email_id"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "apply_template",
+      "description": "Apply an email template with variable substitution. Use action \"preview\" to see the result, \"draft\" to save as draft, or \"send\" to send immediately.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "template": {
+            "type": "string",
+            "description": "Template name from list_templates"
+          },
+          "variables": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Variable values as key-value pairs, e.g. { topic: 'Q1 Review' }"
+          },
+          "action": {
+            "default": "preview",
+            "description": "What to do with the composed email",
+            "type": "string",
+            "enum": ["preview", "draft", "send"]
+          },
+          "to": {
+            "description": "Recipient addresses (required for send, optional for draft)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["account", "template", "variables"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "bulk_action",
+      "description": "Batch operation on multiple emails by UID list. Supports mark_read, mark_unread, flag, unflag, move, and delete. delete moves the messages to Trash. Max 100 IDs per call. Returns success/failure counts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "mailbox": {
+            "default": "INBOX",
+            "description": "Source mailbox containing the emails",
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["mark_read", "mark_unread", "flag", "unflag", "move", "delete"],
+            "description": "Bulk action to perform"
+          },
+          "ids": {
+            "minItems": 1,
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "description": "Array of email UIDs (max 100). Get UIDs from list_emails or search_emails."
+          },
+          "destination": {
+            "description": "Destination mailbox — required when action is 'move'",
+            "type": "string"
+          }
+        },
+        "required": ["account", "action", "ids"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "cancel_scheduled",
+      "description": "Cancel a scheduled email. Removes it from the queue and moves the associated draft to Trash.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "schedule_id": {
+            "type": "string",
+            "description": "Schedule ID to cancel"
+          }
+        },
+        "required": ["schedule_id"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "check_calendar_permissions",
+      "description": "Check whether the local calendar is accessible. On macOS, verifies Calendar.app access (requires Privacy & Security → Calendars permission). Returns granted status and step-by-step setup instructions if access is denied.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "check_health",
+      "description": "Check connection health, quota, and capabilities for email accounts. Useful for diagnosing issues.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "description": "Account name (checks all accounts if omitted)",
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "check_notification_setup",
+      "description": "Diagnose desktop notification support on this platform. Checks if required OS tools are available and provides setup instructions to enable notification permissions (macOS, Linux, Windows).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "configure_alerts",
+      "description": "Update alert/notification settings at runtime. Changes take effect immediately. Use save=true to persist changes to the config file. Omit any field to leave it unchanged.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "desktop": {
+            "description": "Enable/disable desktop notifications",
+            "type": "boolean"
+          },
+          "sound": {
+            "description": "Enable/disable sound alerts for urgent emails",
+            "type": "boolean"
+          },
+          "urgency_threshold": {
+            "description": "Minimum urgency level to trigger desktop notifications",
+            "type": "string",
+            "enum": ["urgent", "high", "normal", "low"]
+          },
+          "webhook_url": {
+            "description": "Webhook URL for external notifications (empty string to disable)",
+            "type": "string"
+          },
+          "webhook_events": {
+            "description": "Which urgency levels trigger webhook dispatch",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["urgent", "high", "normal", "low"]
+            }
+          },
+          "save": {
+            "default": false,
+            "description": "Persist changes to config.toml (default: runtime only)",
+            "type": "boolean"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "create_label",
+      "description": "Create a new label. For ProtonMail, creates a folder under Labels/. For standard IMAP keywords, labels are auto-created on first use — this is a no-op.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "name": {
+            "type": "string",
+            "description": "Label name (e.g., \"Project-X\"). For nested labels use \"/\" separator (e.g., \"Work/Urgent\")."
+          }
+        },
+        "required": ["account", "name"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "create_mailbox",
+      "description": "Create a new mailbox (folder). Use '/' as separator for nested folders (e.g., 'Work/Projects'). Use list_mailboxes to see existing folders.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Folder path to create (e.g., 'Archive/2026' or 'Projects')"
+          }
+        },
+        "required": ["account", "path"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "create_reminder",
+      "description": "Create a reminder in macOS Reminders.app from an email. Shows a native confirmation dialog before adding. Use for action items, deadlines, and follow-up tasks extracted from emails. Use analyze_email_for_scheduling first to let the AI decide if a reminder is appropriate.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Email account name"
+          },
+          "email_id": {
+            "type": "string",
+            "description": "Email ID from list_emails or get_email"
+          },
+          "mailbox": {
+            "default": "INBOX",
+            "description": "Mailbox containing the email",
+            "type": "string"
+          },
+          "title": {
+            "description": "Reminder title (defaults to email subject)",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Reminder body/notes (defaults to auto-built from email)",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "ISO 8601 due date (e.g. 2026-02-20T10:00:00). Leave empty for no due date.",
+            "type": "string"
+          },
+          "priority": {
+            "default": "none",
+            "description": "Reminder priority",
+            "type": "string",
+            "enum": ["none", "low", "medium", "high"]
+          },
+          "list_name": {
+            "description": "Reminders list name (default list if omitted)",
+            "type": "string"
+          },
+          "confirm": {
+            "default": true,
+            "description": "Show native confirmation dialog before adding (default: true)",
+            "type": "boolean"
+          }
+        },
+        "required": ["account", "email_id"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "delete_email",
+      "description": "Delete an email. By default moves to Trash. Set permanent=true for permanent deletion (⚠️ irreversible). The mailbox must be a real folder. Use find_email_folder first if the email was found in a virtual folder.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "emailId": {
+            "type": "string",
+            "description": "Email ID to delete (from list_emails)"
+          },
+          "mailbox": {
+            "default": "INBOX",
+            "description": "Mailbox containing the email",
+            "type": "string"
+          },
+          "permanent": {
+            "default": false,
+            "description": "⚠️ Permanently delete (skip Trash)",
+            "type": "boolean"
+          }
+        },
+        "required": ["account", "emailId"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "delete_label",
+      "description": "Delete a label. For ProtonMail, deletes the label folder. For standard IMAP keywords, labels cannot be deleted server-wide — use remove_label on individual emails.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "name": {
+            "type": "string",
+            "description": "Label name to delete"
+          }
+        },
+        "required": ["account", "name"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "delete_mailbox",
+      "description": "⚠️ DESTRUCTIVE: Permanently delete a mailbox and ALL its contents. This cannot be undone. Use list_mailboxes to verify the folder path.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Folder path to delete (⚠️ all emails inside will be lost)"
+          }
+        },
+        "required": ["account", "path"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "download_attachment",
+      "description": "Download an email attachment by filename. First use get_email to see available attachments and their filenames. Returns base64-encoded content for files ≤5MB. Pass savePath to write the file to disk instead (up to 50MB) and skip base64.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "id": {
+            "type": "string",
+            "description": "Email ID (UID) from list_emails or get_email"
+          },
+          "mailbox": {
+            "default": "INBOX",
+            "description": "Mailbox containing the email",
+            "type": "string"
+          },
+          "filename": {
+            "type": "string",
+            "description": "Exact attachment filename (from get_email metadata)"
+          },
+          "savePath": {
+            "description": "If set, write the decoded file to this path (or directory) and return metadata only — no base64.",
+            "type": "string"
+          }
+        },
+        "required": ["account", "id", "filename"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "extract_calendar",
+      "description": "Extract calendar events (ICS/iCalendar) from an email. Returns structured event data including time, location, attendees, and status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name"
+          },
+          "email_id": {
+            "type": "string",
+            "description": "Email UID"
+          },
+          "mailbox": {
+            "default": "INBOX",
+            "description": "Mailbox path (default: INBOX)",
+            "type": "string"
+          }
+        },
+        "required": ["account", "email_id"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "extract_contacts",
+      "description": "Extract unique contacts from recent email headers. Returns contacts sorted by frequency (most frequent first). Useful for finding frequent correspondents or building an address book.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "mailbox": {
+            "description": "Mailbox to scan (default: INBOX)",
+            "type": "string"
+          },
+          "limit": {
+            "default": 100,
+            "description": "Number of recent emails to scan (default: 100, max: 500)",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        "required": ["account"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "find_email_folder",
+      "description": "Find which real mailbox folder(s) an email belongs to. Required before move_email or delete_email when the email was found in a virtual folder (e.g., \"All Mail\", \"Starred\"). Returns the real folder path to use as sourceMailbox.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "emailId": {
+            "type": "string",
+            "description": "Email ID (UID) from list_emails"
+          },
+          "sourceMailbox": {
+            "default": "INBOX",
+            "description": "Mailbox where the email is currently visible (e.g., \"All Mail\")",
+            "type": "string"
+          }
+        },
+        "required": ["account", "emailId"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "forward_email",
+      "description": "Forward an email to new recipients with optional additional message. Original email is quoted below. Original attachments are not included.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "emailId": {
+            "type": "string",
+            "description": "Email ID to forward (from list_emails or get_email)"
+          },
+          "mailbox": {
+            "default": "INBOX",
+            "description": "Mailbox where the original email is",
+            "type": "string"
+          },
+          "to": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
+            },
+            "description": "Forward to these recipients"
+          },
+          "body": {
+            "description": "Additional message above the forwarded content",
+            "type": "string"
+          },
+          "cc": {
+            "description": "CC recipients",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
+            }
+          },
+          "html": {
+            "default": false,
+            "description": "Send the additional message + forwarded quote as HTML (default: plain text)",
+            "type": "boolean"
+          },
+          "attachments": {
+            "description": "Extra file attachments",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "filename": {
+                  "description": "Attachment filename",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "Local file path",
+                  "type": "string"
+                },
+                "base64": {
+                  "description": "Inline base64 content",
+                  "type": "string"
+                },
+                "contentType": {
+                  "description": "MIME type",
+                  "type": "string"
+                },
+                "emailId": {
+                  "description": "Copy this attachment from another message (UID)",
+                  "type": "string"
+                },
+                "mailbox": {
+                  "description": "Mailbox of emailId (default INBOX)",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "messageId": {
+            "description": "Stable RFC 5322 Message-ID for retries",
+            "type": "string"
+          }
+        },
+        "required": ["account", "emailId", "to"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "get_email",
+      "description": "Get the full content of a specific email by ID. Does NOT mark the email as seen (uses IMAP BODY.PEEK — non-destructive). Use format=\"text\" to strip HTML, or format=\"stripped\" to also remove quoted replies and signatures. Use maxLength to cap the body size for large emails. Set markRead=true only when you want to explicitly mark the email as read.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "emailId": {
+            "type": "string",
+            "description": "Email ID from list_emails or search_emails"
+          },
+          "mailbox": {
+            "default": "INBOX",
+            "description": "Mailbox path (default: INBOX)",
+            "type": "string"
+          },
+          "format": {
+            "default": "full",
+            "description": "Body format: full=raw (default), text=plain text (strips HTML), stripped=plain text without quoted replies or signatures",
+            "type": "string",
+            "enum": ["full", "text", "stripped"]
+          },
+          "maxLength": {
+            "description": "Truncate body at this many characters. A hint shows how many characters remain.",
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 9007199254740991
+          },
+          "markRead": {
+            "default": false,
+            "description": "Explicitly mark the email as read after fetching (default: false — reading is non-destructive by default)",
+            "type": "boolean"
+          }
+        },
+        "required": ["account", "emailId"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "get_email_security",
+      "description": "Read-only SPF/DKIM/DMARC and From/Reply-To/Return-Path domain signals for an email. Does not change flags. Does not return unsubscribe or tracking URLs.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "emailId": {
+            "type": "string",
+            "description": "Email ID (UID) from list_emails or get_email"
+          },
+          "mailbox": {
+            "default": "INBOX",
+            "description": "Mailbox containing the email",
+            "type": "string"
+          }
+        },
+        "required": ["account", "emailId"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "get_email_stats",
+      "description": "Get email statistics and analytics for a mailbox. Shows volume, top senders, daily trends, and read/flagged counts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name"
+          },
+          "period": {
+            "default": "week",
+            "description": "Time period: day, week, or month",
+            "type": "string",
+            "enum": ["day", "week", "month"]
+          },
+          "mailbox": {
+            "default": "INBOX",
+            "description": "Mailbox path (default: INBOX)",
+            "type": "string"
+          }
+        },
+        "required": ["account"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "get_email_status",
+      "description": "Get the current read/flag/label state of an email without fetching its body. Much cheaper than get_email when you only need to check whether an email is unread, flagged, or which labels it has. Also useful to confirm the result of a mark_email call. Does NOT mark the email as seen.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "emailId": {
+            "type": "string",
+            "description": "Email ID from list_emails or search_emails"
+          },
+          "mailbox": {
+            "default": "INBOX",
+            "description": "Mailbox path (default: INBOX)",
+            "type": "string"
+          }
+        },
+        "required": ["account", "emailId"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "get_emails",
+      "description": "Fetch the full content of multiple emails in a single call (max 20). More efficient than calling get_email repeatedly when triaging or summarising several emails. Does NOT mark emails as seen. Defaults to format=\"text\" (HTML stripped) for compact, AI-friendly output.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "ids": {
+            "minItems": 1,
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Email IDs to fetch (max 20). Obtain IDs from list_emails or search_emails."
+          },
+          "mailbox": {
+            "default": "INBOX",
+            "description": "Mailbox path (default: INBOX)",
+            "type": "string"
+          },
+          "format": {
+            "default": "text",
+            "description": "Body format (default: text — strips HTML for efficient AI reading). Use stripped to also remove quoted replies.",
+            "type": "string",
+            "enum": ["full", "text", "stripped"]
+          },
+          "maxLength": {
+            "description": "Truncate each email body at this many characters.",
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["account", "ids"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "get_hooks_config",
+      "description": "Get the current AI hooks configuration including preset, rules, and custom instructions.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_thread",
+      "description": "Reconstruct a full email conversation thread by following References and In-Reply-To headers. Returns all related messages. Does NOT mark emails as seen. Use format=\"text\" to strip HTML, or format=\"stripped\" to also remove quoted replies. Use newestFirst=true to show the most recent message in full and older messages as header-only summaries. Use get_email first to obtain the message_id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "message_id": {
+            "type": "string",
+            "description": "Message-ID header value (from get_email)"
+          },
+          "mailbox": {
+            "default": "INBOX",
+            "description": "Mailbox to search (default: INBOX)",
+            "type": "string"
+          },
+          "format": {
+            "default": "full",
+            "description": "Body format: full=raw (default), text=plain text (strips HTML), stripped=plain text without quoted replies or signatures",
+            "type": "string",
+            "enum": ["full", "text", "stripped"]
+          },
+          "maxLength": {
+            "description": "Truncate each message body at this many characters. A hint shows how many characters remain.",
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 9007199254740991
+          },
+          "newestFirst": {
+            "default": false,
+            "description": "When true, shows the newest message in full and older messages as header-only summaries. Ideal for AI triage of long threads where only the latest reply matters.",
+            "type": "boolean"
+          }
+        },
+        "required": ["account", "message_id"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "get_watcher_status",
+      "description": "Get the status of IMAP IDLE watcher connections and recent activity.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "list_accounts",
       "description": "List all configured email accounts. Call this first to discover available account names for use with other tools.",
       "inputSchema": {
@@ -16,24 +1021,18 @@
       }
     },
     {
-      "name": "list_mailboxes",
-      "description": "List all mailbox folders for an account with unread counts and special-use flags. Use list_accounts first to get the account name.",
+      "name": "list_calendars",
+      "description": "List all available local calendars (macOS Calendar.app / Linux default). Use the returned calendar names with add_to_calendar to target a specific calendar.",
       "inputSchema": {
         "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          }
-        },
-        "required": ["account"],
+        "properties": {},
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": true
+        "openWorldHint": false
       }
     },
     {
@@ -109,8 +1108,181 @@
       }
     },
     {
-      "name": "get_email",
-      "description": "Get the full content of a specific email by ID. Does NOT mark the email as seen (uses IMAP BODY.PEEK — non-destructive). Use format=\"text\" to strip HTML, or format=\"stripped\" to also remove quoted replies and signatures. Use maxLength to cap the body size for large emails. Set markRead=true only when you want to explicitly mark the email as read.",
+      "name": "list_events",
+      "description": "List local calendar events with optional filters. Search by title, date range, or calendar name. Use to check for existing events before creating new ones, or to verify a recently added event. Returns event id, title, start/end time, location, and calendar name.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "description": "Filter events whose title contains this text (case-insensitive)",
+            "type": "string"
+          },
+          "from": {
+            "description": "Show events on or after this date (ISO 8601, e.g. 2026-02-19). Defaults to 7 days ago.",
+            "type": "string"
+          },
+          "to": {
+            "description": "Show events on or before this date (ISO 8601, e.g. 2026-02-28). Defaults to 30 days from now.",
+            "type": "string"
+          },
+          "calendar_name": {
+            "description": "Restrict to a specific calendar by name",
+            "type": "string"
+          },
+          "limit": {
+            "default": 20,
+            "description": "Maximum number of results (default: 20)",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_labels",
+      "description": "List available labels for an email account. Auto-detects the label system: ProtonMail folder-labels, Gmail X-GM-LABELS, or IMAP keywords. ProtonMail note: labels are represented as IMAP folders under the Labels/ prefix. Use list_emails with mailbox=\"Labels/<name>\" to find emails tagged with a ProtonMail label.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          }
+        },
+        "required": ["account"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "list_mailboxes",
+      "description": "List all mailbox folders for an account with unread counts and special-use flags. Use list_accounts first to get the account name.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          }
+        },
+        "required": ["account"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "list_presets",
+      "description": "List all available AI triage presets with their descriptions and suggested labels.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_reminders",
+      "description": "List reminders from macOS Reminders.app with optional filters. Search by title or list name. By default only shows incomplete reminders. Use to check for existing reminders before creating new ones, or to verify a recently added reminder. Returns reminder id, title, due date, completion status, priority, and list name.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "description": "Filter reminders whose title contains this text (case-insensitive)",
+            "type": "string"
+          },
+          "list_name": {
+            "description": "Restrict to a specific Reminders list by name",
+            "type": "string"
+          },
+          "include_completed": {
+            "default": false,
+            "description": "Include completed reminders (default: false)",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 20,
+            "description": "Maximum number of results (default: 20)",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_scheduled",
+      "description": "List scheduled emails. Shows pending, sent, or all scheduled emails.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "description": "Filter by account name (all accounts if omitted)",
+            "type": "string"
+          },
+          "status": {
+            "default": "pending",
+            "description": "Filter by status (default: pending)",
+            "type": "string",
+            "enum": ["pending", "sent", "failed", "all"]
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_templates",
+      "description": "List all available email templates. Templates are TOML files in <templates-dir>/ with {{variable}} placeholders for subject and body.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "mark_email",
+      "description": "Change email flags — mark as read/unread, flag/unflag. Idempotent: marking an already-read email as read is a no-op.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -118,34 +1290,22 @@
             "type": "string",
             "description": "Account name from list_accounts"
           },
-          "emailId": {
+          "id": {
             "type": "string",
-            "description": "Email ID from list_emails or search_emails"
+            "description": "Email ID (UID) from list_emails or search_emails"
           },
           "mailbox": {
             "default": "INBOX",
-            "description": "Mailbox path (default: INBOX)",
+            "description": "Mailbox containing the email",
             "type": "string"
           },
-          "format": {
-            "default": "full",
-            "description": "Body format: full=raw (default), text=plain text (strips HTML), stripped=plain text without quoted replies or signatures",
+          "action": {
             "type": "string",
-            "enum": ["full", "text", "stripped"]
-          },
-          "maxLength": {
-            "description": "Truncate body at this many characters. A hint shows how many characters remain.",
-            "type": "integer",
-            "minimum": 100,
-            "maximum": 9007199254740991
-          },
-          "markRead": {
-            "default": false,
-            "description": "Explicitly mark the email as read after fetching (default: false — reading is non-destructive by default)",
-            "type": "boolean"
+            "enum": ["read", "unread", "flag", "unflag"],
+            "description": "Action: read, unread, flag (star), or unflag (unstar)"
           }
         },
-        "required": ["account", "emailId"],
+        "required": ["account", "id", "action"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "annotations": {
@@ -156,55 +1316,8 @@
       }
     },
     {
-      "name": "get_emails",
-      "description": "Fetch the full content of multiple emails in a single call (max 20). More efficient than calling get_email repeatedly when triaging or summarising several emails. Does NOT mark emails as seen. Defaults to format=\"text\" (HTML stripped) for compact, AI-friendly output.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "ids": {
-            "minItems": 1,
-            "maxItems": 20,
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Email IDs to fetch (max 20). Obtain IDs from list_emails or search_emails."
-          },
-          "mailbox": {
-            "default": "INBOX",
-            "description": "Mailbox path (default: INBOX)",
-            "type": "string"
-          },
-          "format": {
-            "default": "text",
-            "description": "Body format (default: text — strips HTML for efficient AI reading). Use stripped to also remove quoted replies.",
-            "type": "string",
-            "enum": ["full", "text", "stripped"]
-          },
-          "maxLength": {
-            "description": "Truncate each email body at this many characters.",
-            "type": "integer",
-            "minimum": 100,
-            "maximum": 9007199254740991
-          }
-        },
-        "required": ["account", "ids"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "get_email_status",
-      "description": "Get the current read/flag/label state of an email without fetching its body. Much cheaper than get_email when you only need to check whether an email is unread, flagged, or which labels it has. Also useful to confirm the result of a mark_email call. Does NOT mark the email as seen.",
+      "name": "move_email",
+      "description": "Move an email to a different mailbox folder. The sourceMailbox must be a real folder, not a virtual one like \"All Mail\". Use find_email_folder first if the email was discovered in a virtual folder.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -214,21 +1327,284 @@
           },
           "emailId": {
             "type": "string",
-            "description": "Email ID from list_emails or search_emails"
+            "description": "Email ID to move (from list_emails)"
           },
-          "mailbox": {
-            "default": "INBOX",
-            "description": "Mailbox path (default: INBOX)",
-            "type": "string"
+          "sourceMailbox": {
+            "type": "string",
+            "description": "Current mailbox (e.g., INBOX)"
+          },
+          "destinationMailbox": {
+            "type": "string",
+            "description": "Target mailbox (e.g., Archive). Use list_mailboxes to see options."
           }
         },
-        "required": ["account", "emailId"],
+        "required": ["account", "emailId", "sourceMailbox", "destinationMailbox"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "annotations": {
-        "readOnlyHint": true,
+        "readOnlyHint": false,
         "destructiveHint": false,
         "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "remove_label",
+      "description": "Remove a label from an email. For ProtonMail, this removes the email from the label folder. For Gmail and standard IMAP, this removes a keyword flag.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "emailId": {
+            "type": "string",
+            "description": "Email ID (UID) from list_emails"
+          },
+          "mailbox": {
+            "type": "string",
+            "description": "Mailbox containing the email (must be a real folder)"
+          },
+          "label": {
+            "type": "string",
+            "description": "Label name to remove"
+          }
+        },
+        "required": ["account", "emailId", "mailbox", "label"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "rename_mailbox",
+      "description": "Rename an existing mailbox (folder). Use list_mailboxes to see current folder paths.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Current folder path"
+          },
+          "new_path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "New folder path"
+          }
+        },
+        "required": ["account", "path", "new_path"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "reply_email",
+      "description": "Reply to an email with proper threading (In-Reply-To & References headers). Use get_email first to read the original.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "emailId": {
+            "type": "string",
+            "description": "Email ID to reply to (from list_emails or get_email)"
+          },
+          "mailbox": {
+            "default": "INBOX",
+            "description": "Mailbox where the original email is",
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "description": "Reply body content"
+          },
+          "replyAll": {
+            "default": false,
+            "description": "Reply to all recipients",
+            "type": "boolean"
+          },
+          "html": {
+            "default": false,
+            "description": "Send as HTML",
+            "type": "boolean"
+          },
+          "messageId": {
+            "description": "Stable RFC 5322 Message-ID for retries",
+            "type": "string"
+          }
+        },
+        "required": ["account", "emailId", "body"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "save_draft",
+      "description": "Save an email draft to the Drafts folder. Compose over time, then use send_draft to send it. Use list_emails with the Drafts mailbox to see saved drafts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "to": {
+            "default": [],
+            "description": "Recipient email addresses (can be empty for drafts)",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
+            }
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject"
+          },
+          "body": {
+            "type": "string",
+            "description": "Email body content"
+          },
+          "cc": {
+            "description": "CC recipients",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
+            }
+          },
+          "bcc": {
+            "description": "BCC recipients",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
+            }
+          },
+          "html": {
+            "default": false,
+            "description": "Send as HTML (default: plain text)",
+            "type": "boolean"
+          },
+          "in_reply_to": {
+            "description": "Message-ID for threading (from get_email)",
+            "type": "string"
+          },
+          "attachments": {
+            "description": "Draft attachments (path or base64)",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "filename": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "base64": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "required": ["account", "subject", "body"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "schedule_email",
+      "description": "Schedule an email to be sent at a specific time in the future. The email is queued locally and sent automatically when the time arrives.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name to send from"
+          },
+          "to": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Recipient email addresses"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject"
+          },
+          "body": {
+            "type": "string",
+            "description": "Email body"
+          },
+          "send_at": {
+            "type": "string",
+            "description": "When to send (ISO 8601 date-time with UTC offset, e.g. 2026-10-01T09:00:00+02:00)"
+          },
+          "cc": {
+            "description": "CC recipients",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bcc": {
+            "description": "BCC recipients",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "html": {
+            "default": false,
+            "description": "Send as HTML (default: false)",
+            "type": "boolean"
+          },
+          "in_reply_to": {
+            "description": "Message-ID to reply to",
+            "type": "string"
+          }
+        },
+        "required": ["account", "to", "subject", "body", "send_at"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
         "openWorldHint": true
       }
     },
@@ -314,8 +1690,8 @@
       }
     },
     {
-      "name": "download_attachment",
-      "description": "Download an email attachment by filename. First use get_email to see available attachments and their filenames. Returns base64-encoded content for files ≤5MB. Pass savePath to write the file to disk instead (up to 50MB) and skip base64.",
+      "name": "send_draft",
+      "description": "Send an existing draft email and remove it from Drafts. The draft is fetched, sent via SMTP, then deleted. Use list_emails with the Drafts mailbox to find draft IDs.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -324,703 +1700,23 @@
             "description": "Account name from list_accounts"
           },
           "id": {
-            "type": "string",
-            "description": "Email ID (UID) from list_emails or get_email"
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Draft email UID (from list_emails on Drafts mailbox)"
           },
           "mailbox": {
-            "default": "INBOX",
-            "description": "Mailbox containing the email",
-            "type": "string"
-          },
-          "filename": {
-            "type": "string",
-            "description": "Exact attachment filename (from get_email metadata)"
-          },
-          "savePath": {
-            "description": "If set, write the decoded file to this path (or directory) and return metadata only — no base64.",
+            "description": "Drafts folder path (auto-detected if omitted)",
             "type": "string"
           }
         },
-        "required": ["account", "id", "filename"],
+        "required": ["account", "id"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "extract_contacts",
-      "description": "Extract unique contacts from recent email headers. Returns contacts sorted by frequency (most frequent first). Useful for finding frequent correspondents or building an address book.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "mailbox": {
-            "description": "Mailbox to scan (default: INBOX)",
-            "type": "string"
-          },
-          "limit": {
-            "default": 100,
-            "description": "Number of recent emails to scan (default: 100, max: 500)",
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 500
-          }
-        },
-        "required": ["account"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "get_thread",
-      "description": "Reconstruct a full email conversation thread by following References and In-Reply-To headers. Returns all related messages. Does NOT mark emails as seen. Use format=\"text\" to strip HTML, or format=\"stripped\" to also remove quoted replies. Use newestFirst=true to show the most recent message in full and older messages as header-only summaries. Use get_email first to obtain the message_id.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "message_id": {
-            "type": "string",
-            "description": "Message-ID header value (from get_email)"
-          },
-          "mailbox": {
-            "default": "INBOX",
-            "description": "Mailbox to search (default: INBOX)",
-            "type": "string"
-          },
-          "format": {
-            "default": "full",
-            "description": "Body format: full=raw (default), text=plain text (strips HTML), stripped=plain text without quoted replies or signatures",
-            "type": "string",
-            "enum": ["full", "text", "stripped"]
-          },
-          "maxLength": {
-            "description": "Truncate each message body at this many characters. A hint shows how many characters remain.",
-            "type": "integer",
-            "minimum": 100,
-            "maximum": 9007199254740991
-          },
-          "newestFirst": {
-            "default": false,
-            "description": "When true, shows the newest message in full and older messages as header-only summaries. Ideal for AI triage of long threads where only the latest reply matters.",
-            "type": "boolean"
-          }
-        },
-        "required": ["account", "message_id"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "list_templates",
-      "description": "List all available email templates. Templates are TOML files in <templates-dir>/ with {{variable}} placeholders for subject and body.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "extract_calendar",
-      "description": "Extract calendar events (ICS/iCalendar) from an email. Returns structured event data including time, location, attendees, and status.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name"
-          },
-          "email_id": {
-            "type": "string",
-            "description": "Email UID"
-          },
-          "mailbox": {
-            "default": "INBOX",
-            "description": "Mailbox path (default: INBOX)",
-            "type": "string"
-          }
-        },
-        "required": ["account", "email_id"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "add_to_calendar",
-      "description": "Add an email event to the local calendar (macOS Calendar.app / Linux via xdg-open). Automatically extracts event data from the email: ICS attachments, meeting URL (Zoom/Teams/Meet), conference dial-in / ID / passcode, attendees, and email body excerpt. All relevant email attachments (PDFs, docs, etc.) are saved locally and linked in the event notes. A native confirmation dialog is shown on macOS before the event is written. Returns one of: added | cancelled | timed_out | no_display | duplicate.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name"
-          },
-          "email_id": {
-            "type": "string",
-            "description": "Email UID"
-          },
-          "mailbox": {
-            "default": "INBOX",
-            "description": "Mailbox path (default: INBOX)",
-            "type": "string"
-          },
-          "calendar_name": {
-            "description": "Target calendar name (empty = default calendar)",
-            "type": "string"
-          },
-          "alarm_minutes": {
-            "default": 15,
-            "description": "Minutes before event to show an alert (default: 15)",
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 1440
-          },
-          "save_attachments": {
-            "default": true,
-            "description": "Save non-ICS email attachments locally and link them in the event notes",
-            "type": "boolean"
-          },
-          "confirm": {
-            "default": true,
-            "description": "Show native confirmation dialog before adding (default: true)",
-            "type": "boolean"
-          }
-        },
-        "required": ["account", "email_id"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": false,
         "idempotentHint": false,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "check_calendar_permissions",
-      "description": "Check whether the local calendar is accessible. On macOS, verifies Calendar.app access (requires Privacy & Security → Calendars permission). Returns granted status and step-by-step setup instructions if access is denied.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "list_calendars",
-      "description": "List all available local calendars (macOS Calendar.app / Linux default). Use the returned calendar names with add_to_calendar to target a specific calendar.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "list_events",
-      "description": "List local calendar events with optional filters. Search by title, date range, or calendar name. Use to check for existing events before creating new ones, or to verify a recently added event. Returns event id, title, start/end time, location, and calendar name.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "title": {
-            "description": "Filter events whose title contains this text (case-insensitive)",
-            "type": "string"
-          },
-          "from": {
-            "description": "Show events on or after this date (ISO 8601, e.g. 2026-02-19). Defaults to 7 days ago.",
-            "type": "string"
-          },
-          "to": {
-            "description": "Show events on or before this date (ISO 8601, e.g. 2026-02-28). Defaults to 30 days from now.",
-            "type": "string"
-          },
-          "calendar_name": {
-            "description": "Restrict to a specific calendar by name",
-            "type": "string"
-          },
-          "limit": {
-            "default": 20,
-            "description": "Maximum number of results (default: 20)",
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 100
-          }
-        },
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "list_reminders",
-      "description": "List reminders from macOS Reminders.app with optional filters. Search by title or list name. By default only shows incomplete reminders. Use to check for existing reminders before creating new ones, or to verify a recently added reminder. Returns reminder id, title, due date, completion status, priority, and list name.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "title": {
-            "description": "Filter reminders whose title contains this text (case-insensitive)",
-            "type": "string"
-          },
-          "list_name": {
-            "description": "Restrict to a specific Reminders list by name",
-            "type": "string"
-          },
-          "include_completed": {
-            "default": false,
-            "description": "Include completed reminders (default: false)",
-            "type": "boolean"
-          },
-          "limit": {
-            "default": 20,
-            "description": "Maximum number of results (default: 20)",
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 100
-          }
-        },
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "create_reminder",
-      "description": "Create a reminder in macOS Reminders.app from an email. Shows a native confirmation dialog before adding. Use for action items, deadlines, and follow-up tasks extracted from emails. Use analyze_email_for_scheduling first to let the AI decide if a reminder is appropriate.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Email account name"
-          },
-          "email_id": {
-            "type": "string",
-            "description": "Email ID from list_emails or get_email"
-          },
-          "mailbox": {
-            "default": "INBOX",
-            "description": "Mailbox containing the email",
-            "type": "string"
-          },
-          "title": {
-            "description": "Reminder title (defaults to email subject)",
-            "type": "string"
-          },
-          "notes": {
-            "description": "Reminder body/notes (defaults to auto-built from email)",
-            "type": "string"
-          },
-          "due_date": {
-            "description": "ISO 8601 due date (e.g. 2026-02-20T10:00:00). Leave empty for no due date.",
-            "type": "string"
-          },
-          "priority": {
-            "default": "none",
-            "description": "Reminder priority",
-            "type": "string",
-            "enum": ["none", "low", "medium", "high"]
-          },
-          "list_name": {
-            "description": "Reminders list name (default list if omitted)",
-            "type": "string"
-          },
-          "confirm": {
-            "default": true,
-            "description": "Show native confirmation dialog before adding (default: true)",
-            "type": "boolean"
-          }
-        },
-        "required": ["account", "email_id"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "analyze_email_for_scheduling",
-      "description": "Analyze an email to detect calendar events and/or reminder-worthy content. Returns structured analysis so the AI can decide whether to call add_to_calendar, create_reminder, both, or neither. Use this as the first step before creating any scheduling resource.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Email account name"
-          },
-          "email_id": {
-            "type": "string",
-            "description": "Email ID from list_emails or get_email"
-          },
-          "mailbox": {
-            "default": "INBOX",
-            "description": "Mailbox containing the email",
-            "type": "string"
-          }
-        },
-        "required": ["account", "email_id"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "get_email_stats",
-      "description": "Get email statistics and analytics for a mailbox. Shows volume, top senders, daily trends, and read/flagged counts.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name"
-          },
-          "period": {
-            "default": "week",
-            "description": "Time period: day, week, or month",
-            "type": "string",
-            "enum": ["day", "week", "month"]
-          },
-          "mailbox": {
-            "default": "INBOX",
-            "description": "Mailbox path (default: INBOX)",
-            "type": "string"
-          }
-        },
-        "required": ["account"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "check_health",
-      "description": "Check connection health, quota, and capabilities for email accounts. Useful for diagnosing issues.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "description": "Account name (checks all accounts if omitted)",
-            "type": "string"
-          }
-        },
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "find_email_folder",
-      "description": "Find which real mailbox folder(s) an email belongs to. Required before move_email or delete_email when the email was found in a virtual folder (e.g., \"All Mail\", \"Starred\"). Returns the real folder path to use as sourceMailbox.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "emailId": {
-            "type": "string",
-            "description": "Email ID (UID) from list_emails"
-          },
-          "sourceMailbox": {
-            "default": "INBOX",
-            "description": "Mailbox where the email is currently visible (e.g., \"All Mail\")",
-            "type": "string"
-          }
-        },
-        "required": ["account", "emailId"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "get_watcher_status",
-      "description": "Get the status of IMAP IDLE watcher connections and recent activity.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "list_presets",
-      "description": "List all available AI triage presets with their descriptions and suggested labels.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "get_hooks_config",
-      "description": "Get the current AI hooks configuration including preset, rules, and custom instructions.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "check_notification_setup",
-      "description": "Diagnose desktop notification support on this platform. Checks if required OS tools are available and provides setup instructions to enable notification permissions (macOS, Linux, Windows).",
-      "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "test_notification",
-      "description": "Send a test desktop notification to verify that OS permissions are correctly configured. Use check_notification_setup first to diagnose any issues.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "sound": {
-            "default": false,
-            "description": "Include a sound alert in the test notification",
-            "type": "boolean"
-          }
-        },
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "configure_alerts",
-      "description": "Update alert/notification settings at runtime. Changes take effect immediately. Use save=true to persist changes to the config file. Omit any field to leave it unchanged.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "desktop": {
-            "description": "Enable/disable desktop notifications",
-            "type": "boolean"
-          },
-          "sound": {
-            "description": "Enable/disable sound alerts for urgent emails",
-            "type": "boolean"
-          },
-          "urgency_threshold": {
-            "description": "Minimum urgency level to trigger desktop notifications",
-            "type": "string",
-            "enum": ["urgent", "high", "normal", "low"]
-          },
-          "webhook_url": {
-            "description": "Webhook URL for external notifications (empty string to disable)",
-            "type": "string"
-          },
-          "webhook_events": {
-            "description": "Which urgency levels trigger webhook dispatch",
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": ["urgent", "high", "normal", "low"]
-            }
-          },
-          "save": {
-            "default": false,
-            "description": "Persist changes to config.toml (default: runtime only)",
-            "type": "boolean"
-          }
-        },
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "get_email_security",
-      "description": "Read-only SPF/DKIM/DMARC and From/Reply-To/Return-Path domain signals for an email. Does not change flags. Does not return unsubscribe or tracking URLs.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "emailId": {
-            "type": "string",
-            "description": "Email ID (UID) from list_emails or get_email"
-          },
-          "mailbox": {
-            "default": "INBOX",
-            "description": "Mailbox containing the email",
-            "type": "string"
-          }
-        },
-        "required": ["account", "emailId"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "sieve_status",
-      "description": "Detect whether ManageSieve is available for an account (port 4190 by default). If the provider only exposes filters in a web UI, this reports a warning rather than IMAP capabilities.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          }
-        },
-        "required": ["account"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "sieve_list_scripts",
-      "description": "List ManageSieve scripts on the account (RFC 5804 LISTSCRIPTS).",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          }
-        },
-        "required": ["account"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "sieve_get_script",
-      "description": "Download a ManageSieve script by name (RFC 5804 GETSCRIPT).",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "name": {
-            "type": "string",
-            "description": "Script name from sieve_list_scripts"
-          }
-        },
-        "required": ["account", "name"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
         "openWorldHint": true
       }
     },
@@ -1121,339 +1817,8 @@
       }
     },
     {
-      "name": "reply_email",
-      "description": "Reply to an email with proper threading (In-Reply-To & References headers). Use get_email first to read the original.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "emailId": {
-            "type": "string",
-            "description": "Email ID to reply to (from list_emails or get_email)"
-          },
-          "mailbox": {
-            "default": "INBOX",
-            "description": "Mailbox where the original email is",
-            "type": "string"
-          },
-          "body": {
-            "type": "string",
-            "description": "Reply body content"
-          },
-          "replyAll": {
-            "default": false,
-            "description": "Reply to all recipients",
-            "type": "boolean"
-          },
-          "html": {
-            "default": false,
-            "description": "Send as HTML",
-            "type": "boolean"
-          },
-          "messageId": {
-            "description": "Stable RFC 5322 Message-ID for retries",
-            "type": "string"
-          }
-        },
-        "required": ["account", "emailId", "body"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": false,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "forward_email",
-      "description": "Forward an email to new recipients with optional additional message. Original email is quoted below. Original attachments are not included.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "emailId": {
-            "type": "string",
-            "description": "Email ID to forward (from list_emails or get_email)"
-          },
-          "mailbox": {
-            "default": "INBOX",
-            "description": "Mailbox where the original email is",
-            "type": "string"
-          },
-          "to": {
-            "minItems": 1,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "pattern": "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
-            },
-            "description": "Forward to these recipients"
-          },
-          "body": {
-            "description": "Additional message above the forwarded content",
-            "type": "string"
-          },
-          "cc": {
-            "description": "CC recipients",
-            "type": "array",
-            "items": {
-              "type": "string",
-              "pattern": "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
-            }
-          },
-          "html": {
-            "default": false,
-            "description": "Send the additional message + forwarded quote as HTML (default: plain text)",
-            "type": "boolean"
-          },
-          "attachments": {
-            "description": "Extra file attachments",
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "filename": {
-                  "description": "Attachment filename",
-                  "type": "string"
-                },
-                "path": {
-                  "description": "Local file path",
-                  "type": "string"
-                },
-                "base64": {
-                  "description": "Inline base64 content",
-                  "type": "string"
-                },
-                "contentType": {
-                  "description": "MIME type",
-                  "type": "string"
-                },
-                "emailId": {
-                  "description": "Copy this attachment from another message (UID)",
-                  "type": "string"
-                },
-                "mailbox": {
-                  "description": "Mailbox of emailId (default INBOX)",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "messageId": {
-            "description": "Stable RFC 5322 Message-ID for retries",
-            "type": "string"
-          }
-        },
-        "required": ["account", "emailId", "to"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": false,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "move_email",
-      "description": "Move an email to a different mailbox folder. The sourceMailbox must be a real folder, not a virtual one like \"All Mail\". Use find_email_folder first if the email was discovered in a virtual folder.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "emailId": {
-            "type": "string",
-            "description": "Email ID to move (from list_emails)"
-          },
-          "sourceMailbox": {
-            "type": "string",
-            "description": "Current mailbox (e.g., INBOX)"
-          },
-          "destinationMailbox": {
-            "type": "string",
-            "description": "Target mailbox (e.g., Archive). Use list_mailboxes to see options."
-          }
-        },
-        "required": ["account", "emailId", "sourceMailbox", "destinationMailbox"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "delete_email",
-      "description": "Delete an email. By default moves to Trash. Set permanent=true for permanent deletion (⚠️ irreversible). The mailbox must be a real folder. Use find_email_folder first if the email was found in a virtual folder.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "emailId": {
-            "type": "string",
-            "description": "Email ID to delete (from list_emails)"
-          },
-          "mailbox": {
-            "default": "INBOX",
-            "description": "Mailbox containing the email",
-            "type": "string"
-          },
-          "permanent": {
-            "default": false,
-            "description": "⚠️ Permanently delete (skip Trash)",
-            "type": "boolean"
-          }
-        },
-        "required": ["account", "emailId"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "mark_email",
-      "description": "Change email flags — mark as read/unread, flag/unflag. Idempotent: marking an already-read email as read is a no-op.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "id": {
-            "type": "string",
-            "description": "Email ID (UID) from list_emails or search_emails"
-          },
-          "mailbox": {
-            "default": "INBOX",
-            "description": "Mailbox containing the email",
-            "type": "string"
-          },
-          "action": {
-            "type": "string",
-            "enum": ["read", "unread", "flag", "unflag"],
-            "description": "Action: read, unread, flag (star), or unflag (unstar)"
-          }
-        },
-        "required": ["account", "id", "action"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "list_labels",
-      "description": "List available labels for an email account. Auto-detects the label system: ProtonMail folder-labels, Gmail X-GM-LABELS, or IMAP keywords. ProtonMail note: labels are represented as IMAP folders under the Labels/ prefix. Use list_emails with mailbox=\"Labels/<name>\" to find emails tagged with a ProtonMail label.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          }
-        },
-        "required": ["account"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "add_label",
-      "description": "Add a label to an email. For ProtonMail, this copies the email into the corresponding Labels/<name> folder. For Gmail and standard IMAP, this sets a keyword flag on the message.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "emailId": {
-            "type": "string",
-            "description": "Email ID (UID) from list_emails"
-          },
-          "mailbox": {
-            "type": "string",
-            "description": "Mailbox containing the email (must be a real folder)"
-          },
-          "label": {
-            "type": "string",
-            "description": "Label name to add (e.g., \"Important\", \"Project-X\")"
-          }
-        },
-        "required": ["account", "emailId", "mailbox", "label"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "remove_label",
-      "description": "Remove a label from an email. For ProtonMail, this removes the email from the label folder. For Gmail and standard IMAP, this removes a keyword flag.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "emailId": {
-            "type": "string",
-            "description": "Email ID (UID) from list_emails"
-          },
-          "mailbox": {
-            "type": "string",
-            "description": "Mailbox containing the email (must be a real folder)"
-          },
-          "label": {
-            "type": "string",
-            "description": "Label name to remove"
-          }
-        },
-        "required": ["account", "emailId", "mailbox", "label"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "create_label",
-      "description": "Create a new label. For ProtonMail, creates a folder under Labels/. For standard IMAP keywords, labels are auto-created on first use — this is a no-op.",
+      "name": "sieve_activate_script",
+      "description": "Activate a ManageSieve script (RFC 5804 SETACTIVE). Pass an empty name to deactivate all.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1463,467 +1828,10 @@
           },
           "name": {
             "type": "string",
-            "description": "Label name (e.g., \"Project-X\"). For nested labels use \"/\" separator (e.g., \"Work/Urgent\")."
+            "description": "Script name, or empty string to deactivate"
           }
         },
         "required": ["account", "name"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "delete_label",
-      "description": "Delete a label. For ProtonMail, deletes the label folder. For standard IMAP keywords, labels cannot be deleted server-wide — use remove_label on individual emails.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "name": {
-            "type": "string",
-            "description": "Label name to delete"
-          }
-        },
-        "required": ["account", "name"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "bulk_action",
-      "description": "Batch operation on multiple emails by UID list. Supports mark_read, mark_unread, flag, unflag, move, and delete. delete moves the messages to Trash. Max 100 IDs per call. Returns success/failure counts.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "mailbox": {
-            "default": "INBOX",
-            "description": "Source mailbox containing the emails",
-            "type": "string"
-          },
-          "action": {
-            "type": "string",
-            "enum": ["mark_read", "mark_unread", "flag", "unflag", "move", "delete"],
-            "description": "Bulk action to perform"
-          },
-          "ids": {
-            "minItems": 1,
-            "maxItems": 100,
-            "type": "array",
-            "items": {
-              "type": "integer",
-              "minimum": -9007199254740991,
-              "maximum": 9007199254740991
-            },
-            "description": "Array of email UIDs (max 100). Get UIDs from list_emails or search_emails."
-          },
-          "destination": {
-            "description": "Destination mailbox — required when action is 'move'",
-            "type": "string"
-          }
-        },
-        "required": ["account", "action", "ids"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "save_draft",
-      "description": "Save an email draft to the Drafts folder. Compose over time, then use send_draft to send it. Use list_emails with the Drafts mailbox to see saved drafts.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "to": {
-            "default": [],
-            "description": "Recipient email addresses (can be empty for drafts)",
-            "type": "array",
-            "items": {
-              "type": "string",
-              "pattern": "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
-            }
-          },
-          "subject": {
-            "type": "string",
-            "description": "Email subject"
-          },
-          "body": {
-            "type": "string",
-            "description": "Email body content"
-          },
-          "cc": {
-            "description": "CC recipients",
-            "type": "array",
-            "items": {
-              "type": "string",
-              "pattern": "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
-            }
-          },
-          "bcc": {
-            "description": "BCC recipients",
-            "type": "array",
-            "items": {
-              "type": "string",
-              "pattern": "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
-            }
-          },
-          "html": {
-            "default": false,
-            "description": "Send as HTML (default: plain text)",
-            "type": "boolean"
-          },
-          "in_reply_to": {
-            "description": "Message-ID for threading (from get_email)",
-            "type": "string"
-          },
-          "attachments": {
-            "description": "Draft attachments (path or base64)",
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "filename": {
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "base64": {
-                  "type": "string"
-                },
-                "contentType": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "required": ["account", "subject", "body"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "send_draft",
-      "description": "Send an existing draft email and remove it from Drafts. The draft is fetched, sent via SMTP, then deleted. Use list_emails with the Drafts mailbox to find draft IDs.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "id": {
-            "type": "integer",
-            "minimum": -9007199254740991,
-            "maximum": 9007199254740991,
-            "description": "Draft email UID (from list_emails on Drafts mailbox)"
-          },
-          "mailbox": {
-            "description": "Drafts folder path (auto-detected if omitted)",
-            "type": "string"
-          }
-        },
-        "required": ["account", "id"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": false,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "create_mailbox",
-      "description": "Create a new mailbox (folder). Use '/' as separator for nested folders (e.g., 'Work/Projects'). Use list_mailboxes to see existing folders.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "path": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Folder path to create (e.g., 'Archive/2026' or 'Projects')"
-          }
-        },
-        "required": ["account", "path"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "rename_mailbox",
-      "description": "Rename an existing mailbox (folder). Use list_mailboxes to see current folder paths.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "path": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Current folder path"
-          },
-          "new_path": {
-            "type": "string",
-            "minLength": 1,
-            "description": "New folder path"
-          }
-        },
-        "required": ["account", "path", "new_path"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "delete_mailbox",
-      "description": "⚠️ DESTRUCTIVE: Permanently delete a mailbox and ALL its contents. This cannot be undone. Use list_mailboxes to verify the folder path.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "path": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Folder path to delete (⚠️ all emails inside will be lost)"
-          }
-        },
-        "required": ["account", "path"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "apply_template",
-      "description": "Apply an email template with variable substitution. Use action \"preview\" to see the result, \"draft\" to save as draft, or \"send\" to send immediately.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "template": {
-            "type": "string",
-            "description": "Template name from list_templates"
-          },
-          "variables": {
-            "type": "object",
-            "propertyNames": {
-              "type": "string"
-            },
-            "additionalProperties": {
-              "type": "string"
-            },
-            "description": "Variable values as key-value pairs, e.g. { topic: 'Q1 Review' }"
-          },
-          "action": {
-            "default": "preview",
-            "description": "What to do with the composed email",
-            "type": "string",
-            "enum": ["preview", "draft", "send"]
-          },
-          "to": {
-            "description": "Recipient addresses (required for send, optional for draft)",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "required": ["account", "template", "variables"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": false,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "schedule_email",
-      "description": "Schedule an email to be sent at a specific time in the future. The email is queued locally and sent automatically when the time arrives.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name to send from"
-          },
-          "to": {
-            "minItems": 1,
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Recipient email addresses"
-          },
-          "subject": {
-            "type": "string",
-            "description": "Email subject"
-          },
-          "body": {
-            "type": "string",
-            "description": "Email body"
-          },
-          "send_at": {
-            "type": "string",
-            "description": "When to send (ISO 8601 date-time with UTC offset, e.g. 2026-10-01T09:00:00+02:00)"
-          },
-          "cc": {
-            "description": "CC recipients",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "bcc": {
-            "description": "BCC recipients",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "html": {
-            "default": false,
-            "description": "Send as HTML (default: false)",
-            "type": "boolean"
-          },
-          "in_reply_to": {
-            "description": "Message-ID to reply to",
-            "type": "string"
-          }
-        },
-        "required": ["account", "to", "subject", "body", "send_at"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": false,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "list_scheduled",
-      "description": "List scheduled emails. Shows pending, sent, or all scheduled emails.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "description": "Filter by account name (all accounts if omitted)",
-            "type": "string"
-          },
-          "status": {
-            "default": "pending",
-            "description": "Filter by status (default: pending)",
-            "type": "string",
-            "enum": ["pending", "sent", "failed", "all"]
-          }
-        },
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "cancel_scheduled",
-      "description": "Cancel a scheduled email. Removes it from the queue and moves the associated draft to Trash.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "schedule_id": {
-            "type": "string",
-            "description": "Schedule ID to cancel"
-          }
-        },
-        "required": ["schedule_id"],
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": true,
-        "openWorldHint": true
-      }
-    },
-    {
-      "name": "sieve_put_script",
-      "description": "Create or replace a ManageSieve script (RFC 5804 PUTSCRIPT). Does not activate it.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
-          },
-          "name": {
-            "type": "string",
-            "description": "Script name"
-          },
-          "content": {
-            "type": "string",
-            "description": "SIEVE script source (RFC 5228)"
-          }
-        },
-        "required": ["account", "name", "content"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "annotations": {
@@ -1959,8 +1867,8 @@
       }
     },
     {
-      "name": "sieve_activate_script",
-      "description": "Activate a ManageSieve script (RFC 5804 SETACTIVE). Pass an empty name to deactivate all.",
+      "name": "sieve_get_script",
+      "description": "Download a ManageSieve script by name (RFC 5804 GETSCRIPT).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1970,10 +1878,60 @@
           },
           "name": {
             "type": "string",
-            "description": "Script name, or empty string to deactivate"
+            "description": "Script name from sieve_list_scripts"
           }
         },
         "required": ["account", "name"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "sieve_list_scripts",
+      "description": "List ManageSieve scripts on the account (RFC 5804 LISTSCRIPTS).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          }
+        },
+        "required": ["account"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "sieve_put_script",
+      "description": "Create or replace a ManageSieve script (RFC 5804 PUTSCRIPT). Does not activate it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "name": {
+            "type": "string",
+            "description": "Script name"
+          },
+          "content": {
+            "type": "string",
+            "description": "SIEVE script source (RFC 5228)"
+          }
+        },
+        "required": ["account", "name", "content"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "annotations": {
@@ -1982,47 +1940,68 @@
         "idempotentHint": true,
         "openWorldHint": true
       }
+    },
+    {
+      "name": "sieve_status",
+      "description": "Detect whether ManageSieve is available for an account (port 4190 by default). If the provider only exposes filters in a web UI, this reports a warning rather than IMAP capabilities.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          }
+        },
+        "required": ["account"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "test_notification",
+      "description": "Send a test desktop notification to verify that OS permissions are correctly configured. Use check_notification_setup first to diagnose any issues.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sound": {
+            "default": false,
+            "description": "Include a sound alert in the test notification",
+            "type": "boolean"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
     }
   ],
   "prompts": [
     {
-      "name": "triage_inbox",
-      "description": "Analyze unread emails and categorize by urgency. Produces a structured triage report with recommended actions.",
+      "name": "cleanup_inbox",
+      "description": "AI-guided inbox cleanup — categorizes emails and suggests or executes organization actions.",
       "arguments": [
         {
           "name": "account",
-          "description": "Account name to triage",
+          "description": "Account name to clean up",
           "required": true
         },
         {
-          "name": "mailbox",
-          "description": "Mailbox to triage (default: INBOX)",
+          "name": "older_than_days",
+          "description": "Only consider emails older than N days (default: 30)",
           "required": true
         },
         {
-          "name": "limit",
-          "description": "Maximum number of unread emails to analyze (default: 20)",
-          "required": true
-        }
-      ]
-    },
-    {
-      "name": "summarize_thread",
-      "description": "Summarize an email conversation thread. Produces a structured report with participants, timeline, decisions, and action items.",
-      "arguments": [
-        {
-          "name": "account",
-          "description": "Account name",
-          "required": true
-        },
-        {
-          "name": "message_id",
-          "description": "Message-ID of any email in the thread (from get_email)",
-          "required": true
-        },
-        {
-          "name": "mailbox",
-          "description": "Mailbox to search (default: INBOX)",
+          "name": "dry_run",
+          "description": "'true' = suggest only, 'false' = execute actions (default: true)",
           "required": true
         }
       ]
@@ -2122,22 +2101,43 @@
       ]
     },
     {
-      "name": "cleanup_inbox",
-      "description": "AI-guided inbox cleanup — categorizes emails and suggests or executes organization actions.",
+      "name": "summarize_thread",
+      "description": "Summarize an email conversation thread. Produces a structured report with participants, timeline, decisions, and action items.",
       "arguments": [
         {
           "name": "account",
-          "description": "Account name to clean up",
+          "description": "Account name",
           "required": true
         },
         {
-          "name": "older_than_days",
-          "description": "Only consider emails older than N days (default: 30)",
+          "name": "message_id",
+          "description": "Message-ID of any email in the thread (from get_email)",
           "required": true
         },
         {
-          "name": "dry_run",
-          "description": "'true' = suggest only, 'false' = execute actions (default: true)",
+          "name": "mailbox",
+          "description": "Mailbox to search (default: INBOX)",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "triage_inbox",
+      "description": "Analyze unread emails and categorize by urgency. Produces a structured triage report with recommended actions.",
+      "arguments": [
+        {
+          "name": "account",
+          "description": "Account name to triage",
+          "required": true
+        },
+        {
+          "name": "mailbox",
+          "description": "Mailbox to triage (default: INBOX)",
+          "required": true
+        },
+        {
+          "name": "limit",
+          "description": "Maximum number of unread emails to analyze (default: 20)",
           "required": true
         }
       ]
@@ -2157,28 +2157,28 @@
       "uriTemplate": null
     },
     {
-      "name": "mailboxes",
-      "description": "Mailbox folder tree with message counts for an account",
-      "uri": null,
-      "uriTemplate": "email://{account}/mailboxes"
-    },
-    {
-      "name": "unread",
-      "description": "Unread email count summary by folder for an account",
-      "uri": null,
-      "uriTemplate": "email://{account}/unread"
-    },
-    {
       "name": "templates",
       "description": "User-defined email template with variable placeholders",
       "uri": null,
       "uriTemplate": "email://templates/{name}"
     },
     {
+      "name": "mailboxes",
+      "description": "Mailbox folder tree with message counts for an account",
+      "uri": null,
+      "uriTemplate": "email://{account}/mailboxes"
+    },
+    {
       "name": "stats",
       "description": "Daily inbox statistics snapshot with unread count and quota",
       "uri": null,
       "uriTemplate": "email://{account}/stats"
+    },
+    {
+      "name": "unread",
+      "description": "Unread email count summary by folder for an account",
+      "uri": null,
+      "uriTemplate": "email://{account}/unread"
     }
   ]
 }
