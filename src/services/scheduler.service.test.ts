@@ -355,3 +355,55 @@ describe('SchedulerService queue files', () => {
     }
   });
 });
+
+describe('send_at calendar dates', () => {
+  beforeEach(() => {
+    // Faking timers as well hangs the async queue writes.
+    // 2028-02-29 is inside the horizon; a rolled-over impossible date is in the past.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2028-01-15T00:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function scheduleAt(sendAt: string) {
+    const { service } = createService();
+    return service.schedule('personal', {
+      to: ['user@example.com'],
+      subject: 'Hello',
+      body: 'Body',
+      sendAt,
+    });
+  }
+
+  it('rejects a send_at of 30 February', async () => {
+    await expect(scheduleAt('2027-02-30T09:00Z')).rejects.toThrow(
+      'Expected ISO 8601 date-time with UTC offset',
+    );
+  });
+
+  it('rejects a send_at of 31 September', async () => {
+    await expect(scheduleAt('2026-09-31T09:00Z')).rejects.toThrow(
+      'Expected ISO 8601 date-time with UTC offset',
+    );
+  });
+
+  it('rejects a send_at hour of 24', async () => {
+    await expect(scheduleAt('2026-10-01T24:00Z')).rejects.toThrow(
+      'Expected ISO 8601 date-time with UTC offset',
+    );
+  });
+
+  it('rejects 29 February when the year is not a leap year', async () => {
+    await expect(scheduleAt('2027-02-29T09:00Z')).rejects.toThrow(
+      'Expected ISO 8601 date-time with UTC offset',
+    );
+  });
+
+  it('accepts 29 February when the year is a leap year inside the horizon', async () => {
+    const scheduled = await scheduleAt('2028-02-29T09:00Z');
+    expect(scheduled.sendAt).toBe('2028-02-29T09:00:00.000Z');
+  });
+});

@@ -47,7 +47,8 @@ const SCHEDULE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-
 /** Seconds may be omitted. An offset is required because the server's local zone is ambiguous. */
 export const SEND_AT_FORMAT = 'ISO 8601 date-time with UTC offset, e.g. 2026-10-01T09:00:00+02:00';
 
-const SEND_AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
+const SEND_AT_RE =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 function scheduleIdFromFilename(filename: string): string | undefined {
   if (!filename.endsWith('.json')) return undefined;
@@ -117,8 +118,29 @@ async function countLiveSchedules(dir: string): Promise<number> {
   return statuses.filter((status) => status === 'pending' || status === 'sending').length;
 }
 
+function daysInMonth(year: number, month: number): number {
+  if (month === 2) {
+    // A century year is a leap year only when it is divisible by 400.
+    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    return leap ? 29 : 28;
+  }
+  if (month === 4 || month === 6 || month === 9 || month === 11) return 30;
+  return 31;
+}
+
 function parseSendAt(sendAt: string, now = Date.now()): Date {
-  if (sendAt.length > 40 || !SEND_AT_RE.test(sendAt)) {
+  const match = sendAt.length <= 40 ? SEND_AT_RE.exec(sendAt) : null;
+  if (!match) {
+    throw new Error(`Invalid send_at date: ${sendAt}. Expected ${SEND_AT_FORMAT}`);
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6] ?? 0);
+  // Date rolls 30 February and hour 24 forward. Check the fields before that.
+  if (month > 12 || day > daysInMonth(year, month) || hour > 23 || minute > 59 || second > 59) {
     throw new Error(`Invalid send_at date: ${sendAt}. Expected ${SEND_AT_FORMAT}`);
   }
   const date = new Date(sendAt);

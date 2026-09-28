@@ -49,7 +49,8 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 - `send_at` must be an ISO 8601 date-time with a UTC offset, for example
   `2026-10-01T09:00:00+02:00`. Seconds may be omitted (`2026-10-01T09:00Z`
   and `2026-10-01T09:00+02:00`). A time with no offset is rejected, because
-  the server's local zone is ambiguous.
+  the server's local zone is ambiguous. `send_at` with an impossible calendar
+  date is refused.
 
 - Scheduled mail is limited to 366 days ahead, 100 pending schedules
   (a message still being sent counts; a failed one does not), 50 recipients,
