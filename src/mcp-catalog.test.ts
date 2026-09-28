@@ -116,40 +116,30 @@ async function sourceFiles(dirName: string): Promise<{ file: string; text: strin
   );
 }
 
-function declaredNames(texts: string[], kind: Kind): string[] {
-  const names: string[] = [];
+function scanCalls(texts: string[], kind: 'tool' | 'prompt'): { name: string }[];
+function scanCalls(texts: string[], kind: 'resource'): DeclaredResource[];
+function scanCalls(texts: string[], kind: Kind): ({ name: string } | DeclaredResource)[] {
+  const found: ({ name: string } | DeclaredResource)[] = [];
   for (const text of texts) {
     for (const needle of callNeedles(kind)) {
       let from = 0;
       let at = text.indexOf(needle, from);
       while (at >= 0) {
-        names.push(readQuoted(text, at + needle.length).value);
-        from = at + needle.length;
-        at = text.indexOf(needle, from);
-      }
-    }
-  }
-  return names;
-}
-
-function declaredResources(texts: string[]): DeclaredResource[] {
-  const found: DeclaredResource[] = [];
-  for (const text of texts) {
-    for (const needle of callNeedles('resource')) {
-      let from = 0;
-      let at = text.indexOf(needle, from);
-      while (at >= 0) {
         const name = readQuoted(text, at + needle.length);
-        let cursor = skipWs(text, name.end);
-        if (text[cursor] !== ',') {
-          throw new Error(`expected a comma after resource ${name.value}`);
+        if (kind === 'resource') {
+          let cursor = skipWs(text, name.end);
+          if (text[cursor] !== ',') {
+            throw new Error(`expected a comma after resource ${name.value}`);
+          }
+          cursor = skipWs(text, cursor + 1);
+          const template = text.startsWith('new ResourceTemplate(', cursor);
+          const uri = template
+            ? readQuoted(text, cursor + 'new ResourceTemplate('.length).value
+            : readQuoted(text, cursor).value;
+          found.push({ name: name.value, uri, template });
+        } else {
+          found.push({ name: name.value });
         }
-        cursor = skipWs(text, cursor + 1);
-        const template = text.startsWith('new ResourceTemplate(', cursor);
-        const uri = template
-          ? readQuoted(text, cursor + 'new ResourceTemplate('.length).value
-          : readQuoted(text, cursor).value;
-        found.push({ name: name.value, uri, template });
         from = at + needle.length;
         at = text.indexOf(needle, from);
       }
@@ -273,7 +263,7 @@ async function collectLive(): Promise<LiveCatalog> {
     }
     const resourceTexts = (await sourceFiles('resources')).map((entry) => entry.text);
     const staticUris = new Set(
-      declaredResources(resourceTexts)
+      scanCalls(resourceTexts, 'resource')
         .filter((resource) => !resource.template)
         .map((resource) => resource.uri),
     );
@@ -321,20 +311,24 @@ describe('MCP registration catalog', () => {
 
   it('should expose a human-readable title for every tool declared in src/tools', () => {
     expect(live.tools.map((tool) => tool.name).sort()).toEqual(
-      declaredNames(toolSources, 'tool').sort(),
+      scanCalls(toolSources, 'tool')
+        .map((call) => call.name)
+        .sort(),
     );
     expect(missingTitles(live.tools)).toEqual([]);
   });
 
   it('should expose a human-readable title for every prompt declared in src/prompts', () => {
     expect(live.prompts.map((prompt) => prompt.name).sort()).toEqual(
-      declaredNames(promptSources, 'prompt').sort(),
+      scanCalls(promptSources, 'prompt')
+        .map((call) => call.name)
+        .sort(),
     );
     expect(missingTitles(live.prompts)).toEqual([]);
   });
 
   it('should expose a human-readable title and the same URI for every resource declared in src/resources', () => {
-    const declared = declaredResources(resourceSources);
+    const declared = scanCalls(resourceSources, 'resource');
     const byName = new Map(live.resources.map((resource) => [resource.name, resource]));
     expect([...byName.keys()].sort()).toEqual(declared.map((resource) => resource.name).sort());
     expect(missingTitles(live.resources)).toEqual([]);
