@@ -162,6 +162,18 @@ describe('validateWebhookUrl', () => {
     expect(() => validateWebhookUrl('http://[64:ff9b::a00:1]/hook')).toThrow('loopback or private');
   });
 
+  it('throws on a local-use NAT64 address', () => {
+    expect(() => validateWebhookUrl('http://[64:ff9b:1::a00:1]/hook')).toThrow(
+      'loopback or private',
+    );
+  });
+
+  it('throws on a local-use NAT64 address that looks like a public IPv4', () => {
+    expect(() => validateWebhookUrl('http://[64:ff9b:1::808:808]/hook')).toThrow(
+      'loopback or private',
+    );
+  });
+
   it('throws on a 6to4 address that embeds a private IPv4 address', () => {
     expect(() => validateWebhookUrl('http://[2002:a00:1::]/hook')).toThrow('loopback or private');
   });
