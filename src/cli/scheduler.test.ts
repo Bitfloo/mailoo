@@ -74,7 +74,7 @@ function variableShellHits(file: string, text: string): string[] {
     const arg = flag?.[2]?.trim() ?? '';
     if (!flag || isWholeStringLiteral(arg)) return [];
     const reason = `${match[1]} ${flag[1]} ${arg}`;
-    // The Windows notifier is the one constant script. Other shells in that file still fail.
+    // Other shells in that file still fail.
     if (file.endsWith(CONSTANT_POWERSHELL_NOTIFIER) && reason.startsWith('powershell -Command')) {
       return [];
     }

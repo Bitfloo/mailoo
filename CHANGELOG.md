@@ -25,7 +25,8 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
   supports sampling; when none is connected, mail that no rule matched
   goes to notifications.
 
-- Text from incoming mail in tool results is marked as external content.
+- Text from incoming mail in tool results is marked as external content, except
+  attachment names and bytes.
 
 - Scheduler install no longer overwrites an unreadable crontab.
 

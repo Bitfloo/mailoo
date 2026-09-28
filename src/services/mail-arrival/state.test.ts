@@ -39,25 +39,46 @@ describe('extractLinks', () => {
 });
 
 describe('buildMailState', () => {
-  it('keeps subject and filename byte-identical to the input', () => {
-    const subject = 'Invoice https://billing.example.com/pay';
-    const filename = 'inv.pdf';
-    const state = buildMailState({
-      email: email({ subject }),
+  const subject = 'Invoice https://billing.example.com/pay';
+  const filename = 'inv.pdf';
+  const displayName = 'Billing';
+  const address = 'billing@example.com';
+
+  function withoutBody() {
+    return buildMailState({
+      email: email({ subject, from: { name: displayName, address } }),
       security,
       bodyText: 'secret password body',
       attachmentNames: [{ filename, mime: 'application/pdf' }],
       includeBody: false,
       bodyMaxChars: 6000,
     });
-    expect(state.message.body).toBe('');
-    expect(state.message.sender.email).toBe('billing@example.com');
-    expect(state.message.sender.display_name).toBe('Billing');
-    expect(state.message.subject).toBe(subject);
-    expect(state.message.links).toEqual([
+  }
+
+  it('keeps the subject byte-identical to the input', () => {
+    expect(withoutBody().message.subject).toBe(subject);
+  });
+
+  it('keeps the attachment filename and mime byte-identical to the input', () => {
+    expect(withoutBody().message.attachments).toEqual([{ filename, mime: 'application/pdf' }]);
+  });
+
+  it('leaves the body empty when includeBody is false', () => {
+    expect(withoutBody().message.body).toBe('');
+  });
+
+  it('keeps the sender display name byte-identical to the input', () => {
+    expect(withoutBody().message.sender.display_name).toBe(displayName);
+  });
+
+  it('keeps the sender address from the input', () => {
+    expect(withoutBody().message.sender.email).toBe(address);
+  });
+
+  it('copies links from the subject when includeBody is false', () => {
+    expect(withoutBody().message.links).toEqual([
       { text: 'https://billing.example.com/pay', url: 'https://billing.example.com/pay' },
     ]);
-    expect(state.message.attachments).toEqual([{ filename, mime: 'application/pdf' }]);
   });
 
   it('truncates body when includeBody is true', () => {
