@@ -260,8 +260,3 @@ export function registerLabelReadTools(server: McpServer, imapService: ImapServi
 export function registerLabelWriteTools(server: McpServer, imapService: ImapService): void {
   registerLabelGroup(server, imapService, 'write');
 }
-
-export default function registerLabelTools(server: McpServer, imapService: ImapService): void {
-  registerLabelReadTools(server, imapService);
-  registerLabelWriteTools(server, imapService);
-}
