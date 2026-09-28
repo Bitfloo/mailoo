@@ -101,6 +101,7 @@ BLOCKED_WEBHOOK_ADDRESSES.addSubnet('fe80::', 10, 'ipv6'); // link-local
 BLOCKED_WEBHOOK_ADDRESSES.addSubnet('fec0::', 10, 'ipv6'); // site-local
 BLOCKED_WEBHOOK_ADDRESSES.addSubnet('64:ff9b:1::', 48, 'ipv6'); // local-use NAT64
 BLOCKED_WEBHOOK_ADDRESSES.addSubnet('100::', 64, 'ipv6'); // discard-only
+BLOCKED_WEBHOOK_ADDRESSES.addSubnet('100:0:0:1::', 64, 'ipv6'); // dummy prefix
 BLOCKED_WEBHOOK_ADDRESSES.addSubnet('5f00::', 16, 'ipv6'); // SRv6 SIDs
 
 const METADATA_WEBHOOK_HOSTS = new Set(['metadata.google.internal', 'metadata.goog']);

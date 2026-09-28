@@ -50,7 +50,8 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
   was checked, so a name whose answer changes before connect is still
   refused. Shared address space (`100.64.0.0/10`, including tailnet
   addresses), benchmarking, reserved, site-local, local-use NAT64
-  (`64:ff9b:1::/48`), discard-only (`100::/64`), SRv6 (`5f00::/16`), and
+  (`64:ff9b:1::/48`), discard-only (`100::/64`),
+  dummy prefix (`100:0:0:1::/64`), SRv6 (`5f00::/16`), and
   IPv4 embedded in a compatible, NAT64, or 6to4 address are refused too.
   Webhooks to a LAN, VPN, or tailnet service need `allow_private_webhooks = true`.
 

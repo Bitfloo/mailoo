@@ -197,9 +197,21 @@ describe('validateWebhookUrl', () => {
     );
   });
 
-  // Sibling under /63. A wider block of this network would refuse it.
+  // Sibling under /62. The /63 sibling is the dummy prefix, so a wider
+  // block of the discard-only network is what would refuse this address.
   it('allows an address outside the discard-only prefix', () => {
-    expect(() => validateWebhookUrl('http://[100:0:0:1::1]/hook')).not.toThrow();
+    expect(() => validateWebhookUrl('http://[100:0:0:2::1]/hook')).not.toThrow();
+  });
+
+  it('throws on a dummy prefix address', () => {
+    expect(() => validateWebhookUrl('http://[100:0:0:1::1]/hook')).toThrow('loopback or private');
+  });
+
+  // First bit after /64. Any longer prefix of this network leaves it out.
+  it('throws on a dummy prefix address that a one-bit longer prefix would allow', () => {
+    expect(() => validateWebhookUrl('http://[100:0:0:1:8000::1]/hook')).toThrow(
+      'loopback or private',
+    );
   });
 
   it('throws on an SRv6 SID address', () => {
