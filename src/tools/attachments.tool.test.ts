@@ -18,6 +18,23 @@ type DownloadHandler = (args: {
   savePath?: string;
 }) => Promise<{ isError?: boolean; content: { type: string; text: string }[] }>;
 
+async function filesystemIgnoresCase(): Promise<boolean> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-case-'));
+  try {
+    await fs.writeFile(path.join(dir, 'CaseProbe'), '');
+    try {
+      await fs.stat(path.join(dir, 'caseprobe'));
+      return true;
+    } catch {
+      return false;
+    }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+}
+
+const caseInsensitiveFilesystem = await filesystemIgnoresCase();
+
 function captureDownload(imap: unknown, readOnly = false): DownloadHandler {
   let handler: DownloadHandler | undefined;
   const server = {
@@ -126,6 +143,30 @@ describe('writeAttachmentFile', () => {
       await fs.rm(home, { recursive: true, force: true });
     }
   });
+
+  // Linux filesystems are case-sensitive; the macOS pre-push unit lane runs this.
+  it.runIf(caseInsensitiveFilesystem)(
+    'should refuse savePath library/LaunchAgents when the directory on disk is Library',
+    async () => {
+      const home = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-home-'));
+      const agents = path.join(home, 'Library', 'LaunchAgents');
+      await fs.mkdir(agents, { recursive: true });
+      try {
+        await withPinnedRoots(home, home, async () => {
+          await expect(
+            writeAttachmentFile(
+              path.join('library', 'LaunchAgents', 'x.plist'),
+              'x.plist',
+              Buffer.from('pwned'),
+            ),
+          ).rejects.toThrow(/not allowed/);
+        });
+        expect(await fs.readdir(agents)).toEqual([]);
+      } finally {
+        await fs.rm(home, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('should refuse a savePath whose resolved path is under Library/LaunchAgents', async () => {
     const home = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-home-'));

@@ -24,6 +24,23 @@ function opts(dirs: { cwd: string; home: string }) {
   return { root: dirs.cwd, homeDir: dirs.home };
 }
 
+async function filesystemIgnoresCase(): Promise<boolean> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-case-'));
+  try {
+    await fs.writeFile(path.join(dir, 'CaseProbe'), '');
+    try {
+      await fs.stat(path.join(dir, 'caseprobe'));
+      return true;
+    } catch {
+      return false;
+    }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+}
+
+const caseInsensitiveFilesystem = await filesystemIgnoresCase();
+
 describe('resolveOutgoingAttachments', () => {
   it('should read a regular file inside the working directory', async () => {
     await withRoots(async (dirs) => {
@@ -281,6 +298,21 @@ describe('resolveOutgoingAttachments', () => {
       );
     });
   });
+
+  // Linux filesystems are case-sensitive; the macOS pre-push unit lane runs this.
+  it.runIf(caseInsensitiveFilesystem)(
+    'should refuse ~/library/Messages when the directory on disk is Library',
+    async () => {
+      await withRoots(async (dirs) => {
+        const messages = path.join(dirs.home, 'Library', 'Messages');
+        await fs.mkdir(messages, { recursive: true });
+        await fs.writeFile(path.join(messages, 'chat.txt'), 'not-messages');
+        await expect(
+          resolveOutgoingAttachments([{ path: '~/library/Messages/chat.txt' }], opts(dirs)),
+        ).rejects.toThrow(/not allowed/);
+      });
+    },
+  );
 
   it('should reject a file under ~/Library', async () => {
     await withRoots(async (dirs) => {
