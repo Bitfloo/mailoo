@@ -855,11 +855,8 @@ host = "imap.example.com"
 host = "smtp.example.com"
 `;
 
-/** The http command loads the MCP host before the socket accepts. */
-const HTTP_COMMAND_READY_MS = 8_000;
-
-/** The health request or the refused exit still runs after the listen wait. */
-const HTTP_COMMAND_AFTER_READY_MS = 12_000;
+// Bounds a hang only: under parallel unit suites the http command did not print its listening line within 8 s.
+const HTTP_COMMAND_TEST_MS = 60_000;
 
 async function freeLoopbackPort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -877,11 +874,9 @@ async function waitForText(child: ChildProcess, text: () => string, needle: stri
   if (text().includes(needle)) return;
   await new Promise<void>((resolve, reject) => {
     let settled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
     let onData: () => void = () => {};
     let onExit: () => void = () => {};
     const detach = (): void => {
-      if (timer) clearTimeout(timer);
       child.stdout?.off('data', onData);
       child.stderr?.off('data', onData);
       child.off('exit', onExit);
@@ -900,23 +895,17 @@ async function waitForText(child: ChildProcess, text: () => string, needle: stri
       if (text().includes(needle)) settle();
       else settle(new Error(`http command exited ${child.exitCode}: ${text()}`));
     };
-    timer = setTimeout(() => {
-      settle(new Error(`http command did not listen: ${text()}`));
-    }, HTTP_COMMAND_READY_MS);
     child.stdout?.on('data', onData);
     child.stderr?.on('data', onData);
     child.on('exit', onExit);
     if (text().includes(needle)) settle();
+    else if (child.exitCode !== null || child.signalCode !== null) onExit();
   });
 }
 
 async function childResult(child: ChildProcess): Promise<number | null> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error('http command did not exit'));
-    }, HTTP_COMMAND_READY_MS);
+  return new Promise((resolve) => {
     const finish = (code: number | null): void => {
-      clearTimeout(timer);
       resolve(code);
     };
     child.once('exit', finish);
@@ -957,18 +946,27 @@ async function withHttpCommand(
   const exited = new Promise<void>((resolve) => {
     child.once('exit', () => resolve());
   });
+  let stopping: Promise<void> | undefined;
+  const stop = async (): Promise<void> => {
+    stopping ??= (async () => {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGTERM');
+        const killTimer = setTimeout(() => {
+          if (child.exitCode === null) child.kill('SIGKILL');
+        }, 2_000);
+        await exited;
+        clearTimeout(killTimer);
+      }
+      await rm(root, { recursive: true, force: true });
+    })();
+    await stopping;
+  };
+  // Vitest does not cancel a timed-out test body, so the finally below never runs on that path.
+  onTestFinished(stop);
   try {
     await run(child, () => combined);
   } finally {
-    if (child.exitCode === null && child.signalCode === null) {
-      child.kill('SIGTERM');
-      const killTimer = setTimeout(() => {
-        if (child.exitCode === null) child.kill('SIGKILL');
-      }, 2_000);
-      await exited;
-      clearTimeout(killTimer);
-    }
-    await rm(root, { recursive: true, force: true });
+    await stop();
   }
 }
 
@@ -985,7 +983,7 @@ describe('HTTP entrypoint', () => {
         expect(foreign.body).not.toContain('"ok":true');
       });
     },
-    HTTP_COMMAND_READY_MS + HTTP_COMMAND_AFTER_READY_MS,
+    HTTP_COMMAND_TEST_MS,
   );
 
   it(
@@ -998,6 +996,6 @@ describe('HTTP entrypoint', () => {
         expect(output()).toMatch(/MCP_EMAIL_HTTP_TOKEN/);
       });
     },
-    HTTP_COMMAND_READY_MS + HTTP_COMMAND_AFTER_READY_MS,
+    HTTP_COMMAND_TEST_MS,
   );
 });
