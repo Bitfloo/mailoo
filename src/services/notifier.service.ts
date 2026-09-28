@@ -265,7 +265,7 @@ export async function postWebhook(
             'Content-Type': 'application/json',
             'Content-Length': Buffer.byteLength(body),
           },
-          // A pooled socket skips lookup, so a later POST would not be checked.
+          // Agent pools key on host:port, not lookup: a socket opened under other options would be reused unchecked.
           agent: false,
           lookup,
           signal: options.signal,
