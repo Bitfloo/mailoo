@@ -111,6 +111,8 @@ src/
    reads, write tools inside `if (!readOnly)`. Add a read-only tool to the
    registered-tools list in
    [`docs/configuration.md`](docs/configuration.md#settingsread_only).
+   A new file in `src/tools/` also needs a `vi.mock` line in
+   `src/tools/register.test.ts`, like the other tool modules.
 6. Run `pnpm test -- -u src/mcp-catalog.test.ts` and review the baseline diff.
    A changed name, input schema, or URI of an existing tool, resource, or
    prompt is a breaking change and needs a major version bump.
