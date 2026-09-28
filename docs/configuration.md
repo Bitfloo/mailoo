@@ -155,7 +155,7 @@ MCP_EMAIL_HTTP_ALLOWED_HOSTS='mail.example:18080' \
 Each request is checked before the body is handed to the MCP session:
 
 - `Host` must be an allowed name, on the port rule above
-- `Origin`, when present, must be `http:` or `https:` for an allowed host, with the same port rule as `Host` (a TLS-terminating proxy)
+- `Origin`, when present, must be `http:` or `https:` (a TLS-terminating proxy) for an allowed host, with the same port rule as `Host`
 - `POST` must be `application/json` and at most **8 MiB**
 - `X-Forwarded-Host` is ignored
 

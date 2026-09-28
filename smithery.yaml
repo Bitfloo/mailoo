@@ -156,7 +156,7 @@ startCommand:
         description: "HTTP listen address. Defaults to loopback. The host argument wins."
       MCP_EMAIL_HTTP_TOKEN:
         type: string
-        description: "Bearer token. Required when the HTTP listen address is not loopback."
+        description: "Bearer token. Required when the HTTP listen address is not loopback or MCP_EMAIL_HTTP_ALLOWED_HOSTS lists a non-loopback name."
       MCP_EMAIL_HTTP_ALLOWED_HOSTS:
         type: string
         description: "Comma-separated Host names. Required for 0.0.0.0 and ::."

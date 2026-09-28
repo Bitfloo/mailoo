@@ -314,7 +314,7 @@
         },
         {
           "name": "MCP_EMAIL_HTTP_TOKEN",
-          "description": "Bearer token. Required when the HTTP listen address is not loopback.",
+          "description": "Bearer token. Required when the HTTP listen address is not loopback or MCP_EMAIL_HTTP_ALLOWED_HOSTS lists a non-loopback name.",
           "isRequired": false,
           "isSecret": true
         },
