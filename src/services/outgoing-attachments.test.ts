@@ -144,6 +144,39 @@ describe('resolveOutgoingAttachments', () => {
     });
   });
 
+  // O_NOFOLLOW is what refuses a symlink swapped in before the read.
+  it('should refuse an outgoing attachment swapped for a symlink after the check', async () => {
+    await withRoots(async (dirs) => {
+      const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-secret-'));
+      const file = path.join(dirs.cwd, 'note.txt');
+      const secretBytes = 'swapped-secret-marker';
+      const secret = path.join(outside, 'secret.txt');
+      let opened: { mockRestore: () => void } | undefined;
+      try {
+        await fs.writeFile(file, 'allowed-body');
+        await fs.writeFile(secret, secretBytes);
+        const realOpen = fs.open.bind(fs);
+        opened = vi.spyOn(fs, 'open').mockImplementationOnce(async (...args) => {
+          await fs.rm(file);
+          await fs.symlink(secret, file);
+          return realOpen(...args);
+        });
+        const outcome = await resolveOutgoingAttachments([{ path: file }], opts(dirs)).then(
+          (parts) => parts.map((part) => part.content.toString('utf8')).join(''),
+          (error: unknown) => {
+            if (!(error instanceof Error)) throw error;
+            return error.message;
+          },
+        );
+        expect(outcome).toBe('Attachment path is not allowed');
+      } finally {
+        opened?.mockRestore();
+        await fs.rm(dirs.cwd, { recursive: true, force: true });
+        await fs.rm(outside, { recursive: true, force: true });
+      }
+    });
+  });
+
   it('should reject an http URL without fetching it', async () => {
     const hits: string[] = [];
     const server = http.createServer((req, res) => {
