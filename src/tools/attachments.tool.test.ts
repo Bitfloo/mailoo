@@ -371,6 +371,26 @@ describe('writeAttachmentFile', () => {
     }
   });
 
+  it('should refuse savePath when a file appears between the checks and the open', async () => {
+    await withCwdTempDir(async (dir) => {
+      const dest = path.join(dir, 'a.txt');
+      const originalOpen = fs.open;
+      const open = vi.spyOn(fs, 'open').mockImplementationOnce(async (target, flags, mode) => {
+        await fs.writeFile(target, 'kept');
+        return originalOpen(target, flags, mode);
+      });
+      try {
+        // lstat already passed; O_EXCL is what refuses a file created before open.
+        await expect(writeAttachmentFile(dest, 'a.txt', Buffer.from('pwned'))).rejects.toThrow(
+          'savePath already exists',
+        );
+        expect(await fs.readFile(dest, 'utf8')).toBe('kept');
+      } finally {
+        open.mockRestore();
+      }
+    });
+  });
+
   it('strips control characters from an attachment filename', async () => {
     await withCwdTempDir(async (dir) => {
       const saved = await writeAttachmentFile(dir, 'a\nb.txt', Buffer.from('line'));
