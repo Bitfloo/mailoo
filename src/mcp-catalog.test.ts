@@ -4,7 +4,9 @@
  * registerTool / registerResource / registerPrompt.
  */
 
+import { spawn } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -192,6 +194,43 @@ function scrubMachinePaths(value: unknown): unknown {
   return value;
 }
 
+const require = createRequire(import.meta.url);
+
+// File snapshots compare bytes. The formatter keeps short arrays on one line,
+// so the string has to be formatted the same way or an update rewrites every
+// array and the next format check writes it back.
+async function formatCatalogJson(raw: string): Promise<string> {
+  const biome = require.resolve('@biomejs/biome/bin/biome');
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [biome, 'format', '--stdin-file-path=mcp-catalog.baseline.json'],
+      { stdio: ['pipe', 'pipe', 'pipe'] },
+    );
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout.push(chunk);
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr.push(chunk);
+    });
+    child.on('error', reject);
+    child.on('close', (status) => {
+      if (status !== 0) {
+        reject(
+          new Error(
+            Buffer.concat(stderr).toString('utf8') || 'could not format the catalog baseline',
+          ),
+        );
+        return;
+      }
+      resolve(Buffer.concat(stdout).toString('utf8'));
+    });
+    child.stdin.end(raw);
+  });
+}
+
 function toContract(live: LiveCatalog): unknown {
   return scrubMachinePaths({
     tools: live.tools.map((tool) => ({
@@ -312,7 +351,8 @@ describe('MCP registration catalog', () => {
   });
 
   it('should keep listed names, descriptions, input schemas, and URIs identical to the captured catalog', async () => {
-    const baseline = JSON.parse(await readFile(baselinePath, 'utf8')) as unknown;
-    expect(toContract(live)).toEqual(baseline);
+    await expect(
+      await formatCatalogJson(`${JSON.stringify(toContract(live), null, 2)}\n`),
+    ).toMatchFileSnapshot('./mcp-catalog.baseline.json');
   });
 });
