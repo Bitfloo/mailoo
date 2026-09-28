@@ -245,7 +245,7 @@ export function preferRicherPlain(plain: string | undefined, html: string | unde
 /**
  * Applies the requested body format and optional character cap.
  *
- * - full:     bodyText ?? bodyHtml (skips raw MIME dumps)
+ * - full:     bodyText, else sanitized bodyHtml (skips raw MIME dumps)
  * - text:     prefers plain; uses richer HTML-derived text when the plain part is a stub
  * - stripped: like text, then removes quoted reply chains and signatures
  */
