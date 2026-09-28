@@ -418,7 +418,7 @@ describe('writeAttachmentFile', () => {
       const noFollow = fsConstants.O_NOFOLLOW ?? 0;
       let caught: unknown;
       try {
-        // Open flags are a bitmask; O_NOFOLLOW on a symlink returns ELOOP.
+        // Open flags are a bitmask.
         // eslint-disable-next-line no-bitwise
         await fs.open(link, fsConstants.O_RDONLY | noFollow);
       } catch (err) {
