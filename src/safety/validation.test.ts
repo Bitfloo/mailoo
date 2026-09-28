@@ -174,12 +174,46 @@ describe('validateWebhookUrl', () => {
     );
   });
 
+  // First bit after /48. Any longer prefix of this network leaves it out.
+  it('throws on a local-use NAT64 address that a shorter prefix would allow', () => {
+    expect(() => validateWebhookUrl('http://[64:ff9b:1:8000::1]/hook')).toThrow(
+      'loopback or private',
+    );
+  });
+
+  // Sibling under /47. A wider block of this network would refuse it.
+  it('allows an address outside the local-use NAT64 prefix', () => {
+    expect(() => validateWebhookUrl('http://[64:ff9b:0:1::1]/hook')).not.toThrow();
+  });
+
   it('throws on a discard-only address', () => {
     expect(() => validateWebhookUrl('http://[100::1]/hook')).toThrow('loopback or private');
   });
 
+  // First bit after /64. Any longer prefix of this network leaves it out.
+  it('throws on a discard-only address that a shorter prefix would allow', () => {
+    expect(() => validateWebhookUrl('http://[100:0:0:0:8000::1]/hook')).toThrow(
+      'loopback or private',
+    );
+  });
+
+  // Sibling under /63. A wider block of this network would refuse it.
+  it('allows an address outside the discard-only prefix', () => {
+    expect(() => validateWebhookUrl('http://[100:0:0:1::1]/hook')).not.toThrow();
+  });
+
   it('throws on an SRv6 SID address', () => {
     expect(() => validateWebhookUrl('http://[5f00::1]/hook')).toThrow('loopback or private');
+  });
+
+  // First bit after /16. Any longer prefix of this network leaves it out.
+  it('throws on an SRv6 SID address that a shorter prefix would allow', () => {
+    expect(() => validateWebhookUrl('http://[5f00:8000::1]/hook')).toThrow('loopback or private');
+  });
+
+  // Sibling under /15. A wider block of this network would refuse it.
+  it('allows an address outside the SRv6 SID prefix', () => {
+    expect(() => validateWebhookUrl('http://[5f01::1]/hook')).not.toThrow();
   });
 
   it('throws on a 6to4 address that embeds a private IPv4 address', () => {
