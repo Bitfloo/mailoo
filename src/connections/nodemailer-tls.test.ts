@@ -42,7 +42,6 @@ async function createUntrustedCert(): Promise<{
     '/CN=127.0.0.1',
     '-addext',
     'subjectAltName=IP:127.0.0.1',
-    '-quiet',
   ]);
   return {
     cert: await readFile(certPath),
