@@ -120,10 +120,10 @@ node dist/main.js setup
 
 The running image needs Docker, not Node on the host. Create the config first with `npx -y @bitfloo/mailoo setup` (or write the TOML by hand), then mount that directory into the container.
 
-The image is `ghcr.io/bitfloo/mailoo`, built for linux/amd64 and linux/arm64. Tags are bare semver (no `v` prefix), for example `ghcr.io/bitfloo/mailoo:0.1.7`:
+The image is `ghcr.io/bitfloo/mailoo`, built for linux/amd64 and linux/arm64. Tags are bare semver (no `v` prefix). The `0.1` tag follows the newest 0.1.x release. Production setups should pin the full version from the release (it matches the npm version) or the image digest.
 
 ```bash
-docker pull ghcr.io/bitfloo/mailoo:0.1.7
+docker pull ghcr.io/bitfloo/mailoo:0.1
 ```
 
 To build from a clone instead (`docker-compose.yml` uses `build: .`):
@@ -312,12 +312,12 @@ MCP tools are exposed as `mailoo_<tool_name>` (e.g. `mailoo_list_emails`). Resta
 <details>
 <summary><strong>Docker (any MCP client)</strong></summary>
 
-Run the server in a container — mount your config directory read-only. The image is `ghcr.io/bitfloo/mailoo` (pull a tag such as `0.1.7`, or build it with `docker build -t ghcr.io/bitfloo/mailoo .`):
+Run the server in a container — mount your config directory read-only. The image is `ghcr.io/bitfloo/mailoo:0.1` (or build it with `docker build -t ghcr.io/bitfloo/mailoo .`):
 
 ```bash
 docker run --rm -i \
   -v ~/.config/mailoo:/home/node/.config/mailoo:ro \
-  ghcr.io/bitfloo/mailoo
+  ghcr.io/bitfloo/mailoo:0.1
 ```
 
 For MCP client configuration (e.g. Claude Desktop):
@@ -330,7 +330,7 @@ For MCP client configuration (e.g. Claude Desktop):
       "args": [
         "run", "--rm", "-i",
         "-v", "~/.config/mailoo:/home/node/.config/mailoo:ro",
-        "ghcr.io/bitfloo/mailoo"
+        "ghcr.io/bitfloo/mailoo:0.1"
       ]
     }
   }
