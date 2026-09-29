@@ -120,10 +120,10 @@ node dist/main.js setup
 
 The running image needs Docker, not Node on the host. Create the config first with `npx -y @bitfloo/mailoo setup` (or write the TOML by hand), then mount that directory into the container.
 
-The image is `ghcr.io/bitfloo/mailoo`, built for linux/amd64 and linux/arm64. Tags are bare semver (no `v` prefix), for example `ghcr.io/bitfloo/mailoo:0.1.6`:
+The image is `ghcr.io/bitfloo/mailoo`, built for linux/amd64 and linux/arm64. Tags are bare semver (no `v` prefix), for example `ghcr.io/bitfloo/mailoo:0.1.7`:
 
 ```bash
-docker pull ghcr.io/bitfloo/mailoo:0.1.6
+docker pull ghcr.io/bitfloo/mailoo:0.1.7
 ```
 
 To build from a clone instead (`docker-compose.yml` uses `build: .`):
@@ -312,7 +312,7 @@ MCP tools are exposed as `mailoo_<tool_name>` (e.g. `mailoo_list_emails`). Resta
 <details>
 <summary><strong>Docker (any MCP client)</strong></summary>
 
-Run the server in a container — mount your config directory read-only. The image is `ghcr.io/bitfloo/mailoo` (pull a tag such as `0.1.6`, or build it with `docker build -t ghcr.io/bitfloo/mailoo .`):
+Run the server in a container — mount your config directory read-only. The image is `ghcr.io/bitfloo/mailoo` (pull a tag such as `0.1.7`, or build it with `docker build -t ghcr.io/bitfloo/mailoo .`):
 
 ```bash
 docker run --rm -i \
