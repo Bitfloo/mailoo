@@ -62,9 +62,10 @@ GreenMail and a Docker build on **pull requests**, not on every operator push.
 ### Commit Messages
 
 We follow [Conventional Commits](https://www.conventionalcommits.org/).
-Cocogitto (`cog`) verifies the format. Lefthook also rejects messages that
-would leak operator paths or plugin dispatch names on public GitHub
-(`.claude/rules/public-git.md`).
+Cocogitto (`cog`) verifies the format. Messages must not contain file paths
+from your own machine or names of internal tools. A commit-msg hook and a
+pull request check reject them. The pattern lives in
+`scripts/check-public-git-log.sh` (see `.claude/rules/public-git.md`).
 
 ```
 feat: add calendar event parsing
@@ -74,8 +75,8 @@ refactor: extract connection retry logic
 test: add rate limiter unit tests
 ```
 
-Do not name internal plugins, model slugs, or machine paths in the subject
-or body. Do not rewrite commits that are already on GitHub.
+Do not put file paths from your own machine or names of internal tools in the
+subject or body. Do not rewrite commits that are already on GitHub.
 
 Releases: `package.json` `version`, annotated tags `v*`, `CHANGELOG.md`
 (cocogitto). First Mailoo release is **0.1.0**. While on **0.1.x**, `cog bump

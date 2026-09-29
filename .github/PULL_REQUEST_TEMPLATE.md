@@ -1,7 +1,9 @@
 ## Description
 
-What changed and why it matters to a clone of this repo. No operator paths,
-plugin dispatch names, or model slugs (see `.claude/rules/public-git.md`).
+What changed and why it matters to a clone of this repo. Messages must not
+contain file paths from your own machine or names of internal tools. A
+commit-msg hook and a pull request check reject them. The pattern lives in
+`scripts/check-public-git-log.sh` (see `.claude/rules/public-git.md`).
 
 ## Type of change
 
