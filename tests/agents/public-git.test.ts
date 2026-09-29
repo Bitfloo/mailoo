@@ -42,4 +42,12 @@ describe('public git log gate', () => {
     expect(scanFile('fix: path /Users/me/mailoo\n').status).not.toBe(0);
     expect(scanFile('docs: load AI-DATA brand\n').status).not.toBe(0);
   });
+
+  it('should reject a private session link', () => {
+    expect(
+      scanFile(
+        'docs: note a public change\n\nClaude-Session: https://claude.ai/code/session_0123abc\n',
+      ).status,
+    ).not.toBe(0);
+  });
 });

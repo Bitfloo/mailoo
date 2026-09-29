@@ -9,7 +9,7 @@ usage() {
 }
 
 # Case-insensitive extended regex. Tested in tests/agents/public-git.test.ts.
-FORBIDDEN='(/Users/|/home/|AI-DATA|PROJEKTY|_knowledge/|cbc:test-auditor|cbc:test-smith|cbc:push-gate|cursor-grok|L4 twins)'
+FORBIDDEN='(/Users/|/home/|AI-DATA|PROJEKTY|_knowledge/|cbc:test-auditor|cbc:test-smith|cbc:push-gate|cursor-grok|L4 twins|Claude-Session:|claude\.ai/code/session_)'
 
 scan() {
   local label=$1
