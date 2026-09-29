@@ -197,6 +197,37 @@ They are **not** Mailoo releases. Commit links point at
 - add pnpm install and usage instructions - ([13c8d4b](https://github.com/codefuturist/email-mcp/commit/13c8d4bf3006fa4fb5f014eb630006a478082a23))
 
 - - -
+## [v0.1.7](https://github.com/bitfloo/mailoo/compare/208362959506aab9b5c5e4a327fa922aed90112c..v0.1.7) - 2026-09-29
+#### 🐛 Bug Fixes
+- (**scheduler**) keep a claim alive while its email is being sent - ([669b051](https://github.com/bitfloo/mailoo/commit/669b051447540966b941fc9584a093aa1db83060)) - Mike, Cursor
+- (**scheduler**) keep the pending cap when schedule() calls run in parallel - ([b714934](https://github.com/bitfloo/mailoo/commit/b7149340e70e806c3f6eb2e26ee578bd46feb350)) - Mike, Cursor
+- (**scheduler**) send a due email at most once when two checks overlap - ([e8fa0e2](https://github.com/bitfloo/mailoo/commit/e8fa0e21c1bb5b13152025254067c7205883a7a9)) - Mike, Cursor
+- pin clack so cancelled prompts stay out of the value type - ([20b910f](https://github.com/bitfloo/mailoo/commit/20b910f8e0ca13a6a1cc865061c43a70f2949d9e)) - Mike, Cursor
+- pin clack so cancelled prompts stay out of the value type - ([e50bb68](https://github.com/bitfloo/mailoo/commit/e50bb68d0c88b15d9601c9b2592bed61ff4ff1a3)) - Mike, Cursor
+#### ⏪ Reverts
+- take the clack pin off develop - ([4d70713](https://github.com/bitfloo/mailoo/commit/4d7071389f0f06841584ba7bca93737a5114aae2)) - Mike, Cursor
+#### 📚 Documentation
+- (**changelog**) date the 0.1.7 release - ([2d57c50](https://github.com/bitfloo/mailoo/commit/2d57c50a9e424f768ce062b7110fde03fc887710)) - Mike, Claude Opus 5.5
+- (**changelog**) file the at-least-once scheduler note under Unreleased - ([3552089](https://github.com/bitfloo/mailoo/commit/3552089b87f362efb3b1d780c1c3990460993846)) - Mike, Claude Opus 5.5
+- (**readme**) name the 0.1.7 image tag - ([0faba3a](https://github.com/bitfloo/mailoo/commit/0faba3a7f48d278e8fb4f8bee4cd12f7042e4697)) - Mike, Claude Opus 5.5
+- (**readme**) point the M8ven badge at its canonical path - ([5d162db](https://github.com/bitfloo/mailoo/commit/5d162db9286b2085a9a1559d1561ee3067c4b9df)) - Mike, Claude Opus 5.5
+- (**readme**) include other server processes in the scheduler claim note - ([f23ab14](https://github.com/bitfloo/mailoo/commit/f23ab1425b25e0926da67fb52b1093de0b843bdc)) - Mike, Claude Opus 5.5
+- (**readme**) pull the published image from ghcr - ([579c0e6](https://github.com/bitfloo/mailoo/commit/579c0e601514ef4e82dca5359053b29396e72ad4)) - Mike, Claude Opus 5.5
+- (**readme**) describe how the scheduler claims a queued email - ([2969aa0](https://github.com/bitfloo/mailoo/commit/2969aa035d0a5220c9bc7099a9e3e36fe618cf60)) - Mike, Cursor
+- add M8ven verified badge to README - ([2083629](https://github.com/bitfloo/mailoo/commit/208362959506aab9b5c5e4a327fa922aed90112c)) - Claude, Claude Opus 5.5
+#### Tests
+- (**http**) drop the unreachable checks in the http command helpers - ([0ca2953](https://github.com/bitfloo/mailoo/commit/0ca2953174905cd04063ae43616dcd65896c9121)) - Mike, Cursor
+- (**http**) let the http command tests wait on the listen line, not a wall-clock race - ([3a305d5](https://github.com/bitfloo/mailoo/commit/3a305d5805a234d4e7e15e86d9ff080e62ca8099)) - Mike, Cursor
+- (**scheduler**) pin the cancel error messages - ([bbb8acf](https://github.com/bitfloo/mailoo/commit/bbb8acf172db37eaea5401bf01b93d1a5deabef2)) - Mike, Cursor
+- (**scheduler**) advance two stale windows in the renewal test - ([b087328](https://github.com/bitfloo/mailoo/commit/b08732897d42ee110a8328c97ed620f2e094b36a)) - Mike, Cursor
+- (**scheduler**) remove the test state directory after the whole file - ([9a61a91](https://github.com/bitfloo/mailoo/commit/9a61a9149cbe3dd933bac691bf7921c65e9f5985)) - Mike, Cursor
+#### ♻️ Refactoring
+- (**scheduler**) name the cancel errors once - ([9362157](https://github.com/bitfloo/mailoo/commit/9362157d1a3eb55d25d2cf7e72de55d68f4ad4b6)) - Mike, Cursor
+- (**scheduler**) keep treating an unreadable send time as due - ([895e6a9](https://github.com/bitfloo/mailoo/commit/895e6a9c57078b244cd9a1c6090ab091f8aa3246)) - Mike, Cursor
+- (**scheduler**) split the queue check and cancel into small steps - ([26d9977](https://github.com/bitfloo/mailoo/commit/26d99777579757a1487a3328eaf444f2e044be9a)) - Mike, Cursor
+
+- - -
+
 ## [v0.1.6](https://github.com/bitfloo/mailoo/compare/f8d3205e5c0fa2fb5ad7346b0a8b09953ed0e2e6..v0.1.6) - 2026-09-28
 #### 🐛 Bug Fixes
 - (**alerts**) refuse webhooks to the IPv6 dummy prefix - ([8abaf2e](https://github.com/bitfloo/mailoo/commit/8abaf2e9bdcb6953b76d5e5aff1058ec79367e72)) - Mike, Cursor

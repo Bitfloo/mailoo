@@ -6,12 +6,12 @@
     "url": "https://github.com/Bitfloo/mailoo.git",
     "source": "github"
   },
-  "version": "0.1.6",
+  "version": "0.1.7",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@bitfloo/mailoo",
-      "version": "0.1.6",
+      "version": "0.1.7",
       "runtimeHint": "npx",
       "runtimeArguments": [
         {
