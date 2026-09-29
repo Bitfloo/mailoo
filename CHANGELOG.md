@@ -6,7 +6,7 @@ The format follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 <!-- next-header -->
 
-## [Unreleased]
+## [0.1.7] — 2026-09-29
 
 ### Behaviour changes
 
