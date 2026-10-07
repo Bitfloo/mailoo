@@ -302,6 +302,13 @@ describe('SmtpService', () => {
       'SMTP.GMAIL.COM',
       'googlemail.com',
       'smtp.googlemail.com',
+      'mail.gmail.com',
+      'GoogleMail.com',
+      'mail.googlemail.com',
+      'gmail.com.',
+      'smtp.gmail.com.',
+      ' gmail.com',
+      'googlemail.com ',
     ])('skips Sent append when the SMTP host is %s', async (host) => {
       connections.getAccount.mockReturnValue(accountWithSmtp(host));
       await service.sendEmail('test', {
@@ -315,6 +322,20 @@ describe('SmtpService', () => {
     it.each([
       'gmail.com.evil.example',
       'notgmail.com',
+      'gmail.com.attacker.com',
+      'smtp.gmail.com.attacker.com',
+      'gmail.comfoo',
+      'xgmail.com',
+      '.gmail.com',
+      '.googlemail.com',
+      'gmail.com.evil.example.',
+      'notgmail.com.',
+      '',
+      '192.0.2.1',
+      '[2001:db8::1]',
+      'user:pass@gmail.com',
+      'notgmail.com@gmail.com',
+      'gm\u0430il.com',
     ])('still appends Sent when the SMTP host only contains %s', async (host) => {
       connections.getAccount.mockReturnValue(accountWithSmtp(host));
       await service.sendEmail('test', {

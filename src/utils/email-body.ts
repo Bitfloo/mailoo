@@ -138,13 +138,41 @@ function tagText(name: string, closing: boolean): string {
 
 const EVENT_HANDLER_NAME = /^on[a-z]+$/i;
 const STYLE_NAME = /^style$/i;
-const URL_ATTR_NAME = /^(?:href|src|action|poster|background)$/i;
+const URL_ATTR_NAME = /^(?:href|src|action|formaction|poster|background)$/i;
 const SAFE_URL_VALUE = /^(?:https?:|mailto:)/i;
 
+/**
+ * HTML consumes a numeric character reference without a semicolon
+ * (`on&#99lick` is `onclick`). Named references stay semicolon-terminated
+ * so `&amp` inside a word is left alone.
+ */
+function decodeNumericReferences(input: string): string {
+  return input.replace(/&#(x[0-9a-f]+|\d+);?/gi, (_entity, body: string) => {
+    const hex = body.startsWith('x') || body.startsWith('X');
+    const digits = hex ? body.slice(1) : body;
+    const code = Number.parseInt(digits, hex ? 16 : 10);
+    if (!Number.isInteger(code) || code <= 0 || code > 0x10ffff) return '';
+    // fromCodePoint throws on a lone surrogate.
+    if (code >= 0xd800 && code <= 0xdfff) return '';
+    return String.fromCodePoint(code);
+  });
+}
+
+function decodeBounded(input: string): string {
+  let current = input;
+  for (let pass = 0; pass < MAX_DECODE_PASSES; pass += 1) {
+    const next = decodeNumericReferences(decodeEntities(current));
+    if (next === current) return current;
+    current = next;
+  }
+  return current;
+}
+
 function dropAttribute(name: string, value: string | undefined): boolean {
+  const decodedName = decodeBounded(name);
+  if (EVENT_HANDLER_NAME.test(decodedName) || STYLE_NAME.test(decodedName)) return true;
   if (value === undefined) return false;
-  if (EVENT_HANDLER_NAME.test(name) || STYLE_NAME.test(name)) return true;
-  return URL_ATTR_NAME.test(name) && !SAFE_URL_VALUE.test(value);
+  return URL_ATTR_NAME.test(decodedName) && !SAFE_URL_VALUE.test(decodeBounded(value).trim());
 }
 
 interface ScannedAttribute {
@@ -165,12 +193,17 @@ function scanAttribute(input: string, start: number): ScannedAttribute {
   const name = input.slice(nameStart, i);
   if (!name) {
     const end = Math.min(input.length, i + 1);
-    return { end, kept: input.slice(start, end), drop: false };
+    const separator = (input[i] ?? '') === '/';
+    return { end, kept: separator ? '' : input.slice(start, end), drop: false };
   }
   const afterName = i;
   while (i < input.length && isSpace(input[i] ?? '')) i += 1;
   if ((input[i] ?? '') !== '=') {
-    return { end: afterName, kept: input.slice(start, afterName), drop: false };
+    return {
+      end: afterName,
+      kept: input.slice(start, afterName),
+      drop: dropAttribute(name, undefined),
+    };
   }
   i += 1;
   while (i < input.length && isSpace(input[i] ?? '')) i += 1;
@@ -201,14 +234,16 @@ function sanitizeAttributes(source: string): string {
   while (i < source.length) {
     const scanned = scanAttribute(source, i);
     if (scanned.end <= i) break;
-    if (!scanned.drop) out += scanned.kept;
+    if (!scanned.drop && scanned.kept) {
+      const needsSpace = !isSpace(scanned.kept[0] ?? '') && !isSpace(out.at(-1) ?? '');
+      out += needsSpace ? ` ${scanned.kept}` : scanned.kept;
+    }
     i = scanned.end;
   }
   return out;
 }
 
 function sanitizeTag(raw: string): string {
-  if (!/^<\/?[^\s>]+\s/.test(raw)) return raw;
   const match = /^<(\/?)([A-Za-z0-9]+)([\s\S]*)>$/.exec(raw);
   if (!match || match[1] === '/') return raw;
   return `<${match[2]}${sanitizeAttributes(match[3] ?? '')}>`;
