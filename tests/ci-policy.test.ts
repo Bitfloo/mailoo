@@ -121,14 +121,6 @@ function workflowName(yaml: string): string {
   return match[1];
 }
 
-function permissionBlock(yaml: string): string {
-  const match = yaml.match(/^permissions:\n((?: {2}[a-z-]+: (?:read|write|none)\n)+)/m);
-  if (!match) {
-    throw new Error('missing permissions');
-  }
-  return match[1];
-}
-
 /** Job keys are indented, so a column-0 match stays on the workflow permissions. */
 function topLevelPermissions(yaml: string): string {
   const match = yaml.match(/^permissions:[^\n]*(?:\n {2}[^\n]*)*/m);
@@ -160,7 +152,14 @@ describe('code scanning workflows', () => {
     const path = join(workflowDir, 'codeql.yml');
     const yaml = readFileSync(path, 'utf8');
     expect(workflowName(yaml)).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
-    expect(permissionBlock(yaml)).toBe('  contents: read\n  security-events: write\n');
+    expect(topLevelPermissions(yaml)).not.toMatch(/write/);
+    expect(topLevelPermissions(yaml)).toContain('contents: read');
+    const jobs = jobSections(yaml);
+    const analyzeJobs = jobs.filter((job) => job.includes('github/codeql-action/analyze@'));
+    expect(analyzeJobs).toHaveLength(1);
+    expect(analyzeJobs[0]).toContain('contents: read');
+    expect(analyzeJobs[0]).toContain('security-events: write');
+    expect(yaml.replace(analyzeJobs[0], '')).not.toContain('security-events: write');
     const on = onBlock(yaml);
     expect(on).toContain('pull_request:');
     expect(on).toContain('develop');
@@ -196,5 +195,33 @@ describe('code scanning workflows', () => {
     expect(cron[3]).toBe('*');
     expect(cron[4]).toMatch(/^[0-6]$/);
     expect(yaml).toContain('ossf/scorecard-action@');
+  });
+});
+
+describe('workflow token scope', () => {
+  it('does not grant write at the workflow level', () => {
+    const files = readdirSync(workflowDir).filter((name) => name.endsWith('.yml'));
+    expect(files.length).toBeGreaterThan(0);
+    for (const name of files) {
+      const yaml = readFileSync(join(workflowDir, name), 'utf8');
+      expect(topLevelPermissions(yaml), name).not.toMatch(/\bwrite\b/);
+    }
+  });
+});
+
+describe('docker rebuild images', () => {
+  it('rebuilds bookworm and alpine for the release architectures', () => {
+    const yaml = readFileSync(join(workflowDir, 'docker-rebuild.yml'), 'utf8');
+    expect(yaml).toContain('file: Dockerfile\n');
+    expect(yaml).toContain('file: Dockerfile.alpine\n');
+    expect(yaml.match(/platforms: linux\/amd64,linux\/arm64/g)).toHaveLength(2);
+    expect(yaml).toContain('docker/setup-qemu-action@');
+    expect(yaml).toContain('-alpine');
+    expect(yaml).toContain(':bookworm');
+    expect(yaml).toContain(':latest');
+    expect(yaml).not.toContain('sha-${{');
+    expect(topLevelPermissions(yaml)).not.toMatch(/write/);
+    const jobs = jobSections(yaml);
+    expect(jobs.some((job) => job.includes('packages: write'))).toBe(true);
   });
 });
