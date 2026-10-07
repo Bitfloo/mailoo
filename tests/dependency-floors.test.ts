@@ -11,7 +11,8 @@ import { repoRoot } from './agents/agent-file.js';
 const FLOORS: Record<string, string> = {
   nodemailer: '10.0.0',
   'smol-toml': '1.9.0',
-  '@modelcontextprotocol/sdk': '1.30.1',
+  '@modelcontextprotocol/sdk': '1.31.0',
+  'proxy-addr': '2.0.8',
   hono: '4.12.25',
   '@hono/node-server': '1.19.10',
   'express-rate-limit': '8.2.2',

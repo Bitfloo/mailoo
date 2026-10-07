@@ -16,13 +16,30 @@ import {
   resolveOutgoingAttachments,
 } from './outgoing-attachments.js';
 
+/** Trailing dots are the FQDN form of the same host. Userinfo stays: this value is a hostname, not a URL. */
+function normalizeSmtpHost(raw: string): string {
+  return raw.trim().toLowerCase().replace(/\.+$/u, '');
+}
+
 function isHostOrSubdomain(host: string, domain: string): boolean {
-  return host === domain || host.endsWith(`.${domain}`);
+  if (host === domain) return true;
+  const suffix = `.${domain}`;
+  if (!host.endsWith(suffix)) return false;
+  const prefix = host.slice(0, -suffix.length);
+  if (
+    prefix.length === 0 ||
+    prefix.startsWith('.') ||
+    prefix.endsWith('.') ||
+    prefix.includes('..')
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /** `notgmail.com` and `gmail.com.evil.example` contain the name and are not Gmail. */
 function providerFilesSentMail(smtpHost: string, oauthProvider?: string): boolean {
-  const host = smtpHost.toLowerCase();
+  const host = normalizeSmtpHost(smtpHost);
   return (
     isHostOrSubdomain(host, 'gmail.com') ||
     isHostOrSubdomain(host, 'googlemail.com') ||

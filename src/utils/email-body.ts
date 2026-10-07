@@ -5,23 +5,9 @@
  * must not hide a materially richer HTML alternative.
  */
 
+import { decodeEntities, isSpace, MAX_DECODE_PASSES, sanitizeAttributes } from './email-html.js';
+
 export type BodyFormat = 'full' | 'text' | 'stripped';
-
-/**
- * Each pass decodes one entity layer and then strips tags that layer exposed.
- * Three passes drop a tag written as `&amp;amp;lt;script&amp;amp;gt;`; two leave
- * `&lt;script&gt;`. Further layers stay as text so decoding has a ceiling.
- */
-const MAX_DECODE_PASSES = 3;
-
-const NAMED_ENTITIES: Record<string, string> = {
-  nbsp: ' ',
-  lt: '<',
-  gt: '>',
-  amp: '&',
-  quot: '"',
-  apos: "'",
-};
 
 /** Tags whose contents are not text (or can load or run). */
 const DROP_WITH_CONTENT = new Set([
@@ -60,10 +46,6 @@ interface HtmlTag {
 function isTagNameChar(char: string): boolean {
   const code = char.codePointAt(0) ?? 0;
   return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
-}
-
-function isSpace(char: string): boolean {
-  return char === ' ' || char === '\n' || char === '\r' || char === '\t' || char === '\f';
 }
 
 function readTag(html: string, start: number): HtmlTag | undefined {
@@ -116,18 +98,6 @@ function skipUntilClose(html: string, from: number, name: string): number {
   return html.length;
 }
 
-function decodeEntities(input: string): string {
-  return input.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, body: string) => {
-    if (body.startsWith('#')) {
-      const hex = body[1] === 'x' || body[1] === 'X';
-      const code = Number.parseInt(body.slice(hex ? 2 : 1), hex ? 16 : 10);
-      if (!Number.isInteger(code) || code <= 0 || code > 0x10ffff) return '';
-      return String.fromCodePoint(code);
-    }
-    return NAMED_ENTITIES[body.toLowerCase()] ?? entity;
-  });
-}
-
 function tagText(name: string, closing: boolean): string {
   if (name === 'br' && !closing) return '\n';
   if (name === 'p' && closing) return '\n\n';
@@ -136,79 +106,7 @@ function tagText(name: string, closing: boolean): string {
   return '';
 }
 
-const EVENT_HANDLER_NAME = /^on[a-z]+$/i;
-const STYLE_NAME = /^style$/i;
-const URL_ATTR_NAME = /^(?:href|src|action|poster|background)$/i;
-const SAFE_URL_VALUE = /^(?:https?:|mailto:)/i;
-
-function dropAttribute(name: string, value: string | undefined): boolean {
-  if (value === undefined) return false;
-  if (EVENT_HANDLER_NAME.test(name) || STYLE_NAME.test(name)) return true;
-  return URL_ATTR_NAME.test(name) && !SAFE_URL_VALUE.test(value);
-}
-
-interface ScannedAttribute {
-  end: number;
-  kept: string;
-  drop: boolean;
-}
-
-function scanAttribute(input: string, start: number): ScannedAttribute {
-  let i = start;
-  while (i < input.length && isSpace(input[i] ?? '')) i += 1;
-  const nameStart = i;
-  while (i < input.length) {
-    const ch = input[i] ?? '';
-    if (isSpace(ch) || ch === '=' || ch === '/' || ch === '"' || ch === "'") break;
-    i += 1;
-  }
-  const name = input.slice(nameStart, i);
-  if (!name) {
-    const end = Math.min(input.length, i + 1);
-    return { end, kept: input.slice(start, end), drop: false };
-  }
-  const afterName = i;
-  while (i < input.length && isSpace(input[i] ?? '')) i += 1;
-  if ((input[i] ?? '') !== '=') {
-    return { end: afterName, kept: input.slice(start, afterName), drop: false };
-  }
-  i += 1;
-  while (i < input.length && isSpace(input[i] ?? '')) i += 1;
-  const quote = input[i];
-  let value = '';
-  if (quote === '"' || quote === "'") {
-    i += 1;
-    const valueStart = i;
-    while (i < input.length && input[i] !== quote) i += 1;
-    value = input.slice(valueStart, i);
-    if (i < input.length) i += 1;
-  } else {
-    const valueStart = i;
-    while (i < input.length && !isSpace(input[i] ?? '')) i += 1;
-    value = input.slice(valueStart, i);
-  }
-  return { end: i, kept: input.slice(start, i), drop: dropAttribute(name, value) };
-}
-
-/**
- * Event-handler attributes may sit directly against the previous quoted value
- * (`class="x"onerror=alert(1)`). A whitespace-only strip leaves that handler in place.
- * Attribute values are copied whole, so the letters "on" inside them stay.
- */
-function sanitizeAttributes(source: string): string {
-  let out = '';
-  let i = 0;
-  while (i < source.length) {
-    const scanned = scanAttribute(source, i);
-    if (scanned.end <= i) break;
-    if (!scanned.drop) out += scanned.kept;
-    i = scanned.end;
-  }
-  return out;
-}
-
 function sanitizeTag(raw: string): string {
-  if (!/^<\/?[^\s>]+\s/.test(raw)) return raw;
   const match = /^<(\/?)([A-Za-z0-9]+)([\s\S]*)>$/.exec(raw);
   if (!match || match[1] === '/') return raw;
   return `<${match[2]}${sanitizeAttributes(match[3] ?? '')}>`;
