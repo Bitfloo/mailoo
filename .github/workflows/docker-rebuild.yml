@@ -1,6 +1,8 @@
 name: docker-rebuild
 
-# Rebuild GHCR from the Dockerfile (base-image patches). Not a test suite.
+# Rebuild GHCR from the Dockerfiles (base-image digest bumps). Not a test suite.
+# Release images are linux/amd64 and linux/arm64. A runner-arch build would
+# replace those public tags with a single architecture.
 on:
   schedule:
     - cron: "0 6 * * 1"
@@ -22,6 +24,7 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
@@ -30,14 +33,50 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
         run: |
+          set -euo pipefail
           V="$(jq -r .version package.json)"
-          TAGS="ghcr.io/bitfloo/mailoo:${V},ghcr.io/bitfloo/mailoo:bookworm"
-          if [[ "$V" != *-* ]]; then
-            TAGS="${TAGS},ghcr.io/bitfloo/mailoo:latest"
+          if [[ -z "$V" || "$V" == "null" ]]; then
+            echo "package.json version is empty" >&2
+            exit 1
           fi
-          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+          MAJOR="${V%%.*}"
+          MINOR="${V#*.}"
+          MINOR="${MINOR%%.*}"
+          IMAGE="ghcr.io/bitfloo/mailoo"
+          # Same tag names as .goreleaser.yaml. sha-* stays on the release
+          # commit: this workflow builds the default branch, not that commit.
+          bookworm=(
+            "${IMAGE}:${V}"
+            "${IMAGE}:${V}-bookworm"
+            "${IMAGE}:${MAJOR}.${MINOR}"
+            "${IMAGE}:${MAJOR}.${MINOR}-bookworm"
+            "${IMAGE}:${MAJOR}"
+            "${IMAGE}:${MAJOR}-bookworm"
+            "${IMAGE}:bookworm"
+          )
+          alpine=(
+            "${IMAGE}:${V}-alpine"
+            "${IMAGE}:${MAJOR}.${MINOR}-alpine"
+            "${IMAGE}:${MAJOR}-alpine"
+          )
+          if [[ "$V" != *-* ]]; then
+            bookworm+=("${IMAGE}:latest")
+            alpine+=("${IMAGE}:alpine")
+          fi
+          join() { local IFS=,; echo "$*"; }
+          echo "bookworm_tags=$(join "${bookworm[@]}")" >> "$GITHUB_OUTPUT"
+          echo "alpine_tags=$(join "${alpine[@]}")" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
+          file: Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.bookworm_tags }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: Dockerfile.alpine
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.alpine_tags }}

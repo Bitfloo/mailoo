@@ -16,6 +16,7 @@ on:
         type: boolean
         default: false
 
+# Workflow token is read-only. Each job restates the scopes it already uses.
 permissions:
   contents: read
 

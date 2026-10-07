@@ -153,12 +153,14 @@ describe('code scanning workflows', () => {
     const yaml = readFileSync(path, 'utf8');
     expect(workflowName(yaml)).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
     expect(topLevelPermissions(yaml)).not.toMatch(/write/);
+    expect(topLevelPermissions(yaml)).toContain('contents: read');
     const analyzeJobs = jobSections(yaml).filter((job) =>
       job.includes('github/codeql-action/analyze@'),
     );
     expect(analyzeJobs).toHaveLength(1);
     expect(analyzeJobs[0]).toContain('contents: read');
     expect(analyzeJobs[0]).toContain('security-events: write');
+    expect(yaml.replace(analyzeJobs[0], '')).not.toContain('security-events: write');
     const on = onBlock(yaml);
     expect(on).toContain('pull_request:');
     expect(on).toContain('develop');
@@ -249,5 +251,91 @@ describe('workflow token is no wider than the job writes', () => {
   it('does not grant ci.yml any write scope', () => {
     expect(ciYml).not.toMatch(/:\s*write\b/);
     expect(topLevelPermissions(ciYml)).toContain('contents: read');
+  });
+});
+
+describe('workflow token scope', () => {
+  it('does not grant write at the workflow level', () => {
+    const files = readdirSync(workflowDir).filter((name) => name.endsWith('.yml'));
+    expect(files.length).toBeGreaterThan(0);
+    for (const name of files) {
+      const yaml = readFileSync(join(workflowDir, name), 'utf8');
+      expect(topLevelPermissions(yaml), name).not.toMatch(/\bwrite\b/);
+    }
+  });
+});
+
+function goreleaserImage(yaml: string, id: string): string {
+  const match = yaml.match(new RegExp(`- id: ${id}\\n[\\s\\S]*?(?=\\n  - id: |\\nrelease:)`));
+  if (!match) {
+    throw new Error(`missing goreleaser image ${id}`);
+  }
+  return match[0];
+}
+
+function yamlList(section: string, key: string): string[] {
+  const match = section.match(new RegExp(`\\n {4}${key}:\\n((?: {6}- .+\\n)+)`));
+  if (!match) {
+    throw new Error(`missing ${key}`);
+  }
+  return match[1]
+    .trimEnd()
+    .split('\n')
+    .map((line) => {
+      const raw = line.replace(/^\s*- /, '');
+      return raw.startsWith('"') ? raw.slice(1, -1) : raw;
+    });
+}
+
+/** Shell fragment in docker-rebuild.yml for one GoReleaser tag template. sha-* is release-only. */
+const RELEASE_TAG_IN_REBUILD: Record<string, string> = {
+  '{{ .Version }}': '"${IMAGE}:${V}"',
+  '{{ .Version }}-bookworm': '"${IMAGE}:${V}-bookworm"',
+  '{{ .Version }}-alpine': '"${IMAGE}:${V}-alpine"',
+  '{{ .Major }}.{{ .Minor }}': '"${IMAGE}:${MAJOR}.${MINOR}"',
+  '{{ .Major }}.{{ .Minor }}-bookworm': '"${IMAGE}:${MAJOR}.${MINOR}-bookworm"',
+  '{{ .Major }}.{{ .Minor }}-alpine': '"${IMAGE}:${MAJOR}.${MINOR}-alpine"',
+  '{{ .Major }}': '"${IMAGE}:${MAJOR}"',
+  '{{ .Major }}-bookworm': '"${IMAGE}:${MAJOR}-bookworm"',
+  '{{ .Major }}-alpine': '"${IMAGE}:${MAJOR}-alpine"',
+  bookworm: '"${IMAGE}:bookworm"',
+  '{{ if not .Prerelease }}latest{{ end }}': '"${IMAGE}:latest"',
+  '{{ if not .Prerelease }}alpine{{ end }}': '"${IMAGE}:alpine"',
+};
+
+describe('docker rebuild images', () => {
+  it('uses the release tag names and architectures for bookworm and alpine', () => {
+    const goreleaser = readFileSync(join(repoRoot, '.goreleaser.yaml'), 'utf8');
+    const workflow = readFileSync(join(workflowDir, 'docker-rebuild.yml'), 'utf8');
+    const images = ['mailoo-debian', 'mailoo-alpine'].map((id) => goreleaserImage(goreleaser, id));
+    for (const image of images) {
+      expect(yamlList(image, 'platforms')).toEqual(['linux/amd64', 'linux/arm64']);
+      for (const template of yamlList(image, 'tags')) {
+        if (template.includes('ShortCommit')) {
+          expect(workflow).not.toContain('sha-${{');
+          continue;
+        }
+        const needle = RELEASE_TAG_IN_REBUILD[template];
+        expect(needle, template).toBeTruthy();
+        expect(workflow).toContain(needle);
+      }
+    }
+    expect(workflow.match(/platforms: linux\/amd64,linux\/arm64/g)).toHaveLength(2);
+    expect(workflow).toContain('if [[ "$V" != *-* ]]');
+  });
+
+  it('rebuilds bookworm and alpine for the release architectures', () => {
+    const yaml = readFileSync(join(workflowDir, 'docker-rebuild.yml'), 'utf8');
+    expect(yaml).toContain('file: Dockerfile\n');
+    expect(yaml).toContain('file: Dockerfile.alpine\n');
+    expect(yaml.match(/platforms: linux\/amd64,linux\/arm64/g)).toHaveLength(2);
+    expect(yaml).toContain('docker/setup-qemu-action@');
+    expect(yaml).toContain('-alpine');
+    expect(yaml).toContain(':bookworm');
+    expect(yaml).toContain(':latest');
+    expect(yaml).not.toContain('sha-${{');
+    expect(topLevelPermissions(yaml)).not.toMatch(/write/);
+    const jobs = jobSections(yaml);
+    expect(jobs.some((job) => job.includes('packages: write'))).toBe(true);
   });
 });
