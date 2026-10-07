@@ -197,6 +197,29 @@ They are **not** Mailoo releases. Commit links point at
 - add pnpm install and usage instructions - ([13c8d4b](https://github.com/codefuturist/email-mcp/commit/13c8d4bf3006fa4fb5f014eb630006a478082a23))
 
 - - -
+## [v0.1.8](https://github.com/bitfloo/mailoo/compare/6463342bda7a8811769ac84c34364a027c35ede3..v0.1.8) - 2026-10-07
+#### 🐛 Bug Fixes
+- close CodeQL host and HTML-sanitizer bypasses - ([5a82098](https://github.com/bitfloo/mailoo/commit/5a8209840c08c3a9e3f205d26439f4c38ffdabe4)) - Mike, Cursor
+- treat only real Gmail hosts as already filing Sent mail - ([d59a14c](https://github.com/bitfloo/mailoo/commit/d59a14c52c131efaad38600892d6c44f8a0b2bea)) - Mike, Cursor
+- strip event handlers glued to the previous attribute - ([e97a7cd](https://github.com/bitfloo/mailoo/commit/e97a7cd1dd430427ae4744fabe081c0114f9147a)) - Mike, Cursor
+- reject private session links in commit messages - ([6463342](https://github.com/bitfloo/mailoo/commit/6463342bda7a8811769ac84c34364a027c35ede3)) - Mike, Cursor
+#### 📚 Documentation
+- (**readme**) label the M8ven badge neutrally - ([2d67d44](https://github.com/bitfloo/mailoo/commit/2d67d4416df9642ba060b2a7e7925077e381d7e8)) - Mike, Cursor
+- (**readme**) make the CI badge follow pull request runs - ([1d111b2](https://github.com/bitfloo/mailoo/commit/1d111b26710c652f0991d0dd116158fb411a638b)) - Mike, Cursor
+- (**readme**) pull the 0.1 image tag in the examples - ([be840ec](https://github.com/bitfloo/mailoo/commit/be840ec164969453803935fb08b9620f2ba3890f)) - Mike, Cursor
+- explain the commit message check in plain words - ([b40c68f](https://github.com/bitfloo/mailoo/commit/b40c68fa47149ad78871f57f44b3659da4fad68a)) - Mike, Cursor
+#### Tests
+- bind rebuild Dockerfiles to the release image config - ([f39c1c5](https://github.com/bitfloo/mailoo/commit/f39c1c5f06b130ff06668de9d31a7b1617701106)) - Mike, Cursor
+- bind docker rebuild tags to the release image config - ([2608524](https://github.com/bitfloo/mailoo/commit/2608524280fb6a5904cbe23ddf57be572bb83566)) - Mike, Cursor
+#### CI
+- keep write token scopes on the jobs that use them - ([cd515ea](https://github.com/bitfloo/mailoo/commit/cd515ea2f615a076d0653c3f344f69734a860823)) - Mike, Cursor
+- rebuild bookworm and alpine images for both release architectures - ([dfef8e7](https://github.com/bitfloo/mailoo/commit/dfef8e78f6745ee802ddd8c96ff004969202b2b4)) - Mike, Cursor
+- check commit messages and pull request text on pull requests - ([ae3f897](https://github.com/bitfloo/mailoo/commit/ae3f89774f0c7b2c30c3ada9aa94ce3e750b8c05)) - Mike, Cursor
+#### ♻️ Refactoring
+- (**email-body**) move HTML sanitizing into its own module - ([520169a](https://github.com/bitfloo/mailoo/commit/520169a23c883db652b4449494974e211e627a04)) - Mike, Cursor
+
+- - -
+
 ## [v0.1.7](https://github.com/bitfloo/mailoo/compare/208362959506aab9b5c5e4a327fa922aed90112c..v0.1.7) - 2026-09-29
 #### 🐛 Bug Fixes
 - (**scheduler**) keep a claim alive while its email is being sent - ([669b051](https://github.com/bitfloo/mailoo/commit/669b051447540966b941fc9584a093aa1db83060)) - Mike, Cursor
