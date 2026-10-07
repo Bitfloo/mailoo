@@ -110,6 +110,55 @@ describe('applyBodyFormat', () => {
     expect(applyBodyFormat(undefined, html, 'full')).toBe('<p>Hello</p>');
   });
 
+  it('for full format, removes a spaced event handler', () => {
+    const body = applyBodyFormat(undefined, '<p class="x" onerror="alert(1)">Hi</p>', 'full');
+    expect(body.toLowerCase()).not.toContain('onerror');
+    expect(body).toBe('<p class="x">Hi</p>');
+  });
+
+  it('for full format, removes an event handler glued to the previous attribute', () => {
+    const doubled = applyBodyFormat(
+      undefined,
+      '<p class="x" onerror="a"onerror=alert(1)>Hi</p>',
+      'full',
+    );
+    expect(doubled.toLowerCase()).not.toContain('onerror');
+    expect(doubled).toBe('<p class="x">Hi</p>');
+
+    const glued = applyBodyFormat(undefined, '<p class="x"onerror=alert(1)>Hi</p>', 'full');
+    expect(glued.toLowerCase()).not.toContain('onerror');
+    expect(glued).toBe('<p class="x">Hi</p>');
+
+    const quoted = applyBodyFormat(undefined, "<p class='x'onclick='alert(1)'>Hi</p>", 'full');
+    expect(quoted.toLowerCase()).not.toContain('onclick');
+    expect(quoted).toBe("<p class='x'>Hi</p>");
+  });
+
+  it('for full format, keeps an https link and drops a javascript link', () => {
+    expect(applyBodyFormat(undefined, '<a href="https://example.com/only">docs</a>', 'full')).toBe(
+      '<a href="https://example.com/only">docs</a>',
+    );
+    expect(applyBodyFormat(undefined, '<a href="mailto:a@example.com">mail</a>', 'full')).toBe(
+      '<a href="mailto:a@example.com">mail</a>',
+    );
+    expect(applyBodyFormat(undefined, '<a href="javascript:alert(1)">x</a>', 'full')).toBe(
+      '<a>x</a>',
+    );
+  });
+
+  it('for full format, keeps the letters on in attribute values and text', () => {
+    const html = '<p title="only once">one ongoing note</p>';
+    expect(applyBodyFormat(undefined, html, 'full')).toBe(html);
+    const value = '<p title="say onerror=alert(1)">still here</p>';
+    expect(applyBodyFormat(undefined, value, 'full')).toBe(value);
+  });
+
+  it('for full format, still strips a style attribute', () => {
+    expect(applyBodyFormat(undefined, '<p class="x" style="color:red">Hi</p>', 'full')).toBe(
+      '<p class="x">Hi</p>',
+    );
+  });
+
   it('for full format, skips raw MIME dumps in favour of HTML', () => {
     const html = '<p>Hi Jakob, please activate the account.</p>';
     expect(applyBodyFormat(mimeBoundaryDump, html, 'full')).toBe(html);
