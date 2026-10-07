@@ -16,10 +16,17 @@ import {
   resolveOutgoingAttachments,
 } from './outgoing-attachments.js';
 
+function isHostOrSubdomain(host: string, domain: string): boolean {
+  return host === domain || host.endsWith(`.${domain}`);
+}
+
+/** `notgmail.com` and `gmail.com.evil.example` contain the name and are not Gmail. */
 function providerFilesSentMail(smtpHost: string, oauthProvider?: string): boolean {
   const host = smtpHost.toLowerCase();
   return (
-    host.includes('gmail.com') || host.includes('googlemail.com') || oauthProvider === 'google'
+    isHostOrSubdomain(host, 'gmail.com') ||
+    isHostOrSubdomain(host, 'googlemail.com') ||
+    oauthProvider === 'google'
   );
 }
 

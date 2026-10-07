@@ -45,6 +45,17 @@ function createMockRateLimiter(allowed = true) {
   } as unknown as RateLimiter;
 }
 
+function accountWithSmtp(host: string, oauthProvider?: string) {
+  return {
+    name: 'test',
+    email: 'user@example.com',
+    username: 'user@example.com',
+    imap: { host: 'imap.example.com', port: 993, tls: true, starttls: false, verifySsl: true },
+    smtp: { host, port: 465, tls: true, starttls: false, verifySsl: true },
+    ...(oauthProvider ? { oauth2: { provider: oauthProvider } } : {}),
+  };
+}
+
 function createMockImapService() {
   return {
     getEmail: vi.fn().mockResolvedValue({
@@ -277,6 +288,45 @@ describe('SmtpService', () => {
         smtp: { host: 'smtp.gmail.com', port: 465, tls: true, starttls: false, verifySsl: true },
         oauth2: { provider: 'google' },
       });
+      await service.sendEmail('test', {
+        to: ['recipient@example.com'],
+        subject: 'Hello',
+        body: 'World',
+      });
+      expect(imap.appendSentMessage).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      'gmail.com',
+      'smtp.gmail.com',
+      'SMTP.GMAIL.COM',
+      'googlemail.com',
+      'smtp.googlemail.com',
+    ])('skips Sent append when the SMTP host is %s', async (host) => {
+      connections.getAccount.mockReturnValue(accountWithSmtp(host));
+      await service.sendEmail('test', {
+        to: ['recipient@example.com'],
+        subject: 'Hello',
+        body: 'World',
+      });
+      expect(imap.appendSentMessage).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      'gmail.com.evil.example',
+      'notgmail.com',
+    ])('still appends Sent when the SMTP host only contains %s', async (host) => {
+      connections.getAccount.mockReturnValue(accountWithSmtp(host));
+      await service.sendEmail('test', {
+        to: ['recipient@example.com'],
+        subject: 'Hello',
+        body: 'World',
+      });
+      expect(imap.appendSentMessage).toHaveBeenCalledOnce();
+    });
+
+    it('skips Sent append when the OAuth provider is google', async () => {
+      connections.getAccount.mockReturnValue(accountWithSmtp('smtp.example.com', 'google'));
       await service.sendEmail('test', {
         to: ['recipient@example.com'],
         subject: 'Hello',
