@@ -1420,8 +1420,8 @@ export default class ImapService {
   async exportEmail(
     accountName: string,
     emailId: string,
-    mailbox = 'INBOX',
-    maxSizeBytes = 5 * 1024 * 1024,
+    mailbox: string,
+    maxSizeBytes: number,
   ): Promise<{
     filename: string;
     mimeType: string;

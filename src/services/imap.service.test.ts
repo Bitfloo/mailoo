@@ -284,7 +284,7 @@ describe('ImapService', () => {
         return { uid: 10, size: 3 };
       });
 
-      await service.exportEmail('test', '10', 'Archive');
+      await service.exportEmail('test', '10', 'Archive', 1024);
 
       expect(client.getMailboxLock).toHaveBeenCalledWith('Archive', { readOnly: true });
       expect(client.getMailboxLock).toHaveBeenCalledTimes(1);
@@ -293,7 +293,7 @@ describe('ImapService', () => {
     it('should report the UID as not found when the server returns no message', async () => {
       client.fetchOne.mockResolvedValue(false);
 
-      await expect(service.exportEmail('test', '10', 'INBOX')).rejects.toThrow(
+      await expect(service.exportEmail('test', '10', 'INBOX', 1024)).rejects.toThrow(
         'Email 10 not found in INBOX',
       );
     });
@@ -606,7 +606,7 @@ describe('ImapService', () => {
       ['removeLabel', async (svc) => svc.removeLabel('test', '1.5', 'INBOX', 'Tag')],
       ['findEmailFolder', async (svc) => svc.findEmailFolder('test', '12abc', 'INBOX')],
       ['downloadAttachment', async (svc) => svc.downloadAttachment('test', '01', 'INBOX', 'a.txt')],
-      ['exportEmail', async (svc) => svc.exportEmail('test', '1:*', 'INBOX')],
+      ['exportEmail', async (svc) => svc.exportEmail('test', '1:*', 'INBOX', 1024)],
       ['getEmailSecurity', async (svc) => svc.getEmailSecurity('test', '1e2', 'INBOX')],
       ['peekText', async (svc) => svc.peekText('test', ' 4', 'INBOX')],
       ['peekAttachments', async (svc) => svc.peekAttachments('test', '$', 'INBOX')],
@@ -636,7 +636,7 @@ describe('ImapService', () => {
         'downloadAttachment',
         async (svc) => svc.downloadAttachment('test', '8', 'INBOX\nSent', 'a.txt'),
       ],
-      ['exportEmail', async (svc) => svc.exportEmail('test', '8', 'INBOX\r\nSent')],
+      ['exportEmail', async (svc) => svc.exportEmail('test', '8', 'INBOX\r\nSent', 1024)],
       ['getEmailSecurity', async (svc) => svc.getEmailSecurity('test', '8', 'INBOX\r\nSent')],
       ['peekText', async (svc) => svc.peekText('test', '8', 'INBOX\nSent')],
       ['peekAttachments', async (svc) => svc.peekAttachments('test', '8', 'INBOX\r\nSent')],
