@@ -550,6 +550,124 @@ describe('public git log gate', () => {
     expect(result.stderr).toContain('cannot read');
   });
 
+  it.each([
+    [
+      'the environment',
+      '(private-marker-env',
+      (_dir: string): Record<string, string> => ({
+        PUBLIC_GIT_EXTRA_FORBIDDEN: '(private-marker-env',
+      }),
+      (_dir: string): string => 'PUBLIC_GIT_EXTRA_FORBIDDEN',
+    ],
+    [
+      'the denylist file',
+      'private-marker-list(',
+      (dir: string): Record<string, string> => {
+        const list = join(dir, 'public-git-denylist');
+        writeFileSync(list, 'private-marker-list(\n');
+        return { PUBLIC_GIT_DENYLIST_FILE: list };
+      },
+      (dir: string): string => `${join(dir, 'public-git-denylist')} line 1`,
+    ],
+  ])('keeps a malformed pattern from %s out of stderr even when grep echoes it', (_source, pattern, makeEnv, where) => {
+    const dir = makeTmpDir('mailoo-public-git-echo-');
+    const realGrep = spawnSync('sh', ['-c', 'command -v grep'], { encoding: 'utf8' }).stdout.trim();
+    expect(realGrep.startsWith('/')).toBe(true);
+    const bin = join(dir, 'bin');
+    mkdirSync(bin);
+    const shim = join(bin, 'grep');
+    // Wraps the real grep and echoes any argument that carries the private marker,
+    // the way a grep that quotes its pattern in an error message would.
+    writeFileSync(
+      shim,
+      [
+        '#!/bin/sh',
+        'printf \'%s\\n\' "$*" >>"$GREP_SHIM_LOG"',
+        'for arg in "$@"; do',
+        '  case $arg in *private-marker*) printf \'grep: bad pattern %s\\n\' "$arg" >&2 ;; esac',
+        'done',
+        'exec "$GREP_SHIM_REAL" "$@"',
+        '',
+      ].join('\n'),
+    );
+    chmodSync(shim, 0o755);
+    const log = join(dir, 'grep-calls.log');
+    const msg = join(dir, 'MSG');
+    writeFileSync(msg, clean);
+    const result = runChecker(['--file', msg], dir, {
+      PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none'),
+      ...makeEnv(dir),
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+      GREP_SHIM_REAL: realGrep,
+      GREP_SHIM_LOG: log,
+    });
+    expect(readFileSync(log, 'utf8').split('\n')).toContainEqual(expect.stringContaining(pattern));
+    expect(result).toEqual({
+      status: 2,
+      stdout: '',
+      stderr: `public-git: invalid extra pattern in ${where(dir)}\n`,
+    });
+  });
+
+  it('reads a message file whose name starts with a dash', () => {
+    const dir = makeTmpDir('mailoo-public-git-dash-');
+    const env = { PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none') };
+    writeFileSync(join(dir, '-msg'), clean);
+    expect(runChecker(['--file', '-msg'], dir, env)).toEqual({ status: 0, stdout: '', stderr: '' });
+    writeFileSync(join(dir, '-msg'), leak);
+    expect(runChecker(['--file', '-msg'], dir, env)).toEqual({
+      status: 1,
+      stdout: '',
+      stderr:
+        'fix: path /Users/me/mailoo\n' +
+        'public-git: forbidden token in -msg (see .claude/rules/public-git.md)\n',
+    });
+  });
+
+  it.each([
+    ['the environment', (_dir: string) => ({ PUBLIC_GIT_EXTRA_FORBIDDEN: 'example-private-tree' })],
+    [
+      'the denylist file',
+      (dir: string) => {
+        const list = join(dir, 'public-git-denylist');
+        writeFileSync(list, 'example-private-tree\n');
+        return { PUBLIC_GIT_DENYLIST_FILE: list };
+      },
+    ],
+  ])('echoes a built-in hit and an extra hit from %s in one message', (_source, makeEnv) => {
+    const dir = makeTmpDir('mailoo-public-git-both-');
+    const msg = join(dir, 'MSG');
+    writeFileSync(msg, 'fix: path /Users/me/mailoo\n\nAlso example-private-tree here.\n');
+    const result = runChecker(['--file', msg], dir, {
+      PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none'),
+      ...makeEnv(dir),
+    });
+    expect(result).toEqual({
+      status: 1,
+      stdout: '',
+      stderr:
+        'fix: path /Users/me/mailoo\n' +
+        'Also example-private-tree here.\n' +
+        `public-git: forbidden token in ${msg} (see .claude/rules/public-git.md)\n`,
+    });
+  });
+
+  it('fails on a message file it cannot read, for any user', () => {
+    const dir = makeTmpDir('mailoo-public-git-cat-');
+    const bin = join(dir, 'bin');
+    mkdirSync(bin);
+    // Root reads any mode, so a failing cat stands in for an unreadable file.
+    writeFileSync(join(bin, 'cat'), '#!/bin/sh\nexit 1\n');
+    chmodSync(join(bin, 'cat'), 0o755);
+    const msg = join(dir, 'MSG');
+    writeFileSync(msg, leak);
+    const result = runChecker(['--file', msg], dir, {
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+      PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none'),
+    });
+    expect(result).toEqual({ status: 2, stdout: '', stderr: `public-git: cannot read ${msg}\n` });
+  });
+
   it('rejects a missing mode with usage', () => {
     const dir = makeTmpDir('mailoo-public-git-usage-');
     const result = runChecker([], dir, { PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none') });
