@@ -153,16 +153,20 @@ describe('test-auditor L4 doctrine', () => {
     expect(claude).toContain('>80%` target');
   });
 
-  it('emits a SCORE/VERDICT block with a CRITICAL veto', () => {
-    expect(claude).toContain('SCORE: N/10');
-    expect(claude).toContain('VERDICT: PASS | FAIL | ABORTED: <reason> | NEEDS_INPUT: <what>');
-    expect(claude).toContain('DETECTION:');
-    expect(claude).toContain('FINDINGS:');
-    expect(claude).toContain('UNAUDITED:');
-    expect(claude).toContain('TREE:');
-    expect(claude).toContain('ABORTED: runner unresolved');
-    expect(claude).toMatch(/PASS if score ≥ 9 AND zero CRITICAL/);
-    expect(claude).toMatch(/Mailoo ship bar/);
+  it.each([
+    ['the score line', 'SCORE: N/10'],
+    ['the verdict line', 'VERDICT: PASS | FAIL | ABORTED: <reason> | NEEDS_INPUT: <what>'],
+    ['the detection line', 'DETECTION:'],
+    ['the findings line', 'FINDINGS:'],
+    ['the unaudited line', 'UNAUDITED:'],
+    ['the tree line', 'TREE:'],
+    ['the runner abort', 'ABORTED: runner unresolved'],
+    ['the CRITICAL veto', 'PASS if score ≥ 9 AND zero CRITICAL'],
+    ['the ship bar', 'Mailoo ship bar'],
+  ])('emits a SCORE/VERDICT block: %s', (_name, phrase) => {
+    for (const text of [claude, cursor]) {
+      expect(text).toContain(phrase);
+    }
   });
 
   it('keeps the generated system prompt (excluding When to invoke) inside the 500-word cap', () => {
