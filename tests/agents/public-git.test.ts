@@ -164,6 +164,40 @@ describe('public git log gate', () => {
     expect(result.stderr).toContain('forbidden token');
   });
 
+  it('applies environment and denylist patterns together and reports each hit', () => {
+    const list = join(makeTmpDir('mailoo-public-git-list-'), 'public-git-denylist');
+    writeFileSync(list, 'beta-secret\n');
+    const env = { PUBLIC_GIT_EXTRA_FORBIDDEN: 'alpha-secret', PUBLIC_GIT_DENYLIST_FILE: list };
+    expect(scanFile('docs: mention alpha-secret\n', env).status).toBe(1);
+    expect(scanFile('docs: mention beta-secret\n', env).status).toBe(1);
+    expect(scanFile(clean, env)).toEqual({ status: 0, stderr: '' });
+    const both = scanFile('docs: mention alpha-secret\n\nAlso beta-secret here.\n', env);
+    expect(both.status).toBe(1);
+    expect(both.stderr).toContain('docs: mention alpha-secret');
+    expect(both.stderr).toContain('Also beta-secret here.');
+  });
+
+  it('echoes a mixed-case hit on an extra pattern', () => {
+    const env = { PUBLIC_GIT_EXTRA_FORBIDDEN: 'example-private-tree' };
+    const result = scanFile('docs: load the Example-Private-Tree notes\n', env);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('docs: load the Example-Private-Tree notes');
+  });
+
+  it('echoes a mixed-case hit on a built-in pattern', () => {
+    const result = scanFile('fix: path /USERS/me/mailoo\n');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('fix: path /USERS/me/mailoo');
+  });
+
+  it('reports the physical file line of a malformed denylist pattern', () => {
+    const list = join(makeTmpDir('mailoo-public-git-list-'), 'public-git-denylist');
+    writeFileSync(list, '\n# private patterns\nprivate-marker-three(\n');
+    const result = scanFile(clean, { PUBLIC_GIT_DENYLIST_FILE: list });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('public-git-denylist line 3');
+  });
+
   it('matches an extra pattern from the environment case-insensitively', () => {
     const env = { PUBLIC_GIT_EXTRA_FORBIDDEN: 'example-private-tree' };
     expect(scanFile('docs: load the Example-Private-Tree notes\n', env).status).toBe(1);
@@ -279,6 +313,21 @@ describe('public git log gate', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(leakSha);
     expect(result.stderr).not.toContain(cleanSha);
+  });
+
+  it('checks older commits in a --range, not only the tip', () => {
+    const repo = initRepo();
+    const base = git(repo, 'rev-parse', 'HEAD');
+    git(repo, 'commit', '-q', '--allow-empty', '-m', 'fix: tidy', '-m', 'Built in /home/me/mailoo');
+    const leakSha = git(repo, 'rev-parse', 'HEAD');
+    git(repo, 'commit', '-q', '--allow-empty', '-m', 'docs: clean tip');
+    const tipSha = git(repo, 'rev-parse', 'HEAD');
+    const result = runChecker(['--range', `${base}..${tipSha}`], repo, {
+      PUBLIC_GIT_DENYLIST_FILE: join(repo, 'none'),
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(leakSha);
+    expect(result.stderr).not.toContain(tipSha);
   });
 
   it('passes an empty --range without output', () => {
