@@ -70,3 +70,36 @@ export function exampleBlocks(text: string): string[] {
 
 /** Public agent text is English: no Polish letters and no common Polish request words. */
 export const POLISH_TEXT = /[ąćęłńóśźż]|\b(testy|testów|napisz|sprawdź|sprawdz|oceń|ocen|czy)\b/i;
+
+/**
+ * Trimmed, non-empty lines of one `## <heading>` section, up to the next `## ` heading.
+ * `null` returns the prose between the frontmatter and the first section.
+ */
+export function sectionLines(text: string, heading: string | null): string[] {
+  const body = text.replace(/^---\n[\s\S]*?\n---\n/, '');
+  let rest: string;
+  if (heading === null) {
+    rest = body;
+  } else {
+    const marker = `## ${heading}\n`;
+    const start = body.startsWith(marker) ? 0 : body.indexOf(`\n${marker}`);
+    if (start < 0) {
+      return [];
+    }
+    rest = body.slice(body.indexOf(marker, start) + marker.length);
+  }
+  const end = rest.search(/^## /m);
+  return (end < 0 ? rest : rest.slice(0, end))
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+/** The quoted `user:` request of each `<example>` block. */
+export function exampleUserLines(text: string): string[] {
+  return exampleBlocks(text).map((block) => block.match(/^\s*user: "([^"]+)"$/m)?.[1] ?? '');
+}
+
+/** Wording that would grant an agent more than its rails allow. */
+export const PERMISSION_GRANT =
+  /\bmay (also )?(write|edit|fix|modify|change|stage|commit|install|push|delete)\b|\b(is|are) allowed to (write|edit|fix|modify)\b/i;

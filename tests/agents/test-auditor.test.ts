@@ -8,10 +8,13 @@ import {
   checkerBuiltinPattern,
   descriptionBlock,
   exampleBlocks,
+  exampleUserLines,
+  PERMISSION_GRANT,
   POLISH_TEXT,
   readTwinAgent,
   repoRoot,
   SYSTEM_PROMPT_MAX_WORDS,
+  sectionLines,
   systemPromptWords,
   toolsList,
   triggerPhrases,
@@ -20,6 +23,59 @@ import {
 
 const doctrinePath = join(repoRoot, '.claude/rules/testing-doctrine.md');
 const { claude, cursor } = readTwinAgent('test-auditor');
+
+const PINNED_SECTIONS: [string, string | null, string[]][] = [
+  [
+    'the opening',
+    null,
+    [
+      'Read before judging: `.claude/rules/testing-doctrine.md` (rubric — cite by section; if missing emit `ABORTED: testing doctrine missing`), `CLAUDE.md` (when integration is required), `package.json` (runner — never infer it), then the matching `vitest.config.ts` or `vitest.config.integration.ts` `test.include` before the first Bash run.',
+      'You audit a suite you did not write. One question: would these tests fail if the code were wrong? Measure first. Never repair.',
+    ],
+  ],
+  [
+    'the Scope section',
+    'Scope',
+    [
+      'You are not test-smith. You never write or fix a test or source file. You have no Write tool; Edit exists only to apply and revert a mutant. Do not spawn nested subagents. Return the parsed block. Nothing after it.',
+    ],
+  ],
+  [
+    'the Rails section',
+    'Rails',
+    [
+      'Bash is read-only plus the `package.json` runner. NEVER stage, commit, install, or push. Refuse a dirty baseline: `git status --short <target>` must be empty, else `NEEDS_INPUT: commit or stash <target> first`. One file per mutant, Edit then inverse Edit (same strings, swapped). After each: `git diff --stat -- <target>` empty — quote it. Revert failure first, with inverse-Edit recovery. Mutate only the named target slice.',
+    ],
+  ],
+  [
+    'the Runner section',
+    'Runner',
+    [
+      'Unit: `pnpm test -- <file>`. Integration: `pnpm test:integration -- <file>` for `src/__integration__/` or `*.integration.test.ts`. Wrong lane → `ABORTED: integration path needs pnpm test:integration` or `ABORTED: unit path needs pnpm test --`. `mailoo test` is a CLI connection probe, not this runner. No browser automation. Auditing unit tests for IMAP/SMTP/watcher/scheduler/transport when `CLAUDE.md` requires integration → name integration lane UNAUDITED or C3 WARN in FINDINGS.',
+    ],
+  ],
+  [
+    'the Rubric section',
+    'Rubric',
+    [
+      'Doctrine C1–C10 in order. C1 and C2 first. CRITICAL = green proven meaningless (zero killed, code gone still green, `retry:`, order-dependent green). Never a rate without survivors; bands from doctrine (`<60%` weak, `60–80%` needs work, `>80%` target). Never credit a test count. C1 and C2 were attempted or the reason each was impossible is stated.',
+    ],
+  ],
+  [
+    'the Scoring section',
+    'Scoring',
+    [
+      '10 all killed, no findings. 9 INFO only (Mailoo ship bar). 7–8 WARN debt. 6 two WARN max. 3–5 three+ WARN. 1–2 any CRITICAL. PASS if score ≥ 9 AND zero CRITICAL.',
+    ],
+  ],
+  [
+    'the Failure Mode section',
+    'Failure Mode',
+    [
+      'Never raise an error. No runner → `ABORTED: runner unresolved`. Dirty target → `NEEDS_INPUT`. Revert failure first. Too large → UNAUDITED the rest. Unrunnable suite → CRITICAL C1, FAIL. A negative claim names its search.',
+    ],
+  ],
+];
 
 describe('test-auditor L4 doctrine', () => {
   it('keeps Claude Code and Cursor copies aligned except host model tier', () => {
@@ -173,6 +229,29 @@ describe('test-auditor L4 doctrine', () => {
       expect(example).toMatch(/^\s*Context: \S/m);
       expect(example).toMatch(/^\s*user: "[^"]+"$/m);
       expect(example).toMatch(/^\s*assistant: "[^"]+"$/m);
+    }
+  });
+
+  it.each(PINNED_SECTIONS)('pins %s word for word in both copies', (_label, heading, lines) => {
+    for (const text of [claude, cursor]) {
+      expect(sectionLines(text, heading)).toEqual(lines);
+    }
+  });
+
+  it('never grants extra permissions anywhere in the agent file', () => {
+    for (const text of [claude, cursor]) {
+      expect(text).not.toMatch(PERMISSION_GRANT);
+    }
+  });
+
+  it('pins the user request of every When to invoke example in both copies', () => {
+    for (const text of [claude, cursor]) {
+      expect(exampleUserLines(text)).toEqual([
+        'Are the tests in this PR enough?',
+        'Check whether these tests really catch anything',
+        'Audit src/__integration__/email-send.integration.test.ts',
+        'These tests are weak, add the missing ones',
+      ]);
     }
   });
 });
