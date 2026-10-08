@@ -207,24 +207,25 @@ describe('export_email against GreenMail', () => {
   });
 
   it('should leave \\Seen unset when export_email reads an unread message', async () => {
-    const { uid } = await appendReceipt();
+    const { uid, source } = await appendReceipt();
     expect(await storedFlags(uid)).not.toContain('\\Seen');
 
     const result = await callExport({ account: TEST_ACCOUNT_NAME, id: uid, mailbox: 'INBOX' });
 
-    expect(result.isError).not.toBe(true);
+    // The flags are only evidence if the body was actually fetched.
+    expect(inlineBytes(result).equals(source)).toBe(true);
     expect(await storedFlags(uid)).not.toContain('\\Seen');
   });
 
   it('should leave every stored flag identical when export_email reads a flagged, answered message with a keyword', async () => {
-    const { uid } = await appendReceipt(['\\Flagged', '\\Answered', '$Invoice']);
+    const { uid, source } = await appendReceipt(['\\Flagged', '\\Answered', '$Invoice']);
     const before = await storedFlags(uid);
     // A seed that dropped the flags would make the comparison below vacuous.
     expect(before).toEqual(expect.arrayContaining(['$Invoice', '\\Answered', '\\Flagged']));
 
     const result = await callExport({ account: TEST_ACCOUNT_NAME, id: uid, mailbox: 'INBOX' });
 
-    expect(result.isError).not.toBe(true);
+    expect(inlineBytes(result).equals(source)).toBe(true);
     expect(await storedFlags(uid)).toEqual(before);
   });
 
