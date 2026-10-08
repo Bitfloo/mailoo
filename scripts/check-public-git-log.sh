@@ -17,6 +17,8 @@ BUILTIN='(/Users/|/home/|Claude-Session:|claude\.ai/code/session_|[a-z][a-z0-9-]
 # per line in the denylist file (default: info/public-git-denylist in the git
 # dir, shared by all worktrees; override with PUBLIC_GIT_DENYLIST_FILE), or as
 # one alternation in PUBLIC_GIT_EXTRA_FORBIDDEN (CI reads a repository variable).
+# A denylist line is used verbatim, spaces and backslashes included; blank lines
+# and lines starting with # are skipped.
 # The built-in and extra patterns run as separate greps, so a malformed extra
 # pattern cannot hide a built-in hit. A malformed extra pattern fails the check.
 EXTRAS=()
@@ -96,8 +98,12 @@ case "$mode" in
   --file)
     file=${2:-}
     [[ -n "$file" && -f "$file" ]] || usage
+    if ! text=$(cat -- "$file"); then
+      echo "public-git: cannot read $file" >&2
+      exit 2
+    fi
     failed=0
-    scan "$file" "$(cat "$file")" || failed=1
+    scan "$file" "$text" || failed=1
     finish "$failed"
     ;;
   --range)
