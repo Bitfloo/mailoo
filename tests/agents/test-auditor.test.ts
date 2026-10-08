@@ -85,16 +85,44 @@ describe('test-auditor L4 doctrine', () => {
     expect(claude).toContain('NEVER stage, commit, install, or push');
   });
 
-  it('binds the Mailoo runners and refuses the CLI probe', () => {
-    expect(claude).toContain('pnpm test -- <file>');
-    expect(claude).toContain('pnpm test:integration -- <file>');
-    expect(claude).toContain('vitest.config.integration.ts` `test.include`');
-    expect(claude).toContain('ABORTED: integration path needs pnpm test:integration');
-    expect(claude).toContain('integration lane UNAUDITED or C3 WARN');
-    expect(claude).toContain('`mailoo test` is a CLI connection probe, not this runner');
-    expect(claude).toContain('package.json` (runner — never infer it)');
-    expect(claude).toContain('No browser automation');
-    expect(claude).toContain('fresh** session on the same files');
+  it.each([
+    ['the unit runner', 'pnpm test -- <file>'],
+    ['the integration runner', 'pnpm test:integration -- <file>'],
+    ['the include list it reads first', 'vitest.config.integration.ts` `test.include`'],
+    [
+      'the wrong-lane abort for integration files',
+      'ABORTED: integration path needs pnpm test:integration',
+    ],
+    ['the wrong-lane abort for unit files', 'ABORTED: unit path needs pnpm test --'],
+    ['the unaudited integration lane', 'integration lane UNAUDITED or C3 WARN'],
+    ['the CLI probe refusal', '`mailoo test` is a CLI connection probe, not this runner'],
+    ['the runner source', 'package.json` (runner — never infer it)'],
+    ['no browser automation', 'No browser automation'],
+    ['a fresh session', 'fresh** session on the same files'],
+  ])('binds the Mailoo runners: %s', (_name, phrase) => {
+    for (const text of [claude, cursor]) {
+      expect(text).toContain(phrase);
+    }
+  });
+
+  it.each([
+    ['score 10', '10 all killed, no findings.'],
+    ['score 9', '9 INFO only (Mailoo ship bar).'],
+    ['score 7–8', '7–8 WARN debt.'],
+    ['score 6', '6 two WARN max.'],
+    ['score 3–5', '3–5 three+ WARN.'],
+    ['score 1–2', '1–2 any CRITICAL.'],
+    ['the weak detection band', '`<60%` weak'],
+    ['the needs-work detection band', '`60–80%` needs work'],
+    ['the target detection band', '`>80%` target'],
+    ['an unrunnable suite', 'Unrunnable suite → CRITICAL C1, FAIL.'],
+    ['survivors behind every rate', 'Never a rate without survivors'],
+    ['reverting before anything else', 'Revert failure first'],
+    ['the mutation scope', 'Mutate only the named target slice.'],
+  ])('pins the audit contract: %s', (_name, phrase) => {
+    for (const text of [claude, cursor]) {
+      expect(text).toContain(phrase);
+    }
   });
 
   it('requires C1 and C2 before the rest of the rubric', () => {
