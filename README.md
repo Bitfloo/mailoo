@@ -700,7 +700,23 @@ Features:
 
 Optional TypeSafe System One classification on residue mail after static rules. **Off by default.** Both `settings.watcher.enabled` and `settings.system_one.enabled` must be on. Set `TYPESAFE_API_KEY` in the environment (never in TOML).
 
-Default classify path sends **`mail_headers`** (subject, From, attachment names, extracted links, auth codes) to `api.typesafe.ai`. `include_body = true` additionally sends **`mail_body`**. `auto_move` and `auto_flag` are separate poles and default false. Filing destinations come from `folders[].path` (validated against IMAP LIST), not a live listing of every mailbox.
+Only new mail in `source_folders` (default `INBOX`) that no static rule handled is classified. For each such message Mailoo sends one request to `api.typesafe.ai` (or `TYPESAFE_BASE_URL`). The request carries (`src/services/mail-arrival/state.ts`, `src/services/mail-arrival/questions.ts`):
+
+| Data | Sent |
+|---|---|
+| Sender | Display name and address from `From` |
+| Subject | The full subject |
+| Links | URLs found in the subject, and in the body when `include_body = true` |
+| Attachments | File name and MIME type of each attachment, not the file contents |
+| Sender authentication | SPF, DKIM (result and signing domain), and DMARC results; the From, Reply-To, and Return-Path domains; whether a `List-Unsubscribe` header is present |
+| Mailbox | The configured account name and the folder the message is in |
+| Folder rules | For each `[[settings.system_one.folders]]` entry: `path`, `description`, and `false_criteria`, or the other folder paths when `false_criteria` is unset |
+| Model | The `model` setting (default `jev-latest`) |
+| Body | Only with `include_body = true`: plain text without the quoted reply chain, cut to `body_max_chars` (default 6000, maximum 24000) |
+
+Not sent: To, Cc, and Bcc addresses, `Message-ID`, other raw headers, attachment contents, and the body while `include_body` is false.
+
+`auto_move` and `auto_flag` are separate poles and default false. Filing destinations come from `folders[].path` (validated against IMAP LIST), not a live listing of every mailbox.
 
 ```toml
 [settings.system_one]
@@ -733,7 +749,7 @@ Outbound calls, child processes, files, and environment variables below are what
 | `https://login.microsoftonline.com/common/oauth2/v2.0/authorize` | Authorization URL for the operator's browser; the process does not fetch it | `src/services/oauth.service.ts` |
 | Custom `token_url` / `auth_url` | Same split when `oauth2.provider` is `custom` | `src/services/oauth.service.ts` |
 | Configured webhook URL (`http` or `https` POST) | Alerts, after a DNS lookup of that host | `src/services/notifier.service.ts`, `src/safety/validation.ts` |
-| `https://api.typesafe.ai` (or `TYPESAFE_BASE_URL`) | System One classification, only when that integration is on | `src/services/mail-arrival/index.ts` |
+| `https://api.typesafe.ai` (or `TYPESAFE_BASE_URL`) | System One classification, only when that integration is on. Fields sent: [System One](#system-one-opt-in-typed-filing) | `src/services/mail-arrival/index.ts` |
 
 `mailoo http` listens. It does not add an outbound destination. Provider presets in `src/cli/providers.ts` fill the IMAP and SMTP hosts the wizard saves.
 
