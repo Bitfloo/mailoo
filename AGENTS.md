@@ -33,6 +33,7 @@ probe, not Vitest.
 - `pnpm ci:local` (skip GreenMail unless Docker is in the VM).
 - Before push: `bash scripts/check-public-git-log.sh --range origin/develop..HEAD`
   and `@oss-push-gate`. Do not rewrite published history.
-- Brand files on the operator laptop are absent here. `oss-public-face` abstains
-  on mission claims.
-- Do not commit `.cbc/` or `docs/plans/`.
+- Maintainer brand notes are not in this environment. `oss-public-face`
+  abstains on mission claims.
+- Do not commit local agent scratch directories ignored in `.gitignore`, or
+  `docs/plans/`.

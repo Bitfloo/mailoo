@@ -19,10 +19,10 @@ subject/body** are world-readable. Write them as if a stranger clones today.
 - Operator machine paths and knowledge-tree names
 - Plugin dispatch names
 - Model slugs used as routing instructions
-- “Slop”, “L4 twins”, “ship bar” as the **subject** (fine in `.claude/` files)
+- Review jargon such as “slop” or “ship bar” as the **subject** (fine in `.claude/` files)
 
-`CLAUDE.md` may name project vs plugin agents so operators do not mis-dispatch.
-That file is for agents in this clone, not for the git log.
+`CLAUDE.md` may tell agents in this clone to use the project agents rather
+than same-named plugin agents. That file is for agents, not for the git log.
 
 ## Versioning
 
