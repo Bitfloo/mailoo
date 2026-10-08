@@ -66,21 +66,61 @@ function releaseStep(yaml: string, name: string): string {
   return next < 0 ? rest : rest.slice(0, next);
 }
 
+function exactVersion(version: string): [number, number, number] | null {
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) {
+    return null;
+  }
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
 describe('release supply chain', () => {
   it('installs a fixed npm CLI at or above 11.5.1', () => {
     const steps = releaseSteps(releaseYml);
     expect(steps).not.toContain('npm@latest');
-    const pinned = steps.match(/npm install -g npm@(\d+)\.(\d+)\.(\d+)/);
+    expect(steps).not.toMatch(/npm install -g npm@/);
+    expect(steps).toContain('npm ci --ignore-scripts');
+    expect(steps).toContain('working-directory: .github/npm-cli');
+    expect(steps).toContain('.github/npm-cli/node_modules/.bin/npm publish --access public');
+    const cli = JSON.parse(
+      readFileSync(join(repoRoot, '.github/npm-cli/package.json'), 'utf8'),
+    ) as {
+      dependencies: { npm: string };
+    };
+    const pinned = exactVersion(cli.dependencies.npm);
     expect(pinned).not.toBeNull();
     if (!pinned) {
       return;
     }
-    const major = Number(pinned[1]);
-    const minor = Number(pinned[2]);
-    const patch = Number(pinned[3]);
+    const [major, minor, patch] = pinned;
     const atOrAbove =
       major > 11 || (major === 11 && minor > 5) || (major === 11 && minor === 5 && patch >= 1);
     expect(atOrAbove).toBe(true);
+    const shrink = JSON.parse(
+      readFileSync(join(repoRoot, '.github/npm-cli/npm-shrinkwrap.json'), 'utf8'),
+    ) as { packages: Record<string, { version?: string; integrity?: string }> };
+    expect(shrink.packages['node_modules/npm']?.version).toBe(cli.dependencies.npm);
+    expect(shrink.packages['node_modules/npm']?.integrity).toMatch(/^sha512-/);
+  });
+
+  it('installs the image pnpm CLI with npm ci against a shrinkwrap', () => {
+    const dockerfile = readFileSync(join(repoRoot, 'Dockerfile'), 'utf8');
+    expect(dockerfile).toContain('npm ci --ignore-scripts');
+    expect(dockerfile).not.toContain('npm install -g pnpm@');
+    const root = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
+      packageManager: string;
+    };
+    const cli = JSON.parse(
+      readFileSync(join(repoRoot, 'docker/pnpm-cli/package.json'), 'utf8'),
+    ) as {
+      dependencies: { pnpm: string };
+    };
+    expect(`pnpm@${cli.dependencies.pnpm}`).toBe(root.packageManager);
+    const shrink = JSON.parse(
+      readFileSync(join(repoRoot, 'docker/pnpm-cli/npm-shrinkwrap.json'), 'utf8'),
+    ) as { packages: Record<string, { version?: string; integrity?: string }> };
+    expect(shrink.packages['node_modules/pnpm']?.version).toBe(cli.dependencies.pnpm);
+    expect(shrink.packages['node_modules/pnpm']?.integrity).toMatch(/^sha512-/);
   });
 
   it('pins the mcp-publisher archive hash in the install step', () => {
