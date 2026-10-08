@@ -31,6 +31,7 @@ const EXPECTED_TOOL_ANNOTATIONS = {
   get_email_status: hints(true, false, true, true),
   search_emails: hints(true, false, true, true),
   download_attachment: hints(false, true, true, true),
+  export_email: hints(false, true, true, true),
   extract_contacts: hints(true, false, true, true),
   get_thread: hints(true, false, true, true),
   list_templates: hints(true, false, true, false),
@@ -182,11 +183,13 @@ describe('tool annotations', () => {
         .filter((tool) => tool.annotations?.readOnlyHint === true)
         .map((tool) => tool.name)
         .sort();
-      // Every listed tool must declare itself read-only. get_email and
-      // download_attachment stay registered; their write paths are off, so
-      // their hints are true in this mode.
+      // Every listed tool must declare itself read-only. get_email,
+      // download_attachment and export_email stay registered; their write
+      // paths are off, so their hints are true in this mode.
       expect(exposed).toEqual(liveReadOnly);
-      expect(exposed).toEqual(expect.arrayContaining(['download_attachment', 'get_email']));
+      expect(exposed).toEqual(
+        expect.arrayContaining(['download_attachment', 'export_email', 'get_email']),
+      );
 
       const required = Object.entries(EXPECTED_TOOL_ANNOTATIONS)
         .filter(([, toolHints]) => toolHints.readOnlyHint)

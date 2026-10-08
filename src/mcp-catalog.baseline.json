@@ -558,6 +558,40 @@
       }
     },
     {
+      "name": "export_email",
+      "description": "Export one email as its raw RFC 822 source (.eml) — headers, body, and attachments, byte for byte as the server stores it. Use it to archive the message itself, for example a receipt that is only in the mail body. Does NOT mark the email as seen or change any flag. Returns base64-encoded content for messages ≤5MB. Pass savePath to write the .eml file to disk instead (up to 50MB) and skip base64.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name from list_accounts"
+          },
+          "id": {
+            "type": "string",
+            "description": "Email ID (UID) from list_emails or get_email"
+          },
+          "mailbox": {
+            "default": "INBOX",
+            "description": "Mailbox containing the email",
+            "type": "string"
+          },
+          "savePath": {
+            "description": "If set, write the .eml to this path, or into this directory as <YYYY-MM-DD>_<uid>.eml (UTC date of INTERNALDATE), and return metadata only — no base64.",
+            "type": "string"
+          }
+        },
+        "required": ["account", "id"],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
       "name": "extract_calendar",
       "description": "Extract calendar events (ICS/iCalendar) from an email. Returns structured event data including time, location, attendees, and status.",
       "inputSchema": {

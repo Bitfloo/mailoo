@@ -13,6 +13,7 @@ vi.mock('./calendar.tool.js', () => ({
 vi.mock('./contacts.tool.js', () => ({ default: vi.fn() }));
 vi.mock('./drafts.tool.js', () => ({ default: vi.fn() }));
 vi.mock('./emails.tool.js', () => ({ default: vi.fn() }));
+vi.mock('./export.tool.js', () => ({ default: vi.fn() }));
 vi.mock('./folders.tool.js', () => ({ default: vi.fn() }));
 vi.mock('./health.tool.js', () => ({ default: vi.fn() }));
 vi.mock('./label.tool.js', () => ({
@@ -47,6 +48,7 @@ import registerBulkTools from './bulk.tool.js';
 import { registerCalendarReadTools, registerCalendarWriteTools } from './calendar.tool.js';
 import registerDraftTools from './drafts.tool.js';
 import registerEmailsTools from './emails.tool.js';
+import registerExportTools from './export.tool.js';
 import registerFolderTools from './folders.tool.js';
 import { registerLabelReadTools, registerLabelWriteTools } from './label.tool.js';
 import registerManageTools from './manage.tool.js';
@@ -127,6 +129,7 @@ describe('registerAllTools', () => {
     // Read tools should always be registered
     expect(registerAccountsTools).toHaveBeenCalled();
     expect(registerEmailsTools).toHaveBeenCalled();
+    expect(registerExportTools).toHaveBeenCalledWith({}, {}, false);
     expect(registerSecurityTools).toHaveBeenCalled();
     expect(registerSieveReadTools).toHaveBeenCalled();
     expect(registerCalendarReadTools).toHaveBeenCalled();
@@ -165,6 +168,8 @@ describe('registerAllTools', () => {
     // Read tools should still be registered
     expect(registerAccountsTools).toHaveBeenCalled();
     expect(registerEmailsTools).toHaveBeenCalled();
+    // read_only reaches the tool, which then rejects savePath.
+    expect(registerExportTools).toHaveBeenCalledWith({}, {}, true);
     expect(registerSecurityTools).toHaveBeenCalled();
     expect(registerSieveReadTools).toHaveBeenCalled();
     expect(registerCalendarReadTools).toHaveBeenCalled();

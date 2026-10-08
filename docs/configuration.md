@@ -53,7 +53,7 @@ The registered tools are exactly:
 
 `analyze_email_for_scheduling`, `check_calendar_permissions`,
 `check_health`, `check_notification_setup`, `download_attachment`,
-`extract_calendar`, `extract_contacts`, `find_email_folder`, `get_email`,
+`export_email`, `extract_calendar`, `extract_contacts`, `find_email_folder`, `get_email`,
 `get_email_security`, `get_email_stats`, `get_email_status`, `get_emails`,
 `get_hooks_config`, `get_thread`, `get_watcher_status`, `list_accounts`,
 `list_calendars`, `list_emails`, `list_events`, `list_labels`,
@@ -62,8 +62,9 @@ The registered tools are exactly:
 `sieve_status`.
 
 `get_email` ignores `markRead` and does not set `\Seen`.
-Passing `savePath` returns an error and writes nothing; omit it to get the
-attachment as base64. In this mode both tools are advertised as read-only.
+Passing `savePath` to `download_attachment` or `export_email` returns an
+error and writes nothing; omit it to get the attachment or the `.eml` as
+base64. In this mode all three tools are advertised as read-only.
 
 Every other tool is omitted. That includes `add_to_calendar`,
 `create_reminder`, `test_notification`, `configure_alerts`, and the send,

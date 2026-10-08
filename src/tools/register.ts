@@ -26,6 +26,7 @@ import { registerCalendarReadTools, registerCalendarWriteTools } from './calenda
 import registerContactsTools from './contacts.tool.js';
 import registerDraftTools from './drafts.tool.js';
 import registerEmailsTools from './emails.tool.js';
+import registerExportTools from './export.tool.js';
 import registerFolderTools from './folders.tool.js';
 import registerHealthTools from './health.tool.js';
 import { registerLabelReadTools, registerLabelWriteTools } from './label.tool.js';
@@ -61,6 +62,7 @@ export default function registerAllTools(
   registerMailboxesTools(server, imapService);
   registerEmailsTools(server, imapService, readOnly);
   registerAttachmentTools(server, imapService, readOnly);
+  registerExportTools(server, imapService, readOnly);
   registerContactsTools(server, imapService);
   registerThreadTools(server, imapService);
   registerTemplateReadTools(server, templateService);
