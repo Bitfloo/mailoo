@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 import type { IConnectionManager } from '../connections/types.js';
 import ImapService, { emlFilename } from '../services/imap.service.js';
-import registerAttachmentTools, { SAVE_PATH_MAX_BYTES } from './attachments.tool.js';
+import registerAttachmentTools from './attachments.tool.js';
 import registerExportTools, { INLINE_MAX_BYTES } from './export.tool.js';
 
 interface ExportArgs {
@@ -183,24 +183,31 @@ describe('export_email inline content', () => {
 });
 
 describe('export_email size caps', () => {
+  // Literal sizes: the tool description promises these numbers, so a boundary
+  // derived from the exported constant would move with it.
+  const FIVE_MIB = 5 * 1024 * 1024;
+  const FIFTY_MIB = 50 * 1024 * 1024;
+
+  it('should cap inline exports at 5 mebibytes', () => {
+    expect(INLINE_MAX_BYTES).toBe(FIVE_MIB);
+  });
+
   it('should export inline a message of exactly 5 MB', async () => {
-    const source = Buffer.alloc(INLINE_MAX_BYTES, 0x41);
+    const source = Buffer.alloc(FIVE_MIB, 0x41);
     const run = exportTool({ size: source.length, source });
     const result = await run({ account: ACCOUNT, id: UID, mailbox: 'INBOX' });
-    expect(inlineBytes(result).length).toBe(INLINE_MAX_BYTES);
+    expect(inlineBytes(result).length).toBe(FIVE_MIB);
   });
 
   it('should return isError for an inline export one byte over 5 MB without fetching the source', async () => {
-    const run = exportTool({ size: INLINE_MAX_BYTES + 1 });
+    const run = exportTool({ size: FIVE_MIB + 1 });
     const result = await run({ account: ACCOUNT, id: UID, mailbox: 'INBOX' });
     expect(result.isError).toBe(true);
-    expect(reason(result)).toBe(
-      `Email ${UID} is ${INLINE_MAX_BYTES + 1} bytes, over the ${INLINE_MAX_BYTES}-byte limit`,
-    );
+    expect(reason(result)).toBe(`Email ${UID} is 5242881 bytes, over the 5242880-byte limit`);
   });
 
   it('should write a message over 5 MB when savePath is set', async () => {
-    const source = Buffer.alloc(INLINE_MAX_BYTES + 1, 0x42);
+    const source = Buffer.alloc(FIVE_MIB + 1, 0x42);
     const run = exportTool({ size: source.length, source });
     await withPinnedRoots(async (cwd) => {
       const dest = path.join(cwd, 'large.eml');
@@ -211,7 +218,7 @@ describe('export_email size caps', () => {
   });
 
   it('should return isError and leave no file when a savePath export is one byte over 50 MB', async () => {
-    const run = exportTool({ size: SAVE_PATH_MAX_BYTES + 1 });
+    const run = exportTool({ size: FIFTY_MIB + 1 });
     await withPinnedRoots(async (cwd) => {
       const result = await run({
         account: ACCOUNT,
@@ -220,15 +227,13 @@ describe('export_email size caps', () => {
         savePath: path.join('archive', 'large.eml'),
       });
       expect(result.isError).toBe(true);
-      expect(reason(result)).toBe(
-        `Email ${UID} is ${SAVE_PATH_MAX_BYTES + 1} bytes, over the ${SAVE_PATH_MAX_BYTES}-byte limit`,
-      );
+      expect(reason(result)).toBe(`Email ${UID} is 52428801 bytes, over the 52428800-byte limit`);
       expect(await fs.readdir(cwd)).toEqual([]);
     });
   });
 
   it('should return isError and leave no file when the server sends more octets than its RFC822.SIZE', async () => {
-    const run = exportTool({ size: 10, source: Buffer.alloc(SAVE_PATH_MAX_BYTES + 1, 0x43) });
+    const run = exportTool({ size: 10, source: Buffer.alloc(FIFTY_MIB + 1, 0x43) });
     await withPinnedRoots(async (cwd) => {
       const result = await run({
         account: ACCOUNT,

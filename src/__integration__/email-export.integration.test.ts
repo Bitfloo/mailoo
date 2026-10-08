@@ -26,9 +26,10 @@ const BASE64_MARKER = '--- Base64 Content ---\n';
 const INTERNAL_DATE = new Date('2026-03-14T09:30:00.000Z');
 
 /**
- * A vendor receipt whose only copy of the invoice is the HTML body. Folded
+ * A vendor receipt whose only copy of the invoice is the mail body. Folded
  * headers, quoted-printable soft breaks and a trailing space are the bytes a
- * MIME re-serialisation would rewrite.
+ * MIME re-serialisation would rewrite; the 8bit ISO-8859-1 part is not valid
+ * UTF-8, so a decode/encode round trip changes it.
  */
 function receiptSource(tag: string): Buffer {
   return Buffer.from(
@@ -46,10 +47,10 @@ function receiptSource(tag: string): Buffer {
       '\tboundary="b1_receipt"',
       '',
       '--b1_receipt',
-      'Content-Type: text/plain; charset=utf-8',
-      'Content-Transfer-Encoding: quoted-printable',
+      'Content-Type: text/plain; charset=iso-8859-1',
+      'Content-Transfer-Encoding: 8bit',
       '',
-      'Order 10442 =E2=80=93 total 12,50 =E2=82=AC ',
+      'Order 10442 \u00b7 Caf\u00e9 M\u00fcller \u00b7 total 12,50 EUR ',
       '',
       '--b1_receipt',
       'Content-Type: text/html; charset=utf-8',
@@ -61,6 +62,7 @@ function receiptSource(tag: string): Buffer {
       '--b1_receipt--',
       '',
     ].join('\r\n'),
+    'latin1',
   );
 }
 
@@ -140,6 +142,8 @@ describe('export_email against GreenMail', () => {
 
   it('should return the appended RFC 822 bytes unchanged when savePath is omitted', async () => {
     const { uid, source } = await appendReceipt();
+    // A fixture that is valid UTF-8 would let a decode/encode round trip pass.
+    expect(Buffer.from(source.toString('utf8')).equals(source)).toBe(false);
 
     const result = await callExport({ account: TEST_ACCOUNT_NAME, id: uid, mailbox: 'INBOX' });
 
