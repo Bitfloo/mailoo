@@ -41,9 +41,10 @@ jobs:
       # Trusted publishing (OIDC, npm >= 11.5.1): npmjs.com trusts Bitfloo/mailoo
       # release.yml, so there is no token to leak or expire, and provenance is
       # attached automatically. pnpm 9 cannot do the OIDC exchange, hence npm.
-      # The CLI is pinned: @latest is not a version we can review before publish.
-      - run: npm install -g npm@11.20.0
-      - run: npm publish --access public
+      # npm ci checks the shrinkwrap integrity. A version tag is not a hash.
+      - run: npm ci --ignore-scripts
+        working-directory: .github/npm-cli
+      - run: .github/npm-cli/node_modules/.bin/npm publish --access public
 
   mcp:
     name: Publish to MCP Registry

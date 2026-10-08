@@ -19,6 +19,8 @@ dockers_v2:
       - LICENSE
       - COPYING
       - NOTICE
+      - docker/pnpm-cli/package.json
+      - docker/pnpm-cli/npm-shrinkwrap.json
     images:
       - ghcr.io/bitfloo/mailoo
     tags:

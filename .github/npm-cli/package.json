@@ -1,0 +1,7 @@
+{
+  "name": "mailoo-npm-cli",
+  "private": true,
+  "dependencies": {
+    "npm": "11.20.0"
+  }
+}

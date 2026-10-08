@@ -1,0 +1,7 @@
+{
+  "name": "mailoo-pnpm-cli",
+  "private": true,
+  "dependencies": {
+    "pnpm": "9.15.0"
+  }
+}
