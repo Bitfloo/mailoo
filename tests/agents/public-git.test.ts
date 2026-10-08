@@ -141,6 +141,7 @@ describe('public git log gate', () => {
     ['a plugin test-auditor dispatch', 'chore: do not dispatch acme:test-auditor\n'],
     ['a plugin test-smith dispatch', 'chore: do not dispatch acme:test-smith\n'],
     ['a plugin push-gate dispatch', 'chore: do not dispatch acme:push-gate\n'],
+    ['a plugin name with a digit', 'chore: do not dispatch acme2:test-smith\n'],
   ])('rejects %s', (_name, body) => {
     const result = scanFile(body);
     expect(result.status).toBe(1);
@@ -151,12 +152,16 @@ describe('public git log gate', () => {
     expect(scanFile('fix: path /users/me/mailoo\n').status).toBe(1);
     expect(scanFile('docs: note\n\nclaude-session: 0123abc\n').status).toBe(1);
     expect(scanFile('chore: do not dispatch ACME:TEST-SMITH\n').status).toBe(1);
+    expect(scanFile('chore: do not dispatch ACME2:TEST-SMITH\n').status).toBe(1);
   });
 
   it('rejects a private pattern from the environment only when it is set', () => {
     const body = 'docs: load the example-private-tree notes\n';
     expect(scanFile(body).status).toBe(0);
-    expect(scanFile(body, { PUBLIC_GIT_EXTRA_FORBIDDEN: 'example-private-tree' }).status).toBe(1);
+    const result = scanFile(body, { PUBLIC_GIT_EXTRA_FORBIDDEN: 'example-private-tree' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('docs: load the example-private-tree notes');
+    expect(result.stderr).toContain('forbidden token');
   });
 
   it('matches an extra pattern from the environment case-insensitively', () => {
@@ -229,6 +234,7 @@ describe('public git log gate', () => {
   it.each([
     [
       'the environment',
+      'invalid extra pattern in PUBLIC_GIT_EXTRA_FORBIDDEN',
       (dir: string) => ({
         PUBLIC_GIT_EXTRA_FORBIDDEN: '(private-marker-env',
         PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none'),
@@ -236,17 +242,19 @@ describe('public git log gate', () => {
     ],
     [
       'the denylist file',
+      'public-git-denylist line 2',
       (dir: string) => {
         const list = join(dir, 'public-git-denylist');
         writeFileSync(list, 'example-private-tree\nprivate-marker-list(\n');
         return { PUBLIC_GIT_DENYLIST_FILE: list };
       },
     ],
-  ])('fails closed on a malformed extra pattern from %s', (_source, makeEnv) => {
+  ])('fails closed on a malformed extra pattern from %s', (_source, where, makeEnv) => {
     const env = makeEnv(makeTmpDir('mailoo-public-git-bad-'));
     const withLeak = scanFile(leak, env);
     expect(withLeak.status).toBe(2);
     expect(withLeak.stderr).toContain('invalid extra pattern');
+    expect(withLeak.stderr).toContain(where);
     expect(withLeak.stderr).toContain('/Users/me/mailoo');
     expect(withLeak.stderr).not.toContain('private-marker');
     const withoutLeak = scanFile(clean, env);
@@ -271,6 +279,13 @@ describe('public git log gate', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(leakSha);
     expect(result.stderr).not.toContain(cleanSha);
+  });
+
+  it('passes an empty --range without output', () => {
+    const repo = initRepo();
+    expect(
+      runChecker(['--range', 'HEAD..HEAD'], repo, { PUBLIC_GIT_DENYLIST_FILE: join(repo, 'none') }),
+    ).toEqual({ status: 0, stderr: '' });
   });
 
   it('scans the commit subject in --range mode', () => {
