@@ -30,22 +30,21 @@ afterEach(() => {
   }
 });
 
-type Result = { status: number; stderr: string };
+type Result = { status: number; stdout: string; stderr: string };
 
-/** Process env without git or checker variables, so the caller's repository cannot leak in. */
+/**
+ * Process env without any git or checker variable from the caller (repository, worktree,
+ * and GIT_CONFIG_* overrides), then git pinned to no global or system config.
+ */
 function cleanEnv(env: Record<string, string | undefined>): NodeJS.ProcessEnv {
-  const base: NodeJS.ProcessEnv = {
-    ...process.env,
-    GIT_CONFIG_GLOBAL: '/dev/null',
-    GIT_CONFIG_NOSYSTEM: '1',
-  };
+  const base: NodeJS.ProcessEnv = { ...process.env };
   for (const key of Object.keys(base)) {
-    if (key.startsWith('GIT_') && !key.startsWith('GIT_CONFIG')) {
+    if (key.startsWith('GIT_') || key.startsWith('PUBLIC_GIT_')) {
       delete base[key];
     }
   }
-  delete base.PUBLIC_GIT_EXTRA_FORBIDDEN;
-  delete base.PUBLIC_GIT_DENYLIST_FILE;
+  base.GIT_CONFIG_GLOBAL = '/dev/null';
+  base.GIT_CONFIG_NOSYSTEM = '1';
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) {
       delete base[key];
@@ -62,7 +61,7 @@ function runChecker(args: string[], cwd: string, env: Record<string, string | un
     encoding: 'utf8',
     env: cleanEnv(env),
   });
-  return { status: result.status ?? 1, stderr: result.stderr };
+  return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
 }
 
 function scanFile(body: string, env: Record<string, string | undefined> = {}): Result {
@@ -108,6 +107,26 @@ const clean = 'docs: name the integration IMAP server\n';
 const leak = 'fix: path /Users/me/mailoo\n';
 
 describe('public git log gate', () => {
+  it('runs the checker without git or checker variables from the caller', () => {
+    vi.stubEnv('GIT_DIR', '/elsewhere');
+    vi.stubEnv('GIT_CONFIG_COUNT', '1');
+    vi.stubEnv('GIT_CONFIG_KEY_0', 'core.hooksPath');
+    vi.stubEnv('GIT_CONFIG_VALUE_0', '/elsewhere');
+    vi.stubEnv('GIT_CONFIG_SYSTEM', '/elsewhere');
+    vi.stubEnv('PUBLIC_GIT_EXTRA_FORBIDDEN', 'docs');
+    try {
+      const env = cleanEnv({});
+      const gitKeys = Object.keys(env)
+        .filter((key) => key.includes('GIT_'))
+        .sort();
+      expect(gitKeys).toEqual(['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM']);
+      expect(env.GIT_CONFIG_GLOBAL).toBe('/dev/null');
+      expect(scanFile(clean)).toEqual({ status: 0, stdout: '', stderr: '' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('ships the rubric and a checker that git tracks as executable', () => {
     expect(existsSync(publicGit)).toBe(true);
     const mode = spawnSync('git', ['ls-files', '-s', 'scripts/check-public-git-log.sh'], {
@@ -126,7 +145,7 @@ describe('public git log gate', () => {
   });
 
   it('accepts a conventional subject with no operator leak', () => {
-    expect(scanFile(clean)).toEqual({ status: 0, stderr: '' });
+    expect(scanFile(clean)).toEqual({ status: 0, stdout: '', stderr: '' });
   });
 
   it('accepts a project agent name without a plugin prefix', () => {
@@ -147,6 +166,7 @@ describe('public git log gate', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('forbidden token');
     expect(result.stderr).toContain('see .claude/rules/public-git.md');
+    expect(result.stdout).toBe('');
   });
 
   it('matches built-in patterns case-insensitively', () => {
@@ -161,6 +181,7 @@ describe('public git log gate', () => {
     expect(scanFile(body).status).toBe(0);
     const result = scanFile(body, { PUBLIC_GIT_EXTRA_FORBIDDEN: 'example-private-tree' });
     expect(result.status).toBe(1);
+    expect(result.stdout).toBe('');
     expect(result.stderr).toContain('docs: load the example-private-tree notes');
     expect(result.stderr).toContain('forbidden token');
   });
@@ -171,7 +192,7 @@ describe('public git log gate', () => {
     const env = { PUBLIC_GIT_EXTRA_FORBIDDEN: 'alpha-secret', PUBLIC_GIT_DENYLIST_FILE: list };
     expect(scanFile('docs: mention alpha-secret\n', env).status).toBe(1);
     expect(scanFile('docs: mention beta-secret\n', env).status).toBe(1);
-    expect(scanFile(clean, env)).toEqual({ status: 0, stderr: '' });
+    expect(scanFile(clean, env)).toEqual({ status: 0, stdout: '', stderr: '' });
     const both = scanFile('docs: mention alpha-secret\n\nAlso beta-secret here.\n', env);
     expect(both.status).toBe(1);
     expect(both.stderr).toContain('docs: mention alpha-secret');
@@ -217,7 +238,24 @@ describe('public git log gate', () => {
     const env = { PUBLIC_GIT_DENYLIST_FILE: list };
     expect(scanFile('docs: load the example-private-tree notes\n', env).status).toBe(1);
     expect(scanFile('docs: mention other-secret-name\n', env).status).toBe(1);
-    expect(scanFile(clean, env)).toEqual({ status: 0, stderr: '' });
+    expect(scanFile(clean, env)).toEqual({ status: 0, stdout: '', stderr: '' });
+  });
+
+  it('treats a denylist line that starts with a dash as a pattern, not an option', () => {
+    const list = join(makeTmpDir('mailoo-public-git-list-'), 'public-git-denylist');
+    writeFileSync(list, '-private-marker\n');
+    const env = { PUBLIC_GIT_DENYLIST_FILE: list };
+    const hit = scanFile('docs: drop the x-private-marker notes\n', env);
+    expect(hit.status).toBe(1);
+    expect(hit.stdout).toBe('');
+    expect(hit.stderr).toContain('docs: drop the x-private-marker notes');
+    expect(scanFile(clean, env)).toEqual({ status: 0, stdout: '', stderr: '' });
+  });
+
+  it('treats an environment pattern that starts with a dash as a pattern, not an option', () => {
+    const env = { PUBLIC_GIT_EXTRA_FORBIDDEN: '--private-marker' };
+    expect(scanFile('docs: drop the x--private-marker notes\n', env).status).toBe(1);
+    expect(scanFile(clean, env)).toEqual({ status: 0, stdout: '', stderr: '' });
   });
 
   it('skips blank lines and comments between denylist patterns', () => {
@@ -228,7 +266,7 @@ describe('public git log gate', () => {
       'example-private-tree\n\n# comment with (regex) metachars [ * |\nother-secret-name',
     );
     const env = { PUBLIC_GIT_DENYLIST_FILE: list };
-    expect(scanFile(clean, env)).toEqual({ status: 0, stderr: '' });
+    expect(scanFile(clean, env)).toEqual({ status: 0, stdout: '', stderr: '' });
     expect(scanFile('docs: load the example-private-tree notes\n', env).status).toBe(1);
     expect(scanFile('docs: mention other-secret-name\n', env).status).toBe(1);
   });
@@ -261,7 +299,7 @@ describe('public git log gate', () => {
     const msg = join(dir, 'MSG');
     writeFileSync(msg, 'docs: load the example-private-tree notes\n');
     const env = { GIT_CEILING_DIRECTORIES: dirname(dir) };
-    expect(runChecker(['--file', msg], dir, env)).toEqual({ status: 0, stderr: '' });
+    expect(runChecker(['--file', msg], dir, env)).toEqual({ status: 0, stdout: '', stderr: '' });
     writeFileSync(msg, leak);
     expect(runChecker(['--file', msg], dir, env).status).toBe(1);
   });
@@ -337,6 +375,7 @@ describe('public git log gate', () => {
     const env = { PUBLIC_GIT_DENYLIST_FILE: join(repo, 'none') };
     expect(runChecker(['--range', `${base}..${cleanSha}`], repo, env)).toEqual({
       status: 0,
+      stdout: '',
       stderr: '',
     });
     const result = runChecker(['--range', `${base}..${leakSha}`], repo, env);
@@ -364,7 +403,7 @@ describe('public git log gate', () => {
     const repo = initRepo();
     expect(
       runChecker(['--range', 'HEAD..HEAD'], repo, { PUBLIC_GIT_DENYLIST_FILE: join(repo, 'none') }),
-    ).toEqual({ status: 0, stderr: '' });
+    ).toEqual({ status: 0, stdout: '', stderr: '' });
   });
 
   it('scans the commit subject in --range mode', () => {
