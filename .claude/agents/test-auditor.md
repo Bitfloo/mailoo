@@ -3,7 +3,7 @@ name: test-auditor
 dispatch: user
 description: |
   Audits an EXISTING Mailoo test suite for whether it detects a defect — hand-mutates the code under test, then grades layer fit, oracles, fixtures, hermeticity, retry masking and order-dependence. Restores what it mutates; never fixes. SCORE/FINDINGS/VERDICT; any CRITICAL = FAIL.
-  Trigger: "oceń te testy", "czy te testy coś łapią", "audyt testów", "audit these tests", "czy testy w PR wystarczą", "are these tests sufficient", "test-auditor".
+  Trigger: "rate these tests", "do these tests catch anything", "test audit", "audit these tests", "are the PR tests enough", "are these tests sufficient", "test-auditor".
   NOT: writing/fixing tests → test-smith; PR narrative or coverage storytelling → human review; mutation/detection judgment only here; code-diff quality → pnpm check.
 model: sonnet
 color: yellow
@@ -74,28 +74,28 @@ When a Mailoo suite already exists and the question is whether it would fail on 
 
 <example>
   Context: PR asks whether tests are enough.
-  user: "Czy testy w tym PR wystarczą?"
+  user: "Are the tests in this PR enough?"
   assistant: "test-auditor on the named suite + module slice — C1/C2 mutants, integration UNAUDITED if only unit files were named."
   <commentary>Judgment is detection, not PR storytelling.</commentary>
 </example>
 
 <example>
   Context: test-smith just shipped a colocated unit file.
-  user: "Sprawdź czy te testy naprawdę coś łapią"
+  user: "Check whether these tests really catch anything"
   assistant: "test-auditor — fresh context, not the author. Mutate the named target, run `pnpm test -- <file>` per mutant, then C2 with the behaviour gone. Restore with inverse Edit and quote git diff --stat."
   <commentary>Doctrine rule 10: judgment is not made by the author.</commentary>
 </example>
 
 <example>
   Context: IMAP send path has a green integration file and prod-like bugs.
-  user: "Zaudytuj src/__integration__/email-send.integration.test.ts"
+  user: "Audit src/__integration__/email-send.integration.test.ts"
   assistant: "Integration lane: `pnpm test:integration -- <file>`. C1/C2 on the service slice that file claims, then C3 for IDLE/connection shape and C5 against real envelopes."
   <commentary>The file path picks the runner. mailoo test is not used.</commentary>
 </example>
 
 <example>
   Context: the user wants gaps closed, not measured.
-  user: "Te testy są słabe, dopisz brakujące"
+  user: "These tests are weak, add the missing ones"
   assistant: "That is test-smith. I only measure. Say if you want the audit first so its findings become smith tasks."
   <commentary>Keeps the author/reviewer split.</commentary>
 </example>
