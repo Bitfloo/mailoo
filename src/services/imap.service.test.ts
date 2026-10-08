@@ -275,6 +275,37 @@ describe('ImapService', () => {
     });
   });
 
+  describe('exportEmail', () => {
+    // BODY.PEEK[] already avoids \Seen on GreenMail, so only this lock stops a
+    // server that ignores PEEK from changing flags.
+    it('should open the mailbox read-only (EXAMINE) before fetching the source', async () => {
+      client.fetchOne.mockImplementation(async (_uid: string, query: { source?: unknown }) => {
+        if (query.source) return { uid: 10, source: Buffer.from('raw') };
+        return { uid: 10, size: 3 };
+      });
+
+      await service.exportEmail('test', '10', 'Archive');
+
+      expect(client.getMailboxLock).toHaveBeenCalledWith('Archive', { readOnly: true });
+      expect(client.getMailboxLock).toHaveBeenCalledTimes(1);
+    });
+
+    it('should report the UID as not found when the server returns no message', async () => {
+      client.fetchOne.mockResolvedValue(false);
+
+      await expect(service.exportEmail('test', '10', 'INBOX')).rejects.toThrow(
+        'Email 10 not found in INBOX',
+      );
+    });
+
+    it('should release the mailbox lock when the export fails', async () => {
+      client.fetchOne.mockResolvedValue({ uid: 10, size: 99 });
+
+      await expect(service.exportEmail('test', '10', 'INBOX', 10)).rejects.toThrow(/limit/);
+      expect(client._releaseFn).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('getEmail', () => {
     it('downloads leaf text parts rather than hardcoded part 1, and keeps Original Message', async () => {
       client.fetchOne.mockResolvedValue({
@@ -575,6 +606,7 @@ describe('ImapService', () => {
       ['removeLabel', async (svc) => svc.removeLabel('test', '1.5', 'INBOX', 'Tag')],
       ['findEmailFolder', async (svc) => svc.findEmailFolder('test', '12abc', 'INBOX')],
       ['downloadAttachment', async (svc) => svc.downloadAttachment('test', '01', 'INBOX', 'a.txt')],
+      ['exportEmail', async (svc) => svc.exportEmail('test', '1:*', 'INBOX')],
       ['getEmailSecurity', async (svc) => svc.getEmailSecurity('test', '1e2', 'INBOX')],
       ['peekText', async (svc) => svc.peekText('test', ' 4', 'INBOX')],
       ['peekAttachments', async (svc) => svc.peekAttachments('test', '$', 'INBOX')],
@@ -604,6 +636,7 @@ describe('ImapService', () => {
         'downloadAttachment',
         async (svc) => svc.downloadAttachment('test', '8', 'INBOX\nSent', 'a.txt'),
       ],
+      ['exportEmail', async (svc) => svc.exportEmail('test', '8', 'INBOX\r\nSent')],
       ['getEmailSecurity', async (svc) => svc.getEmailSecurity('test', '8', 'INBOX\r\nSent')],
       ['peekText', async (svc) => svc.peekText('test', '8', 'INBOX\nSent')],
       ['peekAttachments', async (svc) => svc.peekAttachments('test', '8', 'INBOX\r\nSent')],
