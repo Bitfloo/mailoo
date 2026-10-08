@@ -53,8 +53,8 @@ GreenMail + image on pull requests, and the same on `workflow_dispatch`. Tick
   Before `git push`, run project `oss-push-gate` (and `oss-pr-steward` if the
   log is the PR). Do not rewrite published history.
 - **Branches**: GitHub default is `develop`. Topic branches off `develop`;
-  PRs target `develop`. `main` is the release line, kept in sync with
-  `develop` (`develop` → `main` merges).
+  PRs target `develop`. `develop` is the release line (`v*` tags are cut
+  from it). `main` is no longer updated; do not branch from or merge into it.
 - **Files layout**: business logic in `src/services/`, MCP wiring in
   `src/tools/`, `src/prompts/`, `src/resources/`. Keep them decoupled —
   services must be unit-testable without mocking MCP transports.

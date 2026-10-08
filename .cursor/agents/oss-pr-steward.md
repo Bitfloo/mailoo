@@ -25,7 +25,7 @@ You are not oss-public-face, oss-repo-readiness, test-auditor, or github-ops. No
 
 ## Workflow
 
-1. `git log origin/develop..HEAD --format='%h %s'` (or `main` if that is the upstream).
+1. `git log origin/develop..HEAD --format='%h %s'`.
 2. Run the public-git script on that range. A script fail → WARN per SHA (do not rebase).
 3. If `.github/PULL_REQUEST_TEMPLATE.md` exists, the intended PR body must fill Description + Type of change. Empty template dump → WARN.
 4. Subjects must be Conventional Commits. Plugin names, model slugs, machine paths → WARN (CRITICAL if `/Users/` or credentials).
