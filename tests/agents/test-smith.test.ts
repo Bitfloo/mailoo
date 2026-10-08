@@ -5,12 +5,16 @@ import {
   agentTwinBody,
   CLAUDE_TEST_AGENT_MODEL,
   CURSOR_TEST_AGENT_MODEL,
+  checkerBuiltinPattern,
   descriptionBlock,
+  exampleBlocks,
+  POLISH_TEXT,
   readTwinAgent,
   repoRoot,
   SYSTEM_PROMPT_MAX_WORDS,
   systemPromptWords,
   toolsList,
+  triggerPhrases,
   USER_DESCRIPTION_MAX_CHARS,
 } from './agent-file.js';
 
@@ -37,9 +41,13 @@ describe('test-smith L4 doctrine', () => {
 
   it('routes English authoring phrases and defers grading', () => {
     const description = descriptionBlock(claude);
-    expect(description).toContain('Trigger:');
-    expect(description).toMatch(/add tests/);
-    expect(description).toMatch(/write tests for/);
+    expect(triggerPhrases(description)).toEqual([
+      'write tests',
+      'add tests',
+      'write tests for',
+      'test this properly',
+      'test-smith',
+    ]);
     expect(description).toMatch(/NOT:.*test-auditor/);
   });
 
@@ -116,9 +124,26 @@ describe('test-smith L4 doctrine', () => {
     expect(systemPromptWords(claude).length).toBeLessThanOrEqual(SYSTEM_PROMPT_MAX_WORDS);
   });
 
-  it('does not cite plugin dispatch names or machine paths in the agent file', () => {
-    expect(claude).not.toMatch(/\b[a-z][a-z0-9-]*:test-(auditor|smith)\b/i);
-    expect(claude).not.toMatch(/(^|[\s`("'])~\//m);
-    expect(claude).not.toMatch(/\/Users\//);
+  it('does not cite anything the public git checker forbids, or a home path', () => {
+    for (const text of [claude, cursor]) {
+      expect(text).not.toMatch(checkerBuiltinPattern());
+      expect(text).not.toMatch(/(^|[\s`("'])~\//m);
+    }
+  });
+
+  it('keeps the agent text English-only', () => {
+    for (const text of [claude, cursor]) {
+      expect(text).not.toMatch(POLISH_TEXT);
+    }
+  });
+
+  it('gives each When to invoke example a context, a user request, and an answer', () => {
+    const examples = exampleBlocks(claude);
+    expect(examples).toHaveLength(3);
+    for (const example of examples) {
+      expect(example).toMatch(/^\s*Context: \S/m);
+      expect(example).toMatch(/^\s*user: "[^"]+"$/m);
+      expect(example).toMatch(/^\s*assistant: "[^"]+"$/m);
+    }
   });
 });
