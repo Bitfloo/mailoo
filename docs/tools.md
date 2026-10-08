@@ -28,6 +28,28 @@ on a writable server because this path writes disk, and **true** when
 (one path segment). An existing file is left unchanged.
 A symlink is rejected.
 
+## `export_email`
+
+Returns one message as its raw RFC 822 source (`.eml`, `message/rfc822`):
+the octets the server sends for `BODY.PEEK[]`, headers and every MIME part
+included. `get_email` with `format="full"` returns the decoded body text,
+not this source. Use `export_email` to archive a message that has no PDF,
+such as a receipt sent only as the mail body.
+
+Parameters: `account`, `id` (UID), `mailbox` (default `INBOX`), and
+optional `savePath`. Size limits, `savePath` and `read_only` follow
+`download_attachment`: base64 up to **5 MB**; with `savePath`, a new file
+up to **50 MB** under the same working-directory rules, with the same
+errors for a symlink, an existing file, or a path outside the working
+directory. When `read_only` is true, `savePath` is rejected and no file is
+written. A directory `savePath` names the file `<YYYY-MM-DD>_<uid>.eml`
+from the UTC date of the message's INTERNALDATE.
+
+The mailbox is opened read-only (EXAMINE) and the source is fetched with
+`BODY.PEEK[]`, so `\Seen` and every other flag stay as they were. A message
+over the limit returns an error and nothing is written to disk. The size the
+server reports (`RFC822.SIZE`) is checked before the source is fetched.
+
 ## `list_emails` / `search_emails` dates
 
 Both accept ISO 8601 `since` and `before`.

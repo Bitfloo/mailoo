@@ -21,7 +21,10 @@ import {
 } from '../safety/local-paths.js';
 import type ImapService from '../services/imap.service.js';
 
-/** Max size when streaming to disk (base64 responses stay at 5MB). */
+/** Base64 responses stay at this size; savePath may go up to SAVE_PATH_MAX_BYTES. */
+export const INLINE_MAX_BYTES = 5 * 1024 * 1024;
+
+/** Max size when streaming to disk. */
 export const SAVE_PATH_MAX_BYTES = 50 * 1024 * 1024;
 
 const OUTSIDE_ROOT = 'savePath must stay under the working directory';
@@ -244,7 +247,7 @@ export default function registerAttachmentTools(
         if (readOnly && savePath !== undefined) {
           throw new Error('savePath is not allowed in read_only mode');
         }
-        const maxSize = savePath ? SAVE_PATH_MAX_BYTES : 5 * 1024 * 1024;
+        const maxSize = savePath ? SAVE_PATH_MAX_BYTES : INLINE_MAX_BYTES;
         const result = await imapService.downloadAttachment(
           account,
           id,

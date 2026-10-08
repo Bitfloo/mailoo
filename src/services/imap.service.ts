@@ -6,6 +6,7 @@
 
 import type { ImapFlow } from 'imapflow';
 import type { IConnectionManager } from '../connections/types.js';
+import { sanitizeAttachmentFilename } from '../safety/local-paths.js';
 import {
   parseMessageUid,
   sanitizeMailboxName,
@@ -301,6 +302,20 @@ async function messageToEmail(
     attachments: extractAttachments(msg.bodyStructure),
     headers,
   };
+}
+
+/**
+ * `<YYYY-MM-DD>_<uid>.eml`. The day is taken in UTC: the process time zone
+ * would otherwise give the same message a different name on another machine.
+ */
+export function emlFilename(internalDate: Date | string | undefined, uid: string): string {
+  const date = internalDate instanceof Date ? internalDate : new Date(internalDate ?? Number.NaN);
+  const day = Number.isNaN(date.getTime()) ? 'undated' : date.toISOString().slice(0, 10);
+  return sanitizeAttachmentFilename(`${day}_${uid}.eml`);
+}
+
+function exportTooLarge(uid: string, size: number, maxSizeBytes: number): Error {
+  return new Error(`Email ${uid} is ${size} bytes, over the ${maxSizeBytes}-byte limit`);
 }
 
 export const FLAG_ACTIONS = ['read', 'unread', 'flag', 'unflag'] as const;
@@ -1387,6 +1402,65 @@ export default class ImapService {
         mimeType: attachment.mimeType,
         size: content.length,
         contentBase64: content.toString('base64'),
+      };
+    } finally {
+      lock.release();
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Raw RFC 822 export
+  // -------------------------------------------------------------------------
+
+  /**
+   * Return the message octets exactly as the server stores them (BODY.PEEK[]).
+   * The readOnly lock opens the mailbox with EXAMINE, so a server that ignores
+   * PEEK still cannot set \\Seen or change any other flag.
+   */
+  async exportEmail(
+    accountName: string,
+    emailId: string,
+    mailbox: string,
+    maxSizeBytes: number,
+  ): Promise<{
+    filename: string;
+    mimeType: string;
+    size: number;
+    source: Buffer;
+  }> {
+    const uidText = parseMessageUid(emailId);
+    const safeMailbox = sanitizeMailboxName(mailbox);
+    const client = await this.connections.getImapClient(accountName);
+
+    const lock = await client.getMailboxLock(safeMailbox, { readOnly: true });
+    try {
+      const meta = await client.fetchOne(
+        uidText,
+        { uid: true, size: true, internalDate: true },
+        { uid: true },
+      );
+      if (!meta) {
+        throw new Error(`Email ${emailId} not found in ${mailbox}`);
+      }
+      // Checked before the source fetch so an oversized message is never transferred.
+      if (typeof meta.size === 'number' && meta.size > maxSizeBytes) {
+        throw exportTooLarge(uidText, meta.size, maxSizeBytes);
+      }
+
+      const msg = await client.fetchOne(uidText, { uid: true, source: true }, { uid: true });
+      if (!msg || !Buffer.isBuffer(msg.source)) {
+        throw new Error(`Could not fetch the source of email ${emailId} in ${mailbox}`);
+      }
+      // RFC822.SIZE is the server's claim; the octets it sent are what would be written.
+      if (msg.source.length > maxSizeBytes) {
+        throw exportTooLarge(uidText, msg.source.length, maxSizeBytes);
+      }
+
+      return {
+        filename: emlFilename(meta.internalDate, uidText),
+        mimeType: 'message/rfc822',
+        size: msg.source.length,
+        source: msg.source,
       };
     } finally {
       lock.release();

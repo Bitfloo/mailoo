@@ -7,6 +7,7 @@ import type ImapService from '../services/imap.service.js';
 import registerAttachmentTools, {
   assertPathInsideRoot,
   attachmentOpenFailure,
+  INLINE_MAX_BYTES,
   SAVE_PATH_MAX_BYTES,
   writeAttachmentFile,
 } from './attachments.tool.js';
@@ -535,6 +536,10 @@ describe('download_attachment tool', () => {
     expect(SAVE_PATH_MAX_BYTES).toBe(50 * 1024 * 1024);
   });
 
+  it('sets the inline base64 size cap at 5 mebibytes', () => {
+    expect(INLINE_MAX_BYTES).toBe(5 * 1024 * 1024);
+  });
+
   it('sets readOnlyHint to false because savePath can write', () => {
     let hints: { readOnlyHint?: boolean } | undefined;
     const server = {
@@ -645,7 +650,7 @@ describe('download_attachment tool', () => {
       '1',
       'INBOX',
       'a.txt',
-      5 * 1024 * 1024,
+      INLINE_MAX_BYTES,
     );
   });
 
@@ -746,7 +751,7 @@ describe('download_attachment tool', () => {
       '1',
       'INBOX',
       'a.txt',
-      5 * 1024 * 1024,
+      INLINE_MAX_BYTES,
     );
   });
 
