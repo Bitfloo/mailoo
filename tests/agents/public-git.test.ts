@@ -132,6 +132,7 @@ describe('public git log gate', () => {
     const mode = spawnSync('git', ['ls-files', '-s', 'scripts/check-public-git-log.sh'], {
       cwd: repoRoot,
       encoding: 'utf8',
+      env: cleanEnv({}),
     });
     expect(mode.stdout).toMatch(/^100755 /);
   });
@@ -161,12 +162,25 @@ describe('public git log gate', () => {
     ['a plugin test-smith dispatch', 'chore: do not dispatch acme:test-smith\n'],
     ['a plugin push-gate dispatch', 'chore: do not dispatch acme:push-gate\n'],
     ['a plugin name with a digit', 'chore: do not dispatch acme2:test-smith\n'],
+    ['a one-letter plugin name', 'chore: do not dispatch x:test-smith\n'],
+    ['a hyphenated plugin name', 'chore: do not dispatch my-plugin:push-gate\n'],
+    ['a plugin name that ends in a hyphen', 'chore: do not dispatch acme-:test-smith\n'],
   ])('rejects %s', (_name, body) => {
     const result = scanFile(body);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('forbidden token');
     expect(result.stderr).toContain('see .claude/rules/public-git.md');
     expect(result.stdout).toBe('');
+  });
+
+  it.each([
+    ['a path that only starts like a home dir', 'docs: link /homepage and /Userspace\n'],
+    ['a session header named without its colon', 'docs: explain the Claude-Session header\n'],
+    ['a session link with another separator', 'docs: see claude-ai/code/session_0123abc\n'],
+    ['an agent name with an empty prefix', 'docs: run :test-smith and :push-gate\n'],
+    ['an agent name without a colon', 'docs: run acme test-auditor\n'],
+  ])('accepts %s', (_name, body) => {
+    expect(scanFile(body)).toEqual({ status: 0, stdout: '', stderr: '' });
   });
 
   it('matches built-in patterns case-insensitively', () => {
@@ -241,6 +255,54 @@ describe('public git log gate', () => {
     expect(scanFile(clean, env)).toEqual({ status: 0, stdout: '', stderr: '' });
   });
 
+  it('ignores an extra-pattern variable that is set but empty', () => {
+    const env = { PUBLIC_GIT_EXTRA_FORBIDDEN: '' };
+    expect(scanFile(clean, env)).toEqual({ status: 0, stdout: '', stderr: '' });
+    const result = scanFile(leak, env);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('/Users/me/mailoo');
+  });
+
+  it('keeps backslashes in a denylist line', () => {
+    const list = join(makeTmpDir('mailoo-public-git-list-'), 'public-git-denylist');
+    writeFileSync(list, 'private\\.marker\n');
+    const env = { PUBLIC_GIT_DENYLIST_FILE: list };
+    expect(scanFile('docs: drop private.marker notes\n', env).status).toBe(1);
+    expect(scanFile('docs: drop privateXmarker notes\n', env)).toEqual({
+      status: 0,
+      stdout: '',
+      stderr: '',
+    });
+  });
+
+  it('uses a denylist line verbatim, leading and trailing spaces included', () => {
+    const list = join(makeTmpDir('mailoo-public-git-list-'), 'public-git-denylist');
+    writeFileSync(list, ' private-tree-x \n');
+    const env = { PUBLIC_GIT_DENYLIST_FILE: list };
+    expect(scanFile('docs: a private-tree-x b\n', env).status).toBe(1);
+    expect(scanFile('docs: a-private-tree-x-b\n', env)).toEqual({
+      status: 0,
+      stdout: '',
+      stderr: '',
+    });
+  });
+
+  it('treats a # inside a denylist line as part of the pattern', () => {
+    const list = join(makeTmpDir('mailoo-public-git-list-'), 'public-git-denylist');
+    writeFileSync(list, 'secret#tag\n');
+    expect(scanFile('docs: drop secret#tag\n', { PUBLIC_GIT_DENYLIST_FILE: list }).status).toBe(1);
+  });
+
+  it('ignores a denylist path that is a directory', () => {
+    const dir = makeTmpDir('mailoo-public-git-dir-');
+    expect(scanFile(clean, { PUBLIC_GIT_DENYLIST_FILE: dir })).toEqual({
+      status: 0,
+      stdout: '',
+      stderr: '',
+    });
+  });
+
   it('treats a denylist line that starts with a dash as a pattern, not an option', () => {
     const list = join(makeTmpDir('mailoo-public-git-list-'), 'public-git-denylist');
     writeFileSync(list, '-private-marker\n');
@@ -279,6 +341,14 @@ describe('public git log gate', () => {
     expect(runChecker(['--file', msg], repo, {}).status).toBe(1);
     writeFileSync(msg, clean);
     expect(runChecker(['--file', msg], repo, {}).status).toBe(0);
+  });
+
+  it('reads the default denylist when the override variable is set but empty', () => {
+    const repo = initRepo();
+    writeFileSync(join(repo, '.git/info/public-git-denylist'), 'example-private-tree\n');
+    const msg = join(repo, 'MSG');
+    writeFileSync(msg, 'docs: load the example-private-tree notes\n');
+    expect(runChecker(['--file', msg], repo, { PUBLIC_GIT_DENYLIST_FILE: '' }).status).toBe(1);
   });
 
   it('reads the shared denylist from a linked worktree, where .git is a file', () => {
@@ -458,6 +528,26 @@ describe('public git log gate', () => {
     });
     expect(result.status).toBe(2);
     expect(result.stderr).toContain('grep failed');
+  });
+
+  it.each([['--file'], ['--range']])('rejects %s without an argument with usage', (mode) => {
+    const dir = makeTmpDir('mailoo-public-git-noarg-');
+    const result = runChecker([mode], dir, { PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none') });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('usage:');
+  });
+
+  it.skipIf(process.getuid?.() === 0)('fails on a message file it cannot read', () => {
+    const dir = makeTmpDir('mailoo-public-git-unreadable-');
+    const msg = join(dir, 'MSG');
+    writeFileSync(msg, leak);
+    chmodSync(msg, 0o000);
+    const result = runChecker(['--file', msg], dir, {
+      PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none'),
+    });
+    chmodSync(msg, 0o600);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('cannot read');
   });
 
   it('rejects a missing mode with usage', () => {
