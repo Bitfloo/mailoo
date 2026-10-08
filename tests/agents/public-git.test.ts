@@ -1,7 +1,15 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { repoRoot } from './agent-file.js';
 
@@ -151,6 +159,27 @@ describe('public git log gate', () => {
     expect(scanFile(body, { PUBLIC_GIT_EXTRA_FORBIDDEN: 'example-private-tree' }).status).toBe(1);
   });
 
+  it('matches an extra pattern from the environment case-insensitively', () => {
+    const env = { PUBLIC_GIT_EXTRA_FORBIDDEN: 'example-private-tree' };
+    expect(scanFile('docs: load the Example-Private-Tree notes\n', env).status).toBe(1);
+  });
+
+  it('matches a denylist pattern case-insensitively', () => {
+    const list = join(makeTmpDir('mailoo-public-git-list-'), 'public-git-denylist');
+    writeFileSync(list, 'example-private-tree\n');
+    const env = { PUBLIC_GIT_DENYLIST_FILE: list };
+    expect(scanFile('docs: load the Example-Private-Tree notes\n', env).status).toBe(1);
+  });
+
+  it('reads a denylist saved with CRLF line endings', () => {
+    const list = join(makeTmpDir('mailoo-public-git-list-'), 'public-git-denylist');
+    writeFileSync(list, '# private patterns\r\nexample-private-tree\r\nother-secret-name\r\n');
+    const env = { PUBLIC_GIT_DENYLIST_FILE: list };
+    expect(scanFile('docs: load the example-private-tree notes\n', env).status).toBe(1);
+    expect(scanFile('docs: mention other-secret-name\n', env).status).toBe(1);
+    expect(scanFile(clean, env)).toEqual({ status: 0, stderr: '' });
+  });
+
   it('skips blank lines and comments between denylist patterns', () => {
     const dir = makeTmpDir('mailoo-public-git-list-');
     const list = join(dir, 'public-git-denylist');
@@ -185,11 +214,23 @@ describe('public git log gate', () => {
     expect(runChecker(['--file', msg], worktree, {}).status).toBe(1);
   });
 
+  it('runs the built-in patterns outside a git repository', () => {
+    const dir = makeTmpDir('mailoo-public-git-norepo-');
+    mkdirSync(join(dir, '.git/info'), { recursive: true });
+    writeFileSync(join(dir, '.git/info/public-git-denylist'), 'example-private-tree\n');
+    const msg = join(dir, 'MSG');
+    writeFileSync(msg, 'docs: load the example-private-tree notes\n');
+    const env = { GIT_CEILING_DIRECTORIES: dirname(dir) };
+    expect(runChecker(['--file', msg], dir, env)).toEqual({ status: 0, stderr: '' });
+    writeFileSync(msg, leak);
+    expect(runChecker(['--file', msg], dir, env).status).toBe(1);
+  });
+
   it.each([
     [
       'the environment',
       (dir: string) => ({
-        PUBLIC_GIT_EXTRA_FORBIDDEN: '(',
+        PUBLIC_GIT_EXTRA_FORBIDDEN: '(private-marker-env',
         PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none'),
       }),
     ],
@@ -197,20 +238,21 @@ describe('public git log gate', () => {
       'the denylist file',
       (dir: string) => {
         const list = join(dir, 'public-git-denylist');
-        writeFileSync(list, 'example-private-tree\nfoo(\n');
+        writeFileSync(list, 'example-private-tree\nprivate-marker-list(\n');
         return { PUBLIC_GIT_DENYLIST_FILE: list };
       },
     ],
   ])('fails closed on a malformed extra pattern from %s', (_source, makeEnv) => {
     const env = makeEnv(makeTmpDir('mailoo-public-git-bad-'));
     const withLeak = scanFile(leak, env);
-    expect(withLeak.status).not.toBe(0);
+    expect(withLeak.status).toBe(2);
     expect(withLeak.stderr).toContain('invalid extra pattern');
     expect(withLeak.stderr).toContain('/Users/me/mailoo');
-    expect(withLeak.stderr).not.toContain('foo(');
+    expect(withLeak.stderr).not.toContain('private-marker');
     const withoutLeak = scanFile(clean, env);
-    expect(withoutLeak.status).not.toBe(0);
+    expect(withoutLeak.status).toBe(2);
     expect(withoutLeak.stderr).toContain('invalid extra pattern');
+    expect(withoutLeak.stderr).not.toContain('private-marker');
   });
 
   it('checks every commit in a --range and names the leaking one', () => {
@@ -231,6 +273,27 @@ describe('public git log gate', () => {
     expect(result.stderr).not.toContain(cleanSha);
   });
 
+  it('scans the commit subject in --range mode', () => {
+    const repo = initRepo();
+    const base = git(repo, 'rev-parse', 'HEAD');
+    git(
+      repo,
+      'commit',
+      '-q',
+      '--allow-empty',
+      '-m',
+      'fix: path /home/me/mailoo',
+      '-m',
+      'Clean body.',
+    );
+    const leakSha = git(repo, 'rev-parse', 'HEAD');
+    const result = runChecker(['--range', `${base}..${leakSha}`], repo, {
+      PUBLIC_GIT_DENYLIST_FILE: join(repo, 'none'),
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(leakSha);
+  });
+
   it('fails on a --range git cannot resolve', () => {
     const repo = initRepo();
     const result = runChecker(['--range', 'no-such-ref..HEAD'], repo, {
@@ -240,8 +303,33 @@ describe('public git log gate', () => {
     expect(result.stderr).toContain('cannot list commits');
   });
 
+  it('rejects a --file that does not exist with usage', () => {
+    const dir = makeTmpDir('mailoo-public-git-absent-');
+    const result = runChecker(['--file', join(dir, 'absent')], dir, {
+      PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none'),
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('usage:');
+  });
+
+  it('fails closed when grep itself errors', () => {
+    const dir = makeTmpDir('mailoo-public-git-grep-');
+    const shim = join(dir, 'grep');
+    writeFileSync(shim, '#!/bin/sh\nexit 2\n');
+    chmodSync(shim, 0o755);
+    const msg = join(dir, 'MSG');
+    writeFileSync(msg, clean);
+    const result = runChecker(['--file', msg], dir, {
+      PATH: `${dir}:${process.env.PATH ?? ''}`,
+      PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none'),
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('grep failed');
+  });
+
   it('rejects a missing mode with usage', () => {
-    const result = runChecker([], repoRoot, {});
+    const dir = makeTmpDir('mailoo-public-git-usage-');
+    const result = runChecker([], dir, { PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none') });
     expect(result.status).toBe(2);
     expect(result.stderr).toContain('usage:');
   });
