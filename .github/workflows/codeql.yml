@@ -1,11 +1,15 @@
 name: codeql
 
-# Pull requests miss the default branch after merge. The weekly run covers that tree.
+# A pull request analysis does not update the default-branch results after merge.
+# Push to develop does. The weekly run still covers a tree that no push scanned.
 on:
   pull_request:
     branches: [develop]
+  push:
+    branches: [develop]
   schedule:
     - cron: "17 5 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read

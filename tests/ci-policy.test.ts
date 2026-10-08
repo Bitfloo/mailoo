@@ -148,7 +148,7 @@ function weeklyCron(yaml: string): string[] {
 }
 
 describe('code scanning workflows', () => {
-  it('runs CodeQL for javascript-typescript on develop pull requests and weekly', () => {
+  it('runs CodeQL on develop pull requests, develop pushes, and weekly', () => {
     const path = join(workflowDir, 'codeql.yml');
     const yaml = readFileSync(path, 'utf8');
     expect(workflowName(yaml)).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
@@ -165,7 +165,8 @@ describe('code scanning workflows', () => {
     expect(on).toContain('pull_request:');
     expect(on).toContain('develop');
     expect(on).toContain('schedule:');
-    expect(on).not.toMatch(/^\s+push:/m);
+    expect(on).toContain('workflow_dispatch:');
+    expect(on).toMatch(/push:\n\s+branches:\s*\[develop\]/);
     const cron = weeklyCron(yaml);
     expect(cron).toHaveLength(5);
     expect(cron[2]).toBe('*');
