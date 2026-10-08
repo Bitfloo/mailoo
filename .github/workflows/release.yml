@@ -71,8 +71,32 @@ jobs:
           bash scripts/bump-server-json-version.sh "$VERSION"
       - name: Authenticate to MCP Registry
         run: ./mcp-publisher login github-oidc
+      # npm can 404 a version that was just published. The registry turns that into
+      # a 400 and says to wait and retry. Only that message is retried, so an auth
+      # error or a bad manifest still fails this job. Docker needs the success.
       - name: Publish to MCP Registry
-        run: ./mcp-publisher publish
+        run: |
+          log=$(mktemp)
+          trap 'rm -f "$log"' EXIT
+          attempts=6
+          pause=20
+          for ((attempt = 1; attempt <= attempts; attempt++)); do
+            status=0
+            ./mcp-publisher publish >"$log" 2>&1 || status=$?
+            cat "$log"
+            if [[ "$status" -eq 0 ]]; then
+              exit 0
+            fi
+            if ! grep -F -q "was not found (status: 404). A newly published release can take a moment to appear on the registry. Wait and retry" "$log"; then
+              exit "$status"
+            fi
+            if [[ "$attempt" -eq "$attempts" ]]; then
+              echo "npm has not shown this version after ${attempts} attempts" >&2
+              exit "$status"
+            fi
+            echo "npm has not propagated this version yet (attempt ${attempt}/${attempts}); retrying in ${pause}s" >&2
+            sleep "$pause"
+          done
 
   docker:
     name: Publish Docker images

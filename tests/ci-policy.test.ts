@@ -129,6 +129,24 @@ describe('release supply chain', () => {
     expect(step).toMatch(/\b[0-9a-f]{64}\b/);
     expect(step).toContain('sha256sum -c');
   });
+
+  it('retries MCP publish only while npm has not propagated the version', () => {
+    const step = releaseStep(releaseYml, 'Publish to MCP Registry');
+    const marker =
+      'was not found (status: 404). A newly published release can take a moment to appear on the registry. Wait and retry';
+    expect(step).toContain('./mcp-publisher publish');
+    expect(step).toContain(marker);
+    expect(step).toContain('attempts=6');
+    expect(step).toContain('pause=20');
+    expect(step).toContain('sleep "$pause"');
+    expect(step.indexOf('exit "$status"')).toBeGreaterThan(step.indexOf(marker));
+    expect(step.indexOf('sleep "$pause"')).toBeGreaterThan(step.indexOf('exit "$status"'));
+    const docker = jobSections(releaseYml).find((job) =>
+      job.includes('goreleaser/goreleaser-action@'),
+    );
+    expect(docker).toContain('needs: [npm, mcp]');
+    expect(docker).toContain("needs.mcp.result == 'success'");
+  });
 });
 
 const workflowDir = join(repoRoot, '.github/workflows');
