@@ -80,18 +80,29 @@ describe('test-smith L4 doctrine', () => {
     expect(claude).toContain('NEVER stage, commit, install, or push');
   });
 
-  it('binds the Mailoo runners and refuses the CLI probe', () => {
-    expect(claude).toContain('pnpm test -- <file>');
-    expect(claude).toContain('pnpm test:integration -- <file>');
-    expect(claude).toContain('`mailoo test` is a CLI connection probe, not this runner');
-    expect(claude).toContain('package.json` (runner — never infer it)');
-    expect(claude).toContain('No browser automation');
-    expect(claude).toContain('Pick the layer from the doctrine table');
-    expect(claude).toContain('Fixture from a production artifact');
-    expect(claude).toContain('Pin env input');
-    expect(claude).toContain('One behaviour per `it`');
-    expect(claude).toContain('boundary, logic');
-    expect(claude).toContain('A survivor is a task, not a statistic');
+  it.each([
+    ['the unit runner', 'pnpm test -- <file>'],
+    ['the integration runner', 'pnpm test:integration -- <file>'],
+    ['the CLI probe refusal', '`mailoo test` is a CLI connection probe, not this runner'],
+    ['the runner source', 'package.json` (runner — never infer it)'],
+    ['no browser automation', 'No browser automation'],
+  ])('binds the Mailoo runners: %s', (_name, phrase) => {
+    for (const text of [claude, cursor]) {
+      expect(text).toContain(phrase);
+    }
+  });
+
+  it.each([
+    ['layer choice', 'Pick the layer from the doctrine table'],
+    ['production fixtures', 'Fixture from a production artifact'],
+    ['pinned env input', 'Pin env input'],
+    ['one behaviour per test', 'One behaviour per `it`'],
+    ['mutation targets', 'boundary, logic'],
+    ['survivors as tasks', 'A survivor is a task, not a statistic'],
+  ])('pins the authoring contract: %s', (_name, phrase) => {
+    for (const text of [claude, cursor]) {
+      expect(text).toContain(phrase);
+    }
   });
 
   it('forbids mock-as-oracle, retry masking, and secret fixtures', () => {
