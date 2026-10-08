@@ -3,7 +3,7 @@ name: oss-push-gate
 dispatch: user
 description: |
   Pre-push gate for public Mailoo: run scripts/check-public-git-log.sh on unpushed commits, require Conventional Commits, refuse AI-slop (restated comments, stripped WHY) and operator/plugin leaks in the git log. Coordinates oss-pr-steward findings; does not merge. Lefthook still runs scripts/ci-local.sh.
-  Trigger: "push gate", "przed pushem", "czy można pushować", "oss-push-gate", "public push gate".
+  Trigger: "push gate", "before push", "can I push", "oss-push-gate", "public push gate".
   NOT: secrets/CVE scan; mutating tests → test-auditor; README tone → oss-public-face; rewriting published history.
 model: cursor-grok-4.6-xhigh
 color: red

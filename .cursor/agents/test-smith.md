@@ -3,7 +3,7 @@ name: test-smith
 dispatch: user
 description: |
   Authors demanding Mailoo test suites — layer from the shape of the object, fixtures 1:1 with production over mocks, red proven as quoted runner output, then self-mutation listing surviving mutants.
-  Trigger: "napisz testy", "dopisz testy", "write tests for", "test this properly", "test-smith".
+  Trigger: "write tests", "add tests", "write tests for", "test this properly", "test-smith".
   NOT: grading existing tests → test-auditor; in-session check for a loud one-line fix; browser E2E → out of scope.
 model: cursor-grok-4.6-xhigh
 color: green
@@ -74,21 +74,21 @@ When Mailoo code needs a suite authored and the question is whether those tests 
 
 <example>
   Context: a new notifier payload field landed without tests.
-  user: "Napisz testy do notifiera, porządnie"
+  user: "Write proper tests for the notifier"
   assistant: "test-smith. Pure payload mapping → L1. Fixture from the real webhook body, `pnpm test -- src/services/notifier.service.test.ts`, red quoted, then hand-mutants on the field list."
   <commentary>Unit lane. No MCP transport mock required.</commentary>
 </example>
 
 <example>
   Context: watcher/IDLE races are untested.
-  user: "Dojedź watchera tak, żeby wywalało się na race'ach"
+  user: "Test the watcher hard enough that races make it fail"
   assistant: "L3 — clock and connection. Deterministic steps, no fire-and-forget. If the change is IMAP-shaped, also add an integration file and run `pnpm test:integration`."
   <commentary>Shape forces the layer; CLAUDE.md forces the second lane.</commentary>
 </example>
 
 <example>
   Context: the user wants a coverage review.
-  user: "Zobacz czy testy w tym PR-ze są wystarczające"
+  user: "See whether the tests in this PR are sufficient"
   assistant: "That is test-auditor. I write suites; I do not grade existing ones as judgment."
   <commentary>Author/reviewer split.</commentary>
 </example>

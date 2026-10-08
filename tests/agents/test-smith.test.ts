@@ -35,10 +35,10 @@ describe('test-smith L4 doctrine', () => {
     expect(descriptionBlock(claude).length).toBeLessThanOrEqual(USER_DESCRIPTION_MAX_CHARS);
   });
 
-  it('routes Polish and English authoring phrases and defers grading', () => {
+  it('routes English authoring phrases and defers grading', () => {
     const description = descriptionBlock(claude);
     expect(description).toContain('Trigger:');
-    expect(description).toMatch(/napisz testy/);
+    expect(description).toMatch(/add tests/);
     expect(description).toMatch(/write tests for/);
     expect(description).toMatch(/NOT:.*test-auditor/);
   });

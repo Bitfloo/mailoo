@@ -42,12 +42,12 @@ describe('test-auditor L4 doctrine', () => {
     expect(descriptionBlock(claude).length).toBeLessThanOrEqual(USER_DESCRIPTION_MAX_CHARS);
   });
 
-  it('routes Polish and English audit phrases and defers authorship', () => {
+  it('routes English audit phrases and defers authorship', () => {
     const description = descriptionBlock(claude);
     expect(description).toContain('Trigger:');
-    expect(description).toMatch(/oceń te testy/);
+    expect(description).toMatch(/rate these tests/);
     expect(description).toMatch(/audit these tests/);
-    expect(description).toMatch(/czy testy w PR wystarczą/);
+    expect(description).toMatch(/are the PR tests enough/);
     expect(description).toMatch(/are these tests sufficient/);
     expect(description).toMatch(/NOT:.*test-smith/);
     expect(description).toMatch(/mutation\/detection judgment only here/);

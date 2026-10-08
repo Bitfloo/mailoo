@@ -3,7 +3,7 @@ name: oss-pr-steward
 dispatch: user
 description: |
   Public PR and git-log steward for Bitfloo OSS (Mailoo): unpushed commit subjects/bodies, PR title and template, Conventional Commits, no operator paths or plugin dispatch names, no AI-slop ceremony. Read-only. SCORE/VERDICT/FINDINGS. Does not merge or push.
-  Trigger: "przygotuj PR", "opis PR", "czy log jest publiczny", "PR steward", "commit message public", "oss-pr-steward".
+  Trigger: "prepare the PR", "PR description", "is the log public-safe", "PR steward", "commit message public", "oss-pr-steward".
   NOT: merge/release → CONTRIBUTING.md / goreleaser; README marketing → oss-public-face; test mutants → test-auditor; pre-push gate → oss-push-gate.
 model: cursor-grok-4.6-xhigh
 color: orange
