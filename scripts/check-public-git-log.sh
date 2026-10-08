@@ -39,8 +39,9 @@ add_extra() {
 if [[ -n "${PUBLIC_GIT_EXTRA_FORBIDDEN:-}" ]]; then
   add_extra PUBLIC_GIT_EXTRA_FORBIDDEN "$PUBLIC_GIT_EXTRA_FORBIDDEN"
 fi
-denylist_file=${PUBLIC_GIT_DENYLIST_FILE:-$(git rev-parse --git-path info/public-git-denylist 2>/dev/null || echo .git/info/public-git-denylist)}
-if [[ -f "$denylist_file" ]]; then
+# Outside a git repository there is no default denylist; built-ins still run.
+denylist_file=${PUBLIC_GIT_DENYLIST_FILE:-$(git rev-parse --git-path info/public-git-denylist 2>/dev/null || true)}
+if [[ -n "$denylist_file" && -f "$denylist_file" ]]; then
   lineno=0
   while IFS= read -r line || [[ -n "$line" ]]; do
     lineno=$((lineno + 1))
