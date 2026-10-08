@@ -9,7 +9,23 @@ usage() {
 }
 
 # Case-insensitive extended regex. Tested in tests/agents/public-git.test.ts.
-FORBIDDEN='(/Users/|/home/|AI-DATA|PROJEKTY|_knowledge/|cbc:test-auditor|cbc:test-smith|cbc:push-gate|cursor-grok|L4 twins|Claude-Session:|claude\.ai/code/session_)'
+# Generic leaks only: home paths, private session links, plugin dispatch names.
+FORBIDDEN='(/Users/|/home/|Claude-Session:|claude\.ai/code/session_|[a-z][a-z0-9-]*:(test-auditor|test-smith|push-gate))'
+
+# Private patterns stay out of the public repo. Add them as one extended regex
+# per line in .git/info/public-git-denylist (or PUBLIC_GIT_DENYLIST_FILE), or as
+# one alternation in PUBLIC_GIT_EXTRA_FORBIDDEN (CI reads a repository variable).
+EXTRA=${PUBLIC_GIT_EXTRA_FORBIDDEN:-}
+denylist_file=${PUBLIC_GIT_DENYLIST_FILE:-$(git rev-parse --git-common-dir 2>/dev/null || echo .git)/info/public-git-denylist}
+if [[ -f "$denylist_file" ]]; then
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    EXTRA="${EXTRA:+$EXTRA|}$line"
+  done <"$denylist_file"
+fi
+if [[ -n "$EXTRA" ]]; then
+  FORBIDDEN="${FORBIDDEN%)}|${EXTRA})"
+fi
 
 scan() {
   local label=$1

@@ -14,7 +14,10 @@ subject/body** are world-readable. Write them as if a stranger clones today.
 
 ## Forbidden in commit messages, PR titles, and PR bodies
 
-`scripts/check-public-git-log.sh` owns the regex (commit-msg hook). Categories:
+`scripts/check-public-git-log.sh` owns the generic regex (commit-msg hook).
+Maintainers keep private patterns out of the repo: one per line in
+`.git/info/public-git-denylist`, and the `PUBLIC_GIT_EXTRA_FORBIDDEN`
+repository variable for CI. Categories:
 
 - Operator machine paths and knowledge-tree names
 - Plugin dispatch names

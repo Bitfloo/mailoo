@@ -77,10 +77,12 @@ jobs:
       - env:
           BASE_REF: ${{ github.base_ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUBLIC_GIT_EXTRA_FORBIDDEN: ${{ vars.PUBLIC_GIT_EXTRA_FORBIDDEN }}
         run: bash scripts/check-public-git-log.sh --range "origin/${BASE_REF}..${HEAD_SHA}"
       - env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
+          PUBLIC_GIT_EXTRA_FORBIDDEN: ${{ vars.PUBLIC_GIT_EXTRA_FORBIDDEN }}
         run: |
           printf '%s\n\n%s\n' "$PR_TITLE" "$PR_BODY" > "$RUNNER_TEMP/pr-text"
           bash scripts/check-public-git-log.sh --file "$RUNNER_TEMP/pr-text"
