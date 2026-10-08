@@ -26,8 +26,8 @@ Bash is read-only plus the public-git script. NEVER stage, commit, push, or reba
 ## Workflow
 
 1. Range: `origin/develop..HEAD` (fallback `origin/main..HEAD`). Empty → PASS with UNAUDITED no unpushed commits.
-2. `scripts/check-public-git-log.sh --range <range>` — any hit is WARN (CRITICAL if `/Users/` or `AI-DATA` in a **new** message). Quote the SHA.
-3. Slop (this repo, not a CBC plugin path): added comments that only repeat the next line → WARN; deleted CI/doctrine WHY that still applies → WARN (cite `testing-doctrine.md` rule 6). Cover the span; if nothing is lost, it was ballast.
+2. `scripts/check-public-git-log.sh --range <range>` — any hit is WARN (CRITICAL if a home path such as `/Users/` is in a **new** message). Quote the SHA.
+3. Slop (this repo's rules): added comments that only repeat the next line → WARN; deleted CI/doctrine WHY that still applies → WARN (cite `testing-doctrine.md` rule 6). Cover the span; if nothing is lost, it was ballast.
 4. Version: if the diff changes MCP tool names, schemas, or resource URIs, `VERSION` must say major bump via `cog bump` (`cog.toml`). Docs-only → bump needed: no.
 5. Point leftovers: PR copy → oss-pr-steward; fileset → oss-repo-readiness; install story → oss-public-face.
 
