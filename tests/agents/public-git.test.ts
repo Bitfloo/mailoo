@@ -146,6 +146,7 @@ describe('public git log gate', () => {
     const result = scanFile(body);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('forbidden token');
+    expect(result.stderr).toContain('see .claude/rules/public-git.md');
   });
 
   it('matches built-in patterns case-insensitively', () => {
@@ -295,6 +296,35 @@ describe('public git log gate', () => {
     expect(withoutLeak.status).toBe(2);
     expect(withoutLeak.stderr).toContain('invalid extra pattern');
     expect(withoutLeak.stderr).not.toContain('private-marker');
+  });
+
+  it('keeps scanning after a malformed extra pattern in --file mode', () => {
+    const dir = makeTmpDir('mailoo-public-git-bad-file-');
+    const result = scanFile('fix: path /Users/me/one\n\nAlso /home/me/two\n', {
+      PUBLIC_GIT_EXTRA_FORBIDDEN: '(private-marker-env',
+      PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none'),
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('invalid extra pattern in PUBLIC_GIT_EXTRA_FORBIDDEN');
+    expect(result.stderr).toContain('fix: path /Users/me/one');
+    expect(result.stderr).toContain('Also /home/me/two');
+    expect(result.stderr).toContain('forbidden token');
+  });
+
+  it('keeps scanning every commit after a malformed extra pattern in --range mode', () => {
+    const repo = initRepo();
+    const base = git(repo, 'rev-parse', 'HEAD');
+    git(repo, 'commit', '-q', '--allow-empty', '-m', 'fix: path /Users/me/one');
+    const first = git(repo, 'rev-parse', 'HEAD');
+    git(repo, 'commit', '-q', '--allow-empty', '-m', 'fix: path /home/me/two');
+    const second = git(repo, 'rev-parse', 'HEAD');
+    const result = runChecker(['--range', `${base}..${second}`], repo, {
+      PUBLIC_GIT_EXTRA_FORBIDDEN: '(private-marker-env',
+      PUBLIC_GIT_DENYLIST_FILE: join(repo, 'none'),
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain(`forbidden token in ${first}`);
+    expect(result.stderr).toContain(`forbidden token in ${second}`);
   });
 
   it('checks every commit in a --range and names the leaking one', () => {
