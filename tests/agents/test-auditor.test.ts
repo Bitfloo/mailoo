@@ -119,6 +119,9 @@ describe('test-auditor L4 doctrine', () => {
     ['survivors behind every rate', 'Never a rate without survivors'],
     ['reverting before anything else', 'Revert failure first'],
     ['the mutation scope', 'Mutate only the named target slice.'],
+    ['read-only Bash', 'Bash is read-only plus the `package.json` runner.'],
+    ['Edit only for mutants', 'Edit exists only to apply and revert a mutant.'],
+    ['no authoring', 'You never write or fix a test or source file.'],
   ])('pins the audit contract: %s', (_name, phrase) => {
     for (const text of [claude, cursor]) {
       expect(text).toContain(phrase);

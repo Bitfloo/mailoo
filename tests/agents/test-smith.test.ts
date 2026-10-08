@@ -99,6 +99,7 @@ describe('test-smith L4 doctrine', () => {
     ['one behaviour per test', 'One behaviour per `it`'],
     ['mutation targets', 'boundary, logic'],
     ['survivors as tasks', 'A survivor is a task, not a statistic'],
+    ['searched negative claims', 'A negative claim names its search.'],
   ])('pins the authoring contract: %s', (_name, phrase) => {
     for (const text of [claude, cursor]) {
       expect(text).toContain(phrase);
