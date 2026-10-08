@@ -115,8 +115,8 @@ describe('test-auditor L4 doctrine', () => {
   });
 
   it('does not cite plugin dispatch names or machine paths in the agent file', () => {
-    expect(claude).not.toMatch(/\b[a-z][a-z0-9-]*:test-(auditor|smith)\b/);
-    expect(claude).not.toMatch(/(^|[\s`(])~\//m);
+    expect(claude).not.toMatch(/\b[a-z][a-z0-9-]*:test-(auditor|smith)\b/i);
+    expect(claude).not.toMatch(/(^|[\s`("'])~\//m);
     expect(claude).not.toMatch(/\/Users\//);
   });
 });
