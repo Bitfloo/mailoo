@@ -6,10 +6,9 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 import type ImapService from '../services/imap.service.js';
-import { SAVE_PATH_MAX_BYTES, writeAttachmentFile } from './attachments.tool.js';
+import { INLINE_MAX_BYTES, SAVE_PATH_MAX_BYTES, writeAttachmentFile } from './attachments.tool.js';
 
-/** Base64 responses stay at the download_attachment cap. */
-export const INLINE_MAX_BYTES = 5 * 1024 * 1024;
+export { INLINE_MAX_BYTES };
 
 export default function registerExportTools(
   server: McpServer,
