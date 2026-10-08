@@ -7,14 +7,15 @@ import {
   CURSOR_TEST_AGENT_MODEL,
   checkerBuiltinPattern,
   descriptionBlock,
+  differingLines,
   exampleBlocks,
   exampleUserLines,
+  expectedAgentText,
   PERMISSION_GRANT,
   POLISH_TEXT,
   readTwinAgent,
   repoRoot,
   SYSTEM_PROMPT_MAX_WORDS,
-  sectionLines,
   systemPromptWords,
   toolsList,
   triggerPhrases,
@@ -23,55 +24,20 @@ import {
 
 const doctrinePath = join(repoRoot, '.claude/rules/testing-doctrine.md');
 const { claude, cursor } = readTwinAgent('test-smith');
-
-const PINNED_SECTIONS: [string, string | null, string[]][] = [
-  [
-    'the opening',
-    null,
-    [
-      'Read before writing: `.claude/rules/testing-doctrine.md` (cite by section; if missing fall back to `CLAUDE.md` — do not invent thresholds), `CLAUDE.md` (unit vs integration), `package.json` (runner — never infer it).',
-      'You write suites that fail when the code is wrong. Execute the doctrine; do not restate it.',
-    ],
-  ],
-  [
-    'the Scope section',
-    'Scope',
-    [
-      'You are not test-auditor. You author tests; you never grade an existing suite as judgment. Mutation self-check is mechanical. Do not spawn nested subagents. Never edit source to make a test pass.',
-    ],
-  ],
-  [
-    'the Layer section',
-    'Layer',
-    [
-      'Pick the layer from the doctrine table and name the shape that forced it. Split multi-layer objects by layer.',
-    ],
-  ],
-  [
-    'the Gates section',
-    'Gates',
-    [
-      'Read the target, callers, existing tests, and `package.json`. Fixture from a production artifact. No credentials, no real domains. Pin env input. One behaviour per `it`, named as a claim. Red is quoted runner output — "Should fail" is not evidence. No test may pass with the tested code gone. `expect(mock).toHaveBeenCalled()` may never be the main assertion. No `retry:`. Never report a test count as quality. **SHIPPED** only when a fresh `test-auditor` would **PASS at score ≥ 9** (doctrine ship bar), not merely green.',
-    ],
-  ],
-  [
-    'the Rails section',
-    'Rails',
-    [
-      'NEVER stage, commit, install, or push. `git status --short <target>` must be empty, else `NEEDS_INPUT: commit or stash <target> first`. One file per mutant; restore with inverse Edit. Then `git diff --stat -- <target>` empty. Unit: `pnpm test -- <file>`. Integration: `pnpm test:integration -- <file>`. `mailoo test` is a CLI connection probe, not this runner. No browser automation.',
-      'After green, mutate (boundary, logic, `null`, dropped effect). A survivor is a task, not a statistic. On an agent file, a surviving instruction is usually decoration — delete it unless you can name what breaks and then gate it. Quotes from this turn. A negative claim names its search.',
-    ],
-  ],
-  [
-    'the Failure Mode section',
-    'Failure Mode',
-    [
-      'No runner → `ABORTED: runner unresolved`. Dirty target → `NEEDS_INPUT`. Unrestored mutant first, with inverse-Edit recovery. Too large → `GAPS` and name what is left.',
-    ],
-  ],
-];
+const expected = expectedAgentText('test-smith');
 
 describe('test-smith L4 doctrine', () => {
+  it('matches the checked-in agent text word for word in the Claude Code copy', () => {
+    expect(claude).toBe(expected);
+  });
+
+  it('matches the checked-in agent text word for word in the Cursor copy, except the model line', () => {
+    const modelLine = expected.split('\n').indexOf(`model: ${CLAUDE_TEST_AGENT_MODEL}`);
+    expect(modelLine).toBeGreaterThan(0);
+    expect(differingLines(expected, cursor)).toEqual([modelLine]);
+    expect(cursor.split('\n')[modelLine]).toBe(`model: ${CURSOR_TEST_AGENT_MODEL}`);
+  });
+
   it('keeps Claude Code and Cursor copies aligned except host model tier', () => {
     expect(agentTwinBody(claude)).toBe(agentTwinBody(cursor));
     expect(claude).toMatch(new RegExp(`^model: ${CLAUDE_TEST_AGENT_MODEL}$`, 'm'));
@@ -206,12 +172,6 @@ describe('test-smith L4 doctrine', () => {
       expect(example).toMatch(/^\s*Context: \S/m);
       expect(example).toMatch(/^\s*user: "[^"]+"$/m);
       expect(example).toMatch(/^\s*assistant: "[^"]+"$/m);
-    }
-  });
-
-  it.each(PINNED_SECTIONS)('pins %s word for word in both copies', (_label, heading, lines) => {
-    for (const text of [claude, cursor]) {
-      expect(sectionLines(text, heading)).toEqual(lines);
     }
   });
 
