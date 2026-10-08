@@ -80,12 +80,13 @@ describe('export_email against GreenMail', () => {
 
   async function appendReceipt(
     flags: string[] = [],
+    mailbox = 'INBOX',
   ): Promise<{ uid: string; source: Buffer; tag: string }> {
     seq += 1;
     const tag = `${process.pid}-${seq}`;
     const source = receiptSource(tag);
     const client = await services.connections.getImapClient(TEST_ACCOUNT_NAME);
-    const appended = await client.append('INBOX', source, flags, INTERNAL_DATE);
+    const appended = await client.append(mailbox, source, flags, INTERNAL_DATE);
     if (!appended || !appended.uid) throw new Error('APPEND returned no UID (UIDPLUS)');
     return { uid: String(appended.uid), source, tag };
   }
@@ -97,6 +98,30 @@ describe('export_email against GreenMail', () => {
       const msg = await client.fetchOne(uid, { flags: true }, { uid: true });
       if (!msg) throw new Error(`FETCH FLAGS returned nothing for UID ${uid}`);
       return [...(msg.flags ?? [])].map(String).sort();
+    } finally {
+      lock.release();
+    }
+  }
+
+  async function sequenceNumber(uid: string): Promise<number> {
+    const client = await services.connections.getImapClient(TEST_ACCOUNT_NAME);
+    const lock = await client.getMailboxLock('INBOX');
+    try {
+      const msg = await client.fetchOne(uid, { uid: true }, { uid: true });
+      if (!msg) throw new Error(`FETCH returned nothing for UID ${uid}`);
+      return msg.seq;
+    } finally {
+      lock.release();
+    }
+  }
+
+  async function expunge(uid: string): Promise<void> {
+    const client = await services.connections.getImapClient(TEST_ACCOUNT_NAME);
+    const lock = await client.getMailboxLock('INBOX');
+    try {
+      if (!(await client.messageDelete(uid, { uid: true }))) {
+        throw new Error(`could not expunge UID ${uid}`);
+      }
     } finally {
       lock.release();
     }
@@ -149,6 +174,36 @@ describe('export_email against GreenMail', () => {
 
     expect(result.isError).not.toBe(true);
     expect(inlineBytes(result).equals(source)).toBe(true);
+  });
+
+  it('should export the message its UID names after an expunge has shifted sequence numbers', async () => {
+    const earlier = await appendReceipt();
+    await expunge(earlier.uid);
+    const { uid, source } = await appendReceipt();
+    // A later message lets a fetch by sequence number land on the wrong message, not only on none.
+    await appendReceipt();
+    expect(await sequenceNumber(uid)).toBeLessThan(Number(uid));
+
+    const result = await callExport({ account: TEST_ACCOUNT_NAME, id: uid, mailbox: 'INBOX' });
+
+    expect(result.isError).not.toBe(true);
+    expect(inlineBytes(result).equals(source)).toBe(true);
+  });
+
+  it('should export from the mailbox the request names', async () => {
+    const mailbox = `Receipts-${process.pid}`;
+    const client = await services.connections.getImapClient(TEST_ACCOUNT_NAME);
+    await client.mailboxCreate(mailbox);
+    try {
+      const { uid, source } = await appendReceipt([], mailbox);
+
+      const result = await callExport({ account: TEST_ACCOUNT_NAME, id: uid, mailbox });
+
+      expect(result.isError).not.toBe(true);
+      expect(inlineBytes(result).equals(source)).toBe(true);
+    } finally {
+      await client.mailboxDelete(mailbox);
+    }
   });
 
   it('should leave \\Seen unset when export_email reads an unread message', async () => {

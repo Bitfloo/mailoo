@@ -180,6 +180,13 @@ describe('export_email inline content', () => {
       size: EIGHT_BIT_SOURCE.length,
     });
   });
+
+  it('should report sizeHuman in whole KiB as download_attachment does', async () => {
+    const source = Buffer.alloc(50 * 1024, 0x41);
+    const run = exportTool({ size: source.length, source });
+    const result = await run({ account: ACCOUNT, id: UID, mailbox: 'INBOX' });
+    expect(JSON.parse(result.content[0]?.text ?? '')).toMatchObject({ sizeHuman: '50KB' });
+  });
 });
 
 describe('export_email size caps', () => {
