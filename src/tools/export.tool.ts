@@ -28,8 +28,10 @@ export default function registerExportTools(
       description:
         `Export one email as its raw RFC 822 source (.eml) — headers, body, and attachments, byte for byte as the server stores it. ` +
         `Use it to archive the message itself, for example a receipt that is only in the mail body. ` +
-        `Does NOT mark the email as seen or change any flag. ${ 
-        savePathLimitSentence('messages', 'the .eml file')}`,
+        `Does NOT mark the email as seen or change any flag. ${savePathLimitSentence(
+          'messages',
+          'the .eml file',
+        )}`,
       inputSchema: {
         account: z.string().describe('Account name from list_accounts'),
         id: z.string().describe('Email ID (UID) from list_emails or get_email'),

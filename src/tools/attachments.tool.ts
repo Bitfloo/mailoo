@@ -230,9 +230,10 @@ export default function registerAttachmentTools(
     'download_attachment',
     {
       title: 'Download Attachment',
-      description:
-        `Download an email attachment by filename. First use get_email to see available attachments and their filenames. ${ 
-        savePathLimitSentence('files', 'the file')}`,
+      description: `Download an email attachment by filename. First use get_email to see available attachments and their filenames. ${savePathLimitSentence(
+        'files',
+        'the file',
+      )}`,
       inputSchema: {
         account: z.string().describe('Account name from list_accounts'),
         id: z.string().describe('Email ID (UID) from list_emails or get_email'),
