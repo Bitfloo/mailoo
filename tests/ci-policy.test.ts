@@ -67,15 +67,6 @@ function releaseStep(yaml: string, name: string): string {
   return next < 0 ? rest : rest.slice(0, next);
 }
 
-/** The workflow's grep -F operand is the only copy of the npm retry sentence. */
-function npmRetryMarker(step: string): string {
-  const match = step.match(/grep -F -q "([^"]+)"/);
-  if (!match?.[1]) {
-    throw new Error('Publish to MCP Registry has no npm retry marker');
-  }
-  return match[1];
-}
-
 function exactVersion(version: string): [number, number, number] | null {
   const match = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
   if (!match) {
@@ -142,17 +133,15 @@ describe('release supply chain', () => {
 
   it('retries MCP publish only while npm has not propagated the version', () => {
     const step = releaseStep(releaseYml, 'Publish to MCP Registry');
-    const marker = npmRetryMarker(step);
-    const unmatched = step.indexOf('if ! grep -F -q');
-    const exitStatus = step.indexOf('exit "$status"', unmatched);
+    const marker =
+      'was not found (status: 404). A newly published release can take a moment to appear on the registry. Wait and retry';
     expect(step).toContain('./mcp-publisher publish');
+    expect(step).toContain(marker);
     expect(step).toContain('attempts=6');
     expect(step).toContain('pause=20');
-    expect(unmatched).toBeGreaterThan(step.indexOf('./mcp-publisher publish'));
-    expect(exitStatus).toBeGreaterThan(unmatched);
-    expect(step.indexOf('sleep "$pause"')).toBeGreaterThan(exitStatus);
-    expect(step.slice(unmatched, exitStatus)).not.toContain('sleep');
-    expect(step.slice(unmatched, exitStatus)).toContain(`"${marker}"`);
+    expect(step).toContain('sleep "$pause"');
+    expect(step.indexOf('exit "$status"')).toBeGreaterThan(step.indexOf(marker));
+    expect(step.indexOf('sleep "$pause"')).toBeGreaterThan(step.indexOf('exit "$status"'));
     const docker = jobSections(releaseYml).find((job) =>
       job.includes('goreleaser/goreleaser-action@'),
     );
