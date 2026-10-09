@@ -197,6 +197,19 @@ They are **not** Mailoo releases. Commit links point at
 - add pnpm install and usage instructions - ([13c8d4b](https://github.com/codefuturist/email-mcp/commit/13c8d4bf3006fa4fb5f014eb630006a478082a23))
 
 - - -
+## [v0.2.0](https://github.com/bitfloo/mailoo/compare/e27fe33ad80a5bcd9b81fc959631aba33d0598e2..v0.2.0) - 2026-10-09
+#### ✨ Features
+- add export_email tool for raw RFC 822 .eml export (#10) - ([1b8750f](https://github.com/bitfloo/mailoo/commit/1b8750fc33d76c8cc2c93a27c47e0c4fb0579768)) - Mike, michal, michal, michal, michal, michal, michal, michal, michal, michal, Cursor Agent
+#### 🐛 Bug Fixes
+- bind the export size limit to one constant - ([e7d12dc](https://github.com/bitfloo/mailoo/commit/e7d12dc01f1dd8690690dcced9a4fa767dbc11f6)) - Mike
+#### Build
+- install pnpm and npm through npm ci - ([6e197dc](https://github.com/bitfloo/mailoo/commit/6e197dc01ebcdb01d03c8fed15adbef83fcc6395)) - Mike, Cursor
+#### CI
+- retry MCP registry publish until npm shows the version (#9) - ([5b23aae](https://github.com/bitfloo/mailoo/commit/5b23aaeb0e50019ead82b38c62e8d52c7e364d59)) - Mike, Mike, Cursor
+- scan the default branch with CodeQL after merge - ([e27fe33](https://github.com/bitfloo/mailoo/commit/e27fe33ad80a5bcd9b81fc959631aba33d0598e2)) - Mike, Cursor
+
+- - -
+
 ## [v0.1.8](https://github.com/bitfloo/mailoo/compare/6463342bda7a8811769ac84c34364a027c35ede3..v0.1.8) - 2026-10-07
 #### 🐛 Bug Fixes
 - close CodeQL host and HTML-sanitizer bypasses - ([5a82098](https://github.com/bitfloo/mailoo/commit/5a8209840c08c3a9e3f205d26439f4c38ffdabe4)) - Mike, Cursor

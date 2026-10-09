@@ -1,6 +1,6 @@
 {
   "name": "@bitfloo/mailoo",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "mcpName": "io.github.Bitfloo/mailoo",
   "description": "Mailoo — email MCP server for IMAP, SMTP, and ManageSieve. Multi-account, per-folder profiles.",
   "type": "module",
