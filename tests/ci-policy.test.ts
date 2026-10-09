@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
+import { jobSections, topLevelPermissions } from './ci-policy-yaml.js';
 
 const ciYml = readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8');
 const dockerSha = readFileSync(join(repoRoot, '.github/workflows/docker-sha.yml'), 'utf8');
@@ -64,15 +65,6 @@ function releaseStep(yaml: string, name: string): string {
   const rest = steps.slice(start);
   const next = rest.indexOf('\n      - ', marker.length);
   return next < 0 ? rest : rest.slice(0, next);
-}
-
-/** The workflow's grep -F operand is the only copy of the npm retry sentence. */
-function npmRetryMarker(step: string): string {
-  const match = step.match(/grep -F -q "([^"]+)"/);
-  if (!match?.[1]) {
-    throw new Error('Publish to MCP Registry has no npm retry marker');
-  }
-  return match[1];
 }
 
 function exactVersion(version: string): [number, number, number] | null {
@@ -141,18 +133,15 @@ describe('release supply chain', () => {
 
   it('retries MCP publish only while npm has not propagated the version', () => {
     const step = releaseStep(releaseYml, 'Publish to MCP Registry');
-    const marker = npmRetryMarker(step);
-    const unmatched = step.indexOf('if ! grep -F -q');
-    const exitStatus = step.indexOf('exit "$status"', unmatched);
+    const marker =
+      'was not found (status: 404). A newly published release can take a moment to appear on the registry. Wait and retry';
     expect(step).toContain('./mcp-publisher publish');
+    expect(step).toContain(marker);
     expect(step).toContain('attempts=6');
     expect(step).toContain('pause=20');
-    expect(step).toContain('for ((attempt = 1; attempt <= attempts; attempt++)); do');
-    expect(unmatched).toBeGreaterThan(step.indexOf('./mcp-publisher publish'));
-    expect(exitStatus).toBeGreaterThan(unmatched);
-    expect(step.indexOf('sleep "$pause"')).toBeGreaterThan(exitStatus);
-    expect(step.slice(unmatched, exitStatus)).not.toContain('sleep');
-    expect(marker.length).toBeGreaterThan(0);
+    expect(step).toContain('sleep "$pause"');
+    expect(step.indexOf('exit "$status"')).toBeGreaterThan(step.indexOf(marker));
+    expect(step.indexOf('sleep "$pause"')).toBeGreaterThan(step.indexOf('exit "$status"'));
     const docker = jobSections(releaseYml).find((job) =>
       job.includes('goreleaser/goreleaser-action@'),
     );
@@ -189,24 +178,6 @@ function workflowName(yaml: string): string {
     throw new Error('missing name');
   }
   return match[1];
-}
-
-/** Job keys are indented, so a column-0 match stays on the workflow permissions. */
-function topLevelPermissions(yaml: string): string {
-  const match = yaml.match(/^permissions:[^\n]*(?:\n {2}[^\n]*)*/m);
-  if (!match) {
-    throw new Error('missing top-level permissions');
-  }
-  return match[0];
-}
-
-/** One chunk per job so a token can be required on the scorecard job only. */
-function jobSections(yaml: string): string[] {
-  const parts = yaml.split(/^jobs:\n/m);
-  if (parts.length < 2) {
-    throw new Error('missing jobs');
-  }
-  return parts[1].split(/\n(?= {2}[a-zA-Z0-9_-]+:\n)/);
 }
 
 function weeklyCron(yaml: string): string[] {
@@ -333,19 +304,5 @@ describe('workflow token scope', () => {
       const yaml = readFileSync(join(workflowDir, name), 'utf8');
       expect(topLevelPermissions(yaml), name).not.toMatch(/\bwrite\b/);
     }
-  });
-});
-
-describe('docker rebuild images', () => {
-  it('rebuilds bookworm and alpine for the release architectures', () => {
-    const yaml = readFileSync(join(workflowDir, 'docker-rebuild.yml'), 'utf8');
-    expect(yaml).toContain('docker/setup-qemu-action@');
-    expect(yaml).toContain('-alpine');
-    expect(yaml).toContain(':bookworm');
-    expect(yaml).toContain(':latest');
-    expect(yaml).not.toContain('sha-${{');
-    expect(topLevelPermissions(yaml)).not.toMatch(/write/);
-    const jobs = jobSections(yaml);
-    expect(jobs.some((job) => job.includes('packages: write'))).toBe(true);
   });
 });

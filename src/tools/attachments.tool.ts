@@ -31,6 +31,11 @@ export const SAVE_PATH_MAX_BYTES = 50 * BYTES_PER_MEBIBYTE;
 
 export const SAVE_PATH_READ_ONLY_MESSAGE = 'savePath is not allowed in read_only mode';
 
+/** Whole KiB, the metadata label both tools return. */
+export function sizeHuman(bytes: number): string {
+  return `${Math.round(bytes / 1024)}KB`;
+}
+
 /** One size-limit sentence for download_attachment and export_email. */
 export function savePathLimitSentence(subject: string, writtenAs: string): string {
   const inlineMb = INLINE_MAX_BYTES / BYTES_PER_MEBIBYTE;
@@ -285,7 +290,7 @@ export default function registerAttachmentTools(
                     filename: result.filename,
                     mimeType: result.mimeType,
                     size: result.size,
-                    sizeHuman: `${Math.round(result.size / 1024)}KB`,
+                    sizeHuman: sizeHuman(result.size),
                     savedTo,
                   },
                   null,
@@ -305,7 +310,7 @@ export default function registerAttachmentTools(
                   filename: result.filename,
                   mimeType: result.mimeType,
                   size: result.size,
-                  sizeHuman: `${Math.round(result.size / 1024)}KB`,
+                  sizeHuman: sizeHuman(result.size),
                 },
                 null,
                 2,

@@ -38,10 +38,11 @@ such as a receipt sent only as the mail body.
 
 Parameters: `account`, `id` (UID), `mailbox` (default `INBOX`), and
 optional `savePath`. Size limits, `savePath` and `read_only` follow
-`download_attachment`, with the same errors for a symlink, an existing
-file, or a path outside the working directory. When `read_only` is true,
-`savePath` is rejected and no file is written. A directory `savePath` names
-the file `<YYYY-MM-DD>_<uid>.eml`
+`download_attachment`: base64 up to **5 MB**; with `savePath`, a new file
+up to **50 MB** under the same working-directory rules, with the same
+errors for a symlink, an existing file, or a path outside the working
+directory. When `read_only` is true, `savePath` is rejected and no file is
+written. A directory `savePath` names the file `<YYYY-MM-DD>_<uid>.eml`
 from the UTC date of the message's INTERNALDATE.
 
 The mailbox is opened read-only (EXAMINE) and the source is fetched with

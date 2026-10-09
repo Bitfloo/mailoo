@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
+import { jobSections, topLevelPermissions } from './ci-policy-yaml.js';
 
 const workflowDir = join(repoRoot, '.github/workflows');
 
@@ -72,5 +73,17 @@ describe('docker rebuild images', () => {
     }
     expect(workflow.match(/platforms: linux\/amd64,linux\/arm64/g)).toHaveLength(2);
     expect(workflow).toContain('if [[ "$V" != *-* ]]');
+  });
+
+  it('rebuilds bookworm and alpine for the release architectures', () => {
+    const yaml = readFileSync(join(workflowDir, 'docker-rebuild.yml'), 'utf8');
+    expect(yaml).toContain('docker/setup-qemu-action@');
+    expect(yaml).toContain('-alpine');
+    expect(yaml).toContain(':bookworm');
+    expect(yaml).toContain(':latest');
+    expect(yaml).not.toContain('sha-${{');
+    expect(topLevelPermissions(yaml)).not.toMatch(/write/);
+    const jobs = jobSections(yaml);
+    expect(jobs.some((job) => job.includes('packages: write'))).toBe(true);
   });
 });
