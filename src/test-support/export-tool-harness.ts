@@ -73,17 +73,16 @@ export function register(
   let handler: ((args: ExportArgs) => Promise<ToolResult>) | undefined;
   const server = {
     registerTool: (
-      name: string,
+      _name: string,
       cfg: ToolConfig,
       fn: (args: ExportArgs) => Promise<ToolResult>,
     ) => {
-      if (name !== 'export_email') return;
       config = cfg;
       handler = fn;
     },
   };
   registerExportTools(server as never, imap, readOnly);
-  if (!config || !handler) throw new Error('export_email was not registered');
+  if (!config || !handler) throw new Error('export tool was not registered');
   return { config, run: handler };
 }
 

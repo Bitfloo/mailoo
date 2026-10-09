@@ -6,7 +6,13 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 import type ImapService from '../services/imap.service.js';
-import { INLINE_MAX_BYTES, SAVE_PATH_MAX_BYTES, writeAttachmentFile } from './attachments.tool.js';
+import {
+  INLINE_MAX_BYTES,
+  SAVE_PATH_MAX_BYTES,
+  SAVE_PATH_READ_ONLY_MESSAGE,
+  savePathLimitSentence,
+  writeAttachmentFile,
+} from './attachments.tool.js';
 
 export { INLINE_MAX_BYTES };
 
@@ -20,10 +26,10 @@ export default function registerExportTools(
     {
       title: 'Export Email',
       description:
-        'Export one email as its raw RFC 822 source (.eml) — headers, body, and attachments, byte for byte as the server stores it. ' +
-        'Use it to archive the message itself, for example a receipt that is only in the mail body. ' +
-        'Does NOT mark the email as seen or change any flag. ' +
-        'Returns base64-encoded content for messages ≤5MB. Pass savePath to write the .eml file to disk instead (up to 50MB) and skip base64.',
+        `Export one email as its raw RFC 822 source (.eml) — headers, body, and attachments, byte for byte as the server stores it. ` +
+        `Use it to archive the message itself, for example a receipt that is only in the mail body. ` +
+        `Does NOT mark the email as seen or change any flag. ${ 
+        savePathLimitSentence('messages', 'the .eml file')}`,
       inputSchema: {
         account: z.string().describe('Account name from list_accounts'),
         id: z.string().describe('Email ID (UID) from list_emails or get_email'),
@@ -46,7 +52,7 @@ export default function registerExportTools(
     async ({ account, id, mailbox, savePath }) => {
       try {
         if (readOnly && savePath !== undefined) {
-          throw new Error('savePath is not allowed in read_only mode');
+          throw new Error(SAVE_PATH_READ_ONLY_MESSAGE);
         }
         const maxSize = savePath ? SAVE_PATH_MAX_BYTES : INLINE_MAX_BYTES;
         const result = await imapService.exportEmail(account, id, mailbox, maxSize);
