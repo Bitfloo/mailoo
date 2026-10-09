@@ -14,6 +14,7 @@ import {
   UID,
   withPinnedRoots,
 } from '../test-support/export-tool-harness.js';
+import { SAVE_PATH_MAX_BYTES } from './attachments.tool.js';
 import { INLINE_MAX_BYTES } from './export.tool.js';
 
 describe('export_email registration', () => {
@@ -100,6 +101,10 @@ describe('export_email size caps', () => {
 
   it('should cap inline exports at 5 mebibytes', () => {
     expect(INLINE_MAX_BYTES).toBe(FIVE_MIB);
+  });
+
+  it('should cap savePath exports at 50 mebibytes', () => {
+    expect(SAVE_PATH_MAX_BYTES).toBe(FIFTY_MIB);
   });
 
   it('should export inline a message of exactly 5 MB', async () => {

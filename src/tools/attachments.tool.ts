@@ -21,11 +21,22 @@ import {
 } from '../safety/local-paths.js';
 import type ImapService from '../services/imap.service.js';
 
+const BYTES_PER_MEBIBYTE = 1024 * 1024;
+
 /** Base64 responses stay at this size; savePath may go up to SAVE_PATH_MAX_BYTES. */
-export const INLINE_MAX_BYTES = 5 * 1024 * 1024;
+export const INLINE_MAX_BYTES = 5 * BYTES_PER_MEBIBYTE;
 
 /** Max size when streaming to disk. */
-export const SAVE_PATH_MAX_BYTES = 50 * 1024 * 1024;
+export const SAVE_PATH_MAX_BYTES = 50 * BYTES_PER_MEBIBYTE;
+
+export const SAVE_PATH_READ_ONLY_MESSAGE = 'savePath is not allowed in read_only mode';
+
+/** One size-limit sentence for download_attachment and export_email. */
+export function savePathLimitSentence(subject: string, writtenAs: string): string {
+  const inlineMb = INLINE_MAX_BYTES / BYTES_PER_MEBIBYTE;
+  const saveMb = SAVE_PATH_MAX_BYTES / BYTES_PER_MEBIBYTE;
+  return `Returns base64-encoded content for ${subject} ≤${inlineMb}MB. Pass savePath to write ${writtenAs} to disk instead (up to ${saveMb}MB) and skip base64.`;
+}
 
 const OUTSIDE_ROOT = 'savePath must stay under the working directory';
 const SAVE_NOT_ALLOWED = 'savePath is not allowed';
@@ -219,9 +230,10 @@ export default function registerAttachmentTools(
     'download_attachment',
     {
       title: 'Download Attachment',
-      description:
-        'Download an email attachment by filename. First use get_email to see available attachments and their filenames. ' +
-        'Returns base64-encoded content for files ≤5MB. Pass savePath to write the file to disk instead (up to 50MB) and skip base64.',
+      description: `Download an email attachment by filename. First use get_email to see available attachments and their filenames. ${savePathLimitSentence(
+        'files',
+        'the file',
+      )}`,
       inputSchema: {
         account: z.string().describe('Account name from list_accounts'),
         id: z.string().describe('Email ID (UID) from list_emails or get_email'),
@@ -245,7 +257,7 @@ export default function registerAttachmentTools(
     async ({ account, id, mailbox, filename, savePath }) => {
       try {
         if (readOnly && savePath !== undefined) {
-          throw new Error('savePath is not allowed in read_only mode');
+          throw new Error(SAVE_PATH_READ_ONLY_MESSAGE);
         }
         const maxSize = savePath ? SAVE_PATH_MAX_BYTES : INLINE_MAX_BYTES;
         const result = await imapService.downloadAttachment(
