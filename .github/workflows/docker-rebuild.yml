@@ -66,14 +66,14 @@ jobs:
           join() { local IFS=,; echo "$*"; }
           echo "bookworm_tags=$(join "${bookworm[@]}")" >> "$GITHUB_OUTPUT"
           echo "alpine_tags=$(join "${alpine[@]}")" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.bookworm_tags }}
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: Dockerfile.alpine
