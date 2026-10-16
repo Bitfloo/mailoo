@@ -64,6 +64,7 @@ describe('cog changelog entry', () => {
   it.each([
     ['quotes the entry heading', '- quote ## [v0.2.0]( in a subject - ('],
     ['holds the author separator', '- keep (a)) - b in a subject - ('],
+    ['holds the entry separator', '- keep - - - in a subject - ('],
   ])('should list each author once on a bullet whose subject %s', (_, subject) => {
     const bullet = 'e7d12dc01f1dd8690690dcced9a4fa767dbc11f6)) - ';
     const published = swapOnce(

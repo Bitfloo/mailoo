@@ -112,6 +112,17 @@ describe('release notes', () => {
     expect(notesBeforeInstall(notes)).toBe(changelogSection('v0.1.8'));
   });
 
+  it('should keep a bullet whose subject holds the entry separator', () => {
+    const subject = (text: string) =>
+      swapOnce(
+        text,
+        '- bind the export size limit to one constant - (',
+        '- keep - - - in a subject - (',
+      );
+    const notes = releaseNotes({ ref: 'refs/tags/v0.2.0', changelog: subject(changelogMd) });
+    expect(notesBeforeInstall(notes)).toBe(subject(changelogSection('v0.2.0')));
+  });
+
   it('gives a release of omitted commit types only the install lines', () => {
     // cog 7 writes the heading with an empty body when every commit type in the range is omitted.
     const changelog = swapOnce(
