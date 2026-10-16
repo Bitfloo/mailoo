@@ -130,6 +130,11 @@ describe('release bump', () => {
       await expect(stampReadme(line('0.2'), '1.4.2')).resolves.toBe(line('1.4'));
     });
 
+    it('should leave the tags of other images alone', async () => {
+      const others = 'docker pull ghcr.io/example/mailoo:0.2\nimage: postgres:16.1\n';
+      await expect(stampReadme(others, '1.4.2')).resolves.toBe(others);
+    });
+
     it.each([
       '0.10.0',
       '0.2.10',
