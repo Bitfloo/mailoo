@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 
 import { checkerBuiltinSource, repoRoot } from './agent-file.js';
 import {
@@ -34,8 +34,7 @@ describe('public git checker: built-in patterns', () => {
     }
   });
 
-  it('ships the rubric and a checker that git tracks as executable', () => {
-    expect(existsSync(publicGitRule)).toBe(true);
+  it('tracks the checker as executable for the agents that run it without bash', () => {
     const mode = spawnSync('git', ['ls-files', '-s', 'scripts/check-public-git-log.sh'], {
       cwd: repoRoot,
       encoding: 'utf8',
@@ -44,10 +43,12 @@ describe('public git checker: built-in patterns', () => {
     expect(mode.stdout).toMatch(/^100755 /);
   });
 
-  it('points the rubric at the checker instead of keeping a second copy of its pattern', () => {
-    const rule = readFileSync(publicGitRule, 'utf8');
-    expect(rule).toContain('scripts/check-public-git-log.sh');
-    expect(rule).not.toContain(checkerBuiltinSource());
+  it('points the rubric at the checker', () => {
+    expect(readFileSync(publicGitRule, 'utf8')).toContain('scripts/check-public-git-log.sh');
+  });
+
+  it('keeps the built-in pattern out of the rubric', () => {
+    expect(readFileSync(publicGitRule, 'utf8')).not.toContain(checkerBuiltinSource());
   });
 
   it('accepts a conventional subject with no operator leak', () => {
@@ -94,11 +95,13 @@ describe('public git checker: built-in patterns', () => {
     expect(scanFile(body)).toEqual(passed);
   });
 
-  it('matches built-in patterns case-insensitively', () => {
-    expect(scanFile('fix: path /users/me/mailoo\n').status).toBe(1);
-    expect(scanFile('docs: note\n\nclaude-session: 0123abc\n').status).toBe(1);
-    expect(scanFile('chore: do not dispatch ACME:TEST-SMITH\n').status).toBe(1);
-    expect(scanFile('chore: do not dispatch ACME2:TEST-SMITH\n').status).toBe(1);
+  it.each([
+    ['a home path', 'fix: path /users/me/mailoo\n'],
+    ['a session trailer', 'docs: note\n\nclaude-session: 0123abc\n'],
+    ['a plugin dispatch name', 'chore: do not dispatch ACME:TEST-SMITH\n'],
+    ['a plugin name with a digit', 'chore: do not dispatch ACME2:TEST-SMITH\n'],
+  ])('matches %s case-insensitively', (_name, body) => {
+    expect(scanFile(body).status).toBe(1);
   });
 
   it('echoes a mixed-case hit on a built-in pattern', () => {

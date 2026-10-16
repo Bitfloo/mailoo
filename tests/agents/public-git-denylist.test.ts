@@ -31,18 +31,34 @@ describe('public git checker: private patterns', () => {
     expect(result.stderr).toContain('forbidden token');
   });
 
-  it('applies environment and denylist patterns together and reports each hit', () => {
-    const env = {
-      PUBLIC_GIT_EXTRA_FORBIDDEN: 'alpha-secret',
-      PUBLIC_GIT_DENYLIST_FILE: denylist('beta-secret\n'),
-    };
-    expect(scanFile('docs: mention alpha-secret\n', env).status).toBe(1);
-    expect(scanFile('docs: mention beta-secret\n', env).status).toBe(1);
-    expect(scanFile(clean, env)).toEqual(passed);
-    const both = scanFile('docs: mention alpha-secret\n\nAlso beta-secret here.\n', env);
-    expect(both.status).toBe(1);
-    expect(both.stderr).toContain('docs: mention alpha-secret');
-    expect(both.stderr).toContain('Also beta-secret here.');
+  const bothSources = () => ({
+    PUBLIC_GIT_EXTRA_FORBIDDEN: 'alpha-secret',
+    PUBLIC_GIT_DENYLIST_FILE: denylist('beta-secret\n'),
+  });
+
+  it.each([
+    ['the environment', 'docs: mention alpha-secret\n'],
+    ['the denylist file', 'docs: mention beta-secret\n'],
+  ])('rejects a hit from %s when both sources are set', (_source, body) => {
+    expect(scanFile(body, bothSources()).status).toBe(1);
+  });
+
+  it('passes a clean message when both sources are set', () => {
+    expect(scanFile(clean, bothSources())).toEqual(passed);
+  });
+
+  it('echoes the hit from each source in one message', () => {
+    const dir = makeTmpDir('mailoo-public-git-two-');
+    const msg = join(dir, 'MSG');
+    writeFileSync(msg, 'docs: mention alpha-secret\n\nAlso beta-secret here.\n');
+    expect(runChecker(['--file', msg], dir, bothSources())).toEqual({
+      status: 1,
+      stdout: '',
+      stderr:
+        'docs: mention alpha-secret\n' +
+        'Also beta-secret here.\n' +
+        `public-git: forbidden token in ${msg} (see .claude/rules/public-git.md)\n`,
+    });
   });
 
   it('echoes a mixed-case hit on an extra pattern', () => {
