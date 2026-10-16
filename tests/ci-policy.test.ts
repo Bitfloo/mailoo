@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -86,14 +86,46 @@ function runBlock(step: string): string {
   return match[1].replace(/^ {10}/gm, '');
 }
 
-/** Run the release-notes step against the real CHANGELOG.md and return what it wrote. */
-function releaseNotes(env: { GITHUB_REF: string; INPUT_VERSION?: string }): string {
-  const script = runBlock(releaseStep(releaseYml, 'Write release notes'));
+/** The step's `env:` block with each `${{ expression }}` filled in from `context`, as the runner does. */
+function stepEnv(step: string, context: Record<string, string>): Record<string, string> {
+  const block = step.match(/\n {8}env:\n((?: {10}\S.*\n)+)/)?.[1] ?? '';
+  return Object.fromEntries(
+    [...block.matchAll(/^ {10}(\w+): (.*)$/gm)].map(([, name, value]) => [
+      name,
+      value.replace(/\$\{\{ ([\w.-]+) \}\}/g, (_, expression: string) => {
+        if (!(expression in context)) {
+          throw new Error(`no value for ${expression}`);
+        }
+        return context[expression];
+      }),
+    ]),
+  );
+}
+
+interface ReleaseRun {
+  ref: string;
+  /** GitHub passes an absent workflow_dispatch input as an empty string, so a tag push gets ''. */
+  inputVersion?: string;
+  /** CHANGELOG.md text to run against instead of the real file. */
+  changelog?: string;
+}
+
+/** Run the release-notes step with its own env wiring and return what it wrote. */
+function releaseNotes(run: ReleaseRun): string {
+  const step = releaseStep(releaseYml, 'Write release notes');
   const temp = mkdtempSync(join(tmpdir(), 'mailoo-release-notes-'));
   try {
-    execFileSync('bash', ['-euo', 'pipefail', '-c', script], {
-      cwd: repoRoot,
-      env: { PATH: process.env.PATH, RUNNER_TEMP: temp, ...env },
+    if (run.changelog !== undefined) {
+      writeFileSync(join(temp, 'CHANGELOG.md'), run.changelog);
+    }
+    execFileSync('bash', ['-euo', 'pipefail', '-c', runBlock(step)], {
+      cwd: run.changelog === undefined ? repoRoot : temp,
+      env: {
+        PATH: process.env.PATH,
+        RUNNER_TEMP: temp,
+        GITHUB_REF: run.ref,
+        ...stepEnv(step, { 'inputs.version': run.inputVersion ?? '' }),
+      },
     });
     return readFileSync(join(temp, 'release-notes.md'), 'utf8');
   } finally {
@@ -101,9 +133,18 @@ function releaseNotes(env: { GITHUB_REF: string; INPUT_VERSION?: string }): stri
   }
 }
 
+const changelogMd = readFileSync(join(repoRoot, 'CHANGELOG.md'), 'utf8');
+
+/** `text` with `from` replaced by `to`; throws unless `from` occurs exactly once, so a fixture cannot go stale silently. */
+function swapOnce(text: string, from: string, to: string): string {
+  if (text.split(from).length !== 2) {
+    throw new Error(`expected exactly one ${from}`);
+  }
+  return text.replace(from, to);
+}
+
 /** Cut by string search, not by the awk in release.yml, so a wrong awk boundary fails the tests. */
-function changelogSection(tag: string): string {
-  const changelog = readFileSync(join(repoRoot, 'CHANGELOG.md'), 'utf8');
+function changelogSection(tag: string, changelog = changelogMd): string {
   const heading = changelog.indexOf(`\n## [${tag}](`);
   if (heading < 0) {
     throw new Error(`CHANGELOG.md has no ${tag} section`);
@@ -218,16 +259,32 @@ describe('release supply chain', () => {
   it('uses the CHANGELOG.md section of the pushed tag as the release body', () => {
     const section = changelogSection('v0.2.0');
     expect(section).toMatch(/^#### ✨ Features\n- add export_email tool/);
-    expect(notesBeforeInstall(releaseNotes({ GITHUB_REF: 'refs/tags/v0.2.0' }))).toBe(section);
+    expect(notesBeforeInstall(releaseNotes({ ref: 'refs/tags/v0.2.0' }))).toBe(section);
   });
 
   it('uses the CHANGELOG.md section of the version input on a manual run', () => {
-    const notes = releaseNotes({ GITHUB_REF: 'refs/heads/develop', INPUT_VERSION: '0.1.8' });
+    const notes = releaseNotes({ ref: 'refs/heads/develop', inputVersion: '0.1.8' });
     expect(notesBeforeInstall(notes)).toBe(changelogSection('v0.1.8'));
   });
 
+  it('does not take a newer release whose version starts with the same digits', () => {
+    const changelog = swapOnce(changelogMd, '\n## [v0.2.0](', '\n## [v0.1.10](');
+    const notes = releaseNotes({ ref: 'refs/tags/v0.1.1', changelog });
+    expect(notesBeforeInstall(notes)).toBe(changelogSection('v0.1.1'));
+  });
+
+  it('gives a release of omitted commit types only the install lines', () => {
+    // cog 7 writes the heading with an empty body when every commit type in the range is omitted.
+    const changelog = swapOnce(
+      changelogMd,
+      '\n- - -\n## [v0.2.0](',
+      '\n- - -\n## [v0.2.1](https://github.com/bitfloo/mailoo/compare/v0.2.0..v0.2.1) - 2026-10-17\n\n- - -\n## [v0.2.0](',
+    );
+    expect(notesBeforeInstall(releaseNotes({ ref: 'refs/tags/v0.2.1', changelog }))).toBe('');
+  });
+
   it('ends the release body with install commands for that version', () => {
-    const notes = releaseNotes({ GITHUB_REF: 'refs/tags/v0.2.0' });
+    const notes = releaseNotes({ ref: 'refs/tags/v0.2.0' });
     expect(notes.trimEnd().split('\n').slice(-3)).toEqual([
       '**Install:** `npx -y @bitfloo/mailoo@0.2.0` · `docker pull ghcr.io/bitfloo/mailoo:0.2.0` (or `0.2.0-alpine`)',
       '',
@@ -242,6 +299,14 @@ describe('release supply chain', () => {
     expect(releaseStep(releaseYml, 'Run GoReleaser')).toContain(
       'args: release --clean --release-notes=${{ runner.temp }}/release-notes.md',
     );
+  });
+
+  it('writes the release notes before GoReleaser reads them', () => {
+    const docker =
+      jobSections(releaseYml).find((job) => job.includes('goreleaser/goreleaser-action@')) ?? '';
+    const written = docker.indexOf('- name: Write release notes\n');
+    expect(written).toBeGreaterThanOrEqual(0);
+    expect(docker.indexOf('- name: Run GoReleaser\n')).toBeGreaterThan(written);
   });
 });
 
