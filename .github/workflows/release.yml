@@ -118,7 +118,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       # The release body is the CHANGELOG.md section cog bump wrote before tagging.
-      # A release of hidden commit types only has an empty section, so the install
+      # A release of omitted commit types only has an empty section, so the install
       # lines are always appended.
       - name: Write release notes
         env:

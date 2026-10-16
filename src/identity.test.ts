@@ -218,6 +218,7 @@ describe('published identity', () => {
       'npm pkg set version={{version}}',
       'bash scripts/bump-server-json-version.sh {{version}}',
       'bash scripts/bump-readme-image-tag.sh {{version}}',
+      'bash scripts/tidy-changelog-entry.sh {{latest}} {{version}}',
       'git add package.json server.json README.md',
     ];
     const profileCount = 1 + (cog.match(/^\[bump_profiles\.[\w-]+\]$/gm)?.length ?? 0);

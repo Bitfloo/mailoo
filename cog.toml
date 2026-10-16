@@ -28,12 +28,14 @@ skip_ci = "[skip ci]"
 skip_untracked = false
 tag_prefix = "v"
 
+# cog has written the CHANGELOG.md entry when these run, and commits what they leave.
 pre_bump_hooks = [
     "pnpm check",
     "pnpm build",
     "npm pkg set version={{version}}",
     "bash scripts/bump-server-json-version.sh {{version}}",
     "bash scripts/bump-readme-image-tag.sh {{version}}",
+    "bash scripts/tidy-changelog-entry.sh {{latest}} {{version}}",
     "git add package.json server.json README.md",
 ]
 
@@ -57,11 +59,11 @@ fix = { changelog_title = "🐛 Bug Fixes" }
 perf = { changelog_title = "⚡ Performance" }
 refactor = { changelog_title = "♻️ Refactoring" }
 docs = { changelog_title = "📚 Documentation" }
-build = { changelog_title = "Build", hidden = true }
-ci = { changelog_title = "CI", hidden = true }
-test = { changelog_title = "Tests", hidden = true }
-style = { changelog_title = "Styles", hidden = true }
-chore = { changelog_title = "Chores", hidden = true }
+build = { changelog_title = "Build", omit_from_changelog = true }
+ci = { changelog_title = "CI", omit_from_changelog = true }
+test = { changelog_title = "Tests", omit_from_changelog = true }
+style = { changelog_title = "Styles", omit_from_changelog = true }
+chore = { changelog_title = "Chores", omit_from_changelog = true }
 revert = { changelog_title = "⏪ Reverts" }
 
 # ------------------------------------------------------------------------------
@@ -83,14 +85,14 @@ authors = [
 [bump_profiles]
 
 [bump_profiles.release]
-pre_bump_hooks = ["pnpm check", "pnpm build", "npm pkg set version={{version}}", "bash scripts/bump-server-json-version.sh {{version}}", "bash scripts/bump-readme-image-tag.sh {{version}}", "git add package.json server.json README.md"]
+pre_bump_hooks = ["pnpm check", "pnpm build", "npm pkg set version={{version}}", "bash scripts/bump-server-json-version.sh {{version}}", "bash scripts/bump-readme-image-tag.sh {{version}}", "bash scripts/tidy-changelog-entry.sh {{latest}} {{version}}", "git add package.json server.json README.md"]
 post_bump_hooks = [
     "git push origin HEAD",
     "git push origin v{{version}}",
 ]
 
 [bump_profiles.hotfix]
-pre_bump_hooks = ["pnpm check", "npm pkg set version={{version}}", "bash scripts/bump-server-json-version.sh {{version}}", "bash scripts/bump-readme-image-tag.sh {{version}}", "git add package.json server.json README.md"]
+pre_bump_hooks = ["pnpm check", "npm pkg set version={{version}}", "bash scripts/bump-server-json-version.sh {{version}}", "bash scripts/bump-readme-image-tag.sh {{version}}", "bash scripts/tidy-changelog-entry.sh {{latest}} {{version}}", "git add package.json server.json README.md"]
 post_bump_hooks = [
     "git push origin HEAD",
     "git push origin v{{version}}",
