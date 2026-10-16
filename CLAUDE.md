@@ -79,7 +79,7 @@ GreenMail + image on pull requests, and the same on `workflow_dispatch`. Tick
   or attach `.catch(...)`.
 - **Public API**: tool names, parameter schemas, and resource URIs are
   part of the MCP API surface. Renames or schema changes are breaking
-  changes and need a major version bump (see `cog.toml`).
+  changes and need a major version bump.
 
 ## Validation before you call it done
 
