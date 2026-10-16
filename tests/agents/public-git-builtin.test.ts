@@ -47,8 +47,13 @@ describe('public git checker: built-in patterns', () => {
     expect(readFileSync(publicGitRule, 'utf8')).toContain('scripts/check-public-git-log.sh');
   });
 
-  it('keeps the built-in pattern out of the rubric', () => {
-    expect(readFileSync(publicGitRule, 'utf8')).not.toContain(checkerBuiltinSource());
+  // Split at top-level pipes only, so a group such as (test-auditor|test-smith) stays whole.
+  it.each(
+    checkerBuiltinSource()
+      .slice(1, -1)
+      .split(/\|(?![^(]*\))/),
+  )('keeps the built-in alternative %s out of the rubric', (alternative) => {
+    expect(readFileSync(publicGitRule, 'utf8')).not.toContain(alternative);
   });
 
   it('accepts a conventional subject with no operator leak', () => {
