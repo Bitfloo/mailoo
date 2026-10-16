@@ -1,9 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 
-import { repoRoot } from './agent-file.js';
+import { checkerBuiltinSource, repoRoot } from './agent-file.js';
 import {
-  checkerScript,
   clean,
   cleanEnv,
   passed,
@@ -46,11 +45,9 @@ describe('public git checker: built-in patterns', () => {
   });
 
   it('points the rubric at the checker instead of keeping a second copy of its pattern', () => {
-    const builtin = readFileSync(checkerScript, 'utf8').match(/^BUILTIN='([^']+)'/m)?.[1];
-    expect(builtin).toBeTruthy();
     const rule = readFileSync(publicGitRule, 'utf8');
     expect(rule).toContain('scripts/check-public-git-log.sh');
-    expect(rule).not.toContain(builtin as string);
+    expect(rule).not.toContain(checkerBuiltinSource());
   });
 
   it('accepts a conventional subject with no operator leak', () => {

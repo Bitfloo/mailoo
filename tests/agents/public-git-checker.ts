@@ -38,7 +38,7 @@ export function denylist(content: string): string {
  * A git hook or linked worktree exports GIT_DIR and friends, which would aim the checker's git
  * at the outer repository, and a maintainer's own PUBLIC_GIT_* patterns would change what it rejects.
  */
-export function cleanEnv(env: Record<string, string | undefined>): NodeJS.ProcessEnv {
+export function cleanEnv(env: Record<string, string>): NodeJS.ProcessEnv {
   const base: NodeJS.ProcessEnv = { ...process.env };
   for (const key of Object.keys(base)) {
     if (key.startsWith('GIT_') || key.startsWith('PUBLIC_GIT_')) {
@@ -47,21 +47,10 @@ export function cleanEnv(env: Record<string, string | undefined>): NodeJS.Proces
   }
   base.GIT_CONFIG_GLOBAL = '/dev/null';
   base.GIT_CONFIG_NOSYSTEM = '1';
-  for (const [key, value] of Object.entries(env)) {
-    if (value === undefined) {
-      delete base[key];
-    } else {
-      base[key] = value;
-    }
-  }
-  return base;
+  return { ...base, ...env };
 }
 
-export function runChecker(
-  args: string[],
-  cwd: string,
-  env: Record<string, string | undefined>,
-): Result {
+export function runChecker(args: string[], cwd: string, env: Record<string, string>): Result {
   const result = spawnSync('bash', [checkerScript, ...args], {
     cwd,
     encoding: 'utf8',
@@ -71,7 +60,7 @@ export function runChecker(
 }
 
 /** Checks `body` as a message file, with no default denylist unless `env` names one. */
-export function scanFile(body: string, env: Record<string, string | undefined> = {}): Result {
+export function scanFile(body: string, env: Record<string, string> = {}): Result {
   const dir = makeTmpDir('mailoo-public-git-');
   const file = join(dir, 'COMMIT_EDITMSG');
   writeFileSync(file, body);

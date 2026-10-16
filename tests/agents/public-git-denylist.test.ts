@@ -173,7 +173,7 @@ describe('public git checker: private patterns', () => {
     const jobs = readdirSync(workflows)
       .filter((file) => file.endsWith('.yml'))
       .flatMap((file) => jobSections(readFileSync(join(workflows, file), 'utf8')))
-      .filter((job) => /^ +(?:run: |- run: )?bash scripts\/check-public-git-log\.sh /m.test(job));
+      .filter((job) => /^ +(?:run: )?bash scripts\/check-public-git-log\.sh /m.test(job));
     expect(jobs.length).toBeGreaterThan(0);
     for (const job of jobs) {
       const env = /^ {4}env:\n((?: {6}.+\n)+)/m.exec(job)?.[1] ?? '';

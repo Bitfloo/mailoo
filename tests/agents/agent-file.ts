@@ -44,13 +44,17 @@ export function systemPromptWords(text: string): string[] {
 }
 
 /** The checker's built-in leak pattern, read from the script so the tests cannot drift from it. */
-export function checkerBuiltinPattern(): RegExp {
+export function checkerBuiltinSource(): string {
   const src = readFileSync(join(repoRoot, 'scripts/check-public-git-log.sh'), 'utf8');
   const match = src.match(/^BUILTIN='([^']+)'/m);
   if (!match) {
     throw new Error('BUILTIN pattern missing from scripts/check-public-git-log.sh');
   }
-  return new RegExp(match[1], 'i');
+  return match[1];
+}
+
+export function checkerBuiltinPattern(): RegExp {
+  return new RegExp(checkerBuiltinSource(), 'i');
 }
 
 export function triggerPhrases(description: string): string[] {
