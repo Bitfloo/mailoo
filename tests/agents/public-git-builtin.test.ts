@@ -1,10 +1,14 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { checkerBuiltinSource, repoRoot } from './agent-file.js';
 import {
+  checkerScript,
   clean,
   cleanEnv,
+  leak,
+  makeTmpDir,
   passed,
   publicGitRule,
   removeTmpDirs,
@@ -48,6 +52,22 @@ describe('public git checker: built-in patterns', () => {
       env: cleanEnv({}),
     });
     expect(mode.stdout).toMatch(/^100755 /);
+  });
+
+  it('runs as its own executable, the way those agents call it', () => {
+    const dir = makeTmpDir('mailoo-public-git-direct-');
+    const msg = join(dir, 'MSG');
+    writeFileSync(msg, leak);
+    const run = spawnSync(checkerScript, ['--file', msg], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: cleanEnv({ PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none') }),
+    });
+    expect({ status: run.status, stdout: run.stdout, stderr: run.stderr }).toEqual({
+      status: 1,
+      stdout: '',
+      stderr: `${leak}public-git: forbidden token in ${msg} (see .claude/rules/public-git.md)\n`,
+    });
   });
 
   it('points the rubric at the checker', () => {
