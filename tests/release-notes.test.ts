@@ -36,8 +36,8 @@ interface ReleaseRun {
   ref: string;
   /** GitHub passes an absent workflow_dispatch input as an empty string, so a tag push gets ''. */
   inputVersion?: string;
-  /** CHANGELOG.md text to run against instead of the real file. */
-  changelog?: string;
+  /** CHANGELOG.md text to run against instead of the real file; null runs it where there is none. */
+  changelog?: string | null;
 }
 
 /** Run the release-notes step with its own env wiring and return what it wrote. */
@@ -45,10 +45,11 @@ function releaseNotes(run: ReleaseRun): string {
   const step = releaseStep(releaseYml, 'Write release notes');
   const temp = mkdtempSync(join(tmpdir(), 'mailoo-release-notes-'));
   try {
-    if (run.changelog !== undefined) {
+    if (typeof run.changelog === 'string') {
       writeFileSync(join(temp, 'CHANGELOG.md'), run.changelog);
     }
-    execFileSync('bash', ['-euo', 'pipefail', '-c', runBlock(step)], {
+    // A run step without `shell:` gets `bash -e {0}` on the runner: no -u, no pipefail.
+    execFileSync('bash', ['-e', '-c', runBlock(step)], {
       cwd: run.changelog === undefined ? repoRoot : temp,
       env: {
         PATH: process.env.PATH,
@@ -56,6 +57,7 @@ function releaseNotes(run: ReleaseRun): string {
         GITHUB_REF: run.ref,
         ...stepEnv(step, { 'inputs.version': run.inputVersion ?? '' }),
       },
+      stdio: 'pipe',
     });
     return readFileSync(join(temp, 'release-notes.md'), 'utf8');
   } finally {
@@ -103,6 +105,12 @@ describe('release notes', () => {
       '\n- - -\n## [v0.2.1](https://github.com/bitfloo/mailoo/compare/v0.2.0..v0.2.1) - 2026-10-17\n\n- - -\n## [v0.2.0](',
     );
     expect(notesBeforeInstall(releaseNotes({ ref: 'refs/tags/v0.2.1', changelog }))).toBe('');
+  });
+
+  it('should stop the release when CHANGELOG.md is missing', () => {
+    expect(() => releaseNotes({ ref: 'refs/tags/v0.2.0', changelog: null })).toThrow(
+      /(?:can't|cannot) open/,
+    );
   });
 
   it('ends the release body with install commands for that version', () => {
