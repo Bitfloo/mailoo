@@ -102,6 +102,16 @@ describe('release notes', () => {
     expect(notesBeforeInstall(notes)).toBe(changelogSection('v0.1.1'));
   });
 
+  it('should not start the release body at a newer bullet that quotes its heading', () => {
+    const changelog = swapOnce(
+      changelogMd,
+      '- bind the export size limit to one constant - (',
+      '- quote ## [v0.1.8]( in a subject - (',
+    );
+    const notes = releaseNotes({ ref: 'refs/tags/v0.1.8', changelog });
+    expect(notesBeforeInstall(notes)).toBe(changelogSection('v0.1.8'));
+  });
+
   it('gives a release of omitted commit types only the install lines', () => {
     // cog 7 writes the heading with an empty body when every commit type in the range is omitted.
     const changelog = swapOnce(
