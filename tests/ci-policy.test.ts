@@ -101,7 +101,7 @@ function releaseNotes(env: { GITHUB_REF: string; INPUT_VERSION?: string }): stri
   }
 }
 
-/** Body of one release in CHANGELOG.md: the lines between its heading and the next separator. */
+/** Cut by string search, not by the awk in release.yml, so a wrong awk boundary fails the tests. */
 function changelogSection(tag: string): string {
   const changelog = readFileSync(join(repoRoot, 'CHANGELOG.md'), 'utf8');
   const heading = changelog.indexOf(`\n## [${tag}](`);
