@@ -265,6 +265,12 @@ describe('published identity', () => {
       expect(mask(stamped)).toBe(mask(readme));
     });
 
+    it('should move the alpine tag of the minor line', async () => {
+      await expect(
+        stampReadme('docker pull ghcr.io/bitfloo/mailoo:0.2-alpine\n', '1.4.2'),
+      ).resolves.toBe('docker pull ghcr.io/bitfloo/mailoo:1.4-alpine\n');
+    });
+
     it('should take a release whose minor has two digits', async () => {
       const tags = readmeImageTags(await stampReadme(readme, '0.10.0'));
       expect(tags).toEqual(readmeImageTags(readme).map(() => '0.10'));

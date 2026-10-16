@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -12,22 +12,31 @@ describe('cog changelog entry', () => {
     '## [v0.2.0](https://github.com/bitfloo/mailoo/compare/e27fe33ad80a5bcd9b81fc959631aba33d0598e2..v0.2.0) - 2026-10-09';
   const cogAuthors = `Mike, ${Array.from({ length: 9 }, () => 'michal').join(', ')}, Cursor Agent`;
   const cogToml = readFileSync(join(repoRoot, 'cog.toml'), 'utf8');
-  const omitted = [
-    ...cogToml.matchAll(/^\w+ = \{ changelog_title = "([^"]+)", omit_from_changelog = true \}$/gm),
-  ].map((match) => match[1]);
+  const commitTypes = cogToml.split(/^\[commit_types\]\n/m)[1]?.split(/^\[/m)[0] ?? '';
+  const omitted = [...commitTypes.matchAll(/^\w+ = \{(.*)\}$/gm)]
+    .filter((match) => /\bomit_from_changelog = true\b/.test(match[1]))
+    .map((match) => match[1].match(/\bchangelog_title = "([^"]+)"/)?.[1] ?? '');
 
-  function tidy(changelog: string, latest: string, version: string): string {
+  function runTidy(changelog: string, ...args: string[]): { changelog: string; files: string[] } {
     const temp = mkdtempSync(join(tmpdir(), 'mailoo-changelog-entry-'));
     try {
       writeFileSync(join(temp, 'CHANGELOG.md'), changelog);
-      execFileSync('bash', [join(repoRoot, 'scripts/tidy-changelog-entry.sh'), latest, version], {
+      execFileSync('bash', [join(repoRoot, 'scripts/tidy-changelog-entry.sh'), ...args], {
         cwd: temp,
         env: { PATH: process.env.PATH },
+        stdio: 'pipe',
       });
-      return readFileSync(join(temp, 'CHANGELOG.md'), 'utf8');
+      return {
+        changelog: readFileSync(join(temp, 'CHANGELOG.md'), 'utf8'),
+        files: readdirSync(temp),
+      };
     } finally {
       rmSync(temp, { recursive: true, force: true });
     }
+  }
+
+  function tidy(changelog: string, latest: string, version: string): string {
+    return runTidy(changelog, latest, version).changelog;
   }
 
   it('should turn the entry cog wrote for v0.2.0 into the published one', () => {
@@ -42,6 +51,22 @@ describe('cog changelog entry', () => {
       'e7d12dc01f1dd8690690dcced9a4fa767dbc11f6)) - Mike, Mike\n',
     );
     expect(tidy(raw, '0.1.8', '0.2.0')).toBe(changelogMd);
+  });
+
+  it('should keep each author where they first appear', () => {
+    const bullet = 'e7d12dc01f1dd8690690dcced9a4fa767dbc11f6)) - ';
+    const raw = swapOnce(changelogMd, `${bullet}Mike\n`, `${bullet}Mike, Cursor Agent, Mike\n`);
+    expect(tidy(raw, '0.1.8', '0.2.0')).toBe(
+      swapOnce(changelogMd, `${bullet}Mike\n`, `${bullet}Mike, Cursor Agent\n`),
+    );
+  });
+
+  it('should leave nothing but CHANGELOG.md behind', () => {
+    expect(runTidy(changelogMd, '0.1.8', '0.2.0').files).toEqual(['CHANGELOG.md']);
+  });
+
+  it('should refuse to run without both versions', () => {
+    expect(() => runTidy(changelogMd, '0.1.8')).toThrow(/version/);
   });
 
   it('hides commit types with the key cog 7 reads', () => {

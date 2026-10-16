@@ -301,6 +301,18 @@ describe('release supply chain', () => {
     expect(dockerJob.indexOf('- name: Write release notes\n')).toBeGreaterThan(checkout);
   });
 
+  it('reads CHANGELOG.md from the commit the release was started on', () => {
+    const checkout = dockerJob.slice(dockerJob.indexOf('- uses: actions/checkout@'));
+    expect(checkout.slice(0, checkout.indexOf('\n      - '))).not.toMatch(/^ +ref:/m);
+  });
+
+  it.each([
+    'Write release notes',
+    'Run GoReleaser',
+  ])('lets a failure in %s stop the release', (name) => {
+    expect(releaseStep(releaseYml, name)).not.toMatch(/^ +(?:if|continue-on-error):/m);
+  });
+
   it('writes the release notes before GoReleaser reads them', () => {
     const written = dockerJob.indexOf('- name: Write release notes\n');
     expect(written).toBeGreaterThanOrEqual(0);
