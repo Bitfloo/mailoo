@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
 import { changelogMd, swapOnce } from './changelog-fixture.js';
-import { jobSections, releaseStep, releaseYml } from './workflow-yaml.js';
+import { jobSections, releaseStep, releaseSteps, releaseYml } from './workflow-yaml.js';
 
 /** The step's `run: |` block, dedented, as the runner would execute it. */
 function runBlock(step: string): string {
@@ -160,5 +160,20 @@ describe('release notes', () => {
     const written = dockerJob.indexOf('- name: Write release notes\n');
     expect(written).toBeGreaterThanOrEqual(0);
     expect(dockerJob.indexOf('- name: Run GoReleaser\n')).toBeGreaterThan(written);
+  });
+
+  it('should run the release-notes step with the default shell in the checkout root', () => {
+    // The harness above runs it that way: `bash -e` in the directory that holds CHANGELOG.md.
+    expect(releaseStep(releaseYml, 'Write release notes')).not.toMatch(
+      /^ +(?:shell|working-directory):/m,
+    );
+  });
+
+  it('should set no run defaults the release-notes harness does not model', () => {
+    expect(releaseSteps(releaseYml)).not.toMatch(/^ *defaults:/m);
+  });
+
+  it('should fail the release when a docker job step fails', () => {
+    expect(dockerJob).not.toMatch(/^ {4}continue-on-error:/m);
   });
 });
