@@ -128,6 +128,13 @@ describe('release notes', () => {
     );
   });
 
+  it('should stop the release when CHANGELOG.md has no section for the version', () => {
+    // A mistyped version on a manual run would otherwise publish a release with an empty body.
+    expect(() => releaseNotes({ ref: 'refs/heads/develop', inputVersion: '0.9.9' })).toThrow(
+      /no CHANGELOG\.md section for ## \[v0\.9\.9\]\(/,
+    );
+  });
+
   it('ends the release body with install commands for that version', () => {
     const notes = releaseNotes({ ref: 'refs/tags/v0.2.0' });
     expect(notes.trimEnd().split('\n').slice(-3)).toEqual([

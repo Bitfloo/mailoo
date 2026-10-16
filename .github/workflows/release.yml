@@ -126,7 +126,7 @@ jobs:
         run: |
           version="${INPUT_VERSION:-${GITHUB_REF#refs/tags/v}}"
           notes="$RUNNER_TEMP/release-notes.md"
-          awk -v head="## [v${version}](" 'index($0, head) == 1 { on = 1; next } on && $0 == "- - -" { exit } on' CHANGELOG.md > "$notes"
+          awk -v head="## [v${version}](" 'index($0, head) == 1 { found = on = 1; next } on && $0 == "- - -" { exit } on; END { if (!found) { print "no CHANGELOG.md section for " head > "/dev/stderr"; exit 1 } }' CHANGELOG.md > "$notes"
           # shellcheck disable=SC2016 # the backticks are Markdown code spans
           printf '\n**Install:** `npx -y @bitfloo/mailoo@%s` · `docker pull ghcr.io/bitfloo/mailoo:%s` (or `%s-alpine`)\n\nFull history: [CHANGELOG.md](https://github.com/bitfloo/mailoo/blob/v%s/CHANGELOG.md)\n' \
             "$version" "$version" "$version" "$version" >> "$notes"
