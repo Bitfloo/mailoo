@@ -105,7 +105,14 @@ describe('published identity', () => {
   it('describes the container images with the npm package description', async () => {
     const files = ['Dockerfile', 'Dockerfile.alpine', '.goreleaser.yaml'];
     const texts = await Promise.all(files.map(async (file) => readFile(join(root, file), 'utf8')));
-    const found = texts.flatMap((text, i) =>
+    // A commented-out label is not on the image.
+    const live = texts.map((text) =>
+      text
+        .split('\n')
+        .filter((line) => !line.trim().startsWith('#'))
+        .join('\n'),
+    );
+    const found = live.flatMap((text, i) =>
       [...text.matchAll(/org\.opencontainers\.image\.description[=:] ?"([^"]*)"/g)].map((match) => [
         files[i],
         match[1],
