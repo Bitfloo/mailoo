@@ -61,6 +61,20 @@ describe('cog changelog entry', () => {
     );
   });
 
+  it.each([
+    ['quotes the entry heading', '- quote ## [v0.2.0]( in a subject - ('],
+    ['holds the author separator', '- keep (a)) - b in a subject - ('],
+  ])('should list each author once on a bullet whose subject %s', (_, subject) => {
+    const bullet = 'e7d12dc01f1dd8690690dcced9a4fa767dbc11f6)) - ';
+    const published = swapOnce(
+      changelogMd,
+      '- bind the export size limit to one constant - (',
+      subject,
+    );
+    const raw = swapOnce(published, `${bullet}Mike\n`, `${bullet}Mike, Mike\n`);
+    expect(tidy(raw, '0.1.8', '0.2.0')).toBe(published);
+  });
+
   it('should leave nothing but CHANGELOG.md behind', () => {
     expect(runTidy(changelogMd, '0.1.8', '0.2.0').files).toEqual(['CHANGELOG.md']);
   });
