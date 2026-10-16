@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -25,17 +25,24 @@ function cogPreBumpHooks(cog: string): string[][] {
 }
 
 /** Run the README stamp in a scratch dir holding `readme`; rejects on a non-zero exit. */
-async function stampReadme(readme: string, version: string): Promise<string> {
+async function runStamp(
+  readme: string,
+  version: string,
+): Promise<{ readme: string; files: string[] }> {
   const dir = await mkdtemp(join(tmpdir(), 'mailoo-readme-tag-'));
   try {
     await writeFile(join(dir, 'README.md'), readme);
     await execFileAsync('bash', [join(root, 'scripts/bump-readme-image-tag.sh'), version], {
       cwd: dir,
     });
-    return await readFile(join(dir, 'README.md'), 'utf8');
+    return { readme: await readFile(join(dir, 'README.md'), 'utf8'), files: await readdir(dir) };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+async function stampReadme(readme: string, version: string): Promise<string> {
+  return (await runStamp(readme, version)).readme;
 }
 
 describe('release bump', () => {
@@ -113,6 +120,10 @@ describe('release bump', () => {
       ).resolves.toBe('docker pull ghcr.io/bitfloo/mailoo:1.4-alpine\n');
     });
 
+    it('should leave nothing but README.md behind', async () => {
+      await expect(runStamp(readme, '1.4.2')).resolves.toMatchObject({ files: ['README.md'] });
+    });
+
     it('should take a release whose minor has two digits', async () => {
       const tags = readmeImageTags(await stampReadme(readme, '0.10.0'));
       expect(tags).toEqual(readmeImageTags(readme).map(() => '0.10'));
@@ -141,6 +152,8 @@ describe('release bump', () => {
       '1.4x2',
       '1.4.2x',
       '1.4.',
+      '.4.2',
+      '1..2',
       '1.4.2-rc.1',
     ])('should refuse %s as a release version', async (version) => {
       await expect(stampReadme(readme, version)).rejects.toThrow(/not a release version/);
