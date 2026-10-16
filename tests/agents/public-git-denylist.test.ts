@@ -1,7 +1,10 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
+import { jobSections } from '../workflow-yaml.js';
+import { repoRoot } from './agent-file.js';
 import {
+  checkerScript,
   clean,
   denylist,
   git,
@@ -160,6 +163,23 @@ describe('public git checker: private patterns', () => {
     expect(runChecker(['--file', msg], dir, env)).toEqual(passed);
     writeFileSync(msg, leak);
     expect(runChecker(['--file', msg], dir, env).status).toBe(1);
+  });
+
+  it('hands the private-pattern secret to every CI job that runs the checker', () => {
+    // A rename on one side would leave CI green with the private patterns silently off.
+    const variable = /^ {2}add_extra (\w+) "\$\1"$/m.exec(readFileSync(checkerScript, 'utf8'))?.[1];
+    expect(variable).toBeTruthy();
+    const workflows = join(repoRoot, '.github/workflows');
+    const jobs = readdirSync(workflows)
+      .filter((file) => file.endsWith('.yml'))
+      .flatMap((file) => jobSections(readFileSync(join(workflows, file), 'utf8')))
+      .filter((job) => /^ +(?:run: |- run: )?bash scripts\/check-public-git-log\.sh /m.test(job));
+    expect(jobs.length).toBeGreaterThan(0);
+    for (const job of jobs) {
+      const env = /^ {4}env:\n((?: {6}.+\n)+)/m.exec(job)?.[1] ?? '';
+      // The secret's name lives in the repository settings, outside this tree.
+      expect(env).toContain(`      ${variable}: \${{ secrets.PUBLIC_GIT_EXTRA_FORBIDDEN }}\n`);
+    }
   });
 
   it.each([
