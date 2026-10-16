@@ -10,6 +10,42 @@ Mailoo is a fork of [email-mcp](https://github.com/codefuturist/email-mcp);
 its history before the fork is at the end of this file.
 
 - - -
+## [v0.2.1](https://github.com/bitfloo/mailoo/compare/v0.2.0..v0.2.1) - 2026-10-16
+#### 🐛 Bug Fixes
+- (**ci**) fail the public git checker on a commit git cannot read - ([e9fb785](https://github.com/bitfloo/mailoo/commit/e9fb785994d5333dc5e9185aad199f88dd84ee4e)) - Mike, Claude Opus 5.5
+- (**ci**) fail the public git checker on an unreadable denylist - ([f8f04c7](https://github.com/bitfloo/mailoo/commit/f8f04c7048c0b66d73f35ff605d06a38dd86f7ca)) - Mike, Claude Opus 5.5
+- (**ci**) fail the public git checker on an unreadable message file - ([ade9332](https://github.com/bitfloo/mailoo/commit/ade933265104885d3d8d039de5c760f3397c3bd4)) - Mike
+- (**ci**) skip the default denylist outside a git repository - ([15f9c0b](https://github.com/bitfloo/mailoo/commit/15f9c0be0cd1c1ea05c3310f336b723f7421fd6b)) - Mike
+- (**ci**) fail the public git checker on a bad extra pattern - ([b07518d](https://github.com/bitfloo/mailoo/commit/b07518dde3bedcdeb6c5e4215625b319eceedd15)) - Mike
+- (**docker**) describe the images the way npm and the registry do - ([bd676bb](https://github.com/bitfloo/mailoo/commit/bd676bb2688876ec7bfac1497e75d920e525541f)) - Mike, Claude Opus 5.5
+- (**release**) stop the release when CHANGELOG.md has no section for the version - ([5575a8f](https://github.com/bitfloo/mailoo/commit/5575a8ff46a04ac1712053a78462140ae67b62d9)) - Mike, Claude Opus 5.5
+- (**release**) keep pre-release versions off the README image tag - ([bc8fee3](https://github.com/bitfloo/mailoo/commit/bc8fee3d485faac2d223369fc4a79d0701f231c6)) - Mike, Claude Opus 5.5
+- (**release**) refuse version labels that are not full semver in the README stamp - ([db275d2](https://github.com/bitfloo/mailoo/commit/db275d25e147f2226825e14454e23d920ce886ad)) - Mike, Claude Opus 5.5
+- (**release**) write new changelog entries the way the published ones read - ([dfe0edb](https://github.com/bitfloo/mailoo/commit/dfe0edb220ba8c63351b016988a8f9e1c96493c5)) - Mike, Claude Opus 5.5
+#### 📚 Documentation
+- (**agents**) drop the stale brand notes branch from oss-public-face - ([23135a6](https://github.com/bitfloo/mailoo/commit/23135a6bbf576eda59b2ec1d7ed86365a86741c0)) - Mike, Claude Opus 5.5
+- (**agents**) name the unit runner in the test-auditor wrong-lane abort - ([a8883f7](https://github.com/bitfloo/mailoo/commit/a8883f755e5f72125311e06e31315774da2137ae)) - Mike, Claude Opus 5.5
+- (**agents**) write agent triggers and examples in English - ([cdcf119](https://github.com/bitfloo/mailoo/commit/cdcf1191a56b7249ffee43d055ce2f8ac99e614f)) - Mike
+- (**agents**) drop private tool names from contributor agents - ([e5a3ce2](https://github.com/bitfloo/mailoo/commit/e5a3ce29699abbe1981a1e6f113f03189ab016d5)) - Mike
+- (**changelog**) say that features ship in patch releases - ([74a354e](https://github.com/bitfloo/mailoo/commit/74a354e018b3f3e0c1569a4be7d1fa455f6b9e6a)) - Mike, Claude Opus 5.5
+- (**changelog**) keep one entry per release, newest first - ([3b5733a](https://github.com/bitfloo/mailoo/commit/3b5733a336a6b1316e006225e2522f9522d498a6)) - Mike, Claude Opus 5.5
+- (**ci**) name every cause of exit 2 in the checker header - ([23ede72](https://github.com/bitfloo/mailoo/commit/23ede72eca542f0768d0ea582c90f27c8096b581)) - Mike, Claude Opus 5.5
+- (**cog**) describe patch-only bumps without the 0.1.x qualifier - ([26284de](https://github.com/bitfloo/mailoo/commit/26284de5558dc10d2a281715935974262e0f2bb4)) - Mike, Claude Opus 5.5
+- (**rules**) leave the denylist and secret names to the checker header - ([1f5b657](https://github.com/bitfloo/mailoo/commit/1f5b6571a0992a517727e4d4be07a19aadc42ab2)) - Mike, Claude Opus 5.5
+- (**rules**) point at the checker for the denylist line format - ([4c01c8a](https://github.com/bitfloo/mailoo/commit/4c01c8a43f3ee39cc6f48c54ac02dcdcb75d1155)) - Mike, Claude Opus 5.5
+- (**security**) point at body_max_chars instead of repeating its limits - ([2e69cc4](https://github.com/bitfloo/mailoo/commit/2e69cc41f3d7d41db626e43073c80b1780ac6da8)) - Mike, Claude Opus 5.5
+- stop pointing at cog.toml for the major-bump rule - ([902117e](https://github.com/bitfloo/mailoo/commit/902117e8232a8badb1e86ba2b40e9be7877e1971)) - Mike, Claude Opus 5.5
+- keep the major-bump rule in CLAUDE.md alone - ([515eae0](https://github.com/bitfloo/mailoo/commit/515eae06966a5a9dd1ae713ec80c50941c74491f)) - Mike, Claude Opus 5.5
+- point at cog.toml for the bump rules - ([8ed9b4c](https://github.com/bitfloo/mailoo/commit/8ed9b4c2fadd00325f8dded1c5e1ecf58fd02c41)) - Mike, Claude Opus 5.5
+- run one test file with pnpm test <file> - ([917f918](https://github.com/bitfloo/mailoo/commit/917f91832d26b275a3a5b540cb59ae05f3605fbc)) - Mike, Claude Opus 5.5
+- describe patch-only bumps without the 0.1.x qualifier - ([ad0e0af](https://github.com/bitfloo/mailoo/commit/ad0e0afdb74d91ef1575af66e838c835b5216e51)) - Mike, Claude Opus 5.5
+- pull the 0.2 image in the Docker examples - ([d2a7994](https://github.com/bitfloo/mailoo/commit/d2a7994b98daf5ad1dfca209626797cfde79384c)) - Mike, Claude Opus 5.5
+- drop the deleted main branch from docs, cog and CI - ([0ebfe83](https://github.com/bitfloo/mailoo/commit/0ebfe836f0241f823f1dafec6962582d7f08f10a)) - Mike, Claude Opus 5.5
+- name develop as the release line - ([60bb39c](https://github.com/bitfloo/mailoo/commit/60bb39cd3e5c9fcb3d1675789fef36b48af39e2d)) - Mike
+- list every field System One sends to the classifier - ([b782938](https://github.com/bitfloo/mailoo/commit/b7829386948f4bd26b43b8cd3bd5a2cbf28b7d84)) - Mike
+
+- - -
+
 ## [v0.2.0](https://github.com/bitfloo/mailoo/compare/v0.1.8..v0.2.0) - 2026-10-09
 #### ✨ Features
 - add export_email tool for raw RFC 822 .eml export (#10) - ([1b8750f](https://github.com/bitfloo/mailoo/commit/1b8750fc33d76c8cc2c93a27c47e0c4fb0579768)) - Mike, michal, Cursor Agent
