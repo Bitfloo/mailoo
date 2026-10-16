@@ -1,4 +1,5 @@
-import { chmodSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -81,6 +82,32 @@ describe('public git checker: --range and --file modes', () => {
     });
     expect(result.status).toBe(2);
     expect(result.stderr).toContain('cannot list commits');
+  });
+
+  it('fails on a commit in the --range that git cannot read', () => {
+    const repo = initRepo();
+    const base = git(repo, 'rev-parse', 'HEAD');
+    git(repo, 'commit', '-q', '--allow-empty', '-m', 'fix: path /home/me/mailoo');
+    const sha = git(repo, 'rev-parse', 'HEAD');
+    const realGit = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
+    expect(realGit.startsWith('/')).toBe(true);
+    const bin = join(makeTmpDir('mailoo-public-git-log-'), 'bin');
+    mkdirSync(bin);
+    // Lists the range with the real git, then fails the read of each commit message.
+    writeFileSync(
+      join(bin, 'git'),
+      `#!/bin/sh\n[ "$1" = log ] && exit 128\nexec '${realGit}' "$@"\n`,
+    );
+    chmodSync(join(bin, 'git'), 0o755);
+    const result = runChecker(['--range', `${base}..${sha}`], repo, {
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+      PUBLIC_GIT_DENYLIST_FILE: join(repo, 'none'),
+    });
+    expect(result).toEqual({
+      status: 2,
+      stdout: '',
+      stderr: `public-git: cannot read commit ${sha}\n`,
+    });
   });
 
   it('rejects a --file that does not exist with usage', () => {

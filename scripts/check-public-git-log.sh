@@ -121,7 +121,11 @@ case "$mode" in
     failed=0
     while IFS= read -r sha; do
       [[ -z "$sha" ]] && continue
-      if ! scan "$sha" "$(git log -1 --format='%s%n%n%b' "$sha")"; then
+      if ! text=$(git log -1 --format='%s%n%n%b' "$sha"); then
+        echo "public-git: cannot read commit $sha" >&2
+        exit 2
+      fi
+      if ! scan "$sha" "$text"; then
         failed=1
       fi
     done <<<"$shas"
