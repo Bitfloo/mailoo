@@ -83,6 +83,10 @@ describe('public git checker: built-in patterns', () => {
     expect(readFileSync(publicGitRule, 'utf8')).not.toContain(alternative);
   });
 
+  it('keeps every name the checker rejects out of the rubric', () => {
+    expect(scanFile(readFileSync(publicGitRule, 'utf8'))).toEqual(passed);
+  });
+
   it('accepts a conventional subject with no operator leak', () => {
     expect(scanFile(clean)).toEqual(passed);
   });
