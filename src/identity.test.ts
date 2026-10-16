@@ -65,6 +65,15 @@ async function sourceFiles(dir: string): Promise<string[]> {
   return groups.flat();
 }
 
+/** `X.Y` of a release: goreleaser moves the image tag of that name on every X.Y.z release. */
+function minorLine(version: string): string {
+  return version.split('.').slice(0, 2).join('.');
+}
+
+function readmeImageTags(readme: string): string[] {
+  return [...readme.matchAll(/ghcr\.io\/bitfloo\/mailoo:([\w.-]+)/g)].map((match) => match[1]);
+}
+
 async function mcpEmailEnvNames(): Promise<string[]> {
   const files = await sourceFiles(join(root, 'src'));
   const names = new Set<string>();
@@ -171,6 +180,69 @@ describe('published identity', () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  it('pulls the image of the current minor line in the README Docker examples', async () => {
+    const tags = readmeImageTags(await readFile(join(root, 'README.md'), 'utf8'));
+    expect(tags.length).toBeGreaterThan(0);
+    expect([...new Set(tags)]).toEqual([minorLine(pkg.version)]);
+  });
+
+  it('names the current minor line where the README explains the image tags', async () => {
+    const readme = await readFile(join(root, 'README.md'), 'utf8');
+    const line = minorLine(pkg.version);
+    expect(readme).toContain(`The \`${line}\` tag follows the newest ${line}.x release.`);
+  });
+
+  it('stamps the version into package.json, server.json and README.md in every cog bump profile', async () => {
+    // A minor bump would otherwise leave the README on the old line, and the pre-push tests would stop the release push.
+    const cog = await readFile(join(root, 'cog.toml'), 'utf8');
+    const profiles = [...cog.matchAll(/^pre_bump_hooks = \[([\s\S]*?)\]$/gm)].map((match) =>
+      [...match[1].matchAll(/"([^"]*)"/g)].map((hook) => hook[1]),
+    );
+    const stamps = [
+      'npm pkg set version={{version}}',
+      'bash scripts/bump-server-json-version.sh {{version}}',
+      'bash scripts/bump-readme-image-tag.sh {{version}}',
+      'git add package.json server.json README.md',
+    ];
+    const profileCount = 1 + (cog.match(/^\[bump_profiles\.[\w-]+\]$/gm)?.length ?? 0);
+    expect(profiles.map((hooks) => hooks.slice(hooks.indexOf(stamps[0])))).toEqual(
+      Array.from({ length: profileCount }, () => stamps),
+    );
+  });
+
+  describe('when the README image tag is stamped for a release', () => {
+    let readme: string;
+    let stamped: string;
+
+    beforeAll(async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'mailoo-readme-tag-'));
+      readme = await readFile(join(root, 'README.md'), 'utf8');
+      await writeFile(join(dir, 'README.md'), readme);
+      try {
+        await execFileAsync('bash', [join(root, 'scripts/bump-readme-image-tag.sh'), '1.4.2'], {
+          cwd: dir,
+        });
+        stamped = await readFile(join(dir, 'README.md'), 'utf8');
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('should move every image tag to the minor line of the release version', () => {
+      expect(readmeImageTags(stamped)).toEqual(readmeImageTags(readme).map(() => '1.4'));
+    });
+
+    it('should name the new minor line in the tag explanation', () => {
+      expect(stamped).toContain('The `1.4` tag follows the newest 1.4.x release.');
+    });
+
+    it('should leave every other README line as it was', () => {
+      const rest = (text: string) =>
+        text.split('\n').filter((line) => !/mailoo:\d|tag follows the newest/.test(line));
+      expect(rest(stamped)).toEqual(rest(readme));
+    });
   });
 
   it('launches smithery with npx and maps config onto MCP_EMAIL_* variables', () => {

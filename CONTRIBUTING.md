@@ -81,8 +81,8 @@ subject or body. Do not rewrite commits that are already on GitHub.
 Releases: `package.json` `version`, annotated tags `v*`, `CHANGELOG.md`
 (cocogitto). First Mailoo release is **0.1.0**. `cog bump --auto` advances only
 the patch, `feat` commits included (`bump_patch` in `cog.toml`). Use `cog bump
---minor` when you intentionally start a new minor line, and move the
-`ghcr.io/bitfloo/mailoo:<minor>` tag in the README Docker examples to it. Use
+--minor` when you intentionally start a new minor line. Every bump moves the
+README Docker image tag to its minor line (`scripts/bump-readme-image-tag.sh`). Use
 `cog bump --auto` when you mean to cut a version — not for every docs PR.
 
 ## Project Structure

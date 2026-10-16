@@ -33,7 +33,8 @@ pre_bump_hooks = [
     "pnpm build",
     "npm pkg set version={{version}}",
     "bash scripts/bump-server-json-version.sh {{version}}",
-    "git add package.json server.json",
+    "bash scripts/bump-readme-image-tag.sh {{version}}",
+    "git add package.json server.json README.md",
 ]
 
 post_bump_hooks = [
@@ -82,14 +83,14 @@ authors = [
 [bump_profiles]
 
 [bump_profiles.release]
-pre_bump_hooks = ["pnpm check", "pnpm build", "npm pkg set version={{version}}", "bash scripts/bump-server-json-version.sh {{version}}", "git add package.json server.json"]
+pre_bump_hooks = ["pnpm check", "pnpm build", "npm pkg set version={{version}}", "bash scripts/bump-server-json-version.sh {{version}}", "bash scripts/bump-readme-image-tag.sh {{version}}", "git add package.json server.json README.md"]
 post_bump_hooks = [
     "git push origin HEAD",
     "git push origin v{{version}}",
 ]
 
 [bump_profiles.hotfix]
-pre_bump_hooks = ["pnpm check", "npm pkg set version={{version}}", "bash scripts/bump-server-json-version.sh {{version}}", "git add package.json server.json"]
+pre_bump_hooks = ["pnpm check", "npm pkg set version={{version}}", "bash scripts/bump-server-json-version.sh {{version}}", "bash scripts/bump-readme-image-tag.sh {{version}}", "git add package.json server.json README.md"]
 post_bump_hooks = [
     "git push origin HEAD",
     "git push origin v{{version}}",
