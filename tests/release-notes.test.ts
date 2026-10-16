@@ -141,10 +141,20 @@ describe('release notes', () => {
       job.includes('goreleaser/goreleaser-action@'),
     ) ?? '';
 
-  it('checks out the repository before it reads CHANGELOG.md', () => {
-    const checkout = dockerJob.indexOf('- uses: actions/checkout@');
-    expect(checkout).toBeGreaterThanOrEqual(0);
-    expect(dockerJob.indexOf('- name: Write release notes\n')).toBeGreaterThan(checkout);
+  it('should run only the docker setup actions between the checkout and the release notes', () => {
+    // Another checkout or a run step there could hand the notes step another CHANGELOG.md or none.
+    const before = dockerJob.slice(
+      dockerJob.indexOf('- uses: actions/checkout@'),
+      dockerJob.indexOf('- name: Write release notes\n'),
+    );
+    expect(
+      before.split(/\n {6}- /).map((step) => step.match(/uses: ([\w-]+\/[\w-]+)@/)?.[1] ?? step),
+    ).toEqual([
+      'actions/checkout',
+      'docker/setup-qemu-action',
+      'docker/setup-buildx-action',
+      'docker/login-action',
+    ]);
   });
 
   it('should read CHANGELOG.md from a full, unconditional checkout of the release commit', () => {
