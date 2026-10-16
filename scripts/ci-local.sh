@@ -35,7 +35,7 @@ else
 fi
 
 build_image=0
-# pnpm passes a literal -- through, so --image may not be $1 (pnpm 9)
+# pnpm passes a literal -- through, so --image may not be $1
 for arg in "$@"; do
   if [[ "$arg" == "--image" ]]; then
     build_image=1

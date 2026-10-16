@@ -12,7 +12,7 @@ prompts, and resources to AI assistants for reading, sending,
 scheduling, organising, and analysing email across multiple accounts.
 
 - **Language / runtime**: TypeScript (ESM), Node.js ≥ 24.
-- **Package manager**: pnpm 10 (do not introduce npm or yarn).
+- **Package manager**: pnpm 10, pinned by `packageManager` in `package.json` (do not introduce npm or yarn).
 - **Transport modes**: stdio (default), Streamable HTTP.
 - **License**: LGPL-3.0-or-later.
 - **Public repo**: issue and PR comments are world-readable. Committed docs
