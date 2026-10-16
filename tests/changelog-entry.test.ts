@@ -65,8 +65,12 @@ describe('cog changelog entry', () => {
     expect(runTidy(changelogMd, '0.1.8', '0.2.0').files).toEqual(['CHANGELOG.md']);
   });
 
-  it('should refuse to run without both versions', () => {
-    expect(() => runTidy(changelogMd, '0.1.8')).toThrow(/version/);
+  it('should refuse to run without the latest version', () => {
+    expect(() => runTidy(changelogMd)).toThrow(/latest version/);
+  });
+
+  it('should refuse to run without the new version', () => {
+    expect(() => runTidy(changelogMd, '0.1.8')).toThrow(/\b2: version/);
   });
 
   it('hides commit types with the key cog 7 reads', () => {
