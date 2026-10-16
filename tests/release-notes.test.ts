@@ -125,12 +125,14 @@ describe('release notes', () => {
 
   it('gives a release of omitted commit types only the install lines', () => {
     // cog 7 writes the heading with an empty body when every commit type in the range is omitted.
+    // The empty entry goes above whichever entry is newest, under a version no release takes:
+    // anchored on v0.2.0, this test failed the push of the v0.2.1 bump that moved it down.
     const changelog = swapOnce(
       changelogMd,
-      '\n- - -\n## [v0.2.0](',
-      '\n- - -\n## [v0.2.1](https://github.com/bitfloo/mailoo/compare/v0.2.0..v0.2.1) - 2026-10-17\n\n- - -\n## [v0.2.0](',
+      '\n- - -\n## [',
+      '\n- - -\n## [v9.9.9](https://github.com/bitfloo/mailoo/compare/v9.9.8..v9.9.9) - 2026-10-17\n\n- - -\n## [',
     );
-    expect(notesBeforeInstall(releaseNotes({ ref: 'refs/tags/v0.2.1', changelog }))).toBe('');
+    expect(notesBeforeInstall(releaseNotes({ ref: 'refs/tags/v9.9.9', changelog }))).toBe('');
   });
 
   it('should stop the release when CHANGELOG.md is missing', () => {
