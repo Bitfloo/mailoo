@@ -136,6 +136,12 @@ describe('release notes', () => {
     );
   });
 
+  it('should replace the body of a release that already exists', () => {
+    // A re-run or a manual dispatch for a tag that already has a release would otherwise keep the old body.
+    const goreleaser = readFileSync(join(repoRoot, '.goreleaser.yaml'), 'utf8');
+    expect(goreleaser).toMatch(/^release:\n(?: {2}.*\n)*? {2}mode: replace$/m);
+  });
+
   const dockerJob = jobSections(releaseSteps(releaseYml)).find((job) =>
     job.includes('goreleaser/goreleaser-action@'),
   );
