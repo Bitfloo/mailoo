@@ -130,15 +130,22 @@ describe('release bump', () => {
       await expect(stampReadme(line('0.2'), '1.4.2')).resolves.toBe(line('1.4'));
     });
 
-    it('should take a release whose minor has two digits', async () => {
-      const tags = readmeImageTags(await stampReadme(readme, '0.10.0'));
-      expect(tags).toEqual(readmeImageTags(readme).map(() => '0.10'));
+    it.each([
+      '0.10.0',
+      '0.2.10',
+      '10.0.0',
+    ])('should take release %s, whatever its digit counts', async (version) => {
+      const tags = readmeImageTags(await stampReadme(readme, version));
+      expect(tags).toEqual(readmeImageTags(readme).map(() => minorLine(version)));
     });
 
-    it('should move a README on a two-digit minor line to the next one', async () => {
+    it.each([
+      ['0.10', '0.11.0'],
+      ['10.2', '11.0.0'],
+    ])('should move a README on the %s line to release %s', async (from, version) => {
       const line = (minor: string) =>
         `docker pull ghcr.io/bitfloo/mailoo:${minor}\nThe \`${minor}\` tag follows the newest ${minor}.x release.\n`;
-      await expect(stampReadme(line('0.10'), '0.11.0')).resolves.toBe(line('0.11'));
+      await expect(stampReadme(line(from), version)).resolves.toBe(line(minorLine(version)));
     });
 
     it.each([
