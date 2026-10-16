@@ -40,7 +40,7 @@ jobs:
       - run: pnpm build
       # Trusted publishing (OIDC, npm >= 11.5.1): npmjs.com trusts Bitfloo/mailoo
       # release.yml, so there is no token to leak or expire, and provenance is
-      # attached automatically. pnpm 9 cannot do the OIDC exchange, hence npm.
+      # attached automatically. pnpm does not do this OIDC exchange, hence npm.
       # npm ci checks the shrinkwrap integrity. A version tag is not a hash.
       - run: npm ci --ignore-scripts
         working-directory: .github/npm-cli

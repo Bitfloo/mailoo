@@ -29,7 +29,7 @@ probe, not Vitest.
 
 ## Cursor Cloud specific instructions
 
-- Node.js ≥ 24, pnpm 9. Install: `.cursor/environment.json` `install`.
+- Node.js ≥ 24, pnpm 10. Install: `.cursor/environment.json` `install`.
 - `pnpm ci:local` (skip GreenMail unless Docker is in the VM).
 - Before push: `bash scripts/check-public-git-log.sh --range origin/develop..HEAD`
   and `@oss-push-gate`. Do not rewrite published history.
