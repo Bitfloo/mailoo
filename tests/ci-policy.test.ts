@@ -1,4 +1,6 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
@@ -73,6 +75,45 @@ function npmRetryMarker(step: string): string {
     throw new Error('Publish to MCP Registry has no npm retry marker');
   }
   return match[1];
+}
+
+/** The step's `run: |` block, dedented, as the runner would execute it. */
+function runBlock(step: string): string {
+  const match = step.match(/\n {8}run: \|\n((?: {10}.*(?:\n|$))+)/);
+  if (!match) {
+    throw new Error('step has no run block');
+  }
+  return match[1].replace(/^ {10}/gm, '');
+}
+
+/** Run the release-notes step against the real CHANGELOG.md and return what it wrote. */
+function releaseNotes(env: { GITHUB_REF: string; INPUT_VERSION?: string }): string {
+  const script = runBlock(releaseStep(releaseYml, 'Write release notes'));
+  const temp = mkdtempSync(join(tmpdir(), 'mailoo-release-notes-'));
+  try {
+    execFileSync('bash', ['-euo', 'pipefail', '-c', script], {
+      cwd: repoRoot,
+      env: { PATH: process.env.PATH, RUNNER_TEMP: temp, ...env },
+    });
+    return readFileSync(join(temp, 'release-notes.md'), 'utf8');
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+}
+
+/** Body of one release in CHANGELOG.md: the lines between its heading and the next separator. */
+function changelogSection(tag: string): string {
+  const changelog = readFileSync(join(repoRoot, 'CHANGELOG.md'), 'utf8');
+  const heading = changelog.indexOf(`\n## [${tag}](`);
+  if (heading < 0) {
+    throw new Error(`CHANGELOG.md has no ${tag} section`);
+  }
+  const start = changelog.indexOf('\n', heading + 1) + 1;
+  return changelog.slice(start, changelog.indexOf('\n- - -', start)).trim();
+}
+
+function notesBeforeInstall(notes: string): string {
+  return notes.slice(0, notes.indexOf('\n**Install:**')).trim();
 }
 
 function exactVersion(version: string): [number, number, number] | null {
@@ -172,6 +213,35 @@ describe('release supply chain', () => {
     );
     expect(docker).toContain('needs: [npm, mcp]');
     expect(docker).toContain("needs.mcp.result == 'success'");
+  });
+
+  it('uses the CHANGELOG.md section of the pushed tag as the release body', () => {
+    const section = changelogSection('v0.2.0');
+    expect(section).toMatch(/^#### ✨ Features\n- add export_email tool/);
+    expect(notesBeforeInstall(releaseNotes({ GITHUB_REF: 'refs/tags/v0.2.0' }))).toBe(section);
+  });
+
+  it('uses the CHANGELOG.md section of the version input on a manual run', () => {
+    const notes = releaseNotes({ GITHUB_REF: 'refs/heads/develop', INPUT_VERSION: '0.1.8' });
+    expect(notesBeforeInstall(notes)).toBe(changelogSection('v0.1.8'));
+  });
+
+  it('ends the release body with install commands for that version', () => {
+    const notes = releaseNotes({ GITHUB_REF: 'refs/tags/v0.2.0' });
+    expect(notes.trimEnd().split('\n').slice(-3)).toEqual([
+      '**Install:** `npx -y @bitfloo/mailoo@0.2.0` · `docker pull ghcr.io/bitfloo/mailoo:0.2.0` (or `0.2.0-alpine`)',
+      '',
+      'Full history: [CHANGELOG.md](https://github.com/bitfloo/mailoo/blob/v0.2.0/CHANGELOG.md)',
+    ]);
+  });
+
+  it('hands the written release body to GoReleaser', () => {
+    expect(releaseStep(releaseYml, 'Write release notes')).toContain(
+      'notes="$RUNNER_TEMP/release-notes.md"',
+    );
+    expect(releaseStep(releaseYml, 'Run GoReleaser')).toContain(
+      'args: release --clean --release-notes=${{ runner.temp }}/release-notes.md',
+    );
   });
 });
 

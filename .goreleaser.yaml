@@ -99,13 +99,5 @@ release:
   # Replace notes if a GitHub Release for this tag already exists.
   mode: replace
 
-# GitHub-generated release notes (not the cocogitto CHANGELOG).
-# npm publish and MCP registry stay in release.yml.
-changelog:
-  use: github
-  sort: asc
-  filters:
-    exclude:
-      - "^Merge"
-      - "^chore(deps)"
-      - "^ci:"
+# Release notes are this version's CHANGELOG.md section: release.yml writes them
+# and passes --release-notes. npm publish and MCP registry stay in release.yml.
