@@ -9,7 +9,7 @@ usage() {
   exit 2
 }
 
-# Case-insensitive extended regex. Tested in tests/agents/public-git.test.ts.
+# Case-insensitive extended regex. Tested in tests/agents/public-git-*.test.ts.
 # Generic leaks only: home paths, private session links, plugin dispatch names.
 BUILTIN='(/Users/|/home/|Claude-Session:|claude\.ai/code/session_|[a-z][a-z0-9-]*:(test-auditor|test-smith|push-gate))'
 

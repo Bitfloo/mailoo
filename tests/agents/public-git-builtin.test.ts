@@ -1,0 +1,106 @@
+import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+
+import { repoRoot } from './agent-file.js';
+import {
+  checkerScript,
+  clean,
+  cleanEnv,
+  passed,
+  publicGitRule,
+  removeTmpDirs,
+  scanFile,
+} from './public-git-checker.js';
+
+afterEach(removeTmpDirs);
+
+describe('public git checker: built-in patterns', () => {
+  it('runs the checker without git or checker variables from the caller', () => {
+    vi.stubEnv('GIT_DIR', '/elsewhere');
+    vi.stubEnv('GIT_CONFIG_COUNT', '1');
+    vi.stubEnv('GIT_CONFIG_KEY_0', 'core.hooksPath');
+    vi.stubEnv('GIT_CONFIG_VALUE_0', '/elsewhere');
+    vi.stubEnv('GIT_CONFIG_SYSTEM', '/elsewhere');
+    vi.stubEnv('PUBLIC_GIT_EXTRA_FORBIDDEN', 'docs');
+    try {
+      const env = cleanEnv({});
+      const gitKeys = Object.keys(env)
+        .filter((key) => key.includes('GIT_'))
+        .sort();
+      expect(gitKeys).toEqual(['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM']);
+      expect(env.GIT_CONFIG_GLOBAL).toBe('/dev/null');
+      expect(scanFile(clean)).toEqual(passed);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('ships the rubric and a checker that git tracks as executable', () => {
+    expect(existsSync(publicGitRule)).toBe(true);
+    const mode = spawnSync('git', ['ls-files', '-s', 'scripts/check-public-git-log.sh'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: cleanEnv({}),
+    });
+    expect(mode.stdout).toMatch(/^100755 /);
+  });
+
+  it('points the rubric at the checker instead of keeping a second copy of its pattern', () => {
+    const builtin = readFileSync(checkerScript, 'utf8').match(/^BUILTIN='([^']+)'/m)?.[1];
+    expect(builtin).toBeTruthy();
+    const rule = readFileSync(publicGitRule, 'utf8');
+    expect(rule).toContain('scripts/check-public-git-log.sh');
+    expect(rule).not.toContain(builtin as string);
+  });
+
+  it('accepts a conventional subject with no operator leak', () => {
+    expect(scanFile(clean)).toEqual(passed);
+  });
+
+  it('accepts a project agent name without a plugin prefix', () => {
+    expect(scanFile('docs: run the project test-auditor and push-gate agents\n').status).toBe(0);
+  });
+
+  it.each([
+    ['a macOS home path', 'fix: path /Users/me/mailoo\n'],
+    ['a Linux home path', 'fix: path /home/me/mailoo\n'],
+    ['a session trailer', 'docs: note a change\n\nClaude-Session: 0123abc\n'],
+    ['a session link', 'docs: see https://claude.ai/code/session_0123abc\n'],
+    ['a plugin test-auditor dispatch', 'chore: do not dispatch acme:test-auditor\n'],
+    ['a plugin test-smith dispatch', 'chore: do not dispatch acme:test-smith\n'],
+    ['a plugin push-gate dispatch', 'chore: do not dispatch acme:push-gate\n'],
+    ['a plugin name with a digit', 'chore: do not dispatch acme2:test-smith\n'],
+    ['a one-letter plugin name', 'chore: do not dispatch x:test-smith\n'],
+    ['a hyphenated plugin name', 'chore: do not dispatch my-plugin:push-gate\n'],
+    ['a plugin name that ends in a hyphen', 'chore: do not dispatch acme-:test-smith\n'],
+  ])('rejects %s', (_name, body) => {
+    const result = scanFile(body);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('forbidden token');
+    expect(result.stderr).toContain('see .claude/rules/public-git.md');
+    expect(result.stdout).toBe('');
+  });
+
+  it.each([
+    ['a path that only starts like a home dir', 'docs: link /homepage and /Userspace\n'],
+    ['a session header named without its colon', 'docs: explain the Claude-Session header\n'],
+    ['a session link with another separator', 'docs: see claude-ai/code/session_0123abc\n'],
+    ['an agent name with an empty prefix', 'docs: run :test-smith and :push-gate\n'],
+    ['an agent name without a colon', 'docs: run acme test-auditor\n'],
+  ])('accepts %s', (_name, body) => {
+    expect(scanFile(body)).toEqual(passed);
+  });
+
+  it('matches built-in patterns case-insensitively', () => {
+    expect(scanFile('fix: path /users/me/mailoo\n').status).toBe(1);
+    expect(scanFile('docs: note\n\nclaude-session: 0123abc\n').status).toBe(1);
+    expect(scanFile('chore: do not dispatch ACME:TEST-SMITH\n').status).toBe(1);
+    expect(scanFile('chore: do not dispatch ACME2:TEST-SMITH\n').status).toBe(1);
+  });
+
+  it('echoes a mixed-case hit on a built-in pattern', () => {
+    const result = scanFile('fix: path /USERS/me/mailoo\n');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('fix: path /USERS/me/mailoo');
+  });
+});
