@@ -1,18 +1,17 @@
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 
 import {
   agentFileContract,
   CLAUDE_TEST_AGENT_MODEL,
   descriptionBlock,
+  doctrinePath,
+  doctrineShipBarScore,
   exampleUserLines,
   readTwinAgent,
-  repoRoot,
   toolsList,
   triggerPhrases,
 } from './agent-file.js';
 
-const doctrinePath = join(repoRoot, '.claude/rules/testing-doctrine.md');
 const { claude, cursor } = readTwinAgent('test-smith');
 
 describe('test-smith L4 doctrine', () => {
@@ -66,8 +65,6 @@ describe('test-smith L4 doctrine', () => {
   });
 
   it.each([
-    ['the unit runner', 'pnpm test <file>'],
-    ['the integration runner', 'pnpm test:integration <file>'],
     ['the CLI probe refusal', '`mailoo test` is a CLI connection probe, not this runner'],
     ['the runner source', 'package.json` (runner — never infer it)'],
     ['no browser automation', 'No browser automation'],
@@ -100,7 +97,7 @@ describe('test-smith L4 doctrine', () => {
   });
 
   it('ships only when a fresh auditor would pass the Mailoo score bar', () => {
-    expect(claude).toContain('PASS at score ≥ 9');
+    expect(claude).toContain(`PASS at score ≥ ${doctrineShipBarScore()}`);
     expect(claude).toContain('**SHIPPED**');
     expect(claude).toMatch(/test-auditor/);
   });

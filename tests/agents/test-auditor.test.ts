@@ -1,18 +1,18 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 import {
   agentFileContract,
   CLAUDE_TEST_AGENT_MODEL,
   descriptionBlock,
+  doctrineDetectionBands,
+  doctrinePath,
+  doctrineShipBarScore,
   exampleUserLines,
   readTwinAgent,
-  repoRoot,
   toolsList,
   triggerPhrases,
 } from './agent-file.js';
 
-const doctrinePath = join(repoRoot, '.claude/rules/testing-doctrine.md');
 const { claude, cursor } = readTwinAgent('test-auditor');
 
 describe('test-auditor L4 doctrine', () => {
@@ -71,8 +71,6 @@ describe('test-auditor L4 doctrine', () => {
   });
 
   it.each([
-    ['the unit runner', 'pnpm test <file>'],
-    ['the integration runner', 'pnpm test:integration <file>'],
     ['the include list it reads first', 'vitest.config.integration.ts` `test.include`'],
     [
       'the wrong-lane abort for integration files',
@@ -92,14 +90,10 @@ describe('test-auditor L4 doctrine', () => {
 
   it.each([
     ['score 10', '10 all killed, no findings.'],
-    ['score 9', '9 INFO only (Mailoo ship bar).'],
     ['score 7–8', '7–8 WARN debt.'],
     ['score 6', '6 two WARN max.'],
     ['score 3–5', '3–5 three+ WARN.'],
     ['score 1–2', '1–2 any CRITICAL.'],
-    ['the weak detection band', '`<60%` weak'],
-    ['the needs-work detection band', '`60–80%` needs work'],
-    ['the target detection band', '`>80%` target'],
     ['an unrunnable suite', 'Unrunnable suite → CRITICAL C1, FAIL.'],
     ['survivors behind every rate', 'Never a rate without survivors'],
     ['reverting before anything else', 'Revert failure first'],
@@ -113,13 +107,31 @@ describe('test-auditor L4 doctrine', () => {
     }
   });
 
+  it('quotes the detection bands of the testing doctrine', () => {
+    const bands = doctrineDetectionBands();
+    expect(bands.map(([, band]) => band)).toEqual(['weak', 'needs work', 'target']);
+    for (const text of [claude, cursor]) {
+      for (const [rate, band] of bands) {
+        expect(text).toContain(`\`${rate}\` ${band}`);
+      }
+    }
+  });
+
+  it('passes only at the doctrine ship bar and with zero CRITICAL', () => {
+    const score = doctrineShipBarScore();
+    expect(score).toMatch(/^\d+$/);
+    for (const text of [claude, cursor]) {
+      expect(text).toContain(`${score} INFO only (Mailoo ship bar).`);
+      expect(text).toContain(`PASS if score ≥ ${score} AND zero CRITICAL`);
+    }
+  });
+
   it('requires C1 and C2 before the rest of the rubric', () => {
     expect(claude).toContain('C1 and C2 first');
     expect(claude).toContain('C1–C10');
     expect(claude).toContain('C1 and C2 were attempted');
     expect(claude).toContain('cite by section');
     expect(claude).toContain('Never repair');
-    expect(claude).toContain('>80%` target');
   });
 
   it.each([
@@ -130,8 +142,6 @@ describe('test-auditor L4 doctrine', () => {
     ['the unaudited line', 'UNAUDITED:'],
     ['the tree line', 'TREE:'],
     ['the runner abort', 'ABORTED: runner unresolved'],
-    ['the CRITICAL veto', 'PASS if score ≥ 9 AND zero CRITICAL'],
-    ['the ship bar', 'Mailoo ship bar'],
   ])('emits a SCORE/VERDICT block: %s', (_name, phrase) => {
     for (const text of [claude, cursor]) {
       expect(text).toContain(phrase);

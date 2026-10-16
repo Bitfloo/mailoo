@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const repoRoot = join(import.meta.dirname, '../..');
+export const doctrinePath = join(repoRoot, '.claude/rules/testing-doctrine.md');
 
 export const USER_DESCRIPTION_MAX_CHARS = 800;
 export const SYSTEM_PROMPT_MAX_WORDS = 500;
@@ -90,6 +91,30 @@ export function differingLines(a: string, b: string): number[] {
   return out;
 }
 
+/** `[lane, command]` rows of the doctrine's Two lanes table. */
+export function doctrineRunners(): [string, string][] {
+  const doctrine = readFileSync(doctrinePath, 'utf8');
+  return [...doctrine.matchAll(/^\| (\w+) \| [^|]+ \| `([^`]+)` \|/gm)].map((row) => [
+    row[1],
+    row[2],
+  ]);
+}
+
+/** `[rate, band]` pairs of the doctrine's detection-rate bands. */
+export function doctrineDetectionBands(): [string, string][] {
+  const doctrine = readFileSync(doctrinePath, 'utf8');
+  return [...doctrine.matchAll(/\*\*([<>]?\d+(?:–\d+)?%)\*\*\s+([a-z]+(?: [a-z]+)?)/g)].map(
+    (row) => [row[1], row[2]],
+  );
+}
+
+/** The lowest test-auditor score the doctrine ships at. */
+export function doctrineShipBarScore(): string {
+  return (
+    /\*\*score ≥ (\d+)\*\* and zero CRITICAL/.exec(readFileSync(doctrinePath, 'utf8'))?.[1] ?? ''
+  );
+}
+
 /** Checks every project test agent shares; call inside that agent's describe. */
 export function agentFileContract(name: string, exampleCount: number): void {
   const { claude, cursor } = readTwinAgent(name);
@@ -141,6 +166,16 @@ export function agentFileContract(name: string, exampleCount: number): void {
   it('never grants extra permissions anywhere in the agent file', () => {
     for (const text of [claude, cursor]) {
       expect(text).not.toMatch(PERMISSION_GRANT);
+    }
+  });
+
+  it('names the runner of each lane in the testing doctrine', () => {
+    const runners = doctrineRunners();
+    expect(runners.map(([lane]) => lane)).toEqual(['Unit', 'Integration']);
+    for (const text of [claude, cursor]) {
+      for (const [lane, command] of runners) {
+        expect(text).toContain(`${lane}: \`${command}\``);
+      }
     }
   });
 }
