@@ -201,14 +201,15 @@ describe('public git checker: private patterns', () => {
   });
 
   it('hands the private-pattern secret to every CI job that runs the checker', () => {
-    // A rename on one side would leave CI green with the private patterns silently off.
+    // A rename on one side, or a new job that calls the checker without the env, would leave
+    // CI green with the private patterns silently off.
     const variable = /^ {2}add_extra (\w+) "\$\1"$/m.exec(readFileSync(checkerScript, 'utf8'))?.[1];
     expect(variable).toBeTruthy();
     const workflows = join(repoRoot, '.github/workflows');
     const jobs = readdirSync(workflows)
       .filter((file) => file.endsWith('.yml'))
       .flatMap((file) => jobSections(readFileSync(join(workflows, file), 'utf8')))
-      .filter((job) => /^ +(?:run: )?bash scripts\/check-public-git-log\.sh /m.test(job));
+      .filter((job) => job.includes('check-public-git-log.sh'));
     expect(jobs.length).toBeGreaterThan(0);
     for (const job of jobs) {
       const env = /^ {4}env:\n((?: {6}.+\n)+)/m.exec(job)?.[1] ?? '';
