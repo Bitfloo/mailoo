@@ -21,14 +21,26 @@ import {
 afterEach(removeTmpDirs);
 
 describe('public git checker: private patterns', () => {
-  it('rejects a private pattern from the environment only when it is set', () => {
-    const body = 'docs: load the example-private-tree notes\n';
-    expect(scanFile(body).status).toBe(0);
-    const result = scanFile(body, { PUBLIC_GIT_EXTRA_FORBIDDEN: 'example-private-tree' });
-    expect(result.status).toBe(1);
-    expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('docs: load the example-private-tree notes');
-    expect(result.stderr).toContain('forbidden token');
+  it('passes a private name when no private pattern is set', () => {
+    expect(scanFile('docs: load the example-private-tree notes\n')).toEqual(passed);
+  });
+
+  it('rejects a private pattern from the environment', () => {
+    const dir = makeTmpDir('mailoo-public-git-env-');
+    const msg = join(dir, 'MSG');
+    writeFileSync(msg, 'docs: load the example-private-tree notes\n');
+    expect(
+      runChecker(['--file', msg], dir, {
+        PUBLIC_GIT_EXTRA_FORBIDDEN: 'example-private-tree',
+        PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none'),
+      }),
+    ).toEqual({
+      status: 1,
+      stdout: '',
+      stderr:
+        'docs: load the example-private-tree notes\n' +
+        `public-git: forbidden token in ${msg} (see .claude/rules/public-git.md)\n`,
+    });
   });
 
   const bothSources = () => ({
