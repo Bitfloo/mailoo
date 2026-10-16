@@ -124,6 +124,12 @@ describe('release bump', () => {
       await expect(runStamp(readme, '1.4.2')).resolves.toMatchObject({ files: ['README.md'] });
     });
 
+    it('should move every tag on a line that names two', async () => {
+      const line = (minor: string) =>
+        `Pull \`ghcr.io/bitfloo/mailoo:${minor}\` or \`ghcr.io/bitfloo/mailoo:${minor}-alpine\`.\n`;
+      await expect(stampReadme(line('0.2'), '1.4.2')).resolves.toBe(line('1.4'));
+    });
+
     it('should take a release whose minor has two digits', async () => {
       const tags = readmeImageTags(await stampReadme(readme, '0.10.0'));
       expect(tags).toEqual(readmeImageTags(readme).map(() => '0.10'));
