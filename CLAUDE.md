@@ -54,7 +54,7 @@ GreenMail + image on pull requests, and the same on `workflow_dispatch`. Tick
   log is the PR). Do not rewrite published history.
 - **Branches**: GitHub default is `develop`. Topic branches off `develop`;
   PRs target `develop`. `develop` is the release line (`v*` tags are cut
-  from it). `main` is no longer updated; do not branch from or merge into it.
+  from it). There is no `main` branch.
 - **Files layout**: business logic in `src/services/`, MCP wiring in
   `src/tools/`, `src/prompts/`, `src/resources/`. Keep them decoupled —
   services must be unit-testable without mocking MCP transports.

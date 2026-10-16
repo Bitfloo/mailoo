@@ -5,7 +5,7 @@ name: ci
 # a contributor ran the hook). Operator pushes do not start it.
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [develop]
   workflow_dispatch:
     inputs:
       include-unit:

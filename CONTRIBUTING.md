@@ -125,7 +125,7 @@ src/
 
 Open pull requests against **`develop`** (the GitHub default branch).
 `develop` is the release line: releases are cut from it and tagged `v*`.
-`main` is no longer updated. Do not open pull requests against it.
+There is no `main` branch.
 
 1. Ensure `pnpm check` and `pnpm typecheck` pass
 2. Update documentation if your change affects user-facing behavior

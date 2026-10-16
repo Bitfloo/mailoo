@@ -994,7 +994,7 @@ codefuturist project. See [NOTICE](NOTICE).
 ## Contributing
 
 PRs accepted against **`develop`** (GitHub default). `develop` is the release
-line; releases are tagged `v*` from it. `main` is no longer updated. Please conform to the
+line; releases are tagged `v*` from it. Please conform to the
 [standard-readme](https://github.com/RichardLitt/standard-readme) specification
 when editing this README. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
