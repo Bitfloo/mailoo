@@ -102,37 +102,43 @@ describe('published identity', () => {
     );
   });
 
-  it('describes the container images with the npm package description', async () => {
+  it('publishes each Dockerfile as one image described with the npm package description', async () => {
     // A commented-out label is not on the image.
     const live = async (file: string) =>
       (await readFile(join(root, file), 'utf8'))
         .split('\n')
         .filter((line) => !line.trim().startsWith('#'))
         .join('\n');
-    const descriptions = (where: string, text: string) =>
-      [...text.matchAll(/org\.opencontainers\.image\.description[=:] ?"([^"]*)"/g)].map((match) => [
-        where,
-        match[1],
-      ]);
-    // Only the last stage of a Dockerfile is the published image.
-    const dockerfiles = await Promise.all(
-      ['Dockerfile', 'Dockerfile.alpine'].map(async (file) => {
-        const text = await live(file);
-        return descriptions(file, text.slice(text.lastIndexOf('\nFROM ')));
+    const descriptions = (text: string) =>
+      [...text.matchAll(/org\.opencontainers\.image\.description[=:] ?"([^"]*)"/g)].map(
+        (match) => match[1],
+      );
+    const images = (
+      /^dockers_v2:\n((?: .*\n|\n)*)/m.exec(await live('.goreleaser.yaml'))?.[1] ?? ''
+    )
+      .split(/^ {2}- /m)
+      .slice(1);
+    const published = await Promise.all(
+      images.map(async (image) => {
+        const dockerfile = /^ *dockerfile: (\S+)$/m.exec(image)?.[1] ?? '';
+        const text = await live(dockerfile);
+        const block = (name: string) =>
+          descriptions(new RegExp(`^ {4}${name}:\\n((?: {6}.*\\n)+)`, 'm').exec(image)?.[1] ?? '');
+        // Only the last stage of a Dockerfile is the published image.
+        const stage = descriptions(text.slice(text.lastIndexOf('\nFROM ')));
+        return { dockerfile, stage, labels: block('labels'), annotations: block('annotations') };
       }),
     );
-    const goreleaser = [
-      ...(await live('.goreleaser.yaml')).matchAll(/^ {4}(labels|annotations):\n((?: {6}.*\n)+)/gm),
-    ].flatMap((block) => descriptions(block[1], block[2]));
-    // .goreleaser.yaml sets it as a label and as an annotation on each of the two images.
-    expect([...dockerfiles.flat(), ...goreleaser]).toEqual([
-      ['Dockerfile', pkg.description],
-      ['Dockerfile.alpine', pkg.description],
-      ['labels', pkg.description],
-      ['annotations', pkg.description],
-      ['labels', pkg.description],
-      ['annotations', pkg.description],
-    ]);
+    const dockerfiles = (await readdir(root)).filter((file) => /^Dockerfile(?:\.|$)/.test(file));
+    const byName = (a: string, b: string) => a.localeCompare(b);
+    expect(published.sort((a, b) => byName(a.dockerfile, b.dockerfile))).toEqual(
+      dockerfiles.sort(byName).map((dockerfile) => ({
+        dockerfile,
+        stage: [pkg.description],
+        labels: [pkg.description],
+        annotations: [pkg.description],
+      })),
+    );
   });
 
   it('keeps server.json bound to the published npm package', () => {
