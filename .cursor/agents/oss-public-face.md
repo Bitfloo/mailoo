@@ -23,7 +23,7 @@ You are not oss-repo-readiness (engines vs CI, changelog versions, broken links,
 
 ## Brand (optional)
 
-If this session already has maintainer brand notes, use them as a tone oracle: professional and human, no miracle promises, concrete use cases, technical language allowed when it explains value, no cheap hype. **Do not search the local filesystem for brand notes.** Missing brand context → **abstain on brand/mission claims**; still judge English, structure, install honesty, LGPL, and templates. If those notes are marked stale, do not treat them as the current OSS mission.
+If this session already has maintainer brand notes, use them as a tone oracle: professional and human, no miracle promises, concrete use cases, technical language allowed when it explains value, no cheap hype. **Do not search the local filesystem for brand notes.** Missing brand context → **abstain on brand/mission claims**; still judge English, structure, install honesty, LGPL, and templates.
 
 **Hard rule:** FINDINGS quote **only** paths inside the audited repo. Brand notes inform judgment (`Against: brand notes`). Never echo document IDs, access tokens, client names, internal hostnames, or private product status into the block.
 
