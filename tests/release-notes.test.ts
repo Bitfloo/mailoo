@@ -9,7 +9,7 @@ import { jobSections, releaseStep, releaseSteps, releaseYml } from './workflow-y
 
 /** The step's `run: |` block, dedented, as the runner would execute it. */
 function runBlock(step: string): string {
-  const match = step.match(/\n {8}run: \|\n((?: {10}.*(?:\n|$))+)/);
+  const match = step.match(/\n {8}run: \|\n((?: {10}.*(?:\n|$)|\n)+)/);
   if (!match) {
     throw new Error('step has no run block');
   }
@@ -80,6 +80,11 @@ function notesBeforeInstall(notes: string): string {
 }
 
 describe('release notes', () => {
+  it('should run the whole run block, blank lines included', () => {
+    const step = '- name: Example\n        run: |\n          true\n\n          false\n';
+    expect(runBlock(step)).toBe('true\n\nfalse\n');
+  });
+
   it('uses the CHANGELOG.md section of the pushed tag as the release body', () => {
     const section = changelogSection('v0.2.0');
     expect(section).toMatch(/^#### ✨ Features\n- add export_email tool/);
