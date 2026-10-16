@@ -13,9 +13,9 @@ describe('cog changelog entry', () => {
   const cogAuthors = `Mike, ${Array.from({ length: 9 }, () => 'michal').join(', ')}, Cursor Agent`;
   const cogToml = readFileSync(join(repoRoot, 'cog.toml'), 'utf8');
   const commitTypes = cogToml.split(/^\[commit_types\]\n/m)[1]?.split(/^\[/m)[0] ?? '';
-  const omitted = [...commitTypes.matchAll(/^\w+ = \{(.*)\}$/gm)]
-    .filter((match) => /\bomit_from_changelog = true\b/.test(match[1]))
-    .map((match) => match[1].match(/\bchangelog_title = "([^"]+)"/)?.[1] ?? '');
+  const omitted = [...commitTypes.matchAll(/^(\w+) = \{(.*)\}$/gm)]
+    .filter((match) => /\bomit_from_changelog = true\b/.test(match[2]))
+    .map((match) => [match[1], match[2].match(/\bchangelog_title = "([^"]+)"/)?.[1] ?? '']);
 
   function runTidy(changelog: string, ...args: string[]): { changelog: string; files: string[] } {
     const temp = mkdtempSync(join(tmpdir(), 'mailoo-changelog-entry-'));
@@ -80,13 +80,20 @@ describe('cog changelog entry', () => {
 
   it('omits build, CI, test, style and chore commits from the changelog', () => {
     // The test below reads this list from cog.toml, so a dropped key would shrink what it checks.
-    expect([...omitted].sort()).toEqual(['Build', 'CI', 'Chores', 'Styles', 'Tests']);
+    expect([...omitted].sort()).toEqual([
+      ['build', 'Build'],
+      ['chore', 'Chores'],
+      ['ci', 'CI'],
+      ['style', 'Styles'],
+      ['test', 'Tests'],
+    ]);
   });
 
   it('keeps every omitted commit type out of the published Mailoo releases', () => {
     const mailoo = changelogMd.slice(0, changelogMd.indexOf('\n## Upstream history'));
     const titles = [...mailoo.matchAll(/^#### (.+)$/gm)].map((match) => match[1]);
-    expect(titles.filter((title) => omitted.includes(title))).toEqual([]);
+    const omittedTitles = omitted.map(([, title]) => title);
+    expect(titles.filter((title) => omittedTitles.includes(title))).toEqual([]);
   });
 
   it('does not tidy a newer entry whose version starts with the same digits', () => {
