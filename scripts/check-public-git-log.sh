@@ -16,7 +16,8 @@ BUILTIN='(/Users/|/home/|Claude-Session:|claude\.ai/code/session_|[a-z][a-z0-9-]
 # Private patterns stay out of the public repo. Add them as one extended regex
 # per line in the denylist file (default: info/public-git-denylist in the git
 # dir, shared by all worktrees; override with PUBLIC_GIT_DENYLIST_FILE), or as
-# one alternation in PUBLIC_GIT_EXTRA_FORBIDDEN (CI reads a repository variable).
+# one alternation in PUBLIC_GIT_EXTRA_FORBIDDEN (CI reads a repository secret,
+# which the public run log masks).
 # A denylist line is used verbatim, spaces and backslashes included; blank lines
 # and lines starting with # are skipped.
 # The built-in and extra patterns run as separate greps, so a malformed extra

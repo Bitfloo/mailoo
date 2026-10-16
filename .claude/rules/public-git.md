@@ -18,7 +18,7 @@ subject/body** are world-readable. Write them as if a stranger clones today.
 Maintainers keep private patterns out of the repo: one extended regex per
 line in `.git/info/public-git-denylist` (shared by all worktrees; each line is
 used verbatim, spaces included; blank lines and `#` comments are skipped), and the `PUBLIC_GIT_EXTRA_FORBIDDEN`
-repository variable for CI. A malformed pattern fails the check. Categories:
+repository secret for CI (a variable would print in the public run log). A malformed pattern fails the check. Categories:
 
 - Operator machine paths and knowledge-tree names
 - Plugin dispatch names
