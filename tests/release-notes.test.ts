@@ -136,10 +136,12 @@ describe('release notes', () => {
     );
   });
 
-  const dockerJob =
-    jobSections(releaseSteps(releaseYml)).find((job) =>
-      job.includes('goreleaser/goreleaser-action@'),
-    ) ?? '';
+  const dockerJob = jobSections(releaseSteps(releaseYml)).find((job) =>
+    job.includes('goreleaser/goreleaser-action@'),
+  );
+  if (!dockerJob) {
+    throw new Error('release.yml has no GoReleaser job');
+  }
 
   it('should run only the docker setup actions between the checkout and the release notes', () => {
     // Another checkout or a run step there could hand the notes step another CHANGELOG.md or none.
