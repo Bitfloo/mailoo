@@ -3,9 +3,10 @@
 # ==============================================================================
 # Docs: https://docs.cocogitto.io/reference/config.html
 #
-# Patch-only 0.1.x: operator labels like 0.1.001 map to 0.1.1 (SemVer rejects leading zeros).
+# `feat` bumps the patch (bump_patch below), so --auto never starts a new minor line.
+# Labels like 0.1.001 map to 0.1.1 (SemVer rejects leading zeros).
 # Quick Commands:
-#   cog bump --auto          # Auto-bump based on commit types (patch-only while on 0.1.x)
+#   cog bump --auto          # Auto-bump based on commit types (patch-only)
 #   cog bump --minor         # Manual minor bump
 #   cog bump --patch         # Manual patch bump
 #   cog check                # Verify commit history
@@ -16,8 +17,8 @@
 # ------------------------------------------------------------------------------
 # Global Settings
 # ------------------------------------------------------------------------------
-# Version from the latest Mailoo tag only. Upstream email-mcp tags (v0.2.x)
-# must not be restored — cog would treat them as Mailoo releases.
+# Version from the latest Mailoo tag only. Upstream email-mcp tags must not be
+# restored — cog would treat them as Mailoo releases.
 from_latest_tag = true
 ignore_merge_commits = true
 ignore_fixup_commits = true
