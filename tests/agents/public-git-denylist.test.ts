@@ -73,15 +73,21 @@ describe('public git checker: private patterns', () => {
     expect(scanFile('docs: load the Example-Private-Tree notes\n', env).status).toBe(1);
   });
 
-  it('reads a denylist saved with CRLF line endings', () => {
-    const env = {
-      PUBLIC_GIT_DENYLIST_FILE: denylist(
-        '# private patterns\r\nexample-private-tree\r\nother-secret-name\r\n',
-      ),
-    };
-    expect(scanFile('docs: load the example-private-tree notes\n', env).status).toBe(1);
-    expect(scanFile('docs: mention other-secret-name\n', env).status).toBe(1);
-    expect(scanFile(clean, env)).toEqual(passed);
+  const crlfDenylist = () => ({
+    PUBLIC_GIT_DENYLIST_FILE: denylist(
+      '# private patterns\r\nexample-private-tree\r\nother-secret-name\r\n',
+    ),
+  });
+
+  it.each([
+    ['its first pattern', 'docs: load the example-private-tree notes\n'],
+    ['its last pattern', 'docs: mention other-secret-name\n'],
+  ])('rejects a hit on %s from a denylist saved with CRLF line endings', (_line, body) => {
+    expect(scanFile(body, crlfDenylist()).status).toBe(1);
+  });
+
+  it('passes a clean message against a denylist saved with CRLF line endings', () => {
+    expect(scanFile(clean, crlfDenylist())).toEqual(passed);
   });
 
   it('ignores an extra-pattern variable that is set but empty', () => {

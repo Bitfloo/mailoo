@@ -19,52 +19,62 @@ afterEach(removeTmpDirs);
 describe('public git checker: malformed private patterns', () => {
   it('reports the physical file line of a malformed denylist pattern', () => {
     const list = denylist('\n# private patterns\nprivate-marker-three(\n');
-    const result = scanFile(clean, { PUBLIC_GIT_DENYLIST_FILE: list });
-    expect(result.status).toBe(2);
-    expect(result.stderr).toContain('public-git-denylist line 3');
+    expect(scanFile(clean, { PUBLIC_GIT_DENYLIST_FILE: list })).toEqual({
+      status: 2,
+      stdout: '',
+      stderr: `public-git: invalid extra pattern in ${list} line 3\n`,
+    });
   });
 
-  it.each([
+  const malformedSources: [
+    string,
+    (dir: string) => { env: Record<string, string>; where: string },
+  ][] = [
     [
       'the environment',
-      'invalid extra pattern in PUBLIC_GIT_EXTRA_FORBIDDEN',
-      (dir: string) => ({
-        PUBLIC_GIT_EXTRA_FORBIDDEN: '(private-marker-env',
-        PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none'),
+      (dir) => ({
+        env: {
+          PUBLIC_GIT_EXTRA_FORBIDDEN: '(private-marker-env',
+          PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none'),
+        },
+        where: 'PUBLIC_GIT_EXTRA_FORBIDDEN',
       }),
     ],
     [
       'the denylist file',
-      'public-git-denylist line 2',
-      () => ({
-        PUBLIC_GIT_DENYLIST_FILE: denylist('example-private-tree\nprivate-marker-list(\n'),
-      }),
+      () => {
+        const list = denylist('example-private-tree\nprivate-marker-list(\n');
+        return { env: { PUBLIC_GIT_DENYLIST_FILE: list }, where: `${list} line 2` };
+      },
     ],
-  ])('fails closed on a malformed extra pattern from %s', (_source, where, makeEnv) => {
-    const env = makeEnv(makeTmpDir('mailoo-public-git-bad-'));
-    const withLeak = scanFile(leak, env);
-    expect(withLeak.status).toBe(2);
-    expect(withLeak.stderr).toContain('invalid extra pattern');
-    expect(withLeak.stderr).toContain(where);
-    expect(withLeak.stderr).toContain('/Users/me/mailoo');
-    expect(withLeak.stderr).not.toContain('private-marker');
-    const withoutLeak = scanFile(clean, env);
-    expect(withoutLeak.status).toBe(2);
-    expect(withoutLeak.stderr).toContain('invalid extra pattern');
-    expect(withoutLeak.stderr).not.toContain('private-marker');
+  ];
+
+  it.each(
+    malformedSources,
+  )('fails closed on a malformed extra pattern from %s and names only its source', (_source, make) => {
+    const { env, where } = make(makeTmpDir('mailoo-public-git-bad-'));
+    expect(scanFile(clean, env)).toEqual({
+      status: 2,
+      stdout: '',
+      stderr: `public-git: invalid extra pattern in ${where}\n`,
+    });
   });
 
-  it('keeps scanning after a malformed extra pattern in --file mode', () => {
-    const dir = makeTmpDir('mailoo-public-git-bad-file-');
-    const result = scanFile('fix: path /Users/me/one\n\nAlso /home/me/two\n', {
-      PUBLIC_GIT_EXTRA_FORBIDDEN: '(private-marker-env',
-      PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none'),
+  it.each(
+    malformedSources,
+  )('still echoes a built-in hit beside a malformed extra pattern from %s', (_source, make) => {
+    const dir = makeTmpDir('mailoo-public-git-bad-');
+    const { env, where } = make(dir);
+    const msg = join(dir, 'MSG');
+    writeFileSync(msg, leak);
+    expect(runChecker(['--file', msg], dir, env)).toEqual({
+      status: 2,
+      stdout: '',
+      stderr:
+        `public-git: invalid extra pattern in ${where}\n` +
+        leak +
+        `public-git: forbidden token in ${msg} (see .claude/rules/public-git.md)\n`,
     });
-    expect(result.status).toBe(2);
-    expect(result.stderr).toContain('invalid extra pattern in PUBLIC_GIT_EXTRA_FORBIDDEN');
-    expect(result.stderr).toContain('fix: path /Users/me/one');
-    expect(result.stderr).toContain('Also /home/me/two');
-    expect(result.stderr).toContain('forbidden token');
   });
 
   it('keeps scanning every commit after a malformed extra pattern in --range mode', () => {
