@@ -82,8 +82,10 @@ describe('release bump', () => {
   it('should bump only the patch for a feature commit', async () => {
     // Mailoo is on 0.x, where a feature ships as a patch; a minor bump would also move the README image tag.
     const cog = await readFile(join(root, 'cog.toml'), 'utf8');
-    const types = [...cog.matchAll(/^(\w+) = \{[^}]*\bbump_patch = true\b[^}]*\}$/gm)];
-    expect(types.map((match) => match[1])).toEqual(['feat']);
+    const bumps = [...cog.matchAll(/^(\w+) = \{([^}]*)\}$/gm)].flatMap(([, type, keys]) =>
+      [...keys.matchAll(/\b(bump_\w+) = true\b/g)].map(([, key]) => `${type} ${key}`),
+    );
+    expect(bumps).toEqual(['feat bump_patch']);
   });
 
   describe('when the README image tag is stamped for a release', () => {
