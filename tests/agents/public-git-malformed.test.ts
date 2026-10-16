@@ -28,7 +28,7 @@ describe('public git checker: malformed private patterns', () => {
 
   const malformedSources: [
     string,
-    (dir: string) => { env: Record<string, string>; where: string },
+    (dir: string) => { env: Record<string, string>; where: string; pattern: string },
   ][] = [
     [
       'the environment',
@@ -38,13 +38,18 @@ describe('public git checker: malformed private patterns', () => {
           PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none'),
         },
         where: 'PUBLIC_GIT_EXTRA_FORBIDDEN',
+        pattern: '(private-marker-env',
       }),
     ],
     [
       'the denylist file',
       () => {
         const list = denylist('example-private-tree\nprivate-marker-list(\n');
-        return { env: { PUBLIC_GIT_DENYLIST_FILE: list }, where: `${list} line 2` };
+        return {
+          env: { PUBLIC_GIT_DENYLIST_FILE: list },
+          where: `${list} line 2`,
+          pattern: 'private-marker-list(',
+        };
       },
     ],
   ];
@@ -88,32 +93,23 @@ describe('public git checker: malformed private patterns', () => {
       PUBLIC_GIT_EXTRA_FORBIDDEN: '(private-marker-env',
       PUBLIC_GIT_DENYLIST_FILE: join(repo, 'none'),
     });
-    expect(result.status).toBe(2);
-    expect(result.stderr).toContain(`forbidden token in ${first}`);
-    expect(result.stderr).toContain(`forbidden token in ${second}`);
+    expect(result).toEqual({
+      status: 2,
+      stdout: '',
+      stderr:
+        'public-git: invalid extra pattern in PUBLIC_GIT_EXTRA_FORBIDDEN\n' +
+        'fix: path /home/me/two\n' +
+        `public-git: forbidden token in ${second} (see .claude/rules/public-git.md)\n` +
+        'fix: path /Users/me/one\n' +
+        `public-git: forbidden token in ${first} (see .claude/rules/public-git.md)\n`,
+    });
   });
 
-  it.each([
-    [
-      'the environment',
-      '(private-marker-env',
-      (_dir: string): Record<string, string> => ({
-        PUBLIC_GIT_EXTRA_FORBIDDEN: '(private-marker-env',
-      }),
-      (_dir: string): string => 'PUBLIC_GIT_EXTRA_FORBIDDEN',
-    ],
-    [
-      'the denylist file',
-      'private-marker-list(',
-      (dir: string): Record<string, string> => {
-        const list = join(dir, 'public-git-denylist');
-        writeFileSync(list, 'private-marker-list(\n');
-        return { PUBLIC_GIT_DENYLIST_FILE: list };
-      },
-      (dir: string): string => `${join(dir, 'public-git-denylist')} line 1`,
-    ],
-  ])('keeps a malformed pattern from %s out of stderr even when grep echoes it', (_source, pattern, makeEnv, where) => {
+  it.each(
+    malformedSources,
+  )('keeps a malformed pattern from %s out of stderr even when grep echoes it', (_source, make) => {
     const dir = makeTmpDir('mailoo-public-git-echo-');
+    const { env, where, pattern } = make(dir);
     const realGrep = spawnSync('sh', ['-c', 'command -v grep'], { encoding: 'utf8' }).stdout.trim();
     expect(realGrep.startsWith('/')).toBe(true);
     const bin = join(dir, 'bin');
@@ -138,8 +134,7 @@ describe('public git checker: malformed private patterns', () => {
     const msg = join(dir, 'MSG');
     writeFileSync(msg, clean);
     const result = runChecker(['--file', msg], dir, {
-      PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none'),
-      ...makeEnv(dir),
+      ...env,
       PATH: `${bin}:${process.env.PATH ?? ''}`,
       GREP_SHIM_REAL: realGrep,
       GREP_SHIM_LOG: log,
@@ -148,7 +143,7 @@ describe('public git checker: malformed private patterns', () => {
     expect(result).toEqual({
       status: 2,
       stdout: '',
-      stderr: `public-git: invalid extra pattern in ${where(dir)}\n`,
+      stderr: `public-git: invalid extra pattern in ${where}\n`,
     });
   });
 });
