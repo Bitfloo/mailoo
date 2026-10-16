@@ -65,16 +65,6 @@ describe('test-smith L4 doctrine', () => {
   });
 
   it.each([
-    ['the CLI probe refusal', '`mailoo test` is a CLI connection probe, not this runner'],
-    ['the runner source', 'package.json` (runner — never infer it)'],
-    ['no browser automation', 'No browser automation'],
-  ])('binds the Mailoo runners: %s', (_name, phrase) => {
-    for (const text of [claude, cursor]) {
-      expect(text).toContain(phrase);
-    }
-  });
-
-  it.each([
     ['layer choice', 'Pick the layer from the doctrine table'],
     ['production fixtures', 'Fixture from a production artifact'],
     ['pinned env input', 'Pin env input'],

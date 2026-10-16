@@ -169,6 +169,16 @@ export function agentFileContract(name: string, exampleCount: number): void {
     }
   });
 
+  it.each([
+    ['the CLI probe refusal', '`mailoo test` is a CLI connection probe, not this runner'],
+    ['the runner source', 'package.json` (runner — never infer it)'],
+    ['no browser automation', 'No browser automation'],
+  ])('binds the Mailoo runners: %s', (_name, phrase) => {
+    for (const text of [claude, cursor]) {
+      expect(text).toContain(phrase);
+    }
+  });
+
   it('names the runner of each lane in the testing doctrine', () => {
     const runners = doctrineRunners();
     expect(runners.map(([lane]) => lane)).toEqual(['Unit', 'Integration']);

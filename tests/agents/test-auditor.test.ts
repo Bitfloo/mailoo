@@ -78,9 +78,6 @@ describe('test-auditor L4 doctrine', () => {
     ],
     ['the wrong-lane abort for unit files', '`ABORTED: unit path needs pnpm test`'],
     ['the unaudited integration lane', 'integration lane UNAUDITED or C3 WARN'],
-    ['the CLI probe refusal', '`mailoo test` is a CLI connection probe, not this runner'],
-    ['the runner source', 'package.json` (runner — never infer it)'],
-    ['no browser automation', 'No browser automation'],
     ['a fresh session', 'fresh** session on the same files'],
   ])('binds the Mailoo runners: %s', (_name, phrase) => {
     for (const text of [claude, cursor]) {
