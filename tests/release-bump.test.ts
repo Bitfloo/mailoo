@@ -127,6 +127,12 @@ describe('release bump', () => {
       await expect(runStamp(readme, '1.4.2')).resolves.toMatchObject({ files: ['README.md'] });
     });
 
+    it('should move a tag that ends a sentence', async () => {
+      await expect(stampReadme('Pull ghcr.io/bitfloo/mailoo:0.2.\n', '1.4.2')).resolves.toBe(
+        'Pull ghcr.io/bitfloo/mailoo:1.4.\n',
+      );
+    });
+
     it('should move every tag on a line that names two', async () => {
       const line = (minor: string) =>
         `Pull \`ghcr.io/bitfloo/mailoo:${minor}\` or \`ghcr.io/bitfloo/mailoo:${minor}-alpine\`.\n`;
