@@ -34,6 +34,7 @@ async function runStamp(
     await writeFile(join(dir, 'README.md'), readme);
     await execFileAsync('bash', [join(root, 'scripts/bump-readme-image-tag.sh'), version], {
       cwd: dir,
+      env: { PATH: process.env.PATH },
     });
     return { readme: await readFile(join(dir, 'README.md'), 'utf8'), files: await readdir(dir) };
   } finally {
