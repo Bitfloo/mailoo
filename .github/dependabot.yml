@@ -1,5 +1,8 @@
 version: 2
 
+# Groups take minor and patch updates only. Each major arrives as its own pull
+# request, so one breaking release cannot hold back the rest of its group.
+# Packages still on 0.x break on a minor release, so they stay out of groups.
 updates:
   - package-ecosystem: npm
     directory: /
@@ -10,8 +13,11 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: development
+        update-types: [minor, patch]
       production-dependencies:
         dependency-type: production
+        update-types: [minor, patch]
+        exclude-patterns: ["node-ical", "@typesafe-ai/sdk"]
 
   - package-ecosystem: github-actions
     directory: /
@@ -19,3 +25,7 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ["*"]
+        update-types: [minor, patch]
