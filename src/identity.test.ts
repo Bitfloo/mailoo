@@ -255,8 +255,11 @@ describe('published identity', () => {
       expect(mask(stamped)).toBe(mask(readme));
     });
 
-    it('should keep a full-version pin on its release', async () => {
-      const pinned = 'docker pull ghcr.io/bitfloo/mailoo:0.2.1\n';
+    it.each([
+      '0.2.1',
+      '0.10.1',
+    ])('should keep the full-version pin %s on its release', async (version) => {
+      const pinned = `docker pull ghcr.io/bitfloo/mailoo:${version}\n`;
       await expect(stampReadme(pinned, '1.4.2')).resolves.toBe(pinned);
     });
 

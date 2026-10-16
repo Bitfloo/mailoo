@@ -288,6 +288,7 @@ describe('release supply chain', () => {
       'notes="$RUNNER_TEMP/release-notes.md"',
     );
     expect(releaseStep(releaseYml, 'Run GoReleaser')).toContain(
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: intentional — a GitHub Actions expression, not a JS template
       'args: release --clean --release-notes=${{ runner.temp }}/release-notes.md',
     );
   });

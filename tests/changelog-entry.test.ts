@@ -11,6 +11,10 @@ describe('cog changelog entry', () => {
   const cogHeading =
     '## [v0.2.0](https://github.com/bitfloo/mailoo/compare/e27fe33ad80a5bcd9b81fc959631aba33d0598e2..v0.2.0) - 2026-10-09';
   const cogAuthors = `Mike, ${Array.from({ length: 9 }, () => 'michal').join(', ')}, Cursor Agent`;
+  const cogToml = readFileSync(join(repoRoot, 'cog.toml'), 'utf8');
+  const omitted = [
+    ...cogToml.matchAll(/^\w+ = \{ changelog_title = "([^"]+)", omit_from_changelog = true \}$/gm),
+  ].map((match) => match[1]);
 
   function tidy(changelog: string, latest: string, version: string): string {
     const temp = mkdtempSync(join(tmpdir(), 'mailoo-changelog-entry-'));
@@ -38,24 +42,27 @@ describe('cog changelog entry', () => {
 
   it('hides commit types with the key cog 7 reads', () => {
     // cog 7 ignores `hidden = true`; v0.2.0 shipped Build and CI sections because of it.
-    const cog = readFileSync(join(repoRoot, 'cog.toml'), 'utf8');
-    expect(cog).not.toMatch(/^\w+ = \{[^}]*\bhidden\s*=/m);
+    expect(cogToml).not.toMatch(/^\w+ = \{[^}]*\bhidden\s*=/m);
+  });
+
+  it('omits build, CI, test, style and chore commits from the changelog', () => {
+    // The test below reads this list from cog.toml, so a dropped key would shrink what it checks.
+    expect([...omitted].sort()).toEqual(['Build', 'CI', 'Chores', 'Styles', 'Tests']);
   });
 
   it('keeps every omitted commit type out of the published Mailoo releases', () => {
-    const cog = readFileSync(join(repoRoot, 'cog.toml'), 'utf8');
-    const omitted = [
-      ...cog.matchAll(/^\w+ = \{ changelog_title = "([^"]+)", omit_from_changelog = true \}$/gm),
-    ].map((match) => match[1]);
     const mailoo = changelogMd.slice(0, changelogMd.indexOf('\n## Upstream history'));
     const titles = [...mailoo.matchAll(/^#### (.+)$/gm)].map((match) => match[1]);
-    expect(omitted.length).toBeGreaterThan(0);
     expect(titles.filter((title) => omitted.includes(title))).toEqual([]);
   });
 
   it('should leave the other entries as they are', () => {
-    // Older headings keep whatever link they have; only the release being cut is rewritten.
-    const raw = swapOnce(changelogMd, '/compare/v0.1.7..v0.1.8)', '/compare/0123abc..v0.1.8)');
+    // Older entries keep whatever link and authors they have; only the release being cut is rewritten.
+    const raw = swapOnce(
+      swapOnce(changelogMd, '/compare/v0.1.7..v0.1.8)', '/compare/0123abc..v0.1.8)'),
+      '2d67d4416df9642ba060b2a7e7925077e381d7e8)) - Mike, Cursor\n',
+      '2d67d4416df9642ba060b2a7e7925077e381d7e8)) - Mike, Mike, Cursor\n',
+    );
     expect(tidy(raw, '0.1.8', '0.2.0')).toBe(raw);
   });
 });
