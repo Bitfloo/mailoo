@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -32,6 +32,15 @@ export function denylist(content: string): string {
   const file = join(makeTmpDir('mailoo-public-git-list-'), 'public-git-denylist');
   writeFileSync(file, content);
   return file;
+}
+
+/** A PATH whose `cat` always fails: root reads any file mode, so this stands in for an unreadable file. */
+export function pathWithFailingCat(): string {
+  const bin = join(makeTmpDir('mailoo-public-git-cat-'), 'bin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'cat'), '#!/bin/sh\nexit 1\n');
+  chmodSync(join(bin, 'cat'), 0o755);
+  return `${bin}:${process.env.PATH ?? ''}`;
 }
 
 /**

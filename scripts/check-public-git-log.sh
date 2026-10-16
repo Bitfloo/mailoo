@@ -45,13 +45,17 @@ fi
 # Outside a git repository there is no default denylist; built-ins still run.
 denylist_file=${PUBLIC_GIT_DENYLIST_FILE:-$(git rev-parse --git-path info/public-git-denylist 2>/dev/null || true)}
 if [[ -n "$denylist_file" && -f "$denylist_file" ]]; then
+  if ! denylist=$(cat -- "$denylist_file"); then
+    echo "public-git: cannot read $denylist_file" >&2
+    exit 2
+  fi
   lineno=0
-  while IFS= read -r line || [[ -n "$line" ]]; do
+  while IFS= read -r line; do
     lineno=$((lineno + 1))
     line=${line%$'\r'}
     [[ -z "$line" || "$line" == \#* ]] && continue
     add_extra "$denylist_file line $lineno" "$line"
-  done <"$denylist_file"
+  done <<<"$denylist"
 fi
 
 # Returns 0 on a hit, 1 when clean; exits 2 if grep itself fails.

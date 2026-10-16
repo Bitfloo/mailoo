@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { jobSections } from '../workflow-yaml.js';
@@ -12,6 +12,7 @@ import {
   leak,
   makeTmpDir,
   passed,
+  pathWithFailingCat,
   removeTmpDirs,
   runChecker,
   scanFile,
@@ -96,6 +97,24 @@ describe('public git checker: private patterns', () => {
   it('ignores a denylist path that is a directory', () => {
     const dir = makeTmpDir('mailoo-public-git-dir-');
     expect(scanFile(clean, { PUBLIC_GIT_DENYLIST_FILE: dir })).toEqual(passed);
+  });
+
+  it.skipIf(process.getuid?.() === 0)('fails on a denylist it cannot read', () => {
+    const list = denylist('example-private-tree\n');
+    chmodSync(list, 0o000);
+    const result = scanFile(clean, { PUBLIC_GIT_DENYLIST_FILE: list });
+    chmodSync(list, 0o600);
+    expect(result).toEqual({
+      status: 2,
+      stdout: '',
+      stderr: expect.stringContaining(`public-git: cannot read ${list}\n`),
+    });
+  });
+
+  it('fails on a denylist it cannot read, for any user', () => {
+    const list = denylist('example-private-tree\n');
+    const result = scanFile(clean, { PATH: pathWithFailingCat(), PUBLIC_GIT_DENYLIST_FILE: list });
+    expect(result).toEqual({ status: 2, stdout: '', stderr: `public-git: cannot read ${list}\n` });
   });
 
   it('treats a denylist line that starts with a dash as a pattern, not an option', () => {

@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -8,6 +8,7 @@ import {
   leak,
   makeTmpDir,
   passed,
+  pathWithFailingCat,
   removeTmpDirs,
   runChecker,
 } from './public-git-checker.js';
@@ -127,16 +128,11 @@ describe('public git checker: --range and --file modes', () => {
   });
 
   it('fails on a message file it cannot read, for any user', () => {
-    const dir = makeTmpDir('mailoo-public-git-cat-');
-    const bin = join(dir, 'bin');
-    mkdirSync(bin);
-    // Root reads any mode, so a failing cat stands in for an unreadable file.
-    writeFileSync(join(bin, 'cat'), '#!/bin/sh\nexit 1\n');
-    chmodSync(join(bin, 'cat'), 0o755);
+    const dir = makeTmpDir('mailoo-public-git-cat-msg-');
     const msg = join(dir, 'MSG');
     writeFileSync(msg, leak);
     const result = runChecker(['--file', msg], dir, {
-      PATH: `${bin}:${process.env.PATH ?? ''}`,
+      PATH: pathWithFailingCat(),
       PUBLIC_GIT_DENYLIST_FILE: join(dir, 'none'),
     });
     expect(result).toEqual({ status: 2, stdout: '', stderr: `public-git: cannot read ${msg}\n` });
