@@ -94,16 +94,16 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.2",
     "@eslint/compat": "^2.0.2",
-    "@eslint/js": "^9.39.2",
-    "@types/node": "^25.2.3",
-    "@vitest/coverage-v8": "^4.1.11",
-    "eslint": "^9.39.2",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.5",
+    "@vitest/coverage-v8": "^5.0.4",
+    "eslint": "^10.12.0",
     "eslint-config-airbnb-extended": "^3.0.1",
     "lefthook": "^2.1.1",
-    "testcontainers": "^11.12.0",
+    "testcontainers": "^12.2.1",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.11"
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.4"
   },
   "engines": {
     "node": ">=24.0.0"
