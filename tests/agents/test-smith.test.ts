@@ -2,57 +2,26 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
-  agentTwinBody,
+  agentFileContract,
   CLAUDE_TEST_AGENT_MODEL,
-  CURSOR_TEST_AGENT_MODEL,
-  checkerBuiltinPattern,
   descriptionBlock,
-  differingLines,
-  exampleBlocks,
   exampleUserLines,
-  expectedAgentText,
-  PERMISSION_GRANT,
-  POLISH_TEXT,
   readTwinAgent,
   repoRoot,
-  SYSTEM_PROMPT_MAX_WORDS,
-  systemPromptWords,
   toolsList,
   triggerPhrases,
-  USER_DESCRIPTION_MAX_CHARS,
 } from './agent-file.js';
 
 const doctrinePath = join(repoRoot, '.claude/rules/testing-doctrine.md');
 const { claude, cursor } = readTwinAgent('test-smith');
-const expected = expectedAgentText('test-smith');
 
 describe('test-smith L4 doctrine', () => {
-  it('matches the checked-in agent text word for word in the Claude Code copy', () => {
-    expect(claude).toBe(expected);
-  });
-
-  it('matches the checked-in agent text word for word in the Cursor copy, except the model line', () => {
-    const modelLine = expected.split('\n').indexOf(`model: ${CLAUDE_TEST_AGENT_MODEL}`);
-    expect(modelLine).toBeGreaterThan(0);
-    expect(differingLines(expected, cursor)).toEqual([modelLine]);
-    expect(cursor.split('\n')[modelLine]).toBe(`model: ${CURSOR_TEST_AGENT_MODEL}`);
-  });
-
-  it('keeps Claude Code and Cursor copies aligned except host model tier', () => {
-    expect(agentTwinBody(claude)).toBe(agentTwinBody(cursor));
-    expect(claude).toMatch(new RegExp(`^model: ${CLAUDE_TEST_AGENT_MODEL}$`, 'm'));
-    expect(cursor).toMatch(new RegExp(`^model: ${CURSOR_TEST_AGENT_MODEL}$`, 'm'));
-  });
+  agentFileContract('test-smith', 3);
 
   it('grounds on the Mailoo doctrine file that exists in this clone', () => {
     expect(existsSync(doctrinePath)).toBe(true);
     expect(claude).toContain('.claude/rules/testing-doctrine.md');
     expect(claude).toMatch(/do not invent thresholds/);
-  });
-
-  it('stays inside the user-class description budget', () => {
-    expect(descriptionBlock(claude).length).toBeGreaterThan(10);
-    expect(descriptionBlock(claude).length).toBeLessThanOrEqual(USER_DESCRIPTION_MAX_CHARS);
   });
 
   it('routes English authoring phrases and defers grading', () => {
@@ -146,39 +115,6 @@ describe('test-smith L4 doctrine', () => {
     expect(claude).toContain('score:');
     expect(claude).toContain('ABORTED: runner unresolved');
     expect(claude).toContain('`GAPS` when the suite is green but mutants survived');
-  });
-
-  it('keeps the generated system prompt (excluding When to invoke) inside the 500-word cap', () => {
-    expect(systemPromptWords(claude).length).toBeLessThanOrEqual(SYSTEM_PROMPT_MAX_WORDS);
-  });
-
-  it('does not cite anything the public git checker forbids, or a home path', () => {
-    for (const text of [claude, cursor]) {
-      expect(text).not.toMatch(checkerBuiltinPattern());
-      expect(text).not.toMatch(/(^|[\s`("'])~\//m);
-    }
-  });
-
-  it('keeps the agent text English-only', () => {
-    for (const text of [claude, cursor]) {
-      expect(text).not.toMatch(POLISH_TEXT);
-    }
-  });
-
-  it('gives each When to invoke example a context, a user request, and an answer', () => {
-    const examples = exampleBlocks(claude);
-    expect(examples).toHaveLength(3);
-    for (const example of examples) {
-      expect(example).toMatch(/^\s*Context: \S/m);
-      expect(example).toMatch(/^\s*user: "[^"]+"$/m);
-      expect(example).toMatch(/^\s*assistant: "[^"]+"$/m);
-    }
-  });
-
-  it('never grants extra permissions anywhere in the agent file', () => {
-    for (const text of [claude, cursor]) {
-      expect(text).not.toMatch(PERMISSION_GRANT);
-    }
   });
 
   it('pins the user request of every When to invoke example in both copies', () => {

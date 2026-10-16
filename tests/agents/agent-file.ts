@@ -11,11 +11,6 @@ export const CURSOR_TEST_AGENT_MODEL = 'cursor-grok-4.6-xhigh';
 
 export const CLAUDE_TEST_AGENT_MODEL = 'sonnet';
 
-/** Twins differ only by host `model:` — body and routing must stay aligned. */
-export function agentTwinBody(text: string): string {
-  return text.replace(/^model: .+\n/m, '');
-}
-
 export function readTwinAgent(name: string): { claude: string; cursor: string } {
   return {
     claude: readFileSync(join(repoRoot, '.claude/agents', `${name}.md`), 'utf8'),
@@ -57,13 +52,11 @@ export function checkerBuiltinPattern(): RegExp {
   return new RegExp(match[1], 'i');
 }
 
-/** Quoted phrases on the `Trigger:` line of a description block. */
 export function triggerPhrases(description: string): string[] {
   const line = description.match(/^Trigger: (.+)$/m)?.[1] ?? '';
   return [...line.matchAll(/"([^"]+)"/g)].map((row) => row[1]);
 }
 
-/** Bodies of the `<example>` blocks under When to invoke. */
 export function exampleBlocks(text: string): string[] {
   return [...text.matchAll(/<example>([\s\S]*?)<\/example>/g)].map((row) => row[1]);
 }
@@ -71,7 +64,6 @@ export function exampleBlocks(text: string): string[] {
 /** Public agent text is English: no Polish letters and no common Polish request words. */
 export const POLISH_TEXT = /[ąćęłńóśźż]|\b(testy|testów|napisz|sprawdź|sprawdz|oceń|ocen|czy)\b/i;
 
-/** The quoted `user:` request of each `<example>` block. */
 export function exampleUserLines(text: string): string[] {
   return exampleBlocks(text).map((block) => block.match(/^\s*user: "([^"]+)"$/m)?.[1] ?? '');
 }
@@ -96,4 +88,59 @@ export function differingLines(a: string, b: string): number[] {
     }
   }
   return out;
+}
+
+/** Checks every project test agent shares; call inside that agent's describe. */
+export function agentFileContract(name: string, exampleCount: number): void {
+  const { claude, cursor } = readTwinAgent(name);
+  const expected = expectedAgentText(name);
+
+  it('matches the checked-in agent text word for word in the Claude Code copy', () => {
+    expect(claude).toBe(expected);
+  });
+
+  it('matches the checked-in agent text word for word in the Cursor copy, except the model line', () => {
+    const modelLine = expected.split('\n').indexOf(`model: ${CLAUDE_TEST_AGENT_MODEL}`);
+    expect(modelLine).toBeGreaterThan(0);
+    expect(differingLines(expected, cursor)).toEqual([modelLine]);
+    expect(cursor.split('\n')[modelLine]).toBe(`model: ${CURSOR_TEST_AGENT_MODEL}`);
+  });
+
+  it('stays inside the user-class description budget', () => {
+    expect(descriptionBlock(claude).length).toBeGreaterThan(10);
+    expect(descriptionBlock(claude).length).toBeLessThanOrEqual(USER_DESCRIPTION_MAX_CHARS);
+  });
+
+  it('keeps the generated system prompt (excluding When to invoke) inside the 500-word cap', () => {
+    expect(systemPromptWords(claude).length).toBeLessThanOrEqual(SYSTEM_PROMPT_MAX_WORDS);
+  });
+
+  it('does not cite anything the public git checker forbids, or a home path', () => {
+    for (const text of [claude, cursor]) {
+      expect(text).not.toMatch(checkerBuiltinPattern());
+      expect(text).not.toMatch(/(^|[\s`("'])~\//m);
+    }
+  });
+
+  it('keeps the agent text English-only', () => {
+    for (const text of [claude, cursor]) {
+      expect(text).not.toMatch(POLISH_TEXT);
+    }
+  });
+
+  it('gives each When to invoke example a context, a user request, and an answer', () => {
+    const examples = exampleBlocks(claude);
+    expect(examples).toHaveLength(exampleCount);
+    for (const example of examples) {
+      expect(example).toMatch(/^\s*Context: \S/m);
+      expect(example).toMatch(/^\s*user: "[^"]+"$/m);
+      expect(example).toMatch(/^\s*assistant: "[^"]+"$/m);
+    }
+  });
+
+  it('never grants extra permissions anywhere in the agent file', () => {
+    for (const text of [claude, cursor]) {
+      expect(text).not.toMatch(PERMISSION_GRANT);
+    }
+  });
 }
