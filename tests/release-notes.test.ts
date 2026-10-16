@@ -132,7 +132,9 @@ describe('release notes', () => {
   });
 
   const dockerJob =
-    jobSections(releaseYml).find((job) => job.includes('goreleaser/goreleaser-action@')) ?? '';
+    jobSections(releaseSteps(releaseYml)).find((job) =>
+      job.includes('goreleaser/goreleaser-action@'),
+    ) ?? '';
 
   it('checks out the repository before it reads CHANGELOG.md', () => {
     const checkout = dockerJob.indexOf('- uses: actions/checkout@');
