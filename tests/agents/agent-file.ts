@@ -73,11 +73,6 @@ export function exampleUserLines(text: string): string[] {
 export const PERMISSION_GRANT =
   /\bmay (also )?(write|edit|fix|modify|change|stage|commit|install|push|delete)\b|\b(is|are) allowed to (write|edit|fix|modify)\b/i;
 
-/** Checked-in expected text of a project agent, as its Claude Code copy (`model: sonnet`). */
-export function expectedAgentText(name: string): string {
-  return readFileSync(join(repoRoot, 'tests/agents/__fixtures__', `${name}.expected.md`), 'utf8');
-}
-
 /** Line numbers (0-based) where two texts differ; texts of different length differ at every extra line. */
 export function differingLines(a: string, b: string): number[] {
   const left = a.split('\n');
@@ -118,7 +113,10 @@ export function doctrineShipBarScore(): string {
 /** Checks every project test agent shares; call inside that agent's describe. */
 export function agentFileContract(name: string, exampleCount: number): void {
   const { claude, cursor } = readTwinAgent(name);
-  const expected = expectedAgentText(name);
+  const expected = readFileSync(
+    join(repoRoot, 'tests/agents/__fixtures__', `${name}.expected.md`),
+    'utf8',
+  );
 
   it('matches the checked-in agent text word for word in the Claude Code copy', () => {
     expect(claude).toBe(expected);
