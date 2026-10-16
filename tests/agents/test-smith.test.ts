@@ -1,28 +1,21 @@
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 
 import {
-  agentTwinBody,
+  agentFileContract,
   CLAUDE_TEST_AGENT_MODEL,
-  CURSOR_TEST_AGENT_MODEL,
   descriptionBlock,
+  doctrinePath,
+  doctrineShipBarScore,
+  exampleUserLines,
   readTwinAgent,
-  repoRoot,
-  SYSTEM_PROMPT_MAX_WORDS,
-  systemPromptWords,
   toolsList,
-  USER_DESCRIPTION_MAX_CHARS,
+  triggerPhrases,
 } from './agent-file.js';
 
-const doctrinePath = join(repoRoot, '.claude/rules/testing-doctrine.md');
 const { claude, cursor } = readTwinAgent('test-smith');
 
 describe('test-smith L4 doctrine', () => {
-  it('keeps Claude Code and Cursor copies aligned except host model tier', () => {
-    expect(agentTwinBody(claude)).toBe(agentTwinBody(cursor));
-    expect(claude).toMatch(new RegExp(`^model: ${CLAUDE_TEST_AGENT_MODEL}$`, 'm'));
-    expect(cursor).toMatch(new RegExp(`^model: ${CURSOR_TEST_AGENT_MODEL}$`, 'm'));
-  });
+  agentFileContract('test-smith', 3);
 
   it('grounds on the Mailoo doctrine file that exists in this clone', () => {
     expect(existsSync(doctrinePath)).toBe(true);
@@ -30,16 +23,15 @@ describe('test-smith L4 doctrine', () => {
     expect(claude).toMatch(/do not invent thresholds/);
   });
 
-  it('stays inside the user-class description budget', () => {
-    expect(descriptionBlock(claude).length).toBeGreaterThan(10);
-    expect(descriptionBlock(claude).length).toBeLessThanOrEqual(USER_DESCRIPTION_MAX_CHARS);
-  });
-
-  it('routes Polish and English authoring phrases and defers grading', () => {
+  it('routes English authoring phrases and defers grading', () => {
     const description = descriptionBlock(claude);
-    expect(description).toContain('Trigger:');
-    expect(description).toMatch(/napisz testy/);
-    expect(description).toMatch(/write tests for/);
+    expect(triggerPhrases(description)).toEqual([
+      'write tests',
+      'add tests',
+      'write tests for',
+      'test this properly',
+      'test-smith',
+    ]);
     expect(description).toMatch(/NOT:.*test-auditor/);
   });
 
@@ -72,18 +64,18 @@ describe('test-smith L4 doctrine', () => {
     expect(claude).toContain('NEVER stage, commit, install, or push');
   });
 
-  it('binds the Mailoo runners and refuses the CLI probe', () => {
-    expect(claude).toContain('pnpm test -- <file>');
-    expect(claude).toContain('pnpm test:integration -- <file>');
-    expect(claude).toContain('`mailoo test` is a CLI connection probe, not this runner');
-    expect(claude).toContain('package.json` (runner — never infer it)');
-    expect(claude).toContain('No browser automation');
-    expect(claude).toContain('Pick the layer from the doctrine table');
-    expect(claude).toContain('Fixture from a production artifact');
-    expect(claude).toContain('Pin env input');
-    expect(claude).toContain('One behaviour per `it`');
-    expect(claude).toContain('boundary, logic');
-    expect(claude).toContain('A survivor is a task, not a statistic');
+  it.each([
+    ['layer choice', 'Pick the layer from the doctrine table'],
+    ['production fixtures', 'Fixture from a production artifact'],
+    ['pinned env input', 'Pin env input'],
+    ['one behaviour per test', 'One behaviour per `it`'],
+    ['mutation targets', 'boundary, logic'],
+    ['survivors as tasks', 'A survivor is a task, not a statistic'],
+    ['searched negative claims', 'A negative claim names its search.'],
+  ])('pins the authoring contract: %s', (_name, phrase) => {
+    for (const text of [claude, cursor]) {
+      expect(text).toContain(phrase);
+    }
   });
 
   it('forbids mock-as-oracle, retry masking, and secret fixtures', () => {
@@ -95,7 +87,7 @@ describe('test-smith L4 doctrine', () => {
   });
 
   it('ships only when a fresh auditor would pass the Mailoo score bar', () => {
-    expect(claude).toContain('PASS at score ≥ 9');
+    expect(claude).toContain(`PASS at score ≥ ${doctrineShipBarScore()}`);
     expect(claude).toContain('**SHIPPED**');
     expect(claude).toMatch(/test-auditor/);
   });
@@ -112,14 +104,13 @@ describe('test-smith L4 doctrine', () => {
     expect(claude).toContain('`GAPS` when the suite is green but mutants survived');
   });
 
-  it('keeps the generated system prompt (excluding When to invoke) inside the 500-word cap', () => {
-    expect(systemPromptWords(claude).length).toBeLessThanOrEqual(SYSTEM_PROMPT_MAX_WORDS);
-  });
-
-  it('does not cite plugin-internal paths in the agent file', () => {
-    expect(claude).not.toMatch(/_knowledge\//);
-    expect(claude).not.toContain('skills/cbc-internals');
-    expect(claude).not.toContain('rules/cbc-engineering-principles.md');
-    expect(claude).not.toMatch(/\/Users\//);
+  it('pins the user request of every When to invoke example in both copies', () => {
+    for (const text of [claude, cursor]) {
+      expect(exampleUserLines(text)).toEqual([
+        'Write proper tests for the notifier',
+        'Test the watcher hard enough that races make it fail',
+        'See whether the tests in this PR are sufficient',
+      ]);
+    }
   });
 });

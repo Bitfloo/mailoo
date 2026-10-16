@@ -14,15 +14,19 @@ subject/body** are world-readable. Write them as if a stranger clones today.
 
 ## Forbidden in commit messages, PR titles, and PR bodies
 
-`scripts/check-public-git-log.sh` owns the regex (commit-msg hook). Categories:
+`scripts/check-public-git-log.sh` owns the generic regex (commit-msg hook).
+Maintainers keep private patterns out of the repo, in a denylist file in the
+git dir (shared by all worktrees) and in a repository secret for CI (a
+variable would print in the public run log). The script header names both
+and gives the line format. A malformed pattern fails the check. Categories:
 
 - Operator machine paths and knowledge-tree names
 - Plugin dispatch names
 - Model slugs used as routing instructions
-- “Slop”, “L4 twins”, “ship bar” as the **subject** (fine in `.claude/` files)
+- Review jargon such as “slop” or “ship bar” as the **subject** (fine in `.claude/` files)
 
-`CLAUDE.md` may name project vs plugin agents so operators do not mis-dispatch.
-That file is for agents in this clone, not for the git log.
+`CLAUDE.md` may tell agents in this clone to use the project agents rather
+than same-named plugin agents. That file is for agents, not for the git log.
 
 ## Versioning
 
@@ -30,7 +34,7 @@ Cocogitto (`cog.toml`): tags `v*`, `CHANGELOG.md`, `package.json` version.
 `from_latest_tag = true` — upstream email-mcp tags are not Mailoo releases.
 Bump with `cog bump --auto` (or `--minor` / `--patch`) on `develop`
 when you **intend** a release. Do not bump for docs-only work.
-MCP tool/schema/URI changes need a **major** bump (`CLAUDE.md`, `cog.toml`).
+MCP tool/schema/URI changes need a **major** bump (`CLAUDE.md`).
 `server.json` `version` and each `packages[].version` track `package.json`
 (`scripts/bump-server-json-version.sh`).
 

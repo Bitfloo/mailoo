@@ -21,5 +21,5 @@ commit-msg hook and a pull request check reject them. The pattern lives in
 - [ ] I have added tests that prove my fix/feature works (if applicable)
 - [ ] I have updated documentation (if applicable)
 - [ ] Commit messages pass Conventional Commits + `scripts/check-public-git-log.sh`
-- [ ] Breaking MCP tool/schema/URI changes bump the major version (`cog.toml`)
+- [ ] Breaking MCP tool/schema/URI changes bump the major version
 - [ ] My changes generate no new warnings

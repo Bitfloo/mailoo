@@ -1,28 +1,22 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 import {
-  agentTwinBody,
+  agentFileContract,
   CLAUDE_TEST_AGENT_MODEL,
-  CURSOR_TEST_AGENT_MODEL,
   descriptionBlock,
+  doctrineDetectionBands,
+  doctrinePath,
+  doctrineShipBarScore,
+  exampleUserLines,
   readTwinAgent,
-  repoRoot,
-  SYSTEM_PROMPT_MAX_WORDS,
-  systemPromptWords,
   toolsList,
-  USER_DESCRIPTION_MAX_CHARS,
+  triggerPhrases,
 } from './agent-file.js';
 
-const doctrinePath = join(repoRoot, '.claude/rules/testing-doctrine.md');
 const { claude, cursor } = readTwinAgent('test-auditor');
 
 describe('test-auditor L4 doctrine', () => {
-  it('keeps Claude Code and Cursor copies aligned except host model tier', () => {
-    expect(agentTwinBody(claude)).toBe(agentTwinBody(cursor));
-    expect(claude).toMatch(new RegExp(`^model: ${CLAUDE_TEST_AGENT_MODEL}$`, 'm'));
-    expect(cursor).toMatch(new RegExp(`^model: ${CURSOR_TEST_AGENT_MODEL}$`, 'm'));
-  });
+  agentFileContract('test-auditor', 4);
 
   it('grounds on the Mailoo doctrine file that exists in this clone', () => {
     expect(existsSync(doctrinePath)).toBe(true);
@@ -37,18 +31,17 @@ describe('test-auditor L4 doctrine', () => {
     expect(doctrine).toContain('GreenMail');
   });
 
-  it('stays inside the user-class description budget', () => {
-    expect(descriptionBlock(claude).length).toBeGreaterThan(10);
-    expect(descriptionBlock(claude).length).toBeLessThanOrEqual(USER_DESCRIPTION_MAX_CHARS);
-  });
-
-  it('routes Polish and English audit phrases and defers authorship', () => {
+  it('routes English audit phrases and defers authorship', () => {
     const description = descriptionBlock(claude);
-    expect(description).toContain('Trigger:');
-    expect(description).toMatch(/oceń te testy/);
-    expect(description).toMatch(/audit these tests/);
-    expect(description).toMatch(/czy testy w PR wystarczą/);
-    expect(description).toMatch(/are these tests sufficient/);
+    expect(triggerPhrases(description)).toEqual([
+      'rate these tests',
+      'do these tests catch anything',
+      'test audit',
+      'audit these tests',
+      'are the PR tests enough',
+      'are these tests sufficient',
+      'test-auditor',
+    ]);
     expect(description).toMatch(/NOT:.*test-smith/);
     expect(description).toMatch(/mutation\/detection judgment only here/);
   });
@@ -77,16 +70,57 @@ describe('test-auditor L4 doctrine', () => {
     expect(claude).toContain('NEVER stage, commit, install, or push');
   });
 
-  it('binds the Mailoo runners and refuses the CLI probe', () => {
-    expect(claude).toContain('pnpm test -- <file>');
-    expect(claude).toContain('pnpm test:integration -- <file>');
-    expect(claude).toContain('vitest.config.integration.ts` `test.include`');
-    expect(claude).toContain('ABORTED: integration path needs pnpm test:integration');
-    expect(claude).toContain('integration lane UNAUDITED or C3 WARN');
-    expect(claude).toContain('`mailoo test` is a CLI connection probe, not this runner');
-    expect(claude).toContain('package.json` (runner — never infer it)');
-    expect(claude).toContain('No browser automation');
-    expect(claude).toContain('fresh** session on the same files');
+  it.each([
+    ['the include list it reads first', 'vitest.config.integration.ts` `test.include`'],
+    [
+      'the wrong-lane abort for integration files',
+      '`ABORTED: integration path needs pnpm test:integration`',
+    ],
+    ['the wrong-lane abort for unit files', '`ABORTED: unit path needs pnpm test`'],
+    ['the unaudited integration lane', 'integration lane UNAUDITED or C3 WARN'],
+    ['a fresh session', 'fresh** session on the same files'],
+  ])('binds the Mailoo runners: %s', (_name, phrase) => {
+    for (const text of [claude, cursor]) {
+      expect(text).toContain(phrase);
+    }
+  });
+
+  it.each([
+    ['score 10', '10 all killed, no findings.'],
+    ['score 7–8', '7–8 WARN debt.'],
+    ['score 6', '6 two WARN max.'],
+    ['score 3–5', '3–5 three+ WARN.'],
+    ['score 1–2', '1–2 any CRITICAL.'],
+    ['an unrunnable suite', 'Unrunnable suite → CRITICAL C1, FAIL.'],
+    ['survivors behind every rate', 'Never a rate without survivors'],
+    ['reverting before anything else', 'Revert failure first'],
+    ['the mutation scope', 'Mutate only the named target slice.'],
+    ['read-only Bash', 'Bash is read-only plus the `package.json` runner.'],
+    ['Edit only for mutants', 'Edit exists only to apply and revert a mutant.'],
+    ['no authoring', 'You never write or fix a test or source file.'],
+  ])('pins the audit contract: %s', (_name, phrase) => {
+    for (const text of [claude, cursor]) {
+      expect(text).toContain(phrase);
+    }
+  });
+
+  it('quotes the detection bands of the testing doctrine', () => {
+    const bands = doctrineDetectionBands();
+    expect(bands.map(([, band]) => band)).toEqual(['weak', 'needs work', 'target']);
+    for (const text of [claude, cursor]) {
+      for (const [rate, band] of bands) {
+        expect(text).toContain(`\`${rate}\` ${band}`);
+      }
+    }
+  });
+
+  it('passes only at the doctrine ship bar and with zero CRITICAL', () => {
+    const score = doctrineShipBarScore();
+    expect(score).toMatch(/^\d+$/);
+    for (const text of [claude, cursor]) {
+      expect(text).toContain(`${score} INFO only (Mailoo ship bar).`);
+      expect(text).toContain(`PASS if score ≥ ${score} AND zero CRITICAL`);
+    }
   });
 
   it('requires C1 and C2 before the rest of the rubric', () => {
@@ -95,29 +129,30 @@ describe('test-auditor L4 doctrine', () => {
     expect(claude).toContain('C1 and C2 were attempted');
     expect(claude).toContain('cite by section');
     expect(claude).toContain('Never repair');
-    expect(claude).toContain('>80%` target');
   });
 
-  it('emits a SCORE/VERDICT block with a CRITICAL veto', () => {
-    expect(claude).toContain('SCORE: N/10');
-    expect(claude).toContain('VERDICT: PASS | FAIL | ABORTED: <reason> | NEEDS_INPUT: <what>');
-    expect(claude).toContain('DETECTION:');
-    expect(claude).toContain('FINDINGS:');
-    expect(claude).toContain('UNAUDITED:');
-    expect(claude).toContain('TREE:');
-    expect(claude).toContain('ABORTED: runner unresolved');
-    expect(claude).toMatch(/PASS if score ≥ 9 AND zero CRITICAL/);
-    expect(claude).toMatch(/Mailoo ship bar/);
+  it.each([
+    ['the score line', 'SCORE: N/10'],
+    ['the verdict line', 'VERDICT: PASS | FAIL | ABORTED: <reason> | NEEDS_INPUT: <what>'],
+    ['the detection line', 'DETECTION:'],
+    ['the findings line', 'FINDINGS:'],
+    ['the unaudited line', 'UNAUDITED:'],
+    ['the tree line', 'TREE:'],
+    ['the runner abort', 'ABORTED: runner unresolved'],
+  ])('emits a SCORE/VERDICT block: %s', (_name, phrase) => {
+    for (const text of [claude, cursor]) {
+      expect(text).toContain(phrase);
+    }
   });
 
-  it('keeps the generated system prompt (excluding When to invoke) inside the 500-word cap', () => {
-    expect(systemPromptWords(claude).length).toBeLessThanOrEqual(SYSTEM_PROMPT_MAX_WORDS);
-  });
-
-  it('does not cite plugin-internal paths in the agent file', () => {
-    expect(claude).not.toMatch(/_knowledge\//);
-    expect(claude).not.toContain('skills/cbc-internals');
-    expect(claude).not.toContain('rules/cbc-engineering-principles.md');
-    expect(claude).not.toMatch(/\/Users\//);
+  it('pins the user request of every When to invoke example in both copies', () => {
+    for (const text of [claude, cursor]) {
+      expect(exampleUserLines(text)).toEqual([
+        'Are the tests in this PR enough?',
+        'Check whether these tests really catch anything',
+        'Audit src/__integration__/email-send.integration.test.ts',
+        'These tests are weak, add the missing ones',
+      ]);
+    }
   });
 });

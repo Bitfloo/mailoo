@@ -356,7 +356,7 @@ package-lock.json
 docs/plans/
 
 # Local agent state — machine-local, may name internal paths or carry tokens.
-# Rules are re-included by name: CBC drops its own rule files into .claude/rules/.
+# Rules are re-included by name: local tooling may drop its own rule files into .claude/rules/.
 .claude/*
 !.claude/agents/
 !.claude/rules/
