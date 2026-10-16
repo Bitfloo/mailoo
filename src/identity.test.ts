@@ -74,6 +74,20 @@ function readmeImageTags(readme: string): string[] {
   return [...readme.matchAll(/ghcr\.io\/bitfloo\/mailoo:([\w.-]+)/g)].map((match) => match[1]);
 }
 
+/** Run the README stamp in a scratch dir holding `readme`; rejects on a non-zero exit. */
+async function stampReadme(readme: string, version: string): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'mailoo-readme-tag-'));
+  try {
+    await writeFile(join(dir, 'README.md'), readme);
+    await execFileAsync('bash', [join(root, 'scripts/bump-readme-image-tag.sh'), version], {
+      cwd: dir,
+    });
+    return await readFile(join(dir, 'README.md'), 'utf8');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 async function mcpEmailEnvNames(): Promise<string[]> {
   const files = await sourceFiles(join(root, 'src'));
   const names = new Set<string>();
@@ -194,7 +208,7 @@ describe('published identity', () => {
     expect(readme).toContain(`The \`${line}\` tag follows the newest ${line}.x release.`);
   });
 
-  it('stamps the version into package.json, server.json and README.md in every cog bump profile', async () => {
+  it('runs the same release stamps in every cog bump profile', async () => {
     // A minor bump would otherwise leave the README on the old line, and the pre-push tests would stop the release push.
     const cog = await readFile(join(root, 'cog.toml'), 'utf8');
     const profiles = [...cog.matchAll(/^pre_bump_hooks = \[([\s\S]*?)\]$/gm)].map((match) =>
@@ -217,17 +231,8 @@ describe('published identity', () => {
     let stamped: string;
 
     beforeAll(async () => {
-      const dir = await mkdtemp(join(tmpdir(), 'mailoo-readme-tag-'));
       readme = await readFile(join(root, 'README.md'), 'utf8');
-      await writeFile(join(dir, 'README.md'), readme);
-      try {
-        await execFileAsync('bash', [join(root, 'scripts/bump-readme-image-tag.sh'), '1.4.2'], {
-          cwd: dir,
-        });
-        stamped = await readFile(join(dir, 'README.md'), 'utf8');
-      } finally {
-        await rm(dir, { recursive: true, force: true });
-      }
+      stamped = await stampReadme(readme, '1.4.2');
     });
 
     it('should move every image tag to the minor line of the release version', () => {
@@ -238,10 +243,28 @@ describe('published identity', () => {
       expect(stamped).toContain('The `1.4` tag follows the newest 1.4.x release.');
     });
 
-    it('should leave every other README line as it was', () => {
-      const rest = (text: string) =>
-        text.split('\n').filter((line) => !/mailoo:\d|tag follows the newest/.test(line));
-      expect(rest(stamped)).toEqual(rest(readme));
+    it('should leave everything but the minor line as it was', () => {
+      const mask = (text: string) =>
+        text
+          .replace(/(mailoo:)\d+\.\d+/g, '$1X.Y')
+          .replace(
+            /`\d+\.\d+` tag follows the newest \d+\.\d+\.x/g,
+            '`X.Y` tag follows the newest X.Y.x',
+          );
+      expect(mask(stamped)).toBe(mask(readme));
+    });
+
+    it('should keep a full-version pin on its release', async () => {
+      const pinned = 'docker pull ghcr.io/bitfloo/mailoo:0.2.1\n';
+      await expect(stampReadme(pinned, '1.4.2')).resolves.toBe(pinned);
+    });
+
+    it.each([
+      'v1.4.2',
+      '1.4',
+      'latest',
+    ])('should refuse %s as a release version', async (version) => {
+      await expect(stampReadme(readme, version)).rejects.toThrow(/not a semver version/);
     });
   });
 
