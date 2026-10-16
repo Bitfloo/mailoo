@@ -25,7 +25,7 @@ Reserve 🔴 for findings that would, if merged:
   account connections without synchronisation; race conditions on
   reconnect logic.
 - **Break the public API**: tool rename, parameter schema change, or
-  resource URI change without a major-version bump per `cog.toml`.
+  resource URI change without a major-version bump.
 - **Open a TLS hole**: any code path that disables certificate
   verification, allows downgrade from STARTTLS, or accepts plaintext
   auth on non-loopback connections.
@@ -60,7 +60,7 @@ Report at most **five** 🟡 Nits per review. If you found more, say
 - Error responses do not embed raw credentials, OAuth tokens, or
   internal stack traces.
 - Public exports in `src/main.ts` / `src/server.ts` have not changed
-  shape without a corresponding `cog.toml` major bump entry.
+  shape without a major-version bump.
 
 ## Verification bar
 
