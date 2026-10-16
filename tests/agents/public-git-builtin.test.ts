@@ -14,24 +14,31 @@ import {
 afterEach(removeTmpDirs);
 
 describe('public git checker: built-in patterns', () => {
-  it('runs the checker without git or checker variables from the caller', () => {
-    vi.stubEnv('GIT_DIR', '/elsewhere');
-    vi.stubEnv('GIT_CONFIG_COUNT', '1');
-    vi.stubEnv('GIT_CONFIG_KEY_0', 'core.hooksPath');
-    vi.stubEnv('GIT_CONFIG_VALUE_0', '/elsewhere');
-    vi.stubEnv('GIT_CONFIG_SYSTEM', '/elsewhere');
-    vi.stubEnv('PUBLIC_GIT_EXTRA_FORBIDDEN', 'docs');
-    try {
-      const env = cleanEnv({});
-      const gitKeys = Object.keys(env)
-        .filter((key) => key.includes('GIT_'))
-        .sort();
-      expect(gitKeys).toEqual(['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM']);
-      expect(env.GIT_CONFIG_GLOBAL).toBe('/dev/null');
-      expect(scanFile(clean)).toEqual(passed);
-    } finally {
+  describe('with git and checker variables set by the caller', () => {
+    beforeEach(() => {
+      vi.stubEnv('GIT_DIR', '/elsewhere');
+      vi.stubEnv('GIT_CONFIG_COUNT', '1');
+      vi.stubEnv('GIT_CONFIG_KEY_0', 'core.hooksPath');
+      vi.stubEnv('GIT_CONFIG_VALUE_0', '/elsewhere');
+      vi.stubEnv('GIT_CONFIG_SYSTEM', '/elsewhere');
+      vi.stubEnv('PUBLIC_GIT_EXTRA_FORBIDDEN', 'docs');
+    });
+
+    afterEach(() => {
       vi.unstubAllEnvs();
-    }
+    });
+
+    it('drops them and turns off the global and system git config', () => {
+      const gitEntries = Object.entries(cleanEnv({})).filter(([key]) => key.includes('GIT_'));
+      expect(Object.fromEntries(gitEntries)).toEqual({
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        GIT_CONFIG_NOSYSTEM: '1',
+      });
+    });
+
+    it('runs the checker without them', () => {
+      expect(scanFile(clean)).toEqual(passed);
+    });
   });
 
   it('tracks the checker as executable for the agents that run it without bash', () => {
