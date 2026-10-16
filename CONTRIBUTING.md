@@ -78,13 +78,17 @@ test: add rate limiter unit tests
 Do not put file paths from your own machine or names of internal tools in the
 subject or body. Do not rewrite commits that are already on GitHub.
 
-Releases: `package.json` `version`, annotated tags `v*`, `CHANGELOG.md`
+Releases: `package.json` `version`, tags `v*`, `CHANGELOG.md`
 (cocogitto). First Mailoo release is **0.1.0**. `cog bump --auto` advances only
 the patch, `feat` commits included (`bump_patch` in `cog.toml`). Use `cog bump
 --minor` when you intentionally start a new minor line. The pre-bump hooks in
 `cog.toml` move the README Docker image tag to the new minor line and link the
 new `CHANGELOG.md` entry from the previous tag. Use
 `cog bump --auto` when you mean to cut a version — not for every docs PR.
+Run it on `develop`: it commits the version and pushes that commit as the branch
+`chore/v<version>`. Open a pull request from it and merge it with a merge
+commit, so the commit the tag names stays in `develop`'s history. Then push
+the tag with `git push origin v<version>`; the tag starts the publish.
 
 ## Project Structure
 

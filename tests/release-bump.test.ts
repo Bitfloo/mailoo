@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
+import { parse as parseTOML } from 'smol-toml';
+
 import { repoRoot as root } from './agents/agent-file.js';
 
 const execFileAsync = promisify(execFile);
@@ -17,10 +19,22 @@ function readmeImageTags(readme: string): string[] {
   return [...readme.matchAll(/ghcr\.io\/bitfloo\/mailoo:([\w.-]+)/g)].map((match) => match[1]);
 }
 
-function cogPreBumpHookLists(cog: string): string[][] {
-  return [...cog.matchAll(/^pre_bump_hooks = \[([\s\S]*?)\]$/gm)].map((list) =>
-    [...list[1].matchAll(/"([^"]*)"/g)].map((hook) => hook[1]),
-  );
+/** Every `key` list in cog.toml, at the root or in any table, such as a bump profile's. */
+function cogHookLists(cog: string, key: 'pre_bump_hooks' | 'post_bump_hooks'): unknown[] {
+  const lists: unknown[] = [];
+  const walk = (table: unknown): void => {
+    if (typeof table === 'object' && table !== null) {
+      for (const [name, value] of Object.entries(table)) {
+        if (name === key) {
+          lists.push(value);
+        } else {
+          walk(value);
+        }
+      }
+    }
+  };
+  walk(parseTOML(cog));
+  return lists;
 }
 
 /** Run the README stamp in a scratch dir holding `readme`; rejects on a non-zero exit. */
@@ -67,7 +81,7 @@ describe('release bump', () => {
   it('checks, builds and stamps the release before cog bumps it', async () => {
     // A minor bump would otherwise leave the README on the old line, and the pre-push tests would stop the release push.
     // One list: a bump profile's own hooks would replace these.
-    expect(cogPreBumpHookLists(await readFile(join(root, 'cog.toml'), 'utf8'))).toEqual([
+    expect(cogHookLists(await readFile(join(root, 'cog.toml'), 'utf8'), 'pre_bump_hooks')).toEqual([
       [
         'pnpm check',
         'pnpm build',
@@ -77,6 +91,33 @@ describe('release bump', () => {
         'bash scripts/tidy-changelog-entry.sh {{latest}} {{version}}',
         'git add package.json server.json README.md',
       ],
+    ]);
+  });
+
+  it('pushes the bump on its own branch and leaves the tag until the pull request is merged', async () => {
+    // develop takes changes only through a pull request, so cog's push of HEAD to it was declined at v0.2.1.
+    // The tag starts the publish, so it goes up only once develop holds the bump commit.
+    expect(cogHookLists(await readFile(join(root, 'cog.toml'), 'utf8'), 'post_bump_hooks')).toEqual(
+      [['git push origin HEAD:refs/heads/chore/v{{version}}']],
+    );
+  });
+
+  it('should find a hook list in any table of cog.toml', () => {
+    // The two pins above trust this to see a bump profile's list, which replaces the root one; cog.toml has none yet.
+    const cog = [
+      'post_bump_hooks = ["root"]',
+      'bump_profiles.dotted.post_bump_hooks = ["dotted"]',
+      'inline = { post_bump_hooks = ["inline"] }',
+      '[bump_profiles.hotfix]',
+      '  post_bump_hooks = [',
+      '    "indented",',
+      '  ] # note',
+    ].join('\n');
+    expect(cogHookLists(cog, 'post_bump_hooks')).toEqual([
+      ['root'],
+      ['dotted'],
+      ['indented'],
+      ['inline'],
     ]);
   });
 

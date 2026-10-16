@@ -40,9 +40,10 @@ pre_bump_hooks = [
     "git add package.json server.json README.md",
 ]
 
+# develop takes changes only through a pull request, so the bump commit goes up
+# on its own branch, and the tag waits for the merge (CONTRIBUTING.md, Releases).
 post_bump_hooks = [
-    "git push origin HEAD",
-    "git push origin v{{version}}",
+    "git push origin HEAD:refs/heads/chore/v{{version}}",
 ]
 
 # ------------------------------------------------------------------------------
