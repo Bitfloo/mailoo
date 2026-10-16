@@ -17,12 +17,10 @@ function readmeImageTags(readme: string): string[] {
   return [...readme.matchAll(/ghcr\.io\/bitfloo\/mailoo:([\w.-]+)/g)].map((match) => match[1]);
 }
 
-function cogPreBumpHooks(cog: string): string[] {
-  const list = cog.match(/^pre_bump_hooks = \[([\s\S]*?)\]$/m)?.[1];
-  if (list === undefined) {
-    throw new Error('cog.toml has no pre_bump_hooks');
-  }
-  return [...list.matchAll(/"([^"]*)"/g)].map((hook) => hook[1]);
+function cogPreBumpHookLists(cog: string): string[][] {
+  return [...cog.matchAll(/^pre_bump_hooks = \[([\s\S]*?)\]$/gm)].map((list) =>
+    [...list[1].matchAll(/"([^"]*)"/g)].map((hook) => hook[1]),
+  );
 }
 
 /** Run the README stamp in a scratch dir holding `readme`; rejects on a non-zero exit. */
@@ -68,14 +66,17 @@ describe('release bump', () => {
 
   it('checks, builds and stamps the release before cog bumps it', async () => {
     // A minor bump would otherwise leave the README on the old line, and the pre-push tests would stop the release push.
-    expect(cogPreBumpHooks(await readFile(join(root, 'cog.toml'), 'utf8'))).toEqual([
-      'pnpm check',
-      'pnpm build',
-      'npm pkg set version={{version}}',
-      'bash scripts/bump-server-json-version.sh {{version}}',
-      'bash scripts/bump-readme-image-tag.sh {{version}}',
-      'bash scripts/tidy-changelog-entry.sh {{latest}} {{version}}',
-      'git add package.json server.json README.md',
+    // One list: a bump profile's own hooks would replace these.
+    expect(cogPreBumpHookLists(await readFile(join(root, 'cog.toml'), 'utf8'))).toEqual([
+      [
+        'pnpm check',
+        'pnpm build',
+        'npm pkg set version={{version}}',
+        'bash scripts/bump-server-json-version.sh {{version}}',
+        'bash scripts/bump-readme-image-tag.sh {{version}}',
+        'bash scripts/tidy-changelog-entry.sh {{latest}} {{version}}',
+        'git add package.json server.json README.md',
+      ],
     ]);
   });
 
