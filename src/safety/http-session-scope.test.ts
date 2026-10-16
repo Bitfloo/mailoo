@@ -414,7 +414,7 @@ describe('HTTP session account state', () => {
         model: 'fast',
         role: 'assistant',
         content: { type: 'text', text: '[]' },
-      } as Awaited<ReturnType<Server['createMessage']>>;
+      };
     });
 
     const config = testConfig({
@@ -473,7 +473,7 @@ describe('HTTP session account state', () => {
         model: 'fast',
         role: 'assistant',
         content: { type: 'text', text: '[]' },
-      } as Awaited<ReturnType<Server['createMessage']>>;
+      };
     });
 
     const session = await startHost(
@@ -527,7 +527,7 @@ describe('HTTP session account state', () => {
         model: 'fast',
         role: 'assistant',
         content: { type: 'text', text: '[]' },
-      } as Awaited<ReturnType<Server['createMessage']>>;
+      };
     });
 
     const session = await startHost(

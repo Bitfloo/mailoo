@@ -475,7 +475,7 @@ export async function saveConfig(
   config: RawAppConfig,
   filePath: string = CONFIG_FILE,
 ): Promise<void> {
-  const toml = stringifyTOML(config as Record<string, unknown>);
+  const toml = stringifyTOML(config);
   await writeConfigFile(filePath, toml);
 }
 

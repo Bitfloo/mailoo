@@ -53,7 +53,7 @@ export function buildImapFlowOptions(
       ...tlsExtras,
       rejectUnauthorized: verifyCertificates,
     },
-  } as ConstructorParameters<typeof ImapFlow>[0];
+  };
 }
 
 export function bindImapLifecycle(

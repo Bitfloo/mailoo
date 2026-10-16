@@ -22,7 +22,7 @@ export type { ArrivalEmail } from './state.js';
 function noulValue(answers: Record<string, unknown>, id: string): number | undefined {
   const raw = answers[id];
   if (typeof raw !== 'object' || raw === null || !('noul' in raw)) return undefined;
-  const value = (raw as { noul: unknown }).noul;
+  const value = raw.noul;
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 

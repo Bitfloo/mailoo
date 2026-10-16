@@ -666,7 +666,7 @@ describe('overlapping queue checks', () => {
           (err: unknown) => err,
         );
       }
-      return original(file, data, options as { flag?: string });
+      return original(file, data, options);
     });
     try {
       const outcome = await checker.service.checkAndSend();
