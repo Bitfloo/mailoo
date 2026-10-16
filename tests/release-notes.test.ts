@@ -132,9 +132,13 @@ describe('release notes', () => {
     expect(dockerJob.indexOf('- name: Write release notes\n')).toBeGreaterThan(checkout);
   });
 
-  it('reads CHANGELOG.md from the commit the release was started on', () => {
+  it('should read CHANGELOG.md from a full, unconditional checkout of the release commit', () => {
     const checkout = dockerJob.slice(dockerJob.indexOf('- uses: actions/checkout@'));
-    expect(checkout.slice(0, checkout.indexOf('\n      - '))).not.toMatch(/^ +ref:/m);
+    // ref, repository, path or sparse-checkout would hand the step another CHANGELOG.md or none.
+    expect(checkout.slice(0, checkout.indexOf('\n      - ')).split('\n').slice(1)).toEqual([
+      '        with:',
+      '          fetch-depth: 0',
+    ]);
   });
 
   it.each([
