@@ -102,6 +102,23 @@ describe('published identity', () => {
     );
   });
 
+  it('describes the container images with the npm package description', async () => {
+    const files = ['Dockerfile', 'Dockerfile.alpine', '.goreleaser.yaml'];
+    const texts = await Promise.all(files.map(async (file) => readFile(join(root, file), 'utf8')));
+    const found = texts.flatMap((text, i) =>
+      [...text.matchAll(/org\.opencontainers\.image\.description[=:] ?"([^"]*)"/g)].map((match) => [
+        files[i],
+        match[1],
+      ]),
+    );
+    // .goreleaser.yaml sets it as a label and as an annotation on each of the two images.
+    expect(found).toEqual([
+      ['Dockerfile', pkg.description],
+      ['Dockerfile.alpine', pkg.description],
+      ...Array.from({ length: 4 }, () => ['.goreleaser.yaml', pkg.description]),
+    ]);
+  });
+
   it('keeps server.json bound to the published npm package', () => {
     expect(server.name).toBe(pkg.mcpName);
     expect(server.version).toBe(pkg.version);
