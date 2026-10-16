@@ -135,6 +135,15 @@ describe('release notes', () => {
     );
   });
 
+  it('should keep a blank line before the install lines when the section ends without one', () => {
+    // Without it the install line would continue the last bullet.
+    const bullet = 'e7d12dc01f1dd8690690dcced9a4fa767dbc11f6)) - Mike\n';
+    const changelog = swapOnce(changelogMd, `${bullet}\n- - -\n`, `${bullet}- - -\n`);
+    expect(releaseNotes({ ref: 'refs/tags/v0.2.0', changelog })).toContain(
+      `${bullet}\n**Install:**`,
+    );
+  });
+
   it('ends the release body with install commands for that version', () => {
     const notes = releaseNotes({ ref: 'refs/tags/v0.2.0' });
     expect(notes.trimEnd().split('\n').slice(-3)).toEqual([
