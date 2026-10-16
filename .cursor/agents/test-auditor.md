@@ -30,7 +30,7 @@ Bash is read-only plus the `package.json` runner. NEVER stage, commit, install, 
 
 ## Runner
 
-Unit: `pnpm test -- <file>`. Integration: `pnpm test:integration -- <file>` for `src/__integration__/` or `*.integration.test.ts`. Wrong lane → `ABORTED: integration path needs pnpm test:integration` or `ABORTED: unit path needs pnpm test --`. `mailoo test` is a CLI connection probe, not this runner. No browser automation. Auditing unit tests for IMAP/SMTP/watcher/scheduler/transport when `CLAUDE.md` requires integration → name integration lane UNAUDITED or C3 WARN in FINDINGS.
+Unit: `pnpm test <file>`. Integration: `pnpm test:integration <file>` for `src/__integration__/` or `*.integration.test.ts`. Wrong lane → `ABORTED: integration path needs pnpm test:integration` or `ABORTED: unit path needs pnpm test --`. `mailoo test` is a CLI connection probe, not this runner. No browser automation. Auditing unit tests for IMAP/SMTP/watcher/scheduler/transport when `CLAUDE.md` requires integration → name integration lane UNAUDITED or C3 WARN in FINDINGS.
 
 ## Rubric
 
@@ -82,14 +82,14 @@ When a Mailoo suite already exists and the question is whether it would fail on 
 <example>
   Context: test-smith just shipped a colocated unit file.
   user: "Check whether these tests really catch anything"
-  assistant: "test-auditor — fresh context, not the author. Mutate the named target, run `pnpm test -- <file>` per mutant, then C2 with the behaviour gone. Restore with inverse Edit and quote git diff --stat."
+  assistant: "test-auditor — fresh context, not the author. Mutate the named target, run `pnpm test <file>` per mutant, then C2 with the behaviour gone. Restore with inverse Edit and quote git diff --stat."
   <commentary>Doctrine rule 10: judgment is not made by the author.</commentary>
 </example>
 
 <example>
   Context: IMAP send path has a green integration file and prod-like bugs.
   user: "Audit src/__integration__/email-send.integration.test.ts"
-  assistant: "Integration lane: `pnpm test:integration -- <file>`. C1/C2 on the service slice that file claims, then C3 for IDLE/connection shape and C5 against real envelopes."
+  assistant: "Integration lane: `pnpm test:integration <file>`. C1/C2 on the service slice that file claims, then C3 for IDLE/connection shape and C5 against real envelopes."
   <commentary>The file path picks the runner. mailoo test is not used.</commentary>
 </example>
 

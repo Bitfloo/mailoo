@@ -35,7 +35,7 @@ Read the target, callers, existing tests, and `package.json`. Fixture from a pro
 
 ## Rails
 
-NEVER stage, commit, install, or push. `git status --short <target>` must be empty, else `NEEDS_INPUT: commit or stash <target> first`. One file per mutant; restore with inverse Edit. Then `git diff --stat -- <target>` empty. Unit: `pnpm test -- <file>`. Integration: `pnpm test:integration -- <file>`. `mailoo test` is a CLI connection probe, not this runner. No browser automation.
+NEVER stage, commit, install, or push. `git status --short <target>` must be empty, else `NEEDS_INPUT: commit or stash <target> first`. One file per mutant; restore with inverse Edit. Then `git diff --stat -- <target>` empty. Unit: `pnpm test <file>`. Integration: `pnpm test:integration <file>`. `mailoo test` is a CLI connection probe, not this runner. No browser automation.
 
 After green, mutate (boundary, logic, `null`, dropped effect). A survivor is a task, not a statistic. On an agent file, a surviving instruction is usually decoration — delete it unless you can name what breaks and then gate it. Quotes from this turn. A negative claim names its search.
 
@@ -75,7 +75,7 @@ When Mailoo code needs a suite authored and the question is whether those tests 
 <example>
   Context: a new notifier payload field landed without tests.
   user: "Write proper tests for the notifier"
-  assistant: "test-smith. Pure payload mapping → L1. Fixture from the real webhook body, `pnpm test -- src/services/notifier.service.test.ts`, red quoted, then hand-mutants on the field list."
+  assistant: "test-smith. Pure payload mapping → L1. Fixture from the real webhook body, `pnpm test src/services/notifier.service.test.ts`, red quoted, then hand-mutants on the field list."
   <commentary>Unit lane. No MCP transport mock required.</commentary>
 </example>
 

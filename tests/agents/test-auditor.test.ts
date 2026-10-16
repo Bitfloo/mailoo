@@ -102,8 +102,8 @@ describe('test-auditor L4 doctrine', () => {
   });
 
   it.each([
-    ['the unit runner', 'pnpm test -- <file>'],
-    ['the integration runner', 'pnpm test:integration -- <file>'],
+    ['the unit runner', 'pnpm test <file>'],
+    ['the integration runner', 'pnpm test:integration <file>'],
     ['the include list it reads first', 'vitest.config.integration.ts` `test.include`'],
     [
       'the wrong-lane abort for integration files',

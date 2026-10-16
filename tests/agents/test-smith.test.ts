@@ -97,8 +97,8 @@ describe('test-smith L4 doctrine', () => {
   });
 
   it.each([
-    ['the unit runner', 'pnpm test -- <file>'],
-    ['the integration runner', 'pnpm test:integration -- <file>'],
+    ['the unit runner', 'pnpm test <file>'],
+    ['the integration runner', 'pnpm test:integration <file>'],
     ['the CLI probe refusal', '`mailoo test` is a CLI connection probe, not this runner'],
     ['the runner source', 'package.json` (runner — never infer it)'],
     ['no browser automation', 'No browser automation'],

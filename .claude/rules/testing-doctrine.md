@@ -20,8 +20,8 @@ Read `package.json` before any runner command. The lanes are disjoint.
 
 | Lane | Files | Command | Notes |
 |---|---|---|---|
-| Unit | `vitest.config.ts` `test.include` | `pnpm test -- <file>` | Colocated next to the module. Services stay testable without mocking MCP transports (`CLAUDE.md`). |
-| Integration | `vitest.config.integration.ts` `test.include` | `pnpm test:integration -- <file>` | GreenMail: disposable **test IMAP/SMTP server** in Docker (not a database). Serial, one worker, longer timeouts. |
+| Unit | `vitest.config.ts` `test.include` | `pnpm test <file>` | Colocated next to the module. Services stay testable without mocking MCP transports (`CLAUDE.md`). |
+| Integration | `vitest.config.integration.ts` `test.include` | `pnpm test:integration <file>` | GreenMail: disposable **test IMAP/SMTP server** in Docker (not a database). Serial, one worker, longer timeouts. |
 
 `mailoo test` / `src/cli/test.ts` is a **CLI connection probe**, not either runner.
 
