@@ -213,7 +213,7 @@ describe('public git checker: private patterns', () => {
     expect(variable).toBeTruthy();
     const workflows = join(repoRoot, '.github/workflows');
     const jobs = readdirSync(workflows)
-      .filter((file) => file.endsWith('.yml'))
+      .filter((file) => /\.ya?ml$/.test(file))
       .flatMap((file) => jobSections(readFileSync(join(workflows, file), 'utf8')))
       .filter((job) => job.includes('check-public-git-log.sh'));
     expect(jobs.length).toBeGreaterThan(0);
