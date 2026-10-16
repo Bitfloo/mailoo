@@ -53,10 +53,6 @@ export function checkerBuiltinSource(): string {
   return match[1];
 }
 
-export function checkerBuiltinPattern(): RegExp {
-  return new RegExp(checkerBuiltinSource(), 'i');
-}
-
 export function triggerPhrases(description: string): string[] {
   const line = description.match(/^Trigger: (.+)$/m)?.[1] ?? '';
   return [...line.matchAll(/"([^"]+)"/g)].map((row) => row[1]);
@@ -67,7 +63,7 @@ export function exampleBlocks(text: string): string[] {
 }
 
 /** Public agent text is English: no Polish letters and no common Polish request words. */
-export const POLISH_TEXT = /[ąćęłńóśźż]|\b(testy|testów|napisz|sprawdź|sprawdz|oceń|ocen|czy)\b/i;
+export const POLISH_TEXT = /[ąćęłńóśźż]|\b(testy|napisz|sprawdz|ocen|czy)\b/i;
 
 export function exampleUserLines(text: string): string[] {
   return exampleBlocks(text).map((block) => block.match(/^\s*user: "([^"]+)"$/m)?.[1] ?? '');
@@ -146,7 +142,7 @@ export function agentFileContract(name: string, exampleCount: number): void {
 
   it('does not cite anything the public git checker forbids, or a home path', () => {
     for (const text of [claude, cursor]) {
-      expect(text).not.toMatch(checkerBuiltinPattern());
+      expect(text).not.toMatch(new RegExp(checkerBuiltinSource(), 'i'));
       expect(text).not.toMatch(/(^|[\s`("'])~\//m);
     }
   });
