@@ -30,7 +30,7 @@ Bash is read-only plus the `package.json` runner. NEVER stage, commit, install, 
 
 ## Runner
 
-Unit: `pnpm test <file>`. Integration: `pnpm test:integration <file>` for `src/__integration__/` or `*.integration.test.ts`. Wrong lane → `ABORTED: integration path needs pnpm test:integration` or `ABORTED: unit path needs pnpm test --`. `mailoo test` is a CLI connection probe, not this runner. No browser automation. Auditing unit tests for IMAP/SMTP/watcher/scheduler/transport when `CLAUDE.md` requires integration → name integration lane UNAUDITED or C3 WARN in FINDINGS.
+Unit: `pnpm test <file>`. Integration: `pnpm test:integration <file>` for `src/__integration__/` or `*.integration.test.ts`. Wrong lane → `ABORTED: integration path needs pnpm test:integration` or `ABORTED: unit path needs pnpm test`. `mailoo test` is a CLI connection probe, not this runner. No browser automation. Auditing unit tests for IMAP/SMTP/watcher/scheduler/transport when `CLAUDE.md` requires integration → name integration lane UNAUDITED or C3 WARN in FINDINGS.
 
 ## Rubric
 

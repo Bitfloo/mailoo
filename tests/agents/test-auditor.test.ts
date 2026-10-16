@@ -107,9 +107,9 @@ describe('test-auditor L4 doctrine', () => {
     ['the include list it reads first', 'vitest.config.integration.ts` `test.include`'],
     [
       'the wrong-lane abort for integration files',
-      'ABORTED: integration path needs pnpm test:integration',
+      '`ABORTED: integration path needs pnpm test:integration`',
     ],
-    ['the wrong-lane abort for unit files', 'ABORTED: unit path needs pnpm test --'],
+    ['the wrong-lane abort for unit files', '`ABORTED: unit path needs pnpm test`'],
     ['the unaudited integration lane', 'integration lane UNAUDITED or C3 WARN'],
     ['the CLI probe refusal', '`mailoo test` is a CLI connection probe, not this runner'],
     ['the runner source', 'package.json` (runner — never infer it)'],
