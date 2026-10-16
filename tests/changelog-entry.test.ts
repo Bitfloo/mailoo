@@ -41,6 +41,7 @@ describe('cog changelog entry', () => {
 
   it('should turn the entry cog wrote for v0.2.0 into the published one', () => {
     const published = changelogMd.match(/^## \[v0\.2\.0\].*$/m)?.[0] ?? '';
+    // cog repeated an author on a CI bullet, which the published entry omits, so the repeat goes on one that stays.
     const raw = swapOnce(
       swapOnce(
         swapOnce(changelogMd, published, cogHeading),
