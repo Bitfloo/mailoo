@@ -401,4 +401,12 @@ describe('dependabot groups', () => {
       development: onZero(manifest.devDependencies),
     });
   });
+
+  it('groups only minor and patch updates', () => {
+    // A major can break the API, so it gets its own pull request instead of holding back a group.
+    expect(groups.length).toBeGreaterThan(0);
+    expect(
+      groups.map(([name, block]) => [name, block.match(/^ {8}update-types: (.*)$/m)?.[1]]),
+    ).toEqual(groups.map(([name]) => [name, '[minor, patch]']));
+  });
 });
