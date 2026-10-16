@@ -16,9 +16,10 @@ subject/body** are world-readable. Write them as if a stranger clones today.
 
 `scripts/check-public-git-log.sh` owns the generic regex (commit-msg hook).
 Maintainers keep private patterns out of the repo: one extended regex per
-line in `.git/info/public-git-denylist` (shared by all worktrees; each line is
-used verbatim, spaces included; blank lines and `#` comments are skipped), and the `PUBLIC_GIT_EXTRA_FORBIDDEN`
-repository secret for CI (a variable would print in the public run log). A malformed pattern fails the check. Categories:
+line in `.git/info/public-git-denylist` (shared by all worktrees; the script
+header gives the line format), and the `PUBLIC_GIT_EXTRA_FORBIDDEN`
+repository secret for CI (a variable would print in the public run log).
+A malformed pattern fails the check. Categories:
 
 - Operator machine paths and knowledge-tree names
 - Plugin dispatch names
