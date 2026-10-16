@@ -103,26 +103,35 @@ describe('published identity', () => {
   });
 
   it('describes the container images with the npm package description', async () => {
-    const files = ['Dockerfile', 'Dockerfile.alpine', '.goreleaser.yaml'];
-    const texts = await Promise.all(files.map(async (file) => readFile(join(root, file), 'utf8')));
     // A commented-out label is not on the image.
-    const live = texts.map((text) =>
-      text
+    const live = async (file: string) =>
+      (await readFile(join(root, file), 'utf8'))
         .split('\n')
         .filter((line) => !line.trim().startsWith('#'))
-        .join('\n'),
-    );
-    const found = live.flatMap((text, i) =>
+        .join('\n');
+    const descriptions = (where: string, text: string) =>
       [...text.matchAll(/org\.opencontainers\.image\.description[=:] ?"([^"]*)"/g)].map((match) => [
-        files[i],
+        where,
         match[1],
-      ]),
+      ]);
+    // Only the last stage of a Dockerfile is the published image.
+    const dockerfiles = await Promise.all(
+      ['Dockerfile', 'Dockerfile.alpine'].map(async (file) => {
+        const text = await live(file);
+        return descriptions(file, text.slice(text.lastIndexOf('\nFROM ')));
+      }),
     );
+    const goreleaser = [
+      ...(await live('.goreleaser.yaml')).matchAll(/^ {4}(labels|annotations):\n((?: {6}.*\n)+)/gm),
+    ].flatMap((block) => descriptions(block[1], block[2]));
     // .goreleaser.yaml sets it as a label and as an annotation on each of the two images.
-    expect(found).toEqual([
+    expect([...dockerfiles.flat(), ...goreleaser]).toEqual([
       ['Dockerfile', pkg.description],
       ['Dockerfile.alpine', pkg.description],
-      ...Array.from({ length: 4 }, () => ['.goreleaser.yaml', pkg.description]),
+      ['labels', pkg.description],
+      ['annotations', pkg.description],
+      ['labels', pkg.description],
+      ['annotations', pkg.description],
     ]);
   });
 
