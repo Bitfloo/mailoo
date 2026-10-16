@@ -74,6 +74,13 @@ function readmeImageTags(readme: string): string[] {
   return [...readme.matchAll(/ghcr\.io\/bitfloo\/mailoo:([\w.-]+)/g)].map((match) => match[1]);
 }
 
+/** Each `pre_bump_hooks` array in cog.toml, in file order: the top level, then every bump profile. */
+function cogPreBumpHooks(cog: string): string[][] {
+  return [...cog.matchAll(/^pre_bump_hooks = \[([\s\S]*?)\]$/gm)].map((match) =>
+    [...match[1].matchAll(/"([^"]*)"/g)].map((hook) => hook[1]),
+  );
+}
+
 /** Run the README stamp in a scratch dir holding `readme`; rejects on a non-zero exit. */
 async function stampReadme(readme: string, version: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'mailoo-readme-tag-'));
@@ -211,9 +218,7 @@ describe('published identity', () => {
   it('runs the same release stamps in every cog bump profile', async () => {
     // A minor bump would otherwise leave the README on the old line, and the pre-push tests would stop the release push.
     const cog = await readFile(join(root, 'cog.toml'), 'utf8');
-    const profiles = [...cog.matchAll(/^pre_bump_hooks = \[([\s\S]*?)\]$/gm)].map((match) =>
-      [...match[1].matchAll(/"([^"]*)"/g)].map((hook) => hook[1]),
-    );
+    const profiles = cogPreBumpHooks(cog);
     const stamps = [
       'npm pkg set version={{version}}',
       'bash scripts/bump-server-json-version.sh {{version}}',
@@ -225,6 +230,11 @@ describe('published identity', () => {
     expect(profiles.map((hooks) => hooks.slice(hooks.indexOf(stamps[0])))).toEqual(
       Array.from({ length: profileCount }, () => stamps),
     );
+  });
+
+  it('runs pnpm check first in every cog bump profile', async () => {
+    const profiles = cogPreBumpHooks(await readFile(join(root, 'cog.toml'), 'utf8'));
+    expect(profiles.map((hooks) => hooks[0])).toEqual(profiles.map(() => 'pnpm check'));
   });
 
   describe('when the README image tag is stamped for a release', () => {
@@ -253,6 +263,17 @@ describe('published identity', () => {
             '`X.Y` tag follows the newest X.Y.x',
           );
       expect(mask(stamped)).toBe(mask(readme));
+    });
+
+    it('should take a release whose minor has two digits', async () => {
+      const tags = readmeImageTags(await stampReadme(readme, '0.10.0'));
+      expect(tags).toEqual(readmeImageTags(readme).map(() => '0.10'));
+    });
+
+    it('should move a README on a two-digit minor line to the next one', async () => {
+      const line = (minor: string) =>
+        `docker pull ghcr.io/bitfloo/mailoo:${minor}\nThe \`${minor}\` tag follows the newest ${minor}.x release.\n`;
+      await expect(stampReadme(line('0.10'), '0.11.0')).resolves.toBe(line('0.11'));
     });
 
     it.each([

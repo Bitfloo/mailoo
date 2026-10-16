@@ -33,9 +33,13 @@ describe('cog changelog entry', () => {
   it('should turn the entry cog wrote for v0.2.0 into the published one', () => {
     const published = changelogMd.match(/^## \[v0\.2\.0\].*$/m)?.[0] ?? '';
     const raw = swapOnce(
-      swapOnce(changelogMd, published, cogHeading),
-      ' - Mike, michal, Cursor Agent\n',
-      ` - ${cogAuthors}\n`,
+      swapOnce(
+        swapOnce(changelogMd, published, cogHeading),
+        ' - Mike, michal, Cursor Agent\n',
+        ` - ${cogAuthors}\n`,
+      ),
+      'e7d12dc01f1dd8690690dcced9a4fa767dbc11f6)) - Mike\n',
+      'e7d12dc01f1dd8690690dcced9a4fa767dbc11f6)) - Mike, Mike\n',
     );
     expect(tidy(raw, '0.1.8', '0.2.0')).toBe(changelogMd);
   });
@@ -54,6 +58,15 @@ describe('cog changelog entry', () => {
     const mailoo = changelogMd.slice(0, changelogMd.indexOf('\n## Upstream history'));
     const titles = [...mailoo.matchAll(/^#### (.+)$/gm)].map((match) => match[1]);
     expect(titles.filter((title) => omitted.includes(title))).toEqual([]);
+  });
+
+  it('does not tidy a newer entry whose version starts with the same digits', () => {
+    const raw = swapOnce(
+      swapOnce(changelogMd, '\n## [v0.2.0](', '\n## [v0.1.10]('),
+      ' - Mike, michal, Cursor Agent\n',
+      ' - Mike, Mike, michal, Cursor Agent\n',
+    );
+    expect(tidy(raw, '0.1.0', '0.1.1')).toBe(raw);
   });
 
   it('should leave the other entries as they are', () => {

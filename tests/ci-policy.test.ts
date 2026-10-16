@@ -287,18 +287,24 @@ describe('release supply chain', () => {
     expect(releaseStep(releaseYml, 'Write release notes')).toContain(
       'notes="$RUNNER_TEMP/release-notes.md"',
     );
-    expect(releaseStep(releaseYml, 'Run GoReleaser')).toContain(
-      // biome-ignore lint/suspicious/noTemplateCurlyInString: intentional — a GitHub Actions expression, not a JS template
-      'args: release --clean --release-notes=${{ runner.temp }}/release-notes.md',
+    expect(releaseStep(releaseYml, 'Run GoReleaser')).toMatch(
+      /^ +args: release --clean --release-notes=\$\{\{ runner\.temp \}\}\/release-notes\.md$/m,
     );
   });
 
+  const dockerJob =
+    jobSections(releaseYml).find((job) => job.includes('goreleaser/goreleaser-action@')) ?? '';
+
+  it('checks out the repository before it reads CHANGELOG.md', () => {
+    const checkout = dockerJob.indexOf('- uses: actions/checkout@');
+    expect(checkout).toBeGreaterThanOrEqual(0);
+    expect(dockerJob.indexOf('- name: Write release notes\n')).toBeGreaterThan(checkout);
+  });
+
   it('writes the release notes before GoReleaser reads them', () => {
-    const docker =
-      jobSections(releaseYml).find((job) => job.includes('goreleaser/goreleaser-action@')) ?? '';
-    const written = docker.indexOf('- name: Write release notes\n');
+    const written = dockerJob.indexOf('- name: Write release notes\n');
     expect(written).toBeGreaterThanOrEqual(0);
-    expect(docker.indexOf('- name: Run GoReleaser\n')).toBeGreaterThan(written);
+    expect(dockerJob.indexOf('- name: Run GoReleaser\n')).toBeGreaterThan(written);
   });
 });
 
