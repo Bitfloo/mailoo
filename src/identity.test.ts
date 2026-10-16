@@ -299,8 +299,9 @@ describe('published identity', () => {
       '1.4x2',
       '1.4.2x',
       '1.4.',
+      '1.4.2-rc.1',
     ])('should refuse %s as a release version', async (version) => {
-      await expect(stampReadme(readme, version)).rejects.toThrow(/not a semver version/);
+      await expect(stampReadme(readme, version)).rejects.toThrow(/not a release version/);
     });
   });
 
