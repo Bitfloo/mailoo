@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fail if a commit message would leak operator/plugin internals on public GitHub.
 # Rubric: .claude/rules/public-git.md
-# Exit 0 = clean, 1 = forbidden token, 2 = usage error or invalid extra pattern.
+# Exit 0 = clean, 1 = forbidden token, 2 = usage, config or I/O error.
 set -euo pipefail
 
 usage() {
