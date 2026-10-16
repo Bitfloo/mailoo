@@ -29,7 +29,7 @@ LGPL-3.0-or-later (see [LICENSE](LICENSE) and [COPYING](COPYING)).
 ### Prerequisites
 
 - **Node.js** >= 24.0.0
-- **pnpm** 9 (see `packageManager` in `package.json`)
+- **pnpm** 10 (see `packageManager` in `package.json`)
 
 ### Commands
 

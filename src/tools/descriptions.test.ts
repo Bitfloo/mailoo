@@ -57,7 +57,7 @@ function parameterNames(schema: unknown): Set<string> {
   walkSchema(schema, (node) => {
     const { properties } = node;
     if (properties === null || typeof properties !== 'object') return;
-    for (const key of Object.keys(properties as Record<string, unknown>)) names.add(key);
+    for (const key of Object.keys(properties)) names.add(key);
   });
   return names;
 }

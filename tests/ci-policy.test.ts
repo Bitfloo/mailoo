@@ -132,6 +132,20 @@ describe('release supply chain', () => {
     expect(shrink.packages['node_modules/pnpm']?.integrity).toMatch(/^sha512-/);
   });
 
+  it('prepares the packageManager pnpm in the alpine image and the Cursor install', () => {
+    const root = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
+      packageManager: string;
+    };
+    const pins = ['Dockerfile.alpine', '.cursor/environment.json'].map((file) => [
+      file,
+      readFileSync(join(repoRoot, file), 'utf8').match(/corepack prepare (pnpm@\S+)/)?.[1],
+    ]);
+    expect(pins).toEqual([
+      ['Dockerfile.alpine', root.packageManager],
+      ['.cursor/environment.json', root.packageManager],
+    ]);
+  });
+
   it('pins the mcp-publisher archive hash in the install step', () => {
     const step = releaseStep(releaseYml, 'Install mcp-publisher');
     expect(step).not.toContain('releases/latest');
