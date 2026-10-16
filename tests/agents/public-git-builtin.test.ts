@@ -84,6 +84,12 @@ describe('public git checker: built-in patterns', () => {
     ['a session link with another separator', 'docs: see claude-ai/code/session_0123abc\n'],
     ['an agent name with an empty prefix', 'docs: run :test-smith and :push-gate\n'],
     ['an agent name without a colon', 'docs: run acme test-auditor\n'],
+    ['a hyphenated project agent name', 'docs: run oss-push-gate before pushing\n'],
+    ['a link to the product page', 'docs: see https://claude.ai/code\n'],
+    [
+      'a link that only starts like a session path',
+      'docs: see https://claude.ai/code/sessions-guide\n',
+    ],
   ])('accepts %s', (_name, body) => {
     expect(scanFile(body)).toEqual(passed);
   });
