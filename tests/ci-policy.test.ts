@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
+import { jobSections, releaseStep, releaseSteps, releaseYml } from './workflow-yaml.js';
 
 const ciYml = readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8');
 const dockerSha = readFileSync(join(repoRoot, '.github/workflows/docker-sha.yml'), 'utf8');
@@ -42,29 +43,6 @@ describe('CI spend policy', () => {
     expect(claude).toContain('include-unit');
   });
 });
-
-const releaseYml = readFileSync(join(repoRoot, '.github/workflows/release.yml'), 'utf8');
-
-/** Comment lines are stripped so a workflow comment mentioning a forbidden string does not trip the content assertions. */
-function releaseSteps(yaml: string): string {
-  return yaml
-    .split('\n')
-    .filter((line) => !line.trim().startsWith('#'))
-    .join('\n');
-}
-
-/** Isolate one step so a hash elsewhere cannot satisfy the install check. */
-function releaseStep(yaml: string, name: string): string {
-  const steps = releaseSteps(yaml);
-  const marker = `- name: ${name}\n`;
-  const start = steps.indexOf(marker);
-  if (start < 0) {
-    throw new Error(`missing step ${name}`);
-  }
-  const rest = steps.slice(start);
-  const next = rest.indexOf('\n      - ', marker.length);
-  return next < 0 ? rest : rest.slice(0, next);
-}
 
 /** The workflow's grep -F operand is the only copy of the npm retry sentence. */
 function npmRetryMarker(step: string): string {
@@ -212,15 +190,6 @@ function topLevelPermissions(yaml: string): string {
     throw new Error('missing top-level permissions');
   }
   return match[0];
-}
-
-/** One chunk per job so a token can be required on the scorecard job only. */
-function jobSections(yaml: string): string[] {
-  const parts = yaml.split(/^jobs:\n/m);
-  if (parts.length < 2) {
-    throw new Error('missing jobs');
-  }
-  return parts[1].split(/\n(?= {2}[a-zA-Z0-9_-]+:\n)/);
 }
 
 function weeklyCron(yaml: string): string[] {
