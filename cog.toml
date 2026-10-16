@@ -79,22 +79,3 @@ repository = "mailoo"
 authors = [
     { signature = "58808821+codefuturist@users.noreply.github.com", username = "codefuturist" },
 ]
-
-# ------------------------------------------------------------------------------
-# Bump Profiles
-# ------------------------------------------------------------------------------
-[bump_profiles]
-
-[bump_profiles.release]
-pre_bump_hooks = ["pnpm check", "pnpm build", "npm pkg set version={{version}}", "bash scripts/bump-server-json-version.sh {{version}}", "bash scripts/bump-readme-image-tag.sh {{version}}", "bash scripts/tidy-changelog-entry.sh {{latest}} {{version}}", "git add package.json server.json README.md"]
-post_bump_hooks = [
-    "git push origin HEAD",
-    "git push origin v{{version}}",
-]
-
-[bump_profiles.hotfix]
-pre_bump_hooks = ["pnpm check", "npm pkg set version={{version}}", "bash scripts/bump-server-json-version.sh {{version}}", "bash scripts/bump-readme-image-tag.sh {{version}}", "bash scripts/tidy-changelog-entry.sh {{latest}} {{version}}", "git add package.json server.json README.md"]
-post_bump_hooks = [
-    "git push origin HEAD",
-    "git push origin v{{version}}",
-]

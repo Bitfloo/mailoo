@@ -17,11 +17,12 @@ function readmeImageTags(readme: string): string[] {
   return [...readme.matchAll(/ghcr\.io\/bitfloo\/mailoo:([\w.-]+)/g)].map((match) => match[1]);
 }
 
-/** Each `pre_bump_hooks` array in cog.toml, in file order: the top level, then every bump profile. */
-function cogPreBumpHooks(cog: string): string[][] {
-  return [...cog.matchAll(/^pre_bump_hooks = \[([\s\S]*?)\]$/gm)].map((match) =>
-    [...match[1].matchAll(/"([^"]*)"/g)].map((hook) => hook[1]),
-  );
+function cogPreBumpHooks(cog: string): string[] {
+  const list = cog.match(/^pre_bump_hooks = \[([\s\S]*?)\]$/m)?.[1];
+  if (list === undefined) {
+    throw new Error('cog.toml has no pre_bump_hooks');
+  }
+  return [...list.matchAll(/"([^"]*)"/g)].map((hook) => hook[1]);
 }
 
 /** Run the README stamp in a scratch dir holding `readme`; rejects on a non-zero exit. */
@@ -65,21 +66,17 @@ describe('release bump', () => {
     expect(readme).toContain(`The \`${line}\` tag follows the newest ${line}.x release.`);
   });
 
-  it('runs the same release stamps in every cog bump profile', async () => {
+  it('checks, builds and stamps the release before cog bumps it', async () => {
     // A minor bump would otherwise leave the README on the old line, and the pre-push tests would stop the release push.
-    const cog = await readFile(join(root, 'cog.toml'), 'utf8');
-    const profiles = cogPreBumpHooks(cog);
-    const stamps = [
+    expect(cogPreBumpHooks(await readFile(join(root, 'cog.toml'), 'utf8'))).toEqual([
+      'pnpm check',
+      'pnpm build',
       'npm pkg set version={{version}}',
       'bash scripts/bump-server-json-version.sh {{version}}',
       'bash scripts/bump-readme-image-tag.sh {{version}}',
       'bash scripts/tidy-changelog-entry.sh {{latest}} {{version}}',
       'git add package.json server.json README.md',
-    ];
-    const profileCount = 1 + (cog.match(/^\[bump_profiles\.[\w-]+\]$/gm)?.length ?? 0);
-    expect(profiles.map((hooks) => hooks.slice(hooks.indexOf(stamps[0])))).toEqual(
-      Array.from({ length: profileCount }, () => stamps),
-    );
+    ]);
   });
 
   it('should bump only the patch for a feature commit', async () => {
@@ -87,11 +84,6 @@ describe('release bump', () => {
     const cog = await readFile(join(root, 'cog.toml'), 'utf8');
     const types = [...cog.matchAll(/^(\w+) = \{[^}]*\bbump_patch = true\b[^}]*\}$/gm)];
     expect(types.map((match) => match[1])).toEqual(['feat']);
-  });
-
-  it('runs pnpm check first in every cog bump profile', async () => {
-    const profiles = cogPreBumpHooks(await readFile(join(root, 'cog.toml'), 'utf8'));
-    expect(profiles.map((hooks) => hooks[0])).toEqual(profiles.map(() => 'pnpm check'));
   });
 
   describe('when the README image tag is stamped for a release', () => {
