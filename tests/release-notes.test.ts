@@ -158,10 +158,12 @@ describe('release notes', () => {
     expect(releaseStep(releaseYml, name)).not.toMatch(/^ +(?:if|continue-on-error):/m);
   });
 
-  it('writes the release notes before GoReleaser reads them', () => {
-    const written = dockerJob.indexOf('- name: Write release notes\n');
-    expect(written).toBeGreaterThanOrEqual(0);
-    expect(dockerJob.indexOf('- name: Run GoReleaser\n')).toBeGreaterThan(written);
+  it('should write the release notes right before GoReleaser reads them', () => {
+    // A step in between could rewrite the file GoReleaser publishes as the release body.
+    const written = releaseStep(releaseYml, 'Write release notes');
+    expect(dockerJob.slice(dockerJob.indexOf(written) + written.length)).toMatch(
+      /^\n {6}- name: Run GoReleaser\n/,
+    );
   });
 
   it('should run the release-notes step with the default shell in the checkout root', () => {
