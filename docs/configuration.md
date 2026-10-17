@@ -168,12 +168,19 @@ Inside a container, loopback is the container's own loopback. Publishing the por
 | `MCP_EMAIL_HTTP_TOKEN` | unset | Bearer token. Required when the listen address is not loopback or `MCP_EMAIL_HTTP_ALLOWED_HOSTS` lists a non-loopback name. |
 | `MCP_EMAIL_HTTP_ALLOWED_HOSTS` | listen address, or the loopback names | Required for `0.0.0.0` and `::`. Names or `host:port`. |
 
-## Stdio shutdown
+## Shutdown
 
 In `stdio` mode the process listens for stdin `end` / `close` (client
-EOF) and then stops hooks, watcher, IMAP/SMTP, and the MCP server. It
-does not attach a stdin `data` listener (that would steal protocol
-bytes from the SDK).
+EOF) and then stops the scheduler, hooks, watcher, IMAP/SMTP, and the
+MCP server. It does not attach a stdin `data` listener (that would
+steal protocol bytes from the SDK).
+
+`SIGINT`, `SIGTERM` and (in `stdio` mode) `SIGHUP` run the same steps;
+in `http` mode they close the sessions, IMAP/SMTP and the listeners.
+A failing step is logged to stderr and the next one still runs. If the
+steps have not finished within 10 seconds, for example because a server
+stopped answering a logout, the process names the step on stderr and
+exits with status 1.
 
 ## Extra environment variables
 

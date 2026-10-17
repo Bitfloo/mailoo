@@ -25,6 +25,7 @@ import {
   startGuardedHttpServers,
 } from './safety/http-transport.js';
 import RateLimiter from './safety/rate-limiter.js';
+import createShutdown from './safety/shutdown.js';
 import attachStdioShutdown from './safety/stdio-lifecycle.js';
 import { maybeStartMailboxWriters } from './safety/write-side-effects.js';
 import createServer, { PKG_VERSION } from './server.js';
@@ -82,6 +83,14 @@ Examples:
   mailoo notify test              # Send a test notification
   mailoo notify status            # Check notification platform support
 `.trim();
+
+function exitProcess(code: number): void {
+  process.exit(code); // eslint-disable-line n/no-process-exit -- open IMAP handles would otherwise pin the event loop
+}
+
+function reportToStderr(message: string): void {
+  process.stderr.write(`[mailoo] ${message}\n`);
+}
 
 async function runServer(): Promise<void> {
   const config = await loadConfig();
@@ -197,18 +206,16 @@ async function runServer(): Promise<void> {
     })();
   };
 
-  // Graceful shutdown
-  let shuttingDown = false;
-  const shutdown = async () => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    stopScheduler?.();
-    hooksService.stop();
-    await watcherService.stop();
-    await connections.closeAll();
-    await server.close();
-    process.exit(0); // eslint-disable-line n/no-process-exit -- stdio EOF must terminate; IMAP handles would pin the loop
-  };
+  const shutdown = createShutdown(
+    [
+      ['scheduler', () => stopScheduler?.()],
+      ['hooks', () => hooksService.stop()],
+      ['watcher', async () => watcherService.stop()],
+      ['connections', async () => connections.closeAll()],
+      ['server', async () => server.close()],
+    ],
+    { exit: exitProcess, report: reportToStderr },
+  );
 
   attachStdioShutdown(process.stdin, shutdown);
   process.on('SIGINT', shutdown);
@@ -243,11 +250,14 @@ async function runHttpServer(policy: ReturnType<typeof readHttpLaunchOptions>): 
   const listener = await startGuardedHttpServers(policy, host.handle);
   process.stderr.write(`${formatHttpListenLines(listener.addresses)}\n`);
 
-  const shutdown = async () => {
-    await host.close();
-    await connections.closeAll();
-    await listener.close();
-  };
+  const shutdown = createShutdown(
+    [
+      ['host', async () => host.close()],
+      ['connections', async () => connections.closeAll()],
+      ['listener', async () => listener.close()],
+    ],
+    { exit: exitProcess, report: reportToStderr },
+  );
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
