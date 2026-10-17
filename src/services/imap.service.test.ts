@@ -110,17 +110,18 @@ function rejectCommandsDuringFetch(
     commands[name] = guard(name, commands[name]);
   });
   // Only the rows in the requested UID set, as UID FETCH returns them.
-  client.fetch.mockImplementation((range: unknown) =>
-    (async function* openFetch() {
-      const uids = new Set(String(range).split(',').map(Number));
+  client.fetch.mockImplementation((range: unknown) => {
+    const uids = new Set(String(range).split(',').map(Number));
+    async function* openFetch() {
       fetchOpen = true;
       try {
         yield* rows.filter((row) => uids.has(row.uid as number));
       } finally {
         fetchOpen = false;
       }
-    }()),
-  );
+    }
+    return openFetch();
+  });
   // imapflow's fetchAll drains fetch and returns the rows after the FETCH completes.
   commands.fetchAll = guard('fetchAll', async (...args: unknown[]) => {
     const collected: unknown[] = [];
