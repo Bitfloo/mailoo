@@ -3,6 +3,19 @@ import path from 'node:path';
 import { useConfigSandbox, writeOwnerOnly } from '../test-support/config-sandbox.js';
 import type { AppConfig } from '../types/index.js';
 import { loadConfig } from './loader.js';
+import { ImapConfigSchema, SettingsSchema, SmtpConfigSchema } from './schema.js';
+
+/** snake_case keys renamed to camelCase at every depth, the shape AppConfig uses. */
+function camelKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(camelKeys);
+  if (value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, inner]) => [
+      key.replace(/_([a-z0-9])/g, (_match, letter: string) => letter.toUpperCase()),
+      camelKeys(inner),
+    ]),
+  );
+}
 
 // Defaults were written out in the schema, again in the env loader and
 // again in normalization; one copy drifting changed behaviour by source.
@@ -46,7 +59,9 @@ host = "smtp.example.com"
     expect(fromEnv).toEqual(fromFile);
   });
 
-  it('should apply every schema default when the TOML file has only an account', async () => {
+  // The values are pinned in schema.test.ts and loader.test.ts; this checks
+  // only that the loader carries every one through under its camelCase name.
+  it('should carry every schema default into the config when the TOML file has only an account', async () => {
     const configPath = path.join(sandbox.dir, 'config.toml');
     await writeOwnerOnly(configPath, TOML_ACCOUNT);
 
@@ -56,70 +71,13 @@ host = "smtp.example.com"
       settings: config.settings,
       imap: config.accounts[0].imap,
       smtp: config.accounts[0].smtp,
-    }).toEqual({
-      settings: {
-        rateLimit: 10,
-        readOnly: false,
-        saveToSent: true,
-        watcher: { enabled: false, folders: ['INBOX'], idleTimeout: 1740 },
-        systemOne: {
-          enabled: false,
-          model: 'jev-latest',
-          includeBody: false,
-          bodyMaxChars: 6000,
-          autoMove: false,
-          autoFlag: false,
-          folders: [],
-          sourceFolders: ['INBOX'],
-          thresholds: {
-            folderFitMin: 0.85,
-            spamHigh: 0.72,
-            spamUncertainLow: 0.4,
-            spamUncertainHigh: 0.6,
-            injectionHigh: 0.75,
-            importanceFlagMin: 3,
-            importanceMinConfidence: 0.7,
-            isCriticalMin: 0.85,
-          },
-        },
-        hooks: {
-          onNewEmail: 'notify',
-          preset: 'priority-focus',
-          autoLabel: false,
-          autoFlag: false,
-          batchDelay: 5,
-          rules: [],
-          alerts: {
-            desktop: false,
-            sound: false,
-            urgencyThreshold: 'high',
-            webhookUrl: '',
-            webhookEvents: ['urgent', 'high'],
-            allowPrivateWebhooks: false,
-          },
-          autoCalendar: false,
-          calendarName: '',
-          calendarAlarmMinutes: 15,
-          calendarConfirm: true,
-        },
-      },
-      imap: {
-        host: 'imap.example.com',
-        port: 993,
-        tls: true,
-        starttls: false,
-        verifySsl: true,
-        disableImap4rev2: false,
-      },
-      smtp: {
-        host: 'smtp.example.com',
-        port: 465,
-        tls: true,
-        starttls: false,
-        verifySsl: true,
-        pool: { enabled: true, maxConnections: 1, maxMessages: 100 },
-      },
-    });
+    }).toEqual(
+      camelKeys({
+        settings: SettingsSchema.parse({}),
+        imap: ImapConfigSchema.parse({ host: 'imap.example.com' }),
+        smtp: SmtpConfigSchema.parse({ host: 'smtp.example.com' }),
+      }),
+    );
   });
 
   it('should carry each MCP_EMAIL_* setting through when it is set', async () => {
