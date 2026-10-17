@@ -1,7 +1,6 @@
 import type HooksService from '../services/hooks.service.js';
 import NotifierService from '../services/notifier.service.js';
-import type WatcherService from '../services/watcher.service.js';
-import registerWatcherTools from './watcher.tool.js';
+import { registerWatcherWriteTools } from './watcher.tool.js';
 
 const { loadRawConfig, saveConfig } = vi.hoisted(() => ({
   loadRawConfig: vi.fn(),
@@ -34,9 +33,8 @@ function captureConfigureAlerts(notifier: NotifierService): Handler {
       if (name === 'configure_alerts') handler = fn;
     },
   };
-  registerWatcherTools(
+  registerWatcherWriteTools(
     server as never,
-    {} as WatcherService,
     {
       getHooksConfig: () => hooksConfig,
       getNotifier: () => notifier,

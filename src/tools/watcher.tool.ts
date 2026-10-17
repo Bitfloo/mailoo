@@ -434,12 +434,3 @@ export function registerWatcherWriteTools(server: McpServer, hooksService: Hooks
     },
   );
 }
-
-export default function registerWatcherTools(
-  server: McpServer,
-  watcherService: WatcherService,
-  hooksService: HooksService,
-): void {
-  registerWatcherReadTools(server, watcherService, hooksService);
-  registerWatcherWriteTools(server, hooksService);
-}
