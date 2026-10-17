@@ -209,6 +209,24 @@ describe('HTTP session ids the host does not hold', () => {
   });
 });
 
+// The host parses a POST body before it routes; a body that is not JSON gets
+// the JSON-RPC parse error, not the generic 400 for a missing session id.
+describe('HTTP request bodies', () => {
+  it('should answer 400 with JSON-RPC error -32700 when the POST body is not JSON', async () => {
+    const running = await startHost({ now: 1_000 }, 5_000);
+    try {
+      const response = await postRpc(running.port, '{not json');
+
+      expect({ status: response.status, body: JSON.parse(response.body) }).toEqual({
+        status: 400,
+        body: { jsonrpc: '2.0', error: { code: -32700, message: 'Parse error' }, id: null },
+      });
+    } finally {
+      await running.stop();
+    }
+  });
+});
+
 // A session dispose that rejected had no handler until host.close(). Node ends
 // the process on an unhandled rejection, so one failed cleanup dropped every
 // session.
