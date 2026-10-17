@@ -322,8 +322,8 @@ describe('SmtpService', () => {
     it.each([
       'gmail.com.evil.example',
       'notgmail.com',
-      'gmail.com.attacker.com',
-      'smtp.gmail.com.attacker.com',
+      'gmail.com.attacker.test',
+      'smtp.gmail.com.attacker.test',
       'gmail.comfoo',
       'xgmail.com',
       '.gmail.com',
@@ -333,8 +333,8 @@ describe('SmtpService', () => {
       '',
       '192.0.2.1',
       '[2001:db8::1]',
-      'user:pass@gmail.com',
-      'notgmail.com@gmail.com',
+      'gmail.com@example.test',
+      '@gmail.com',
       'gm\u0430il.com',
     ])('still appends Sent when the SMTP host only contains %s', async (host) => {
       connections.getAccount.mockReturnValue(accountWithSmtp(host));
