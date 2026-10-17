@@ -1,7 +1,11 @@
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { TestServices } from './helpers/index.js';
 import {
   buildTestAccount,
   createTestServices,
+  seedEmail,
   seedEmailWithAttachment,
   TEST_ACCOUNT_NAME,
   waitForDelivery,
@@ -9,6 +13,18 @@ import {
 
 describe('Advanced Email Operations', () => {
   let services: TestServices;
+
+  /** Seed one message with these attachments and return its UID. */
+  async function seedAndFind(
+    subject: string,
+    attachments: { filename: string; content: string; contentType: string }[],
+  ): Promise<string> {
+    await seedEmail({ subject, attachments });
+    await waitForDelivery();
+    const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { subject });
+    expect(list.items).toHaveLength(1);
+    return list.items[0].id;
+  }
 
   beforeAll(async () => {
     services = createTestServices(buildTestAccount());
@@ -77,6 +93,51 @@ describe('Advanced Email Operations', () => {
       await expect(
         services.imapService.downloadAttachment(TEST_ACCOUNT_NAME, '1:*', 'INBOX', 'readme.txt'),
       ).rejects.toThrow(/positive integer UID/);
+    });
+
+    it('should refuse a filename two attachments share and name their MIME parts', async () => {
+      const emailId = await seedAndFind('Twin attachments download', [
+        { filename: 'notes.txt', content: 'first-notes', contentType: 'text/plain' },
+        { filename: 'notes.txt', content: 'second-notes', contentType: 'text/plain' },
+      ]);
+
+      await expect(
+        services.imapService.downloadAttachment(TEST_ACCOUNT_NAME, emailId, 'INBOX', 'notes.txt'),
+      ).rejects.toThrow('matches 2 attachments in email');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // saveEmailAttachments (calendar notes and the mail-arrival hook)
+  // ---------------------------------------------------------------------------
+
+  describe('saveEmailAttachments', () => {
+    let root: string;
+
+    beforeEach(async () => {
+      root = await mkdtemp(join(tmpdir(), 'mailoo-save-'));
+    });
+
+    afterEach(async () => {
+      await rm(root, { recursive: true, force: true });
+    });
+
+    it('should save each attachment when two share a filename', async () => {
+      const emailId = await seedAndFind('Twin attachments save', [
+        { filename: 'notes.txt', content: 'first-notes', contentType: 'text/plain' },
+        { filename: 'notes.txt', content: 'second-notes', contentType: 'text/plain' },
+      ]);
+      const destDir = join(root, 'out');
+
+      const saved = await services.imapService.saveEmailAttachments(
+        TEST_ACCOUNT_NAME,
+        emailId,
+        'INBOX',
+        destDir,
+      );
+
+      const contents = await Promise.all(saved.map(async (s) => readFile(s.localPath, 'utf-8')));
+      expect(contents.sort()).toEqual(['first-notes', 'second-notes']);
     });
   });
 

@@ -28,6 +28,17 @@ on a writable server because this path writes disk, and **true** when
 (one path segment). An existing file is left unchanged.
 A symlink is rejected.
 
+An attachment is chosen by `filename`. When two or more attachments in the
+message carry that name, the call fails and the error lists their MIME
+parts instead of returning the first one. The same refusal applies to
+`send_email` attachments copied with `emailId` + `filename` and to
+`send_draft` on a draft whose attachments share a name.
+
+`add_to_calendar` with `save_attachments`, and the mail-arrival hook that
+adds events to the calendar, save every attachment of the message under
+`$XDG_DATA_HOME/mailoo/calendar-attachments/`. Attachments that share a
+name are saved as `name.ext`, `name-2.ext`, and so on.
+
 ## `export_email`
 
 Returns one message as its raw RFC 822 source (`.eml`, `message/rfc822`):

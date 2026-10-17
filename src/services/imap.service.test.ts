@@ -3,6 +3,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 
 import type { IConnectionManager } from '../connections/types.js';
 import ImapService, { findTextMimeParts } from './imap.service.js';
@@ -445,6 +446,96 @@ describe('ImapService', () => {
 
       await expect(service.exportEmail('test', '10', 'INBOX', 10)).rejects.toThrow(/limit/);
       expect(client._releaseFn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /** BODYSTRUCTURE GreenMail returns for a text body plus two attachments (parts 2 and 3). */
+  function twinAttachmentStructure(filename: string, secondFilename = filename) {
+    const attachment = (part: string, name: string) => ({
+      part,
+      type: 'text/plain',
+      parameters: { name },
+      encoding: 'base64',
+      size: 16,
+      lineCount: 1,
+      disposition: 'attachment',
+      dispositionParameters: { filename: name },
+    });
+    return {
+      childNodes: [
+        {
+          part: '1',
+          type: 'text/plain',
+          parameters: { charset: 'utf-8' },
+          encoding: '7bit',
+          size: 28,
+          lineCount: 1,
+        },
+        attachment('2', filename),
+        attachment('3', secondFilename),
+      ],
+      type: 'multipart/mixed',
+      parameters: { boundary: '--_NmP-97144f485bd10a4e-Part_1' },
+    };
+  }
+
+  /** client.download as imapflow resolves it: decoded part content as a stream. */
+  function downloadReturnsPartName() {
+    client.download.mockImplementation(async (_uid: string, part: string) => ({
+      meta: { contentType: 'text/plain' },
+      content: Readable.from([Buffer.from(`body-of-part-${part}`)]),
+    }));
+  }
+
+  describe('downloadAttachment', () => {
+    it('should reject a filename two attachments share and list their MIME parts', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 9,
+        bodyStructure: twinAttachmentStructure('a.txt'),
+      });
+      downloadReturnsPartName();
+
+      await expect(service.downloadAttachment('test', '9', 'INBOX', 'a.txt')).rejects.toThrow(
+        'Attachment name "a.txt" matches 2 attachments in email 9 (MIME parts 2, 3)',
+      );
+    });
+
+    it('should download the MIME part of a filename that matches once', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 9,
+        bodyStructure: twinAttachmentStructure('a.txt', 'b.txt'),
+      });
+      downloadReturnsPartName();
+
+      const result = await service.downloadAttachment('test', '9', 'INBOX', 'b.txt');
+
+      expect(Buffer.from(result.contentBase64, 'base64').toString()).toBe('body-of-part-3');
+    });
+  });
+
+  describe('saveEmailAttachments', () => {
+    let root: string;
+
+    beforeEach(async () => {
+      root = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-save-unit-'));
+    });
+
+    afterEach(async () => {
+      await fs.rm(root, { recursive: true, force: true });
+    });
+
+    it('should write each same-named attachment to its own file', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 9,
+        bodyStructure: twinAttachmentStructure('a.txt'),
+      });
+      downloadReturnsPartName();
+      const destDir = path.join(root, 'out');
+
+      const saved = await service.saveEmailAttachments('test', '9', 'INBOX', destDir);
+
+      const contents = await Promise.all(saved.map(async (s) => fs.readFile(s.localPath, 'utf-8')));
+      expect(contents.sort()).toEqual(['body-of-part-2', 'body-of-part-3']);
     });
   });
 

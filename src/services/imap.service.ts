@@ -4,6 +4,7 @@
  * No MCP dependency — fully unit-testable.
  */
 
+import { join } from 'node:path';
 import type { ImapFlow } from 'imapflow';
 import type { IConnectionManager } from '../connections/types.js';
 import { sanitizeAttachmentFilename } from '../safety/local-paths.js';
@@ -71,57 +72,61 @@ function mimeTypeOf(bs: Record<string, unknown>): string {
   return raw.toLowerCase();
 }
 
-function extractAttachments(bodyStructure: unknown): AttachmentMeta[] {
-  const attachments: AttachmentMeta[] = [];
+interface AttachmentPart extends AttachmentMeta {
+  /** IMAP part number (BODY[part]); empty for the root of a single-part message. */
+  part: string;
+}
+
+/**
+ * Every attachment with its MIME part number, in BODYSTRUCTURE order. A filename
+ * is not unique within a message, so a download needs the part number.
+ */
+function listAttachmentParts(bodyStructure: unknown, partPath = ''): AttachmentPart[] {
+  const attachments: AttachmentPart[] = [];
   if (!bodyStructure || typeof bodyStructure !== 'object') return attachments;
 
   const bs = bodyStructure as Record<string, unknown>;
+  const effectivePath = (bs.part as string | undefined) ?? partPath;
   if (bs.disposition === 'attachment') {
     const params = (bs.dispositionParameters ?? bs.parameters ?? {}) as Record<string, string>;
     attachments.push({
       filename: params.filename ?? params.name ?? 'unnamed',
       mimeType: mimeTypeOf(bs) || 'application/octet-stream',
       size: (bs.size as number) ?? 0,
+      part: effectivePath,
     });
   }
 
   if (Array.isArray(bs.childNodes)) {
-    (bs.childNodes as unknown[]).forEach((child) => {
-      attachments.push(...extractAttachments(child));
+    (bs.childNodes as unknown[]).forEach((child, i) => {
+      const childPart = effectivePath ? `${effectivePath}.${i + 1}` : String(i + 1);
+      attachments.push(...listAttachmentParts(child, childPart));
     });
   }
 
   return attachments;
 }
 
-/** Find the MIME part number for an attachment by filename. */
-function findMimePartByFilename(
-  bodyStructure: unknown,
-  targetFilename: string,
-  partPath = '',
-): string | undefined {
-  if (!bodyStructure || typeof bodyStructure !== 'object') return undefined;
+function extractAttachments(bodyStructure: unknown): AttachmentMeta[] {
+  return listAttachmentParts(bodyStructure).map(({ filename, mimeType, size }) => ({
+    filename,
+    mimeType,
+    size,
+  }));
+}
 
-  const bs = bodyStructure as Record<string, unknown>;
-  const currentPart = bs.part as string | undefined;
-  const effectivePath = currentPart ?? partPath;
-
-  if (bs.disposition === 'attachment') {
-    const params = (bs.dispositionParameters ?? bs.parameters ?? {}) as Record<string, string>;
-    const filename = params.filename ?? params.name ?? 'unnamed';
-    if (filename === targetFilename) return effectivePath;
+/** A file name not yet used in this directory; compared without case for case-insensitive disks. */
+function uniqueFilename(name: string, used: Set<string>): string {
+  const dot = name.lastIndexOf('.');
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : '';
+  let candidate = name;
+  // eslint-disable-next-line no-plusplus
+  for (let n = 2; used.has(candidate.toLowerCase()); n++) {
+    candidate = `${stem}-${n}${ext}`;
   }
-
-  if (Array.isArray(bs.childNodes)) {
-    // eslint-disable-next-line no-plusplus
-    for (let i = 0; i < bs.childNodes.length; i++) {
-      const childPart = effectivePath ? `${effectivePath}.${i + 1}` : String(i + 1);
-      const found = findMimePartByFilename(bs.childNodes[i], targetFilename, childPart);
-      if (found) return found;
-    }
-  }
-
-  return undefined;
+  used.add(candidate.toLowerCase());
+  return candidate;
 }
 
 export interface TextMimeParts {
@@ -1391,13 +1396,19 @@ export default class ImapService {
         throw new Error(`Email ${emailId} not found in ${mailbox}`);
       }
 
-      const attachments = extractAttachments(msg.bodyStructure);
-      const attachment = attachments.find((a) => a.filename === filename);
-      if (!attachment) {
+      const attachments = listAttachmentParts(msg.bodyStructure);
+      const matches = attachments.filter((a) => a.filename === filename);
+      if (matches.length === 0) {
         throw new Error(
           `Attachment "${filename}" not found. Available: ${attachments.map((a) => a.filename).join(', ') || 'none'}`,
         );
       }
+      if (matches.length > 1) {
+        throw new Error(
+          `Attachment name "${filename}" matches ${matches.length} attachments in email ${uidText} (MIME parts ${matches.map((a) => a.part).join(', ')}); refusing to guess which one to return.`,
+        );
+      }
+      const [attachment] = matches;
 
       if (attachment.size > maxSizeBytes) {
         throw new Error(
@@ -1405,13 +1416,11 @@ export default class ImapService {
         );
       }
 
-      // Find the MIME part number
-      const partNumber = findMimePartByFilename(msg.bodyStructure, filename);
-      if (!partNumber) {
+      if (!attachment.part) {
         throw new Error(`Could not locate MIME part for "${filename}"`);
       }
 
-      const content = await downloadPart(client, uidText, partNumber);
+      const content = await downloadPart(client, uidText, attachment.part);
       if (!content) {
         throw new Error(`Failed to download attachment "${filename}"`);
       }
@@ -1514,50 +1523,54 @@ export default class ImapService {
     const uidText = parseMessageUid(emailId);
     const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
+    const { mkdir, writeFile } = await import('node:fs/promises');
 
+    const saved: {
+      filename: string;
+      localPath: string;
+      fileUrl: string;
+      mimeType: string;
+      size: number;
+    }[] = [];
     const lock = await client.getMailboxLock(safeMailbox);
-    let attachmentMetas: AttachmentMeta[] = [];
     try {
       const msg = await client.fetchOne(uidText, { uid: true, bodyStructure: true }, { uid: true });
       if (!msg) return [];
       // biome-ignore format: line too long; eslint implicit-arrow-linebreak prevents multi-line implicit return
-      attachmentMetas = extractAttachments(msg.bodyStructure).filter((a) => a.size <= maxSizeBytes && !a.mimeType.includes('calendar') && !a.filename.toLowerCase().endsWith('.ics'));
+      const parts = listAttachmentParts(msg.bodyStructure).filter((a) => a.size <= maxSizeBytes && !a.mimeType.includes('calendar') && !a.filename.toLowerCase().endsWith('.ics'));
+      if (parts.length === 0) return [];
+      await mkdir(destDir, { recursive: true });
+
+      // Parts are downloaded by number: two attachments may share a filename,
+      // and each gets its own file instead of the first one written twice.
+      const usedNames = new Set<string>();
+      // eslint-disable-next-line no-restricted-syntax
+      for (const meta of parts) {
+        const name = uniqueFilename(meta.filename.replace(/[/\\?%*:|"<>]/g, '_'), usedNames);
+        const localPath = join(destDir, name);
+        try {
+          // imapflow runs one command at a time per connection.
+          // eslint-disable-next-line no-await-in-loop
+          const content = meta.part ? await downloadPart(client, uidText, meta.part) : undefined;
+          if (content) {
+            // eslint-disable-next-line no-await-in-loop
+            await writeFile(localPath, content);
+            saved.push({
+              filename: meta.filename,
+              localPath,
+              fileUrl: `file://${localPath}`,
+              mimeType: meta.mimeType,
+              size: content.length,
+            });
+          }
+        } catch {
+          // Best effort: an unreadable part or a failed write skips that attachment only.
+        }
+      }
     } finally {
       lock.release();
     }
-
-    if (attachmentMetas.length === 0) return [];
-
-    const { mkdir } = await import('node:fs/promises');
-    await mkdir(destDir, { recursive: true });
-
-    const results = await Promise.allSettled(
-      attachmentMetas.map(async (meta) => {
-        const downloaded = await this.downloadAttachment(
-          accountName,
-          uidText,
-          safeMailbox,
-          meta.filename,
-          maxSizeBytes,
-        );
-        const safe = meta.filename.replace(/[/\\?%*:|"<>]/g, '_');
-        const localPath = `${destDir}/${safe}`;
-        const { writeFile } = await import('node:fs/promises');
-        await writeFile(localPath, Buffer.from(downloaded.contentBase64, 'base64'));
-        return {
-          filename: meta.filename,
-          localPath,
-          fileUrl: `file://${localPath}`,
-          mimeType: meta.mimeType,
-          size: downloaded.size,
-        };
-      }),
-    );
-
-    type FulfilledValue = (typeof results)[0] extends PromiseFulfilledResult<infer T> ? T : never;
-    return results
-      .filter((r) => r.status === 'fulfilled')
-      .map((r) => (r as PromiseFulfilledResult<FulfilledValue>).value);
+    return saved;
   }
 
   /**
