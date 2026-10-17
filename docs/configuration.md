@@ -17,7 +17,9 @@ password or OAuth2 provider) from the environment before the file, so they
 stop on this error only when no such account is set; `mailoo config show` prefixes it with
 `Failed to load config:`. `mailoo setup`, `mailoo config edit` and
 `mailoo account add`, `list`, `edit` and `delete` read the file directly and
-always stop on it.
+always stop on it. `mailoo setup` and `mailoo account add` stop the same way
+on a file that parses but is not a valid config, for example one with no
+`[[accounts]]`; only a missing file starts a new config.
 
 Vulnerability reports: [SECURITY.md](../SECURITY.md). Do not open public
 issues for credential leaks.
