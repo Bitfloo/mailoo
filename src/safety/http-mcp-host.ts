@@ -36,7 +36,7 @@ import HttpSessionStore, {
   DEFAULT_HTTP_MAX_SESSIONS,
   DEFAULT_HTTP_SESSION_TTL_MS,
 } from './http-sessions.js';
-import { readLimitedBody, resolveHttpRoute } from './http-transport.js';
+import { readLimitedBody, resolveHttpRoute, rpcErrorBody } from './http-transport.js';
 import RateLimiter from './rate-limiter.js';
 import { maybeStartMailboxWriters } from './write-side-effects.js';
 
@@ -75,6 +75,18 @@ interface SamplingCandidate {
   server: Server;
   sampling: boolean;
   order: number;
+}
+
+/** A session an initialize request is opening; `id` is set once the transport registers it. */
+interface OpenedSession {
+  transport: StreamableHTTPServerTransport;
+  scope: HttpSessionScope;
+  registration: { id?: string };
+}
+
+function sendRpcError(res: ServerResponse, status: number, code: number, message: string): void {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(rpcErrorBody(code, message));
 }
 
 export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<HttpMcpHost> {
@@ -210,6 +222,85 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
     trackDispose(scope);
   };
 
+  const openSession = async (): Promise<OpenedSession> => {
+    const sid = randomUUID();
+    // SDK binds one transport per McpServer.
+    const mcpServer = createServer();
+    const scope = createHttpSessionScope({
+      id: sid,
+      server: mcpServer.server,
+      events,
+      smtp,
+      scheduler,
+      onDispose: () => {
+        candidates.delete(sid);
+        unbindServer(mcpServer);
+        applySamplingTarget();
+      },
+    });
+    const registration: OpenedSession['registration'] = {};
+    try {
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => sid,
+        onsessioninitialized: (initializedId) => {
+          sessions.set(initializedId, transport);
+          scopes.set(initializedId, scope);
+          sessions.beginRequest(initializedId);
+          registration.id = initializedId;
+        },
+      });
+      transport.onclose = () => {
+        release(transport.sessionId ?? sid, scope);
+      };
+      bindServer(mcpServer);
+      registerAllTools(
+        mcpServer,
+        options.connections,
+        options.imap,
+        smtp,
+        options.config,
+        options.templateService,
+        options.calendarService,
+        options.localCalendarService,
+        options.remindersService,
+        scheduler,
+        watcher,
+        hooks,
+      );
+      registerAllResources(
+        mcpServer,
+        options.connections,
+        options.imap,
+        options.templateService,
+        scheduler,
+      );
+      registerAllPrompts(mcpServer);
+      await mcpServer.connect(transport);
+
+      const ls = mcpServer.server;
+      ls.oninitialized = () => {
+        markInitialized(mcpServer);
+        candidates.set(sid, {
+          server: ls,
+          sampling: (ls.getClientCapabilities?.()?.sampling ?? null) != null,
+          order: samplingOrder,
+        });
+        samplingOrder += 1;
+        if (!bootStarted) {
+          bootStarted = true;
+          ready = bootWriters(ls);
+        } else {
+          applySamplingTarget();
+        }
+      };
+
+      return { transport, scope, registration };
+    } catch (err) {
+      if (registration.id === undefined) trackDispose(scope);
+      throw err;
+    }
+  };
+
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const route = resolveHttpRoute(req.method, req.url);
     if (route === 'method') {
@@ -235,14 +326,7 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
         try {
           body = JSON.parse(raw.toString());
         } catch {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(
-            JSON.stringify({
-              jsonrpc: '2.0',
-              error: { code: -32700, message: 'Parse error' },
-              id: null,
-            }),
-          );
+          sendRpcError(res, 400, -32700, 'Parse error');
           return;
         }
       }
@@ -251,126 +335,38 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
     const sessionIdHeader = req.headers['mcp-session-id'];
     const sessionId = Array.isArray(sessionIdHeader) ? sessionIdHeader[0] : sessionIdHeader;
     let transport: StreamableHTTPServerTransport;
-    let trackedId = sessionId;
-    let created: HttpSessionScope | undefined;
-    let registered = false;
+    let opened: OpenedSession | undefined;
 
     const existing = sessionId ? sessions.get(sessionId) : undefined;
     if (sessionId && !existing) {
       // Streamable HTTP: 404 tells the client its session is gone and it must
       // initialize again. A 400 left a client evicted by the idle TTL stuck.
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          error: { code: -32001, message: 'Session not found' },
-          id: null,
-        }),
-      );
+      sendRpcError(res, 404, -32001, 'Session not found');
       return;
     }
     if (existing && sessionId) {
       transport = existing;
       sessions.touch(sessionId);
+      sessions.beginRequest(sessionId);
     } else if (!sessionId && req.method === 'POST' && isInitializeRequest(body)) {
-      try {
-        const sid = randomUUID();
-        // SDK binds one transport per McpServer.
-        const mcpServer = createServer();
-        const scope = createHttpSessionScope({
-          id: sid,
-          server: mcpServer.server,
-          events,
-          smtp,
-          scheduler,
-          onDispose: () => {
-            candidates.delete(sid);
-            unbindServer(mcpServer);
-            applySamplingTarget();
-          },
-        });
-        created = scope;
-        const newTransport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => sid,
-          onsessioninitialized: (initializedId) => {
-            sessions.set(initializedId, newTransport);
-            scopes.set(initializedId, scope);
-            sessions.beginRequest(initializedId);
-            trackedId = initializedId;
-            registered = true;
-          },
-        });
-        newTransport.onclose = () => {
-          release(newTransport.sessionId ?? sid, scope);
-        };
-        bindServer(mcpServer);
-        registerAllTools(
-          mcpServer,
-          options.connections,
-          options.imap,
-          smtp,
-          options.config,
-          options.templateService,
-          options.calendarService,
-          options.localCalendarService,
-          options.remindersService,
-          scheduler,
-          watcher,
-          hooks,
-        );
-        registerAllResources(
-          mcpServer,
-          options.connections,
-          options.imap,
-          options.templateService,
-          scheduler,
-        );
-        registerAllPrompts(mcpServer);
-        await mcpServer.connect(newTransport);
-
-        const ls = mcpServer.server;
-        ls.oninitialized = () => {
-          markInitialized(mcpServer);
-          candidates.set(sid, {
-            server: ls,
-            sampling: (ls.getClientCapabilities?.()?.sampling ?? null) != null,
-            order: samplingOrder,
-          });
-          samplingOrder += 1;
-          if (!bootStarted) {
-            bootStarted = true;
-            ready = bootWriters(ls);
-          } else {
-            applySamplingTarget();
-          }
-        };
-
-        transport = newTransport;
-      } catch (err) {
-        if (created && !registered) trackDispose(created);
-        throw err;
-      }
+      opened = await openSession();
+      transport = opened.transport;
     } else {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          error: {
-            code: -32000,
-            message: 'Bad Request: provide mcp-session-id or send an initialize request',
-          },
-          id: null,
-        }),
+      sendRpcError(
+        res,
+        400,
+        -32000,
+        'Bad Request: provide mcp-session-id or send an initialize request',
       );
       return;
     }
 
-    if (trackedId && !registered) sessions.beginRequest(trackedId);
     try {
       await transport.handleRequest(req, res, body);
     } finally {
+      const trackedId = sessionId ?? opened?.registration.id;
       if (trackedId) sessions.endRequest(trackedId);
-      if (created && !registered) trackDispose(created);
+      if (opened && opened.registration.id === undefined) trackDispose(opened.scope);
       sessions.evict();
     }
   };

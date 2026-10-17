@@ -483,10 +483,11 @@ export async function readLimitedBody(req: IncomingMessage, limit: number): Prom
   });
 }
 
-function jsonErrorBody(message: string): string {
+/** A JSON-RPC error the HTTP layer sends itself, before any request id is known. */
+export function rpcErrorBody(code: number, message: string): string {
   return JSON.stringify({
     jsonrpc: '2.0',
-    error: { code: -32000, message },
+    error: { code, message },
     id: null,
   });
 }
@@ -497,7 +498,7 @@ function rejectRequest(
   status: number,
   message: string,
 ): void {
-  const body = jsonErrorBody(message);
+  const body = rpcErrorBody(-32000, message);
   const headers: http.OutgoingHttpHeaders = {
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(body),
