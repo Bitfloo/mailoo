@@ -129,6 +129,24 @@ describe('ConnectionManager.getSmtpTransport', () => {
     expect(await manager.getSmtpTransport('test')).toBe(first);
   });
 
+  it('should keep the replacement transport when a slow re-check of the replaced one fails late', async () => {
+    const manager = new ConnectionManager([account]);
+    await manager.getSmtpTransport('test');
+    let failLate = (_error: Error): void => {};
+    smtpTransports[0].verify.mockImplementationOnce(
+      async () =>
+        new Promise<true>((_resolve, reject) => {
+          failLate = reject;
+        }),
+    );
+    const slow = manager.getSmtpTransport('test', { verify: true });
+    verifyErrors.push(new Error('421 Service not available'));
+    await manager.getSmtpTransport('test', { verify: true });
+    failLate(new Error('421 Service not available'));
+    await slow;
+    expect(await manager.getSmtpTransport('test')).toBe(smtpTransports[1]);
+  });
+
   it('should close the cached transport, and only that one, when its re-check fails', async () => {
     const manager = new ConnectionManager([account]);
     await manager.getSmtpTransport('test');
