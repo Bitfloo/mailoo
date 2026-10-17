@@ -97,4 +97,8 @@ describe('release job gates', () => {
     // Without needs, needs.npm.result is empty, so the if: never passes and nothing is published.
     expect(stampJob()).toContain('needs: [npm]');
   });
+
+  it('should make the Docker job need npm and MCP when its if: reads both results', () => {
+    expect(dockerJob()).toContain('needs: [npm, mcp]');
+  });
 });

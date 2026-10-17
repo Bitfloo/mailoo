@@ -186,10 +186,6 @@ describe('release supply chain', () => {
     expect(step.indexOf('sleep "$pause"')).toBeGreaterThan(exitStatus);
     expect(step.slice(unmatched, exitStatus)).not.toContain('sleep');
     expect(marker.length).toBeGreaterThan(0);
-    const docker = jobSections(releaseYml).find((job) =>
-      job.includes('goreleaser/goreleaser-action@'),
-    );
-    expect(docker).toContain('needs: [npm, mcp]');
   });
 });
 
