@@ -1,5 +1,7 @@
-import { access, rm } from 'node:fs/promises';
+import { access, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+
+import { parse } from 'smol-toml';
 
 import runAccountCommand from './account-commands.js';
 
@@ -147,16 +149,24 @@ describe('mailoo account add connection check', () => {
 });
 
 describe('mailoo account add after a refused probe', () => {
-  it('should not save the account when the user declines', async () => {
+  it('should not save the account when SMTP is refused and the user declines', async () => {
     h.smtpRefusal = refused(465);
     await runAccountCommand('add');
     await expect(access(configFile)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('should save the account when the user accepts', async () => {
+  it('should not save the account when IMAP is refused and the user declines', async () => {
+    h.imapRefusal = refused(993);
+    await runAccountCommand('add');
+    await expect(access(configFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('should save the account the user entered when the user accepts', async () => {
     h.smtpRefusal = refused(465);
     answers[SAVE_ANYWAY] = true;
     await runAccountCommand('add');
-    await expect(access(configFile)).resolves.toBeUndefined();
+    expect(parse(await readFile(configFile, 'utf8'))).toMatchObject({
+      accounts: [{ name: 'personal', email: 'me@example.com', imap: { host: 'imap.example.com' } }],
+    });
   });
 });
