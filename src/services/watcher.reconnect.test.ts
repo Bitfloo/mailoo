@@ -7,7 +7,13 @@ import {
   seedFolder,
   settle,
 } from '../test-support/fake-imapflow.js';
-import { arrivedIds, inboxOnly, stopWatchers, watch } from '../test-support/watcher-harness.js';
+import {
+  arrivedIds,
+  arrivedSubjects,
+  inboxOnly,
+  stopWatchers,
+  watch,
+} from '../test-support/watcher-harness.js';
 import { AUTO_IDLE_DELAY_MS } from './watcher.service.js';
 
 vi.mock('../logging.js', () => ({
@@ -81,14 +87,16 @@ describe('WatcherService failed connect', () => {
     );
   });
 
-  it('should start from the mail already in a folder whose first connect failed', async () => {
+  it('should report only mail that arrives after the first successful connect', async () => {
     fake.connectErrors.push(new Error('connect ECONNREFUSED'));
     const { watcher, arrivals } = watch();
     await watcher.start();
     deliver('INBOX', 'Before the first connect');
     await advance(1_000);
     await advance(AUTO_IDLE_DELAY_MS);
-    expect(arrivedIds(arrivals)).toEqual([]);
+    deliver('INBOX', 'After the first connect');
+    await settle();
+    expect(arrivedSubjects(arrivals)).toEqual(['After the first connect']);
   });
 });
 
