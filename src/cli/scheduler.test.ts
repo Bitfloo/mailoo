@@ -6,10 +6,12 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { loadConfig } from '../config/loader.js';
+import ConnectionManager from '../connections/manager.js';
 import type { ScheduledEmail } from '../types/index.js';
 import type { CommandRunner } from './scheduler.js';
 import {
   checkScheduledEmails,
+  formatCheckResult,
   installCrontabLine,
   loadLaunchAgent,
   removeCrontabLine,
@@ -392,7 +394,7 @@ async function waitFor(done: () => boolean, deadline: number): Promise<void> {
   await waitFor(done, deadline);
 }
 
-const DUE_ID = '3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b';
+const DUE_IDS = ['3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b', '3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6c'];
 
 describe('scheduler check command', () => {
   let root: string;
@@ -419,7 +421,14 @@ describe('scheduler check command', () => {
     await fs.rm(root, { recursive: true, force: true });
   });
 
-  async function checkDueEmail(auth: 'password' | 'oauth2', saveToSent: boolean) {
+  interface CheckOptions {
+    auth?: 'password' | 'oauth2';
+    saveToSent?: boolean;
+    rateLimit?: number;
+    due?: number;
+  }
+
+  async function writeConfig({ auth = 'password', saveToSent = false, rateLimit }: CheckOptions) {
     const credentials =
       auth === 'password'
         ? ['password = "not-a-secret"']
@@ -438,6 +447,7 @@ describe('scheduler check command', () => {
       [
         '[settings]',
         `save_to_sent = ${String(saveToSent)}`,
+        ...(rateLimit === undefined ? [] : [`rate_limit = ${rateLimit}`]),
         '',
         '[[accounts]]',
         'name = "work"',
@@ -458,26 +468,35 @@ describe('scheduler check command', () => {
       ].join('\n'),
       { mode: 0o600 },
     );
+    return loadConfig(configPath);
+  }
+
+  async function checkDueEmails(options: CheckOptions) {
+    const config = await writeConfig(options);
     const queueDir = path.join(root, 'scheduled');
     await fs.mkdir(queueDir, { recursive: true });
-    const due: ScheduledEmail = {
-      id: DUE_ID,
-      account: 'work',
-      to: ['recipient@example.test'],
-      subject: 'Quarterly numbers',
-      body: 'The figures are below.',
-      html: false,
-      sendAt: new Date(Date.now() - 60_000).toISOString(),
-      createdAt: new Date(Date.now() - 3_600_000).toISOString(),
-      status: 'pending',
-      attempts: 0,
-    };
-    await fs.writeFile(path.join(queueDir, `${DUE_ID}.json`), JSON.stringify(due), { mode: 0o600 });
-    return checkScheduledEmails(await loadConfig(configPath), queueDir);
+    await Promise.all(
+      DUE_IDS.slice(0, options.due ?? 1).map(async (id) => {
+        const due: ScheduledEmail = {
+          id,
+          account: 'work',
+          to: ['recipient@example.test'],
+          subject: 'Quarterly numbers',
+          body: 'The figures are below.',
+          html: false,
+          sendAt: new Date(Date.now() - 60_000).toISOString(),
+          createdAt: new Date(Date.now() - 3_600_000).toISOString(),
+          status: 'pending',
+          attempts: 0,
+        };
+        await fs.writeFile(path.join(queueDir, `${id}.json`), JSON.stringify(due), { mode: 0o600 });
+      }),
+    );
+    return checkScheduledEmails(config, queueDir);
   }
 
   it('should send with the access token from the OAuth endpoint when the account uses oauth2', async () => {
-    const result = await checkDueEmail('oauth2', false);
+    const result = await checkDueEmails({ auth: 'oauth2' });
     expect({ sent: result.sent, auths: [...new Set(smtp.auths)] }).toEqual({
       sent: 1,
       auths: ['XOAUTH2 user=sender@example.test\x01auth=Bearer access-from-token-endpoint\x01\x01'],
@@ -485,7 +504,7 @@ describe('scheduler check command', () => {
   });
 
   it('should not open an IMAP connection when save_to_sent is false', async () => {
-    const result = await checkDueEmail('password', false);
+    const result = await checkDueEmails({ saveToSent: false });
     expect({ sent: result.sent, imapConnections: imap.connections() }).toEqual({
       sent: 1,
       imapConnections: 0,
@@ -493,8 +512,61 @@ describe('scheduler check command', () => {
   });
 
   it('should close its SMTP connections when the check finishes', async () => {
-    await checkDueEmail('password', false);
+    await checkDueEmails({});
     await waitFor(() => smtp.openSockets() === 0, Date.now() + SOCKET_CLOSE_WAIT_MS);
     expect(smtp.openSockets()).toBe(0);
+  });
+
+  it('should save a Sent copy over IMAP when save_to_sent is true', async () => {
+    // The fake IMAP server turns the APPEND connection away; the send still counts.
+    const result = await checkDueEmails({ saveToSent: true });
+    expect({ sent: result.sent, triedImap: imap.connections() > 0 }).toEqual({
+      sent: 1,
+      triedImap: true,
+    });
+  });
+
+  it('should hold back the second due email when rate_limit is 1', async () => {
+    const result = await checkDueEmails({ rateLimit: 1, due: 2 });
+    expect({ sent: result.sent, deferred: result.deferred }).toEqual({ sent: 1, deferred: 1 });
+  });
+
+  it('should close its connections when the check fails', async () => {
+    const closeAll = vi.spyOn(ConnectionManager.prototype, 'closeAll');
+    try {
+      const config = await writeConfig({});
+      // mkdir fails on a regular file, so the check rejects before it reads the queue.
+      const queueDir = path.join(root, 'scheduled');
+      await fs.writeFile(queueDir, '');
+      const failed = await checkScheduledEmails(config, queueDir).then(
+        () => false,
+        () => true,
+      );
+      expect({ failed, closed: closeAll.mock.calls.length }).toEqual({ failed: true, closed: 1 });
+    } finally {
+      closeAll.mockRestore();
+    }
+  });
+});
+
+describe('scheduler check output', () => {
+  const quiet = { sent: 0, failed: 0, deferred: 0, errors: [] };
+
+  it('should say nothing was due when a check sends, fails and holds back nothing', () => {
+    expect(formatCheckResult(quiet)).toEqual(['No overdue scheduled emails.']);
+  });
+
+  it('should report emails the rate limit held back instead of saying nothing was due', () => {
+    expect(formatCheckResult({ ...quiet, deferred: 2 })).toEqual([
+      '⏳ Held back by the rate limit: 2 (retried on the next check)',
+    ]);
+  });
+
+  it('should print the error of a delivered email whose record was not updated', () => {
+    const error = `${DUE_IDS[0]}.json: sent, but the queue record was not updated: EACCES`;
+    expect(formatCheckResult({ ...quiet, sent: 1, errors: [error] })).toEqual([
+      '✅ Sent 1 scheduled email(s)',
+      `   ${error}`,
+    ]);
   });
 });
