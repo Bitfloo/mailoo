@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 
 import type { AccountConfig, SystemOneConfig } from '../../types/index.js';
 import type ImapService from '../imap.service.js';
+import type { ArrivalEmail } from './index.js';
 import { MailArrival } from './index.js';
 
 const execFileAsync = promisify(execFile);
@@ -306,6 +307,103 @@ describe('MailArrival.handle', () => {
       { filename: 'inv.pdf', mime: 'application/pdf' },
     ]);
     expect(imap.getEmail).not.toHaveBeenCalled();
+  });
+});
+
+function arrivalEmail(id: string): ArrivalEmail {
+  return {
+    account: 'personal',
+    mailbox: 'INBOX',
+    meta: {
+      id,
+      subject: 'Invoice',
+      from: { name: 'Billing', address: 'billing@example.com' },
+      to: [{ address: 'me@example.com' }],
+      date: '2026-09-21T00:00:00.000Z',
+      seen: false,
+      flagged: false,
+      answered: false,
+      hasAttachments: false,
+      labels: [],
+      messageId: `<${id}@example.com>`,
+    },
+  };
+}
+
+async function createArrival(imap: ReturnType<typeof mockImap>): Promise<MailArrival> {
+  const arrival = await MailArrival.tryCreate({
+    config: systemOneConfig(),
+    imap: imap as unknown as ImapService,
+    apiKey: 'test-key',
+    accounts: [account],
+  });
+  if (!arrival) throw new Error('expected MailArrival instance');
+  return arrival;
+}
+
+async function handleMany(arrival: MailArrival, count: number, prefix: string): Promise<void> {
+  for (let n = 0; n < count; n += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await arrival.handle(arrivalEmail(`${prefix}-${n}`));
+  }
+}
+
+const filedAsReceipt = { kind: 'apply', destinationMailbox: 'Receipts', flag: true };
+
+describe('MailArrival.handle repeat notices', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    systemOneMock.mockResolvedValue(sdkAnswers());
+  });
+
+  it('should not classify a message again once it was filed', async () => {
+    const arrival = await createArrival(mockImap());
+    await arrival.handle(arrivalEmail('10'));
+    expect(await arrival.handle(arrivalEmail('10'))).toEqual({
+      kind: 'noop',
+      reason: 'already_seen',
+    });
+  });
+
+  it('should classify a message once when two notices for it overlap', async () => {
+    const arrival = await createArrival(mockImap());
+    const actions = await Promise.all([
+      arrival.handle(arrivalEmail('10')),
+      arrival.handle(arrivalEmail('10')),
+    ]);
+    expect(actions).toEqual([filedAsReceipt, { kind: 'noop', reason: 'already_seen' }]);
+  });
+
+  it('should classify a message again after System One failed on it', async () => {
+    systemOneMock.mockRejectedValueOnce(new Error('503 Service Unavailable'));
+    const arrival = await createArrival(mockImap());
+    await arrival.handle(arrivalEmail('10'));
+    expect(await arrival.handle(arrivalEmail('10'))).toEqual(filedAsReceipt);
+  });
+
+  it('should classify a message again after its sender checks could not be read', async () => {
+    const imap = mockImap();
+    imap.getEmailSecurity.mockRejectedValueOnce(new Error('Connection not available'));
+    const arrival = await createArrival(imap);
+    await arrival.handle(arrivalEmail('10'));
+    expect(await arrival.handle(arrivalEmail('10'))).toEqual(filedAsReceipt);
+  });
+
+  it('should still remember a message after 4999 newer ones', async () => {
+    const arrival = await createArrival(mockImap());
+    await arrival.handle(arrivalEmail('first'));
+    await handleMany(arrival, 4999, 'newer');
+    expect(await arrival.handle(arrivalEmail('first'))).toEqual({
+      kind: 'noop',
+      reason: 'already_seen',
+    });
+  });
+
+  it('should forget the oldest message once 5000 newer ones were filed', async () => {
+    const arrival = await createArrival(mockImap());
+    await arrival.handle(arrivalEmail('first'));
+    await handleMany(arrival, 5000, 'newer');
+    expect(await arrival.handle(arrivalEmail('first'))).toEqual(filedAsReceipt);
   });
 });
 
