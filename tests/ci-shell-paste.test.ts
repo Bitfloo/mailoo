@@ -32,13 +32,20 @@ describe('workflow shell input', () => {
     "run: echo '${{ toJSON(inputs) }}'",
     'env:\n  B: ${{ github.head_ref }}\nrun: echo "${{ env.B }}"',
     'env:\n  B: ${{ inputs.version }}\nwith:\n  script: core.info("${{ env[\'B\'] }}")',
+    'run: echo "${{ GitHub.Head_Ref }}"',
+    'run: echo "${{ github . head_ref }}"',
+    'with:\n  ARGS: release ${{ github.head_ref }}',
+    'with:\n  env: |\n    X: ${{ github.head_ref }}',
+    'env:\n  B: ${{ github.head_ref }}\nwith:\n  args: release ${{ env.B }}',
+    'env:\n  B: ${{ github.head_ref }}\nrun: echo "${{ ENV.b }}"',
+    'env:\n  B: >-\n    ${{ github.head_ref }}\nrun: echo "${{ env.B }}"',
   ])('should flag %j as an untrusted expression pasted into code', (yaml) => {
     expect(shellPastes(yaml)).not.toEqual([]);
   });
 
   it.each([
-    'GITHUB_REF_NAME: ${{ github.ref_name }}',
-    'K8S_NS: ${{ inputs.namespace }}',
+    'env:\n  GITHUB_REF_NAME: ${{ github.ref_name }}',
+    'env:\n  K8S_NS: ${{ inputs.namespace }}',
     "if: ${{ github.ref == 'refs/heads/develop' }}",
     'group: ${{ github.workflow }}-${{ github.ref }}',
     'run: echo "${{ github.ref_type }}"',
@@ -47,6 +54,9 @@ describe('workflow shell input', () => {
     '  run: echo "$REF"\n  env:\n    REF: ${{ github.ref }}',
     'env:\n  B: ${{ github.sha }}\nrun: echo "${{ env.B }}"',
     'env:\n  B: ${{ github.head_ref }}\nrun: echo "${{ env.BB }}"',
+    "env:\n  B: ${{ github.head_ref }}\nif: ${{ env.B == 'x' }}",
+    'env:\n  B: ${{ github.head_ref }}\ngroup: ${{ env.B }}',
+    'env:\n  B: >-\n    ${{ github.head_ref }}',
   ])('should pass %j as a value no shell or script parses', (yaml) => {
     expect(shellPastes(yaml)).toEqual([]);
   });
