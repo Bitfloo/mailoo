@@ -79,6 +79,23 @@ export const ADD_EVENT_STATUSES = [
 
 export type AddEventStatus = (typeof ADD_EVENT_STATUSES)[number];
 
+/**
+ * Settled: the event is in the calendar, was already there, or the user declined it.
+ * A timed-out dialog or a missing display is not; hooks try that email again and the
+ * audit log records an error. Keyed by every status, so a new one must be placed here.
+ */
+const SETTLED_ADD_STATUS: Record<AddEventStatus, boolean> = {
+  added: true,
+  cancelled: true,
+  timed_out: false,
+  no_display: false,
+  duplicate: true,
+};
+
+export function isSettledAddStatus(status: AddEventStatus): boolean {
+  return SETTLED_ADD_STATUS[status];
+}
+
 export interface AddEventResult {
   status: AddEventStatus;
   eventId?: string;

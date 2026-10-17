@@ -16,8 +16,7 @@ import type { EmailMeta, HookRule, HooksConfig } from '../types/index.js';
 import type { EmailEventBus, NewEmailEvent } from './event-bus.js';
 import eventBus from './event-bus.js';
 import type ImapService from './imap.service.js';
-import type { AddEventStatus } from './local-calendar.service.js';
-import LocalCalendarService from './local-calendar.service.js';
+import LocalCalendarService, { isSettledAddStatus } from './local-calendar.service.js';
 import type { MailArrival } from './mail-arrival/index.js';
 import type { AlertPayload, UrgencyLevel } from './notifier.service.js';
 import NotifierService from './notifier.service.js';
@@ -52,12 +51,6 @@ interface RuleNoMatch {
 }
 
 type StaticMatchOutcome = RuleMatchResult | RuleNoMatch;
-
-const SETTLED_CALENDAR_STATUSES: ReadonlySet<AddEventStatus> = new Set([
-  'added',
-  'duplicate',
-  'cancelled',
-]);
 
 // ---------------------------------------------------------------------------
 // Pattern matching helpers
@@ -688,7 +681,7 @@ export default class HooksService {
         { confirm: this.config.calendarConfirm !== false },
       );
 
-      const settled = SETTLED_CALENDAR_STATUSES.has(result.status);
+      const settled = isSettledAddStatus(result.status);
       await mcpLog(settled ? 'info' : 'warning', 'hooks', `Calendar: ${result.message}`);
       return settled;
     } catch (err) {

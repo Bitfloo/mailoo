@@ -22,7 +22,8 @@ import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type CalendarService from '../services/calendar.service.js';
 import type ImapService from '../services/imap.service.js';
 import type LocalCalendarService from '../services/local-calendar.service.js';
-import { ADD_EVENT_STATUSES } from '../services/local-calendar.service.js';
+import type { AddEventStatus } from '../services/local-calendar.service.js';
+import { ADD_EVENT_STATUSES, isSettledAddStatus } from '../services/local-calendar.service.js';
 import type RemindersService from '../services/reminders.service.js';
 import { buildCalendarNotes } from '../utils/calendar-notes.js';
 import { extractConferenceDetails } from '../utils/conference-details.js';
@@ -32,14 +33,11 @@ import { extractMeetingUrl } from '../utils/meeting-url.js';
 const REMINDER_KEYWORDS =
   /\b(deadline|due by|respond by|reply by|action required|follow.?up|please review|please send|please confirm|submit by|complete by|return by|RSVP by|by (monday|tuesday|wednesday|thursday|friday|saturday|sunday)|by (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))\b/i;
 
-/** Dialog outcomes where the event or reminder was not written because something failed. */
-const FAILED_WRITE_STATUSES: ReadonlySet<string> = new Set(['timed_out', 'no_display']);
-
 /**
  * Await one Calendar or Reminders write and append its outcome to the audit log.
  * A cancelled dialog or a duplicate event is an answer, not a failure.
  */
-async function auditedSchedulingWrite<T extends { status: string; message: string }>(
+async function auditedSchedulingWrite<T extends { status: AddEventStatus; message: string }>(
   tool: 'add_to_calendar' | 'create_reminder',
   account: string,
   params: Record<string, unknown>,
@@ -53,7 +51,7 @@ async function auditedSchedulingWrite<T extends { status: string; message: strin
     await audit.log(tool, account, params, 'error', errMsg);
     throw err;
   }
-  const failed = FAILED_WRITE_STATUSES.has(result.status);
+  const failed = !isSettledAddStatus(result.status);
   await audit.log(
     tool,
     account,
