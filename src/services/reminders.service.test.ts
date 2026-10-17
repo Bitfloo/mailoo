@@ -15,7 +15,8 @@ vi.mock('node:child_process', () => ({
 }));
 
 import { dateSetBy, dialogLinesOf, literalAfter } from '../test-support/applescript.js';
-import RemindersService from './reminders.service.js';
+import { CONFIRM_DIALOG_WAIT_S } from './osascript.js';
+import RemindersService, { ADD_REMINDER_TIMEOUT_MS } from './reminders.service.js';
 
 /** Builds the service while it believes it is on macOS, where osascript is used. */
 async function onDarwin<T>(fn: (svc: RemindersService) => Promise<T>): Promise<T> {
@@ -162,6 +163,13 @@ describe('addReminder confirm dialog', () => {
       '\u{1F4CB} List: Home "Q4"',
     ]);
   });
+
+  it('should give up the dialog after CONFIRM_DIALOG_WAIT_S seconds', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"cancelled"}', stderr: '' });
+    await onDarwin(async (svc) => svc.addReminder({ title: 'Call the bank' }));
+    const script = osascriptImpl.mock.calls[0]?.[1][1] ?? '';
+    expect(/giving up after (\d+)/.exec(script)?.[1]).toBe(String(CONFIRM_DIALOG_WAIT_S));
+  });
 });
 
 describe('addReminder due date', () => {
@@ -204,9 +212,13 @@ describe('addReminder script', () => {
   });
 
   it('should give the add reminder script a 90 s budget', async () => {
-    // The confirm dialog alone may wait 60 s; a shorter budget would cut off a confirmed add.
+    // The confirm dialog alone may wait CONFIRM_DIALOG_WAIT_S; a shorter budget cuts off an add.
     await addScript();
     expect(osascriptImpl.mock.calls[0]?.[2].timeout).toBe(90_000);
+  });
+
+  it('should give the add reminder script more time than the confirm dialog waits', () => {
+    expect(ADD_REMINDER_TIMEOUT_MS).toBeGreaterThan(CONFIRM_DIALOG_WAIT_S * 1000);
   });
 });
 

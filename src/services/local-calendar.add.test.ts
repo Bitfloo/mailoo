@@ -17,7 +17,8 @@ vi.mock('node:child_process', () => ({
 import { dateSetBy, dialogLinesOf, literalAfter } from '../test-support/applescript.js';
 import onDarwin from '../test-support/platform.js';
 import type { LocalCalendarEventInput } from './local-calendar.service.js';
-import LocalCalendarService from './local-calendar.service.js';
+import LocalCalendarService, { ADD_EVENT_TIMEOUT_MS } from './local-calendar.service.js';
+import { CONFIRM_DIALOG_WAIT_S } from './osascript.js';
 
 beforeEach(() => {
   osascriptImpl.mockReset();
@@ -74,9 +75,13 @@ describe('addEvent script', () => {
   });
 
   it('should give the add script a 90 s budget', async () => {
-    // The confirm dialog alone may wait 60 s; a shorter budget would cut off a confirmed add.
+    // The confirm dialog alone may wait CONFIRM_DIALOG_WAIT_S; a shorter budget cuts off an add.
     await addScript();
     expect(osascriptImpl.mock.calls[0]?.[2].timeout).toBe(90_000);
+  });
+
+  it('should give the add script more time than the confirm dialog waits', () => {
+    expect(ADD_EVENT_TIMEOUT_MS).toBeGreaterThan(CONFIRM_DIALOG_WAIT_S * 1000);
   });
 });
 
@@ -96,6 +101,12 @@ describe('addEvent confirm dialog', () => {
     );
     return dialogLinesOf(osascriptImpl.mock.calls[0]?.[1][1] ?? '');
   }
+
+  it('should give up the dialog after CONFIRM_DIALOG_WAIT_S seconds', async () => {
+    await dialogFor(review);
+    const script = osascriptImpl.mock.calls[0]?.[1][1] ?? '';
+    expect(/giving up after (\d+)/.exec(script)?.[1]).toBe(String(CONFIRM_DIALOG_WAIT_S));
+  });
 
   it('should show a quoted title and location in the dialog as the mail wrote them', async () => {
     const lines = await dialogFor(review);

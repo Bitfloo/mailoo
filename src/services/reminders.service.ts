@@ -9,6 +9,7 @@
 
 import { delimitUntrusted } from '../safety/untrusted-content.js';
 import {
+  CONFIRM_DIALOG_WAIT_S,
   classifyOsascriptFailure,
   dateToAppleScriptLines,
   escapeAS,
@@ -18,7 +19,7 @@ import {
 } from './osascript.js';
 
 export const LIST_REMINDERS_TIMEOUT_MS = 15_000;
-/** The confirm dialog waits up to 60 s for the user; the write runs after it. */
+/** The confirm dialog waits up to CONFIRM_DIALOG_WAIT_S for the user; the write runs after it. */
 export const ADD_REMINDER_TIMEOUT_MS = 90_000;
 
 // ---------------------------------------------------------------------------
@@ -148,7 +149,7 @@ function buildReminderAppleScript(input: ReminderInput, confirm: boolean): strin
     });
     lines.push(
       'try',
-      '  display dialog dialogText with title "mailoo \u2014 Add Reminder?" buttons {"Cancel", "Add Reminder"} default button "Add Reminder" cancel button "Cancel" giving up after 60',
+      `  display dialog dialogText with title "mailoo \u2014 Add Reminder?" buttons {"Cancel", "Add Reminder"} default button "Add Reminder" cancel button "Cancel" giving up after ${CONFIRM_DIALOG_WAIT_S}`,
       '  set dlgResult to button returned of result',
       '  if dlgResult is not "Add Reminder" then',
       '    return "{\\"status\\":\\"timed_out\\"}"',

@@ -11,6 +11,9 @@ import { promisify } from 'node:util';
 
 const execFile = promisify(execFileCb);
 
+/** Seconds a confirm dialog waits for the user before it gives up. */
+export const CONFIRM_DIALOG_WAIT_S = 60;
+
 /** Escapes a value for use inside an AppleScript string literal. */
 export function escapeAS(s: string): string {
   return s

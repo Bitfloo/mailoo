@@ -18,6 +18,7 @@ import { promisify } from 'node:util';
 
 import { delimitUntrusted } from '../safety/untrusted-content.js';
 import {
+  CONFIRM_DIALOG_WAIT_S,
   classifyOsascriptFailure,
   dateToAppleScriptLines,
   escapeAS,
@@ -30,7 +31,7 @@ const execFile = promisify(execFileCb);
 
 export const LIST_CALENDARS_TIMEOUT_MS = 10_000;
 export const LIST_EVENTS_TIMEOUT_MS = 90_000;
-/** The confirm dialog waits up to 60 s for the user; the write runs after it. */
+/** The confirm dialog waits up to CONFIRM_DIALOG_WAIT_S for the user; the write runs after it. */
 export const ADD_EVENT_TIMEOUT_MS = 90_000;
 
 // ---------------------------------------------------------------------------
@@ -224,7 +225,7 @@ function buildAppleScript(opts: JXAScriptOptions): string {
     });
     lines.push(
       'try',
-      '  display dialog dialogText with title "mailoo \u2014 Add Calendar Event?" buttons {"Cancel", "Add to Calendar"} default button "Add to Calendar" cancel button "Cancel" giving up after 60',
+      `  display dialog dialogText with title "mailoo \u2014 Add Calendar Event?" buttons {"Cancel", "Add to Calendar"} default button "Add to Calendar" cancel button "Cancel" giving up after ${CONFIRM_DIALOG_WAIT_S}`,
       '  set dlgResult to button returned of result',
       '  if dlgResult is not "Add to Calendar" then',
       '    return "{\\"status\\":\\"timed_out\\"}"',
@@ -327,7 +328,7 @@ function statusMessage(status: AddEventStatus, title: string, calName: string | 
     case 'cancelled':
       return '\uD83D\uDEAB Cancelled \u2014 event was not added to the calendar.';
     case 'timed_out':
-      return '\u23F1\uFE0F Dialog timed out after 60 s \u2014 event was not added. Try again.';
+      return `\u23F1\uFE0F Dialog timed out after ${CONFIRM_DIALOG_WAIT_S} s \u2014 event was not added. Try again.`;
     case 'no_display':
       return '\u26A0\uFE0F No display available. Run check_calendar_permissions for setup instructions.';
     default:
