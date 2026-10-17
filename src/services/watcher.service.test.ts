@@ -55,6 +55,12 @@ describe('WatcherService start', () => {
     ]);
   });
 
+  it('should end each IDLE after idleTimeout, given in seconds', async () => {
+    const { watcher } = watch();
+    await watcher.start();
+    expect(fake.clients[0].options.maxIdleTime).toBe(1_740_000);
+  });
+
   it('should watch every configured folder', async () => {
     seedFolder('Sent', [3]);
     const { watcher } = watch({ ...inboxOnly, folders: ['INBOX', 'Sent'] });
@@ -209,6 +215,20 @@ describe('WatcherService stop', () => {
     expect(fake.clients.map((client) => client.closed)).toEqual([true]);
     answerLogin();
     await starting;
+  });
+
+  it('should leave no timer running after it logged out of a live connection', async () => {
+    const { watcher } = watch();
+    await watcher.start();
+    await watcher.stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('should list no folders once stopped', async () => {
+    const { watcher } = watch();
+    await watcher.start();
+    await watcher.stop();
+    expect(watcher.getStatus()).toEqual([]);
   });
 
   it('should cancel a pending reconnect', async () => {
