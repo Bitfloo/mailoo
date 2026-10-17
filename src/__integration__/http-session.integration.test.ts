@@ -13,7 +13,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import ConnectionManager from '../connections/manager.js';
-import { mcpLog } from '../logging.js';
+import { boundServerCount, mcpLog } from '../logging.js';
 import { createHttpMcpHost } from '../safety/http-mcp-host.js';
 import { resolveHttpListen, startGuardedHttpServers } from '../safety/http-transport.js';
 import CalendarService from '../services/calendar.service.js';
@@ -127,6 +127,45 @@ function postRpc(
     );
     req.on('error', reject);
     req.end(payload);
+  });
+}
+
+/** Opens a session's standalone GET event stream and collects what arrives on it. */
+function openEventStream(
+  port: number,
+  sessionId: string,
+): Promise<{ text: () => string; close: () => void }> {
+  return new Promise((resolve, reject) => {
+    const parts: string[] = [];
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        method: 'GET',
+        path: '/mcp',
+        headers: {
+          host: `127.0.0.1:${port}`,
+          accept: 'text/event-stream',
+          'mcp-session-id': sessionId,
+        },
+      },
+      (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`event stream answered ${res.statusCode}`));
+          return;
+        }
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => parts.push(chunk));
+        resolve({
+          text: () => parts.join(''),
+          close: () => {
+            req.destroy();
+          },
+        });
+      },
+    );
+    req.on('error', reject);
+    req.end();
   });
 }
 
@@ -372,6 +411,80 @@ describe('HTTP session logging', () => {
       );
     } finally {
       await Promise.allSettled([live.close(), ended.close()]);
+      await running.stop();
+    }
+  });
+});
+
+// A closed session's McpServer stayed in the logging table, so a long-lived
+// host kept every server it ever created.
+describe('HTTP session logging cleanup', () => {
+  it('should unbind the session server from logging when the session terminates', async () => {
+    const running = await startHost({ now: 1_000 }, 5_000);
+    const transport = new StreamableHTTPClientTransport(
+      new URL(`http://127.0.0.1:${running.port}/mcp`),
+    );
+    const client = new Client({ name: 'mailoo-unbind', version: '0.0.0' });
+    const before = boundServerCount();
+    try {
+      await client.connect(transport);
+      const connected = boundServerCount();
+      await transport.terminateSession();
+
+      await vi.waitFor(() => {
+        expect({ connected, after: boundServerCount() }).toEqual({
+          connected: before + 1,
+          after: before,
+        });
+      });
+    } finally {
+      await client.close().catch(() => undefined);
+      await running.stop();
+    }
+  });
+});
+
+// Logs before a client's `initialized` notification break clients that read
+// stdout strictly; one session's handshake must not mark another session.
+describe('HTTP session logging before the handshake', () => {
+  it('should not send logs to a session that has not sent initialized when another session has', async () => {
+    const running = await startHost({ now: 1_000 }, 5_000);
+    const live = new Client({ name: 'mailoo-live', version: '0.0.0' });
+    const received: unknown[] = [];
+    live.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {
+      received.push(notification.params.data);
+    });
+    let pendingStream: { text: () => string; close: () => void } | undefined;
+    try {
+      // The pending session is bound first, so marking every bound server
+      // when the live client finishes its handshake would include it.
+      const pending = await postInitialize(running.port, 1);
+      pendingStream = await openEventStream(running.port, pending.sessionId);
+      await live.connect(
+        new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${running.port}/mcp`)),
+      );
+
+      // The live client opens its notification stream asynchronously after the
+      // handshake; repeat each log until it arrives there.
+      await vi.waitFor(
+        async () => {
+          await mcpLog('info', 'test', 'first');
+          expect(received).toContain('first');
+        },
+        { timeout: 5_000, interval: 100 },
+      );
+      await vi.waitFor(
+        async () => {
+          await mcpLog('info', 'test', 'second');
+          expect(received).toContain('second');
+        },
+        { timeout: 5_000, interval: 100 },
+      );
+
+      expect(pendingStream.text()).not.toContain('notifications/message');
+    } finally {
+      pendingStream?.close();
+      await live.close().catch(() => undefined);
       await running.stop();
     }
   });

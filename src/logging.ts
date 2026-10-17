@@ -65,6 +65,15 @@ export function markInitialized(server?: McpServer): void {
 }
 
 /**
+ * Number of bound servers. Read-only, for tests that check a closed session
+ * stops being retained.
+ * @internal
+ */
+export function boundServerCount(): number {
+  return servers.size;
+}
+
+/**
  * Reset module state.  **Test-only** — never call in production.
  * @internal
  */
