@@ -234,7 +234,7 @@ describe('WatcherService after a dropped session', () => {
 
     dropSession(attempts[0].client);
     // Down before SMTP takes the message, with the retry at least FIRST_RETRY_MIN_MS away, so
-    // the message lands while no session is open and only the catch-up can report it.
+    // the message normally lands while no session is open and only the catch-up can report it.
     await vi.waitFor(
       () => {
         expect(watcher.getStatus()[0].connected).toBe(false);
