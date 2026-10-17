@@ -121,11 +121,33 @@ async function withScheduler<T>(
   }
 }
 
+type CheckResult = Awaited<ReturnType<SchedulerService['checkAndSend']>>;
+
 export async function checkScheduledEmails(
   config: AppConfig,
   queueDir?: string,
-): Promise<Awaited<ReturnType<SchedulerService['checkAndSend']>>> {
+): Promise<CheckResult> {
   return withScheduler(config, async (scheduler) => scheduler.checkAndSend(), queueDir);
+}
+
+/** What `mailoo scheduler check` prints for one check. */
+export function formatCheckResult(result: CheckResult): string[] {
+  const lines: string[] = [];
+  if (result.sent > 0) {
+    lines.push(`✅ Sent ${result.sent} scheduled email(s)`);
+  }
+  if (result.failed > 0) {
+    lines.push(`❌ Failed: ${result.failed}`);
+  }
+  if (result.deferred > 0) {
+    lines.push(`⏳ Held back by the rate limit: ${result.deferred} (retried on the next check)`);
+  }
+  // A delivered email can carry an error too, when its queue record was not updated.
+  lines.push(...result.errors.map((err) => `   ${err}`));
+  if (result.sent === 0 && result.failed === 0 && result.deferred === 0) {
+    lines.push('No overdue scheduled emails.');
+  }
+  return lines;
 }
 
 async function listScheduled(status: 'all' | 'pending'): Promise<ScheduledEmail[]> {
@@ -139,21 +161,9 @@ async function listScheduled(status: 'all' | 'pending'): Promise<ScheduledEmail[
 
 async function runCheck(): Promise<void> {
   const result = await checkScheduledEmails(await loadConfig());
-
-  if (result.sent > 0) {
-    console.log(`✅ Sent ${result.sent} scheduled email(s)`);
-  }
-  if (result.failed > 0) {
-    console.log(`❌ Failed: ${result.failed}`);
-  }
-  if (result.deferred > 0) {
-    console.log(`⏳ Held back by the rate limit: ${result.deferred} (retried on the next check)`);
-  }
-  // A delivered email can carry an error too, when its queue record was not updated.
-  for (const err of result.errors) console.log(`   ${err}`); // eslint-disable-line no-restricted-syntax
-  if (result.sent === 0 && result.failed === 0 && result.deferred === 0) {
-    console.log('No overdue scheduled emails.');
-  }
+  formatCheckResult(result).forEach((line) => {
+    console.log(line);
+  });
 }
 
 async function runList(): Promise<void> {
