@@ -234,7 +234,8 @@ export default class ConnectionManager implements IConnectionManager {
         await existing.verify();
         return existing;
       } catch {
-        if (this.smtpTransports.get(accountName) === existing) {
+        const current = this.smtpTransports.get(accountName);
+        if (current === existing) {
           this.smtpTransports.delete(accountName);
         }
         try {
@@ -242,6 +243,9 @@ export default class ConnectionManager implements IConnectionManager {
         } catch {
           /* ignore */
         }
+        // A concurrent caller already cached a verified replacement; a third connect would
+        // overwrite it without closing it.
+        if (current && current !== existing) return current;
       }
     }
 
