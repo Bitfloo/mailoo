@@ -175,6 +175,13 @@ describe('configure_alerts audit log', () => {
     });
   });
 
+  it('should record a non-http webhook URL as a placeholder, not the URL', async () => {
+    // new URL('mailto:…').origin is the string 'null'; the whole URL must not reach the log.
+    const entry = await lastEntryAfter({ webhook_url: 'mailto:ops-s3cr3t@example.test' });
+
+    expect(entry?.params).toEqual({ webhookUrl: '[not an http(s) URL]', save: false });
+  });
+
   it('should record a change whose save failed as an error with the reason', async () => {
     loadRawConfig.mockRejectedValue(new Error('No config file found at: config.toml'));
 
