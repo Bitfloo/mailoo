@@ -310,9 +310,9 @@ describe('MailArrival.handle', () => {
   });
 });
 
-function arrivalEmail(id: string): ArrivalEmail {
+function arrivalEmail(id: string, accountName = 'personal'): ArrivalEmail {
   return {
-    account: 'personal',
+    account: accountName,
     mailbox: 'INBOX',
     meta: {
       id,
@@ -404,6 +404,53 @@ describe('MailArrival.handle repeat notices', () => {
     await arrival.handle(arrivalEmail('first'));
     await handleMany(arrival, 5000, 'newer');
     expect(await arrival.handle(arrivalEmail('first'))).toEqual(filedAsReceipt);
+  });
+});
+
+function questionsSentAt(call: number): Record<string, unknown> | undefined {
+  const payload = systemOneMock.mock.calls[call]?.[0] as
+    | { questions?: Record<string, unknown> }
+    | undefined;
+  return payload?.questions;
+}
+
+describe('MailArrival.handle question map', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    systemOneMock.mockResolvedValue(sdkAnswers());
+  });
+
+  it('should send the same question map for every message of an account', async () => {
+    const arrival = await createArrival(mockImap());
+    await arrival.handle(arrivalEmail('10'));
+    await arrival.handle(arrivalEmail('11'));
+    expect(questionsSentAt(1)).toBe(questionsSentAt(0));
+  });
+
+  it('should ask only about the folders that exist on the account', async () => {
+    const work: AccountConfig = {
+      ...account,
+      name: 'work',
+      email: 'work@example.com',
+      username: 'work@example.com',
+    };
+    const imap = mockImap();
+    const inbox = { name: 'INBOX', path: 'INBOX', totalMessages: 0, unseenMessages: 0 };
+    const receipts = { name: 'Receipts', path: 'Receipts', totalMessages: 0, unseenMessages: 0 };
+    imap.listMailboxes.mockImplementation(async (name: string) => {
+      if (name === 'work') return [inbox];
+      return [inbox, receipts];
+    });
+    const arrival = await MailArrival.tryCreate({
+      config: systemOneConfig(),
+      imap: imap as unknown as ImapService,
+      apiKey: 'test-key',
+      accounts: [account, work],
+    });
+    if (!arrival) throw new Error('expected MailArrival instance');
+    await arrival.handle(arrivalEmail('10', 'personal'));
+    await arrival.handle(arrivalEmail('20', 'work'));
+    expect(Object.keys(questionsSentAt(1) ?? {})).not.toContain('folder_fit_receipts');
   });
 });
 
