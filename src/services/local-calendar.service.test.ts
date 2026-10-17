@@ -120,6 +120,45 @@ describe('listEvents script', () => {
       new Date(2026, 10, 2, 8, 30, 0),
     );
   });
+
+  it('should pass the requested to date into the list_events script', async () => {
+    const script = await listScript({ to: '2026-11-30T18:00:00' });
+    expect(dateSetBy(script, 'toDate', new Date(2026, 9, 31, 12, 0, 0))).toEqual(
+      new Date(2026, 10, 30, 18, 0, 0),
+    );
+  });
+
+  it('should list 20 events from 7 days back to 30 days ahead by default', async () => {
+    const now = new Date(2026, 9, 17, 12, 0, 0);
+    vi.useFakeTimers({ now, toFake: ['Date'] });
+    try {
+      const script = await listScript({});
+      expect({
+        from: dateSetBy(script, 'fromDate', now),
+        to: dateSetBy(script, 'toDate', now),
+        limit: script.split('\n').find((line) => line.startsWith('set maxResults to ')),
+      }).toEqual({
+        from: new Date(2026, 9, 10, 12, 0, 0),
+        to: new Date(2026, 10, 16, 12, 0, 0),
+        limit: 'set maxResults to 20',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('should return no events off macOS without running osascript', async () => {
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+    try {
+      const events = await new LocalCalendarService().listEvents();
+      expect({ events, osascriptRuns: osascriptImpl.mock.calls.length }).toEqual({
+        events: [],
+        osascriptRuns: 0,
+      });
+    } finally {
+      platform.mockRestore();
+    }
+  });
 });
 
 describe('checkPermissions', () => {
@@ -127,6 +166,18 @@ describe('checkPermissions', () => {
     osascriptImpl.mockResolvedValueOnce({ stdout: '4\n', stderr: '' });
     const result = await onDarwin(async () => new LocalCalendarService().checkPermissions());
     expect(result).toEqual({ granted: true, platform: 'darwin', instructions: [] });
+  });
+
+  it('should report calendar access granted when Calendar has no calendars', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '0\n', stderr: '' });
+    const result = await onDarwin(async () => new LocalCalendarService().checkPermissions());
+    expect(result.granted).toBe(true);
+  });
+
+  it('should give the permission check a 10 s budget', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '4\n', stderr: '' });
+    await onDarwin(async () => new LocalCalendarService().checkPermissions());
+    expect(osascriptImpl.mock.calls[0]?.[2].timeout).toBe(10_000);
   });
 
   it('should report calendar access denied when osascript rejects', async () => {
@@ -252,16 +303,24 @@ describe('addEvent duplicate check', () => {
   });
 
   it('should report the matching event as a duplicate', async () => {
+    // The match can sit in another calendar than the one the add asked for.
     osascriptImpl.mockResolvedValueOnce({
-      stdout: '{"found":true,"eventId":"E1","calendarName":"Work"}',
+      stdout: '{"found":true,"eventId":"E1","calendarName":"Home"}',
       stderr: '',
     });
     const result = await onDarwin(async () =>
       new LocalCalendarService().addEvent(standup, 'Work', { confirm: false }),
     );
-    expect({ status: result.status, duplicate: result.duplicate }).toEqual({
+    expect({
+      status: result.status,
+      eventId: result.eventId,
+      calendarName: result.calendarName,
+      duplicate: result.duplicate,
+    }).toEqual({
       status: 'duplicate',
-      duplicate: { eventId: 'E1', calendarName: 'Work' },
+      eventId: 'E1',
+      calendarName: 'Home',
+      duplicate: { eventId: 'E1', calendarName: 'Home' },
     });
   });
 

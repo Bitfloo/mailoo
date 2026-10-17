@@ -84,6 +84,16 @@ describe('addEvent script', () => {
   it('should give the add script more time than the confirm dialog waits', () => {
     expect(ADD_EVENT_TIMEOUT_MS).toBeGreaterThan(CONFIRM_DIALOG_WAIT_S * 1000);
   });
+
+  it('should set the alarm 900 s before the event by default', async () => {
+    const script = await addScript();
+    expect(/trigger interval:(-?\d+)/.exec(script)?.[1]).toBe('-900');
+  });
+
+  it('should set no alarm when alarmMinutes is 0', async () => {
+    const script = await addScript({ ...offsite, alarmMinutes: 0 });
+    expect(script.includes('display alarm')).toBe(false);
+  });
 });
 
 describe('addEvent confirm dialog', () => {
@@ -95,12 +105,12 @@ describe('addEvent confirm dialog', () => {
     location: 'Room "Oak"',
   };
 
-  async function dialogFor(event: typeof review): Promise<string[]> {
+  async function dialogFor(event: LocalCalendarEventInput): Promise<string[]> {
     osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"cancelled"}', stderr: '' });
     await onDarwin(async () =>
       new LocalCalendarService().addEvent(event, 'Work', { skipDuplicateCheck: true }),
     );
-    return dialogLinesOf(osascriptImpl.mock.calls[0]?.[1][1] ?? '');
+    return dialogLinesOf(osascriptImpl.mock.calls.at(-1)?.[1][1] ?? '');
   }
 
   it('should give up the dialog after CONFIRM_DIALOG_WAIT_S seconds', async () => {
@@ -125,6 +135,60 @@ describe('addEvent confirm dialog', () => {
   it('should show the event start and end in the dialog, not the script that reads them', async () => {
     const lines = await dialogFor(review);
     expect(lines[1]).toBe('\u{1F550} <eventStart> \u2013 <eventEnd>');
+  });
+
+  it('should name the default calendar in the dialog when no calendar is given', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"cancelled"}', stderr: '' });
+    await onDarwin(async () =>
+      new LocalCalendarService().addEvent(review, undefined, { skipDuplicateCheck: true }),
+    );
+    const lines = dialogLinesOf(osascriptImpl.mock.calls[0]?.[1][1] ?? '');
+    expect(lines.at(-1)).toBe('\u{1F4C6} Default Calendar \u00b7 \u23f0 15 min before');
+  });
+
+  it('should count attendees and attachments, saved and pending, in the dialog', async () => {
+    const agenda = {
+      filename: 'agenda.pdf',
+      localPath: '/var/mailoo/agenda.pdf',
+      fileUrl: 'file:///var/mailoo/agenda.pdf',
+      mimeType: 'application/pdf',
+      size: 2048,
+    };
+    const slides = { filename: 'slides.key', mimeType: 'application/x-iwork-keynote', size: 9000 };
+    const one = await dialogFor({ ...review, attendeeCount: 1, savedAttachments: [agenda] });
+    const many = await dialogFor({
+      ...review,
+      attendeeCount: 3,
+      savedAttachments: [agenda],
+      pendingAttachments: [slides],
+    });
+    expect({ one: one.slice(3, 5), many: many.slice(3, 5) }).toEqual({
+      one: ['\u{1F465} 1 attendee', '\u{1F4CE} 1 attachment saved locally'],
+      many: ['\u{1F465} 3 attendees', '\u{1F4CE} 2 attachments saved locally'],
+    });
+  });
+
+  it('should label the meeting link by its label, then its provider, then its domain', async () => {
+    const url = 'https://meet.example.com/j/8812?pwd=a';
+    const labels = [
+      await dialogFor({ ...review, url, urlLabel: 'Zoom', conferenceProvider: 'Teams' }),
+      await dialogFor({ ...review, url, conferenceProvider: 'Teams' }),
+      await dialogFor({ ...review, url }),
+    ].map((lines) => lines[3]);
+    expect(labels).toEqual(['\u{1F3A5} Zoom', '\u{1F3A5} Teams', '\u{1F3A5} meet.example.com']);
+  });
+
+  it('should show the dial-in and the meeting ID with its PIN', async () => {
+    const lines = await dialogFor({
+      ...review,
+      dialIn: '+1 555 0100',
+      meetingId: '881 2345',
+      passcode: '9921',
+    });
+    expect(lines.slice(3, 5)).toEqual([
+      '\u{1F4DE} +1 555 0100',
+      '\u{1F511} ID: 881 2345 \u00b7 PIN: 9921',
+    ]);
   });
 });
 
@@ -183,6 +247,18 @@ describe('addEvent failures', () => {
     await expect(
       addRejectedWith('0:312: execution error: User canceled. (-128)\n'),
     ).resolves.toEqual({ status: 'cancelled', message: 'Cancelled by user.' });
+  });
+
+  it('should report a failed add as no_display with the reason', async () => {
+    await expect(
+      addRejectedWith(
+        '0:312: execution error: Calendar got an error: AppleEvent timed out. (-1712)\n',
+      ),
+    ).resolves.toEqual({
+      status: 'no_display',
+      message:
+        'Could not add event: osascript failed: 0:312: execution error: Calendar got an error: AppleEvent timed out. (-1712)',
+    });
   });
 
   it('should report a refused add as no_display with the access-denied message', async () => {
