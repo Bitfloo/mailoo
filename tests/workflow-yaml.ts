@@ -66,11 +66,19 @@ export function refEnv(ref: string): { GITHUB_REF: string; GITHUB_REF_NAME: stri
   return { GITHUB_REF: ref, GITHUB_REF_NAME: ref.replace(/^refs\/(?:heads|tags)\//, '') };
 }
 
-/** One chunk per job so a token can be required on the scorecard job only. */
+/**
+ * One chunk per job so a token can be required on the scorecard job only. Throws unless every
+ * job key in the block starts a chunk, so a key form it cannot split on does not hide a job.
+ */
 export function jobSections(yaml: string): string[] {
   const parts = yaml.split(/^jobs:\n/m);
   if (parts.length < 2) {
     throw new Error('missing jobs');
   }
-  return parts[1].split(/\n(?= {2}[a-zA-Z0-9_-]+:\n)/);
+  const keys = parts[1].match(/^ {2}[^\s#]/gm)?.length ?? 0;
+  const sections = parts[1].split(/\n(?= {2}(?:[\w-]+|"[^"\n]+"|'[^'\n]+'):[ \t]*(?:#.*)?\n)/);
+  if (sections.length !== keys) {
+    throw new Error(`read ${sections.length} of ${keys} jobs`);
+  }
+  return sections;
 }

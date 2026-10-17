@@ -119,6 +119,26 @@ function jobToken(job: string): string[] {
     .sort();
 }
 
+function jobKey(job: string): string | undefined {
+  return job.match(/^ {2}(["']?)([\w-]+)\1:/)?.[2];
+}
+
+describe('workflow job reader', () => {
+  it('should read a job key with an underscore, a comment or quotes as its own job', () => {
+    // The first key needs no split, so each form under test follows another job.
+    const yaml =
+      'jobs:\n  a:\n    runs-on: x\n  b_c:\n    runs-on: x\n  d: # note\n    runs-on: x\n  "e":\n    runs-on: x\n';
+    expect(jobSections(yaml).map(jobKey)).toEqual(['a', 'b_c', 'd', 'e']);
+  });
+
+  it('should refuse a jobs block with a job key it cannot split on', () => {
+    // The roster below would otherwise read a flow-style job as part of the job above it.
+    expect(() => jobSections('jobs:\n  a:\n    runs-on: x\n  b: { runs-on: x }\n')).toThrow(
+      'read 1 of 2 jobs',
+    );
+  });
+});
+
 describe('workflow token is no wider than the job writes', () => {
   it('should give every workflow job exactly the token scopes this roster lists', () => {
     // Read from the tree, so a new workflow, a new job or a new scope at any level fails until listed here.
@@ -129,7 +149,7 @@ describe('workflow token is no wider than the job writes', () => {
           name,
           Object.fromEntries(
             jobSections(readFileSync(join(workflowDir, name), 'utf8')).map((job) => [
-              job.match(/^ {2}([\w-]+):/)?.[1],
+              jobKey(job),
               jobToken(job),
             ]),
           ),
