@@ -23,7 +23,7 @@ import {
 
 import { CONFIG_FILE, configExists, loadRawConfig, saveConfig } from '../config/loader.js';
 import type { RawAccountConfig, RawAppConfig } from '../config/schema.js';
-import { AppConfigFileSchema, SystemOneConfigSchema } from '../config/schema.js';
+import { AppConfigFileSchema, SettingsSchema } from '../config/schema.js';
 import ConnectionManager from '../connections/manager.js';
 import type { AccountConfig } from '../types/index.js';
 import ensureInteractive from './guard.js';
@@ -492,37 +492,7 @@ async function addAccount(): Promise<void> {
         accounts: [...existingConfig.accounts, newAccount],
       }
     : {
-        settings: {
-          rate_limit: 10,
-          read_only: false,
-          save_to_sent: true,
-          watcher: {
-            enabled: false,
-            folders: ['INBOX'],
-            idle_timeout: 1740,
-          },
-          system_one: SystemOneConfigSchema.parse({}),
-          hooks: {
-            on_new_email: 'notify',
-            preset: 'priority-focus',
-            auto_label: false,
-            auto_flag: false,
-            batch_delay: 5,
-            rules: [],
-            alerts: {
-              desktop: false,
-              sound: false,
-              urgency_threshold: 'high',
-              webhook_url: '',
-              webhook_events: ['urgent', 'high'],
-              allow_private_webhooks: false,
-            },
-            auto_calendar: false,
-            calendar_name: '',
-            calendar_alarm_minutes: 15,
-            calendar_confirm: true,
-          },
-        },
+        settings: SettingsSchema.parse({}),
         accounts: [newAccount],
       };
 
