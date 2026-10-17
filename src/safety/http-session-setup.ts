@@ -128,7 +128,7 @@ export default async function openSession(
 
     return { transport, scope, registration };
   } catch (err) {
-    if (registration.id === undefined) lifecycle.abandoned(scope);
+    lifecycle.abandoned(scope);
     throw err;
   }
 }
