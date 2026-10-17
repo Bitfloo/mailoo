@@ -7,6 +7,7 @@ import {
   settle,
 } from '../test-support/fake-imapflow.js';
 import { arrivedIds, inboxOnly, stopWatchers, watch } from '../test-support/watcher-harness.js';
+import { AUTO_IDLE_DELAY_MS } from './watcher.service.js';
 
 vi.mock('../logging.js', () => ({
   mcpLog: vi.fn().mockResolvedValue(undefined),
@@ -46,7 +47,7 @@ describe('WatcherService resume after a dropped connection', () => {
     fake.clients[0].close();
     seedFolder('INBOX', [1, 2], 8n);
     await advance(1_000);
-    await advance(1_000);
+    await advance(AUTO_IDLE_DELAY_MS);
     deliver('INBOX', 'Fresh');
     await settle();
     expect(arrivedIds(arrivals)).toEqual(['3']);
@@ -72,7 +73,7 @@ describe('WatcherService failed connect', () => {
     await watcher.start();
     deliver('INBOX', 'Before the first connect');
     await advance(1_000);
-    await advance(1_000);
+    await advance(AUTO_IDLE_DELAY_MS);
     expect(arrivedIds(arrivals)).toEqual([]);
   });
 });

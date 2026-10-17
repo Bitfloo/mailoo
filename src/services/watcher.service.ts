@@ -109,7 +109,7 @@ export function buildEmailMeta(msg: WatcherFetchMessage): EmailMeta {
  * These connections only idle, so imapflow's 15 s default would just hold back the notice for
  * mail that lands right after a fetch.
  */
-const AUTO_IDLE_DELAY_MS = 1_000;
+export const AUTO_IDLE_DELAY_MS = 1_000;
 
 function closeQuietly(client: ImapFlow): void {
   try {

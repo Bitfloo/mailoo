@@ -1,3 +1,7 @@
+import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import type { AccessTokenSource } from '../connections/types.js';
 import {
   advance,
@@ -16,7 +20,9 @@ import {
   stopWatchers,
   watch,
 } from '../test-support/watcher-harness.js';
-import { buildEmailMeta } from './watcher.service.js';
+import { AUTO_IDLE_DELAY_MS, buildEmailMeta } from './watcher.service.js';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
 vi.mock('../logging.js', () => ({
   mcpLog: vi.fn().mockResolvedValue(undefined),
@@ -75,7 +81,7 @@ describe('WatcherService new mail', () => {
   it('should report a message delivered while the connection idles', async () => {
     const { watcher, arrivals } = watch();
     await watcher.start();
-    await advance(1_000);
+    await advance(AUTO_IDLE_DELAY_MS);
     deliver('INBOX', 'Invoice 2026-10');
     await settle();
     expect(arrivals).toMatchObject([
@@ -86,10 +92,10 @@ describe('WatcherService new mail', () => {
   it('should report the next message one second after the previous one was fetched', async () => {
     const { watcher, arrivals } = watch();
     await watcher.start();
-    await advance(1_000);
+    await advance(AUTO_IDLE_DELAY_MS);
     deliver('INBOX', 'First');
     await settle();
-    await advance(1_000);
+    await advance(AUTO_IDLE_DELAY_MS);
     deliver('INBOX', 'Second');
     await settle();
     expect(arrivedSubjects(arrivals)).toEqual(['First', 'Second']);
@@ -97,7 +103,7 @@ describe('WatcherService new mail', () => {
   it('should not fetch when the message count went down', async () => {
     const { watcher } = watch();
     await watcher.start();
-    await advance(1_000);
+    await advance(AUTO_IDLE_DELAY_MS);
     // imapflow raises exists on any change of the count, so a shrink reaches the handler too.
     fake.clients[0].emit('exists', { path: 'INBOX', count: 2, prevCount: 3 });
     await settle();
@@ -110,10 +116,10 @@ describe('WatcherService failed fetch', () => {
     fake.fetchErrors.push(new Error('Command failed'));
     const { watcher, arrivals } = watch();
     await watcher.start();
-    await advance(1_000);
+    await advance(AUTO_IDLE_DELAY_MS);
     deliver('INBOX', 'Lost');
     await settle();
-    await advance(1_000);
+    await advance(AUTO_IDLE_DELAY_MS);
     deliver('INBOX', 'Next');
     await settle();
     expect(arrivedSubjects(arrivals)).toEqual(['Lost', 'Next']);
@@ -125,7 +131,7 @@ describe('WatcherService failed fetch', () => {
     );
     const { watcher, arrivals } = watch();
     await watcher.start();
-    await advance(1_000);
+    await advance(AUTO_IDLE_DELAY_MS);
     deliver('INBOX', 'Mid-fetch');
     await settle();
     await advance(1_000);
@@ -138,7 +144,7 @@ describe('WatcherService UID range', () => {
   it('should report every message of a burst when UIDs run ahead of sequence numbers', async () => {
     const { watcher, arrivals } = watch();
     await watcher.start();
-    await advance(1_000);
+    await advance(AUTO_IDLE_DELAY_MS);
     deliver('INBOX', 'A', 'B', 'C');
     await settle();
     expect(arrivedIds(arrivals)).toEqual(['42', '43', '44']);
@@ -147,7 +153,7 @@ describe('WatcherService UID range', () => {
   it('should report each message once when notices overlap', async () => {
     const { watcher, arrivals } = watch();
     await watcher.start();
-    await advance(1_000);
+    await advance(AUTO_IDLE_DELAY_MS);
     deliver('INBOX', 'A');
     deliver('INBOX', 'B');
     deliver('INBOX', 'C');
@@ -158,10 +164,10 @@ describe('WatcherService UID range', () => {
   it('should not report the newest message again when the new one is gone before the fetch', async () => {
     const { watcher, arrivals } = watch();
     await watcher.start();
-    await advance(1_000);
+    await advance(AUTO_IDLE_DELAY_MS);
     deliver('INBOX', 'Kept');
     await settle();
-    await advance(1_000);
+    await advance(AUTO_IDLE_DELAY_MS);
     const [filtered] = deliver('INBOX', 'Filtered by another client');
     expunge('INBOX', [filtered]);
     await settle();
@@ -267,5 +273,14 @@ describe('buildEmailMeta', () => {
       },
     });
     expect(meta).toMatchObject({ id: '9', subject: 'Hello', messageId: '<id@example.com>' });
+  });
+});
+
+describe('README watcher section', () => {
+  it('should state how soon IDLE resumes after a fetch', async () => {
+    const readme = await readFile(join(root, 'README.md'), 'utf8');
+    const seconds = AUTO_IDLE_DELAY_MS / 1000;
+    const spoken = seconds === 1 ? 'a second' : `${seconds} seconds`;
+    expect(readme).toContain(`IDLE resumes about ${spoken} after each fetch`);
   });
 });
