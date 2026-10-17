@@ -1,7 +1,7 @@
 # Performance Improvements Roadmap
 
-> **Status**: Planning  
-> **Last Updated**: 2026-02-18
+> **Status**: In progress  
+> **Last Updated**: 2026-10-17
 
 Performance for Mailoo operates across **three distinct layers**, each with different bottlenecks and optimization strategies. This roadmap identifies concrete improvements against the current implementation, ordered by impact.
 
@@ -43,7 +43,7 @@ Performance for Mailoo operates across **three distinct layers**, each with diff
 | No IMAP command pipelining control | Relies on ImapFlow auto-pipelining (good) but fetches extra data | Low — ImapFlow handles this well already |
 | No selective MIME part fetching | Full source download for `getEmail()` | Medium — downloads HTML+attachments when only plain text needed |
 | No signature/quote stripping | Returns full body including signatures and quoted replies | Medium — wastes tokens on repeated content |
-| No IMAP IDLE for push | Only poll-based; no real-time arrival notifications | Low — not critical for MCP request/response model |
+| ~~No IMAP IDLE for push~~ | ✅ Done 2026-10-17 — `watcher.service.ts` idles on each watched folder and reports new mail as it lands | — |
 | No connection keepalive (NOOP) | Connections may timeout during idle periods | Low-Medium — ImapFlow may handle internally |
 | No batch flag operations | One-at-a-time for mark/move/delete | Low — current usage patterns are single-message |
 | `has_attachment` filter is client-side | Post-filter after SEARCH (IMAP limitation) | Low — unavoidable IMAP protocol limitation |
@@ -256,9 +256,9 @@ class ImapConnectionPool {
 
 **Impact**: Medium | **Effort**: Low-Medium
 
-**Current behavior**: After a failed IMAP connect or SMTP verify, the manager refuses a new attempt for that account until the window passes (1 s doubling to 60 s, up to 25 % jitter, no attempt limit), see [Reconnect backoff](configuration.md#reconnect-backoff). The plan below was the original target.
+**Current behavior**: After a failed IMAP connect or SMTP verify, the manager refuses a new attempt for that account until the window passes (1 s doubling to 60 s, up to 25 % jitter, no attempt limit), see [Reconnect backoff](configuration.md#reconnect-backoff).
 
-**Target behavior**: Exponential backoff with jitter:
+**Original plan (superseded)**: Exponential backoff with jitter:
 ```typescript
 // Reconnect strategy:
 // Attempt 1: immediate
@@ -307,9 +307,9 @@ These are lower priority but provide meaningful improvements for power users.
 
 **Current**: Extracts contacts from 100-500 recent messages on every call. **Target**: Cache extracted contacts per account with 10-minute TTL. Contact lists change slowly.
 
-#### P4.4 — IMAP IDLE for Real-Time Notifications
+#### P4.4 — IMAP IDLE for Real-Time Notifications ✅ Done
 
-**Current**: Not implemented. **Target**: Optional IDLE mode that emits events on new message arrival. Useful for MCP resource subscriptions if the protocol adds support.
+**Current**: Done 2026-10-17 — the opt-in watcher (`watcher.service.ts`) idles on each watched folder and emits an event for each new message. **Original target**: Optional IDLE mode that emits events on new message arrival.
 
 #### P4.5 — Selective BODYSTRUCTURE Fetch
 
