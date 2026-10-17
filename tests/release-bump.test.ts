@@ -270,6 +270,13 @@ describe('release bump', () => {
       );
     });
 
+    it('should leave nothing but server.json behind when it stamps a version', async () => {
+      await expect(stampServerJson(serverJson, '1.4.2')).resolves.toMatchObject({
+        files: ['server.json'],
+        error: undefined,
+      });
+    });
+
     it('should stamp a server.json that lists no packages', async () => {
       const { serverJson: stamped } = await stampServerJson('{"version": "0.0.0"}\n', '1.4.2');
       expect(JSON.parse(stamped)).toEqual({ version: '1.4.2' });
