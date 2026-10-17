@@ -72,6 +72,62 @@ function gmailMailboxes() {
   ];
 }
 
+/**
+ * imapflow runs one command at a time per connection, and a FETCH holds the
+ * connection until its iterator finishes. A command issued inside the loop
+ * never starts; against a server the call hangs until the socket times out.
+ * Here such a command rejects at once and is recorded, so the unit lane fails
+ * without GreenMail. Configure the client's other mocks before calling this.
+ */
+function rejectCommandsDuringFetch(
+  client: ReturnType<typeof createMockImapClient>,
+  rows: Record<string, unknown>[],
+) {
+  const issuedDuringFetch: string[] = [];
+  let fetchOpen = false;
+  const commands = client as unknown as Record<string, (...args: unknown[]) => unknown>;
+  const guard =
+    (name: string, command: (...args: unknown[]) => unknown) =>
+    async (...args: unknown[]) => {
+      if (fetchOpen) {
+        issuedDuringFetch.push(name);
+        throw new Error(`${name} issued while a FETCH iterator is open`);
+      }
+      return command(...args);
+    };
+  [
+    'download',
+    'fetchOne',
+    'search',
+    'list',
+    'status',
+    'messageMove',
+    'messageDelete',
+    'messageFlagsAdd',
+    'messageFlagsRemove',
+    'append',
+  ].forEach((name) => {
+    commands[name] = guard(name, commands[name]);
+  });
+  client.fetch.mockImplementation(() =>
+    (async function* openFetch() {
+      fetchOpen = true;
+      try {
+        yield* rows;
+      } finally {
+        fetchOpen = false;
+      }
+    }()),
+  );
+  // imapflow's fetchAll drains fetch and returns the rows after the FETCH completes.
+  commands.fetchAll = guard('fetchAll', async (...args: unknown[]) => {
+    const collected: unknown[] = [];
+    for await (const row of client.fetch(...args)) collected.push(row);
+    return collected;
+  });
+  return issuedDuringFetch;
+}
+
 function createMockConnectionManager(mockClient: ReturnType<typeof createMockImapClient>) {
   return {
     getAccount: vi.fn().mockReturnValue({
@@ -887,6 +943,17 @@ describe('ImapService', () => {
       expect(parts).toEqual(['body-of-part-1']);
     });
 
+    it('should issue no command while a FETCH is open', async () => {
+      const message = { uid: 9, bodyStructure: { part: '2', ...calendarPart } };
+      client.fetchOne.mockResolvedValue(message);
+      downloadReturnsPartName();
+      const issuedDuringFetch = rejectCommandsDuringFetch(client, [message]);
+
+      await service.getCalendarParts('test', 'INBOX', '9');
+
+      expect(issuedDuringFetch).toEqual([]);
+    });
+
     it('should read a text/calendar part attached as invite.ics once', async () => {
       client.fetchOne.mockResolvedValue({
         uid: 9,
@@ -916,6 +983,84 @@ describe('ImapService', () => {
       const parts = await service.getCalendarParts('test', 'INBOX', '9');
 
       expect(parts).toEqual(['body-of-part-2']);
+    });
+  });
+
+  describe('getThread', () => {
+    /** A GreenMail thread message: single text/plain part, base64 body, as fetchAll returns it. */
+    function threadMessage(uid: number, references: string[]) {
+      const messageId = `<thread-${uid}@example.test>`;
+      const body = `thread-body-${uid}`;
+      const headers = [
+        `Message-ID: ${messageId}`,
+        ...(references.length > 0 ? [`References: ${references.join(' ')}`] : []),
+        `Subject: Re: Thread`,
+        'Content-Type: text/plain; charset=utf-8',
+        'Content-Transfer-Encoding: base64',
+      ];
+      return {
+        seq: uid,
+        uid,
+        envelope: {
+          date: new Date(`2026-01-0${uid}T10:00:00Z`),
+          subject: 'Re: Thread',
+          from: [{ name: '', address: 'alice@example.test' }],
+          to: [{ name: '', address: 'bob@example.test' }],
+          messageId,
+          inReplyTo: references.at(-1),
+        },
+        flags: new Set<string>(),
+        bodyStructure: {
+          type: 'text/plain',
+          parameters: { charset: 'utf-8' },
+          encoding: 'base64',
+          size: 20,
+          lineCount: 1,
+        },
+        source: Buffer.from(
+          `${headers.join('\r\n')}\r\n\r\n${Buffer.from(body).toString('base64')}\r\n`,
+        ),
+      };
+    }
+
+    const thread = [
+      threadMessage(1, []),
+      threadMessage(2, ['<thread-1@example.test>']),
+      threadMessage(3, ['<thread-1@example.test>', '<thread-2@example.test>']),
+    ];
+
+    beforeEach(() => {
+      client.search.mockImplementation(async (query: { header: Record<string, string> }) => {
+        const id = query.header['Message-ID'];
+        const found = thread.find((m) => m.envelope.messageId === id);
+        return found ? [found.uid] : [];
+      });
+      client.fetchOne.mockResolvedValue(thread[2]);
+      client.download.mockImplementation(async (uid: string) => ({
+        meta: { contentType: 'text/plain' },
+        content: Readable.from([Buffer.from(`thread-body-${uid}`)]),
+      }));
+    });
+
+    it('should issue no command while the thread FETCH is open', async () => {
+      const issuedDuringFetch = rejectCommandsDuringFetch(client, thread);
+
+      await service.getThread('test', '<thread-3@example.test>');
+
+      expect(issuedDuringFetch).toEqual([]);
+    });
+
+    // A body read inside the FETCH loop fails; the message then keeps its base64 source text.
+    it('should return every thread message with its decoded body', async () => {
+      rejectCommandsDuringFetch(client, thread);
+
+      const result = await service.getThread('test', '<thread-3@example.test>');
+
+      expect(result.messages.map((m) => m.bodyText)).toEqual([
+        'thread-body-1',
+        'thread-body-2',
+        'thread-body-3',
+      ]);
     });
   });
 
