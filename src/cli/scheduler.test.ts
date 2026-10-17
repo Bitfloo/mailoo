@@ -5,18 +5,30 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
-import { loadConfig } from '../config/loader.js';
-import ConnectionManager from '../connections/manager.js';
 import type { ScheduledEmail } from '../types/index.js';
 import type { CommandRunner } from './scheduler.js';
-import {
+
+// The XDG paths are fixed when the modules load, so a check with no queue directory
+// writes under this temp root and never under the real state directory.
+const xdgRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-cli-xdg-'));
+vi.stubEnv('XDG_CONFIG_HOME', path.join(xdgRoot, 'config'));
+vi.stubEnv('XDG_STATE_HOME', path.join(xdgRoot, 'state'));
+
+const { loadConfig } = await import('../config/loader.js');
+const { default: ConnectionManager } = await import('../connections/manager.js');
+const {
   checkScheduledEmails,
   formatCheckResult,
   installCrontabLine,
   loadLaunchAgent,
   removeCrontabLine,
   runCheck,
-} from './scheduler.js';
+} = await import('./scheduler.js');
+
+afterAll(async () => {
+  vi.unstubAllEnvs();
+  await fs.rm(xdgRoot, { recursive: true, force: true });
+});
 
 const SRC = path.resolve('src');
 
