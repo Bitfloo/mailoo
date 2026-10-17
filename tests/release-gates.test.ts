@@ -22,8 +22,15 @@ describe('release job gate evaluator', () => {
     "    if: needs.npm.result >= 'success'",
     "    if: needs.lint.result == 'success'",
     '    if: always() always()',
+    '    if: (always() always()',
   ])('should refuse to evaluate %j as a release job gate', (job) => {
     expect(() => runsJob(jobGate(job), { npm: 'success' })).toThrow(/unsupported gate/);
+  });
+
+  it('should refuse a job whose only if: belongs to a step', () => {
+    expect(() => jobGate('    steps:\n      - run: x\n        if: always()')).toThrow(
+      'job has no if:',
+    );
   });
 
   it.each<{ job: string; needs: Record<string, string>; runs: boolean }>([

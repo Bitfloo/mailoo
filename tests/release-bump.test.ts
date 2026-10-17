@@ -270,6 +270,11 @@ describe('release bump', () => {
       );
     });
 
+    it('should stamp a server.json that lists no packages', async () => {
+      const { serverJson: stamped } = await stampServerJson('{"version": "0.0.0"}\n', '1.4.2');
+      expect(JSON.parse(stamped)).toEqual({ version: '1.4.2' });
+    });
+
     // A manual release dispatched from a branch with no version input used to stamp
     // `refs/heads/<branch>` into the manifest the MCP Registry publishes.
     it.each([
