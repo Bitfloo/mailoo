@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-
+import audit from '../safety/audit.js';
 import createServer from '../server.js';
 import registerExportTools from '../tools/export.tool.js';
 import type { TestServices } from './helpers/index.js';
@@ -17,6 +17,12 @@ const { auditHome } = await vi.hoisted(async () => {
 
 afterAll(async () => {
   await auditHome.restore();
+});
+
+describe('audit home', () => {
+  it('should write audit entries under the pinned home', () => {
+    expect(audit.AUDIT_LOG_PATH).toBe(path.join(auditHome.dir, 'mailoo', 'audit.log'));
+  });
 });
 
 interface TextToolResult {

@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-
+import audit from '../safety/audit.js';
 import { emlFilename } from '../services/imap.service.js';
 import type { ExportArgs, ToolResult } from '../test-support/export-tool-harness.js';
 import {
@@ -21,6 +21,12 @@ const { auditHome } = await vi.hoisted(async () => {
 
 afterAll(async () => {
   await auditHome.restore();
+});
+
+describe('audit home', () => {
+  it('should write audit entries under the pinned home', () => {
+    expect(audit.AUDIT_LOG_PATH).toBe(path.join(auditHome.dir, 'mailoo', 'audit.log'));
+  });
 });
 
 describe('export_email default file name', () => {

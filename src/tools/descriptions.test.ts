@@ -5,9 +5,11 @@
  * server does not expose.
  */
 
+import path from 'node:path';
+
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-
+import audit from '../safety/audit.js';
 import { ADD_EVENT_STATUSES } from '../services/local-calendar.service.js';
 import buildCatalog from '../test-support/mcp-catalog-harness.js';
 import { registerCalendarWriteTools } from './calendar.tool.js';
@@ -19,6 +21,12 @@ const { auditHome } = await vi.hoisted(async () => {
 
 afterAll(async () => {
   await auditHome.restore();
+});
+
+describe('audit home', () => {
+  it('should write audit entries under the pinned home', () => {
+    expect(audit.AUDIT_LOG_PATH).toBe(path.join(auditHome.dir, 'mailoo', 'audit.log'));
+  });
 });
 
 interface ListedTool {
