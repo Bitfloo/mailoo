@@ -27,6 +27,7 @@ describe('workflow shell input', () => {
     'run: echo "${{ github.event[\'pull_request\'].title }}"',
     'run: echo "${{ github[\'head_ref\'] }}"',
     'run: echo "${{ inputs[\'version\'] }}"',
+    'with:\n  args: release ${{ github.head_ref }}',
   ])('should flag %j as an untrusted expression pasted into code', (yaml) => {
     expect(shellPastes(yaml)).not.toEqual([]);
   });
