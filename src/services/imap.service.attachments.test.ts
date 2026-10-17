@@ -12,6 +12,7 @@ import {
   createMockImapClient,
   downloadReturnsPartName,
   fetchOneByUid,
+  rejectCommandsDuringFetch,
 } from '../test-support/imap-client-fake.js';
 import ImapService from './imap.service.js';
 
@@ -197,6 +198,18 @@ describe('ImapService', () => {
       await expect(service.downloadAttachment('test', '9', 'INBOX', 'b.txt')).rejects.toThrow(
         'Failed to download attachment "b.txt"',
       );
+    });
+
+    // imapflow runs one command at a time: a command sent inside an open FETCH never starts.
+    it('should issue no command while a FETCH is open', async () => {
+      const message = { uid: 9, bodyStructure: twinAttachmentStructure('a.txt', 'b.txt') };
+      fetchOneByUid(client, message);
+      downloadReturnsPartName(client);
+      const issuedDuringFetch = rejectCommandsDuringFetch(client, [message]);
+
+      await service.downloadAttachment('test', '9', 'INBOX', 'b.txt');
+
+      expect(issuedDuringFetch).toEqual([]);
     });
 
     // A lock left held makes every later call on the account wait out the lock timeout.

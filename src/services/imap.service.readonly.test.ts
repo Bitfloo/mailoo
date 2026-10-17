@@ -1,6 +1,7 @@
 import {
   createMockConnectionManager,
   createMockImapClient,
+  rejectCommandsDuringFetch,
 } from '../test-support/imap-client-fake.js';
 import ImapService from './imap.service.js';
 import { MAILBOX_LOCK_TIMEOUT_MS } from './mailbox-lock.js';
@@ -113,6 +114,17 @@ describe('ImapService', () => {
       await expect(service.exportEmail('test', '10', 'INBOX', 1024)).rejects.toThrow(
         'Email 10 not found in INBOX',
       );
+    });
+
+    // imapflow runs one command at a time: a command sent inside an open FETCH never starts.
+    it('should issue no command while a FETCH is open', async () => {
+      const message = { uid: 10, size: 3, source: Buffer.from('raw') };
+      client.fetchOne.mockResolvedValue(message);
+      const issuedDuringFetch = rejectCommandsDuringFetch(client, [message]);
+
+      await service.exportEmail('test', '10', 'INBOX', 1024);
+
+      expect(issuedDuringFetch).toEqual([]);
     });
 
     it('should release the mailbox lock when the export fails', async () => {
