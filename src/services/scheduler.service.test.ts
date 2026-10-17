@@ -413,6 +413,41 @@ describe('SchedulerService queue files', () => {
   });
 });
 
+/**
+ * Holds the first read of filePath until resume() runs, so that reader goes
+ * on with bytes another check has made stale in the meantime.
+ */
+async function withHeldFirstRead(
+  filePath: string,
+  body: (held: Promise<void>, resume: () => void) => Promise<void>,
+): Promise<void> {
+  let markHeld: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    markHeld = resolve;
+  });
+  let resume: () => void = () => {};
+  const resumed = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+  let first = true;
+  const original = fs.readFile.bind(fs);
+  const spy = vi.spyOn(fs, 'readFile').mockImplementation(async (file, options) => {
+    const content = await original(file, options as { encoding: 'utf8' });
+    if (file === filePath && first) {
+      first = false;
+      markHeld();
+      await resumed;
+    }
+    return content;
+  });
+  try {
+    await body(held, resume);
+  } finally {
+    resume();
+    spy.mockRestore();
+  }
+}
+
 describe('cancel error messages', () => {
   // cancel_scheduled returns these strings. Nothing else checks the full
   // wording, so a typo would stay green.
@@ -774,7 +809,70 @@ describe('retried and delivered sends', () => {
         await fs.mkdir(sentDir, { recursive: true });
         await fs.chmod(sentDir, 0o500);
         const result = await service.checkAndSend();
-        expect({ sent: result.sent, failed: result.failed }).toEqual({ sent: 1, failed: 0 });
+        expect({ sent: result.sent, failed: result.failed, errors: result.errors }).toEqual({
+          sent: 1,
+          failed: 0,
+          errors: [expect.stringMatching(/sent, but the queue record was not updated: EACCES/)],
+        });
+      });
+    },
+  );
+
+  it('should report a delivered email whose sent record hit a full disk', async () => {
+    await withDueQueue(async ({ queueDir }) => {
+      const { service } = createService(queueDir);
+      let errors: string[] = [];
+      await withFullDisk(
+        (data) => data.includes('"status": "sent"'),
+        async () => {
+          ({ errors } = await service.checkAndSend());
+        },
+      );
+      expect(errors).toEqual([
+        expect.stringMatching(/sent, but the queue record was not updated: ENOSPC/),
+      ]);
+    });
+  });
+
+  // At least once, not exactly once: with neither the sent record nor the move, the record still says sending.
+  it.skipIf(process.getuid?.() === 0)(
+    'should send again on the next check when neither the sent record nor the move into sent/ succeeded',
+    async () => {
+      await withDueQueue(async ({ queueDir, sentDir }) => {
+        const { service, smtp } = createService(queueDir);
+        await fs.mkdir(sentDir, { recursive: true });
+        await fs.chmod(sentDir, 0o500);
+        await withFullDisk(
+          (data) => data.includes('"status": "sent"'),
+          async () => {
+            await service.checkAndSend();
+          },
+        );
+        await service.checkAndSend();
+        expect(smtp.sendEmail.mock.calls).toHaveLength(2);
+      });
+    },
+  );
+
+  it.skipIf(process.getuid?.() === 0)(
+    'should not send again when a check that read the record before delivery claims it after',
+    async () => {
+      await withDueQueue(async ({ queueDir, pendingPath, sentDir }) => {
+        // The move into sent/ fails, so the delivered record stays in the queue directory.
+        await fs.mkdir(sentDir, { recursive: true });
+        await fs.chmod(sentDir, 0o500);
+        const late = createService(queueDir);
+        const early = createService(queueDir);
+        await withHeldFirstRead(pendingPath, async (held, resume) => {
+          const stale = late.service.checkAndSend();
+          await held;
+          await early.service.checkAndSend();
+          resume();
+          await stale;
+        });
+        const sends =
+          late.smtp.sendEmail.mock.calls.length + early.smtp.sendEmail.mock.calls.length;
+        expect(sends).toBe(1);
       });
     },
   );
