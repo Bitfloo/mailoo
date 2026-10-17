@@ -78,6 +78,13 @@ export function initializeBody(id: number): string {
   });
 }
 
+export const TOOLS_LIST = JSON.stringify({
+  jsonrpc: '2.0',
+  id: 9,
+  method: 'tools/list',
+  params: {},
+});
+
 interface RpcResponse {
   status: number;
   sessionId: string;

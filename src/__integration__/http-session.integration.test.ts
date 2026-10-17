@@ -24,6 +24,7 @@ import {
   postInitialize,
   postRpc,
   startHost,
+  TOOLS_LIST,
   testConfig,
 } from './helpers/http-host.js';
 
@@ -147,8 +148,6 @@ describe('HTTP session isolation', () => {
     }
   });
 });
-
-const TOOLS_LIST = JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/list', params: {} });
 
 // Streamable HTTP (2025-06-18, Session Management): an unknown or terminated
 // session id gets 404, which tells the client to send a new initialize.
