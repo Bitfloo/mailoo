@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 
 import {
   attachmentNode,
@@ -51,6 +52,22 @@ describe('ImapService', () => {
 
       const contents = await Promise.all(saved.map(async (s) => fs.readFile(s.localPath, 'utf-8')));
       expect(contents.sort()).toEqual(['body-of-part-2', 'body-of-part-3']);
+    });
+
+    // A large part arrives as many stream chunks; the GreenMail fixtures arrive as one.
+    it('should write every chunk of a part delivered in several chunks', async () => {
+      fetchOneByUid(client, {
+        uid: 9,
+        bodyStructure: mixedStructure(attachmentNode('2', 'notes.txt')),
+      });
+      client.download.mockResolvedValue({
+        meta: { contentType: 'text/plain' },
+        content: Readable.from([Buffer.from('ab'), Buffer.from('cd')]),
+      });
+
+      const [saved] = await service.saveEmailAttachments('test', '9', 'INBOX', root);
+
+      expect(await fs.readFile(saved.localPath, 'utf-8')).toBe('abcd');
     });
 
     it.each([

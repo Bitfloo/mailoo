@@ -1,3 +1,5 @@
+import { Readable } from 'node:stream';
+
 import {
   attachmentNode,
   mixedStructure,
@@ -57,6 +59,19 @@ describe('ImapService', () => {
       const result = await service.downloadAttachment('test', '9', 'INBOX', 'b.txt');
 
       expect(result.size).toBe('body-of-part-3'.length);
+    });
+
+    // A large part arrives as many stream chunks; the GreenMail fixtures arrive as one.
+    it('should return every chunk of a part delivered in several chunks', async () => {
+      fetchOneByUid(client, { uid: 9, bodyStructure: twinAttachmentStructure('a.txt', 'b.txt') });
+      client.download.mockResolvedValue({
+        meta: { contentType: 'text/plain' },
+        content: Readable.from([Buffer.from('ab'), Buffer.from('cd')]),
+      });
+
+      const result = await service.downloadAttachment('test', '9', 'INBOX', 'b.txt');
+
+      expect(result.contentBase64).toBe('YWJjZA==');
     });
 
     // imapflow numbers every child part. A structure that arrives without those
