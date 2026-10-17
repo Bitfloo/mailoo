@@ -1,6 +1,6 @@
 import { ImapFlow } from 'imapflow';
 
-import { stopWatchers, watch } from '../test-support/watcher-harness.js';
+import { tearDownWatchers, watch } from '../test-support/watcher-harness.js';
 
 vi.mock('../logging.js', () => ({
   mcpLog: vi.fn().mockResolvedValue(undefined),
@@ -10,11 +10,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
 });
 
-afterEach(async () => {
-  await stopWatchers();
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-});
+afterEach(tearDownWatchers);
 
 describe('WatcherService with the installed imapflow', () => {
   it('should bind its error, close and exists listeners before it calls connect', async () => {

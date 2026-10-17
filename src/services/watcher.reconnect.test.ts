@@ -11,7 +11,7 @@ import {
   arrivedIds,
   arrivedSubjects,
   inboxOnly,
-  stopWatchers,
+  tearDownWatchers,
   watch,
 } from '../test-support/watcher-harness.js';
 import { AUTO_IDLE_DELAY_MS } from './watcher.service.js';
@@ -32,11 +32,7 @@ beforeEach(() => {
   seedFolder('INBOX', [38, 40, 41]);
 });
 
-afterEach(async () => {
-  await stopWatchers();
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-});
+afterEach(tearDownWatchers);
 
 describe('WatcherService resume after a dropped connection', () => {
   it('should report mail that arrived while the connection was down', async () => {

@@ -50,8 +50,14 @@ export function watch(
   return { watcher, arrivals };
 }
 
-export async function stopWatchers(): Promise<void> {
+/**
+ * The watcher suites' teardown. Spies are restored before real timers come back: restoring a
+ * spy on a faked timer afterwards would put the fake on globalThis for every later test.
+ */
+export async function tearDownWatchers(): Promise<void> {
   await Promise.all(running.splice(0).map(async (watcher) => watcher.stop()));
+  vi.restoreAllMocks();
+  vi.useRealTimers();
 }
 
 export function arrivedIds(arrivals: NewEmailEvent[]): string[] {

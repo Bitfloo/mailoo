@@ -1,5 +1,5 @@
 import { fake, resetFakeServer, seedFolder, settle } from '../test-support/fake-imapflow.js';
-import { stopWatchers, watch } from '../test-support/watcher-harness.js';
+import { tearDownWatchers, watch } from '../test-support/watcher-harness.js';
 
 vi.mock('../logging.js', () => ({
   mcpLog: vi.fn().mockResolvedValue(undefined),
@@ -17,13 +17,7 @@ beforeEach(() => {
   seedFolder('INBOX', [38, 40, 41]);
 });
 
-afterEach(async () => {
-  await stopWatchers();
-  // Spies first: restoring a spy on a faked timer after the real timers are back would put the
-  // fake on globalThis for the rest of the file.
-  vi.restoreAllMocks();
-  vi.useRealTimers();
-});
+afterEach(tearDownWatchers);
 
 describe('WatcherService stop', () => {
   it('should log out of the server', async () => {

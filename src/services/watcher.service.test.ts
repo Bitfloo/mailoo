@@ -17,7 +17,7 @@ import {
   arrivedSubjects,
   inboxOnly,
   oauthAccount,
-  stopWatchers,
+  tearDownWatchers,
   testAccount,
   watch,
 } from '../test-support/watcher-harness.js';
@@ -41,13 +41,7 @@ beforeEach(() => {
   seedFolder('INBOX', [38, 40, 41]);
 });
 
-afterEach(async () => {
-  await stopWatchers();
-  // Spies first: restoring a spy on a faked timer after the real timers are back would put the
-  // fake on globalThis for the rest of the file.
-  vi.restoreAllMocks();
-  vi.useRealTimers();
-});
+afterEach(tearDownWatchers);
 
 describe('WatcherService start', () => {
   it('should not connect when the watcher is disabled', async () => {
