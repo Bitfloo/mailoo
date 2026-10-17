@@ -871,7 +871,7 @@ Single-account setup reads `MCP_EMAIL_*` (`src/config/loader.ts`). HTTP listens 
 | `add_label` | Add a label to an email (ProtonMail folders, Gmail X-GM-LABELS, or IMAP keywords) |
 | `remove_label` | Remove a label from an email |
 | `create_label` | Create a new label |
-| `delete_label` | Delete a label (on Gmail, not INBOX or a system folder) |
+| `delete_label` | Delete a label (on Gmail, not INBOX or a special-use folder) |
 
 #### Watcher & Alerts (6)
 

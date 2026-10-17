@@ -35,10 +35,12 @@ parts instead of returning the first one. The same refusal applies to
 `send_draft` on a draft whose attachments share a name.
 
 `add_to_calendar` with `save_attachments`, and the mail-arrival hook that
-adds events to the calendar, save every attachment of the message under
-`$XDG_DATA_HOME/mailoo/calendar-attachments/`. Each file keeps only the last
-path segment of the attachment name, without leading dots, and attachments
-that share a name are saved as `name.ext`, `name-2.ext`, and so on.
+adds events to the calendar, save the non-calendar attachments of the
+message under `$XDG_DATA_HOME/mailoo/calendar-attachments/`, up to 25 MB
+each, as the server reports the part size (base64 adds about a third).
+A part that cannot be downloaded or written is skipped. Each file keeps only
+the last path segment of the attachment name, without leading dots, and
+attachments that share a name are saved as `name.ext`, `name-2.ext`, and so on.
 
 ## `export_email`
 
@@ -81,19 +83,21 @@ mailbox-name rules of the other tools (no control characters or wildcards).
 `delete_mailbox` and `rename_mailbox` refuse INBOX (any letter case) and
 every special-use folder: `\Trash`, `\Sent`, `\Drafts`, `\Junk`,
 `\Archive`, `\All`, `\Flagged` and `\Important`, whether the server
-announces the role (RFC 6154, and RFC 8457 for \Important) or imapflow
-infers it from a well-known folder name. The server and other mail
-clients file into these folders.
+announces the role (RFC 6154, and RFC 8457 for \Important) or, for most
+roles, imapflow infers it from a well-known folder name. The server and
+other mail clients file into these folders.
 On Gmail a label is a folder, so `delete_label` applies the same refusal
 (`INBOX`, `[Gmail]/Trash`, `[Gmail]/Sent Mail`, …).
 
 ## Calls on one account wait for each other
 
-Mailoo keeps one IMAP connection per account, and that connection runs one
-command at a time, so tool calls on the same account queue. A call that
-waits more than 60 seconds for its turn fails with `Mailbox "<name>" stayed
-busy for 60 s: an earlier operation on this account has not finished.` The
-earlier operation is not cancelled; retry the call once it has finished.
+Tool calls share one IMAP connection per account (the mail watcher has its
+own), and that connection runs one command at a time, so tool calls on the
+same account queue. A call that opens a mailbox waits at most 60 seconds for
+another call's mailbox lock, then fails with `Mailbox "<name>" stayed busy
+for 60 s: an earlier operation on this account has not finished. Try again
+later.` The earlier operation is not cancelled; retry the call once it has
+finished.
 
 ## `get_email_security`
 
