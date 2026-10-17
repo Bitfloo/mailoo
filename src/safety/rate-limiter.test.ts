@@ -9,6 +9,37 @@ function seededRandom(seed: number): () => number {
   };
 }
 
+/**
+ * The same token bucket in exact integers: times are kept multiplied by the
+ * limit, so one token costs exactly `windowMs` units and nothing is rounded.
+ */
+function exactBucket(max: number, windowMs: number, start: number) {
+  let tokens = max;
+  let scaledLast = start * max;
+  const refill = (now: number): void => {
+    const earned = Math.floor((now * max - scaledLast) / windowMs);
+    if (tokens + earned >= max) {
+      tokens = max;
+      scaledLast = now * max;
+    } else if (earned > 0) {
+      tokens += earned;
+      scaledLast += earned * windowMs;
+    }
+  };
+  return {
+    tryConsume(now: number): boolean {
+      refill(now);
+      if (tokens === 0) return false;
+      tokens -= 1;
+      return true;
+    },
+    remaining(now: number): number {
+      refill(now);
+      return tokens;
+    },
+  };
+}
+
 describe('RateLimiter', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -126,6 +157,18 @@ describe('RateLimiter', () => {
     expect(results).toEqual([true, false]);
   });
 
+  it('should not refill a token one millisecond before the window and should refill it at the window', () => {
+    vi.useFakeTimers();
+    const limiter = new RateLimiter(1);
+    limiter.tryConsume('acct');
+
+    vi.advanceTimersByTime(59_999);
+    const early = limiter.tryConsume('acct');
+    vi.advanceTimersByTime(1);
+
+    expect([early, limiter.tryConsume('acct')]).toEqual([false, true]);
+  });
+
   it('remaining() counts tokens refilled since the last consume', () => {
     vi.useFakeTimers();
     const limiter = new RateLimiter(2);
@@ -138,26 +181,35 @@ describe('RateLimiter', () => {
   });
 
   // The examples above each pin one gap; a long mix of waits and sends must
-  // still never hold more than the limit or allow more than it has earned.
-  it('should stay within the limit and the refill rate over a seeded mix of waits and sends', () => {
+  // make the exact bucket's decision at every step, never hold more than the
+  // limit and never allow more than it has earned.
+  it('should match an exact token bucket and stay within the limit over a seeded mix of waits and sends', () => {
     vi.useFakeTimers();
     const max = 4;
     const limiter = new RateLimiter(max);
     const random = seededRandom(20_261_017);
     const start = Date.now();
+    const exact = exactBucket(max, 60_000, start);
     let allowed = 0;
     const breaches: string[] = [];
 
     Array.from({ length: 2_000 }).forEach((_, step) => {
       if (random() < 0.5) {
         vi.advanceTimersByTime(Math.floor(random() * 20_000));
-      } else if (limiter.tryConsume('acct')) {
-        allowed += 1;
+      } else {
+        const decision = limiter.tryConsume('acct');
+        if (decision !== exact.tryConsume(Date.now())) {
+          breaches.push(`step ${step}: allowed ${String(decision)}, the exact bucket disagrees`);
+        }
+        if (decision) allowed += 1;
       }
       const remaining = limiter.remaining('acct');
+      const exactRemaining = exact.remaining(Date.now());
       const earned = max + (max * (Date.now() - start)) / 60_000;
-      if (remaining < 0 || remaining > max || allowed > earned) {
-        breaches.push(`step ${step}: remaining ${remaining}, allowed ${allowed} of ${earned}`);
+      if (remaining !== exactRemaining || remaining > max || allowed > earned) {
+        breaches.push(
+          `step ${step}: remaining ${remaining} (exact ${exactRemaining}), allowed ${allowed} of ${earned}`,
+        );
       }
     });
 
