@@ -1,9 +1,6 @@
 import { EventEmitter } from 'node:events';
 
-import XOAuth2 from 'nodemailer/lib/xoauth2';
-
 import { mcpLog } from '../logging.js';
-import OAuthService from '../services/oauth.service.js';
 import type { AccountConfig } from '../types/index.js';
 import ConnectionManager, { bindImapLifecycle, buildImapFlowOptions } from './manager.js';
 
@@ -11,10 +8,9 @@ vi.mock('../logging.js', () => ({
   mcpLog: vi.fn().mockResolvedValue(undefined),
 }));
 
-const { imapInstances, smtpTransports, connectErrors, verifyErrors } = vi.hoisted(() => ({
-  // Errors the next connect()/verify() calls reject with, in order; empty means success.
+const { imapInstances, connectErrors } = vi.hoisted(() => ({
+  // Errors the next connect() calls reject with, in order; empty means success.
   connectErrors: [] as Error[],
-  verifyErrors: [] as Error[],
   imapInstances: [] as {
     options: Record<string, unknown>;
     usable: boolean;
@@ -22,31 +18,6 @@ const { imapInstances, smtpTransports, connectErrors, verifyErrors } = vi.hoiste
     logout: ReturnType<typeof vi.fn>;
     emit: (event: string, ...args: unknown[]) => boolean;
   }[],
-  smtpTransports: [] as {
-    options: Record<string, unknown>;
-    verify: ReturnType<typeof vi.fn>;
-    close: ReturnType<typeof vi.fn>;
-  }[],
-}));
-
-vi.mock('nodemailer', () => ({
-  default: {
-    createTransport: (options: Record<string, unknown>) => {
-      const transport = {
-        options,
-        verify: vi.fn(
-          async () =>
-            new Promise<true>((resolve, reject) => {
-              const error = verifyErrors.shift();
-              setImmediate(() => (error ? reject(error) : resolve(true)));
-            }),
-        ),
-        close: vi.fn(),
-      };
-      smtpTransports.push(transport);
-      return transport;
-    },
-  },
 }));
 
 vi.mock('imapflow', async () => {
@@ -238,15 +209,6 @@ describe('ConnectionManager.closeAll', () => {
     expect(imapInstances.map((client) => client.logout.mock.calls.length)).toEqual([1, 1]);
   });
 
-  it('should close every cached SMTP transport', async () => {
-    smtpTransports.length = 0;
-    const manager = new ConnectionManager([account, { ...account, name: 'second' }]);
-    await manager.getSmtpTransport('test');
-    await manager.getSmtpTransport('second');
-    await manager.closeAll();
-    expect(smtpTransports.map((transport) => transport.close.mock.calls.length)).toEqual([1, 1]);
-  });
-
   it('should connect afresh after closeAll', async () => {
     const manager = new ConnectionManager([account]);
     const first = await manager.getImapClient('test');
@@ -256,73 +218,10 @@ describe('ConnectionManager.closeAll', () => {
   });
 });
 
-describe('ConnectionManager SMTP transport options', () => {
-  beforeEach(() => {
-    smtpTransports.length = 0;
-  });
-
-  async function optionsFor(
-    smtp: Partial<AccountConfig['smtp']>,
-  ): Promise<Record<string, unknown>> {
-    const manager = new ConnectionManager([{ ...account, smtp: { ...account.smtp, ...smtp } }]);
-    await manager.getSmtpTransport('test');
-    return smtpTransports[0].options;
-  }
-
-  it('should verify the server certificate when verifySsl is true', async () => {
-    const options = await optionsFor({ verifySsl: true });
-    expect(options.tls).toEqual({ rejectUnauthorized: true });
-  });
-
-  it('should skip certificate verification only when verifySsl is false', async () => {
-    const options = await optionsFor({ verifySsl: false });
-    expect(options.tls).toEqual({ rejectUnauthorized: false });
-  });
-
-  it('should pool one connection for 100 messages when no pool block is configured', async () => {
-    const options = await optionsFor({});
-    expect(options).toMatchObject({ pool: true, maxConnections: 1, maxMessages: 100 });
-  });
-
-  it('should not pool when pool.enabled is false', async () => {
-    const options = await optionsFor({
-      pool: { enabled: false, maxConnections: 5, maxMessages: 10 },
-    });
-    expect(options.pool).toBe(false);
-    expect(options).not.toHaveProperty('maxConnections');
-  });
-
-  it.each([
-    [true, false, { secure: true, requireTLS: false, ignoreTLS: false }],
-    [false, true, { secure: false, requireTLS: true, ignoreTLS: false }],
-    [false, false, { secure: false, requireTLS: false, ignoreTLS: true }],
-  ] as const)('should map tls=%s starttls=%s to %o', async (tls, starttls, expected) => {
-    const options = await optionsFor({ tls, starttls });
-    expect(options).toMatchObject(expected);
-  });
-});
-
-describe('ConnectionManager.getSmtpTransport', () => {
-  beforeEach(() => {
-    smtpTransports.length = 0;
-  });
-
-  it('should build exactly one transport when 20 callers ask for the same account at once', async () => {
-    const manager = new ConnectionManager([account]);
-    const transports = await Promise.all(
-      Array.from({ length: 20 }, async () => manager.getSmtpTransport('test')),
-    );
-    expect(smtpTransports).toHaveLength(1);
-    expect(new Set(transports).size).toBe(1);
-  });
-});
-
-describe('ConnectionManager reconnect backoff', () => {
+describe('ConnectionManager IMAP reconnect backoff', () => {
   beforeEach(() => {
     imapInstances.length = 0;
-    smtpTransports.length = 0;
     connectErrors.length = 0;
-    verifyErrors.length = 0;
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-01T00:00:00.000Z'));
     vi.spyOn(Math, 'random').mockReturnValue(0);
@@ -358,70 +257,6 @@ describe('ConnectionManager reconnect backoff', () => {
     vi.setSystemTime(Date.now() + 1_000);
     const client = await manager.getImapClient('test');
     expect(client).toBe(imapInstances[1]);
-  });
-
-  it('should close an SMTP transport whose verify failed and back off the next attempt', async () => {
-    verifyErrors.push(new Error('535 Authentication failed'));
-    const manager = new ConnectionManager([account]);
-    await expect(manager.getSmtpTransport('test')).rejects.toThrow('535');
-    expect(smtpTransports[0].close).toHaveBeenCalledOnce();
-    await expect(manager.getSmtpTransport('test')).rejects.toThrow(
-      'Last SMTP connect for "test" failed: 535 Authentication failed',
-    );
-    expect(smtpTransports).toHaveLength(1);
-  });
-});
-
-describe('ConnectionManager SMTP OAuth2', () => {
-  const oauthAccount: AccountConfig = {
-    ...account,
-    name: 'work',
-    password: undefined,
-    oauth2: {
-      provider: 'google',
-      clientId: 'client-id',
-      clientSecret: 'client-secret',
-      refreshToken: 'refresh-token',
-    },
-  };
-
-  beforeEach(() => {
-    smtpTransports.length = 0;
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-10-01T00:00:00.000Z'));
-    let issued = 0;
-    // Google's token endpoint answers each refresh with a new token valid for one hour.
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => {
-        issued += 1;
-        return new Response(JSON.stringify({ access_token: `tok-${issued}`, expires_in: 3600 }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }),
-    );
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-  });
-
-  async function tokenFor(oauth2: XOAuth2): Promise<string> {
-    return new Promise((resolve, reject) => {
-      oauth2.getToken(false, (err, token) => (err ? reject(err) : resolve(token)));
-    });
-  }
-
-  it('should hand the cached transport a fresh token after the first one expired', async () => {
-    const manager = new ConnectionManager([structuredClone(oauthAccount)], new OAuthService());
-    await manager.getSmtpTransport('work');
-    // nodemailer builds one XOAuth2 generator per connection from these auth options.
-    const generator = new XOAuth2(smtpTransports[0].options.auth as never);
-    expect(await tokenFor(generator)).toBe('tok-1');
-    vi.setSystemTime(Date.now() + 3_600_000);
-    expect(await tokenFor(generator)).toBe('tok-2');
   });
 });
 
