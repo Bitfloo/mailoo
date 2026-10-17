@@ -1,3 +1,5 @@
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+
 import {
   openEventStream,
   postInitialize,
@@ -48,6 +50,39 @@ describe('HTTP session eviction', () => {
         idle: 404,
       });
     } finally {
+      await running.stop();
+    }
+  });
+
+  // A session registers while its initialize request is still being handled;
+  // until that request ends the session is in flight, not idle.
+  it('should keep a session whose initialize request is still in flight when a second session goes over the cap', async () => {
+    let openGate = (): void => {};
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    const original = StreamableHTTPServerTransport.prototype.handleRequest;
+    vi.spyOn(StreamableHTTPServerTransport.prototype, 'handleRequest').mockImplementationOnce(
+      async function heldOpen(
+        this: StreamableHTTPServerTransport,
+        ...args: Parameters<StreamableHTTPServerTransport['handleRequest']>
+      ) {
+        await original.apply(this, args);
+        await gate;
+      },
+    );
+    const running = await startHost({ now: 1_000 }, ttlMs, undefined, 1);
+    try {
+      const first = await postInitialize(running.port, 1);
+      await postInitialize(running.port, 2);
+      openGate();
+
+      const response = await postRpc(running.port, TOOLS_LIST, { sessionId: first.sessionId });
+
+      expect(response.status).toBe(200);
+    } finally {
+      openGate();
+      vi.restoreAllMocks();
       await running.stop();
     }
   });

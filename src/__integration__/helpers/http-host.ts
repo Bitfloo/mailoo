@@ -176,7 +176,12 @@ export function openEventStream(
   });
 }
 
-export async function startHost(clock: { now: number }, ttlMs: number, config = testConfig()) {
+export async function startHost(
+  clock: { now: number },
+  ttlMs: number,
+  config = testConfig(),
+  maxSessions?: number,
+) {
   const queueRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-http-host-'));
   const connections = new ConnectionManager([]);
   const host = await createHttpMcpHost({
@@ -190,6 +195,7 @@ export async function startHost(clock: { now: number }, ttlMs: number, config = 
     bodyLimitBytes: 1024 * 1024,
     scheduledDir: path.join(queueRoot, 'scheduled'),
     ttlMs,
+    maxSessions,
     now: () => clock.now,
   });
   const listener = await startGuardedHttpServers(
