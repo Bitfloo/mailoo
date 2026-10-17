@@ -54,6 +54,33 @@ export function buildImapFlowOptions(
   };
 }
 
+export function buildSmtpTransportOptions(account: AccountConfig, auth: SmtpAuth): SMTPPoolOptions {
+  const pool = account.smtp.pool ?? {
+    enabled: true,
+    maxConnections: 1,
+    maxMessages: 100,
+  };
+
+  return {
+    host: account.smtp.host,
+    port: account.smtp.port,
+    secure: account.smtp.tls,
+    requireTLS: account.smtp.starttls,
+    ignoreTLS: !account.smtp.tls && !account.smtp.starttls,
+    tls: {
+      rejectUnauthorized: account.smtp.verifySsl,
+    },
+    auth,
+    pool: pool.enabled,
+    ...(pool.enabled
+      ? {
+          maxConnections: pool.maxConnections,
+          maxMessages: pool.maxMessages,
+        }
+      : {}),
+  };
+}
+
 function asError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err));
 }
@@ -193,36 +220,6 @@ export default class ConnectionManager implements IConnectionManager {
   // SMTP
   // -------------------------------------------------------------------------
 
-  private static buildSmtpTransportOptions(
-    account: AccountConfig,
-    auth: SmtpAuth,
-  ): SMTPPoolOptions {
-    const pool = account.smtp.pool ?? {
-      enabled: true,
-      maxConnections: 1,
-      maxMessages: 100,
-    };
-
-    return {
-      host: account.smtp.host,
-      port: account.smtp.port,
-      secure: account.smtp.tls,
-      requireTLS: account.smtp.starttls,
-      ignoreTLS: !account.smtp.tls && !account.smtp.starttls,
-      tls: {
-        rejectUnauthorized: account.smtp.verifySsl,
-      },
-      auth,
-      pool: pool.enabled,
-      ...(pool.enabled
-        ? {
-            maxConnections: pool.maxConnections,
-            maxMessages: pool.maxMessages,
-          }
-        : {}),
-    };
-  }
-
   async getSmtpTransport(
     accountName: string,
     options?: { verify?: boolean },
@@ -265,9 +262,7 @@ export default class ConnectionManager implements IConnectionManager {
     let transport: Transporter | undefined;
     try {
       const auth = buildSmtpAuth(account, this.oauthService);
-      transport = nodemailer.createTransport(
-        ConnectionManager.buildSmtpTransportOptions(account, auth),
-      );
+      transport = nodemailer.createTransport(buildSmtpTransportOptions(account, auth));
       await transport.verify();
     } catch (err) {
       this.backoff.recordFailure('SMTP', accountName, asError(err));
@@ -286,97 +281,6 @@ export default class ConnectionManager implements IConnectionManager {
 
   async verifySmtpTransport(accountName: string): Promise<void> {
     await this.getSmtpTransport(accountName, { verify: true });
-  }
-
-  // -------------------------------------------------------------------------
-  // Test connections (for setup wizard / test command)
-  // -------------------------------------------------------------------------
-
-  static async testImap(
-    account: AccountConfig,
-    oauthService?: AccessTokenSource,
-  ): Promise<{
-    success: boolean;
-    error?: string;
-    details?: { messages: number; folders: number };
-  }> {
-    let client: ImapFlow | undefined;
-    try {
-      const auth = await buildImapAuth(account, oauthService);
-
-      client = new ImapFlow({
-        ...buildImapFlowOptions(account),
-        auth,
-      });
-      client.on('error', () => {});
-      await client.connect();
-
-      const mailboxes = await client.list();
-      let messageCount = 0;
-      try {
-        const inbox = await client.status('INBOX', {
-          messages: true,
-          unseen: true,
-        });
-        messageCount = inbox.messages ?? 0;
-      } catch {
-        // INBOX may not exist (e.g. Google Workspace uses "All Mail")
-        if (mailboxes.length > 0) {
-          try {
-            const first = await client.status(mailboxes[0].path, {
-              messages: true,
-            });
-            messageCount = first.messages ?? 0;
-          } catch {
-            /* ignore — connection still works */
-          }
-        }
-      }
-
-      return {
-        success: true,
-        details: {
-          messages: messageCount,
-          folders: mailboxes.length,
-        },
-      };
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    } finally {
-      if (client) {
-        try {
-          await client.logout();
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  }
-
-  static async testSmtp(
-    account: AccountConfig,
-    oauthService?: AccessTokenSource,
-  ): Promise<{ success: boolean; error?: string }> {
-    let transport: Transporter | undefined;
-    try {
-      const auth = buildSmtpAuth(account, oauthService);
-
-      transport = nodemailer.createTransport(
-        ConnectionManager.buildSmtpTransportOptions(account, auth),
-      );
-      await transport.verify();
-      return { success: true };
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    } finally {
-      transport?.close();
-    }
   }
 
   // -------------------------------------------------------------------------

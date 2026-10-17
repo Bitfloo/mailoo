@@ -7,7 +7,7 @@
 import { intro, log, outro, spinner as p_spinner } from '@clack/prompts';
 
 import { loadConfig } from '../config/loader.js';
-import ConnectionManager from '../connections/manager.js';
+import { testImap, testSmtp } from '../connections/probe.js';
 import OAuthService from '../services/oauth.service.js';
 
 import type { AccountConfig } from '../types/index.js';
@@ -19,7 +19,7 @@ async function testAccount(account: AccountConfig, oauth: OAuthService): Promise
   // Test IMAP
   const spinner = p_spinner();
   spinner.start(`IMAP ${account.imap.host}:${account.imap.port}...`);
-  const imapResult = await ConnectionManager.testImap(account, oauth);
+  const imapResult = await testImap(account, oauth);
   if (imapResult.success) {
     spinner.stop(
       `IMAP  ✓ ${account.imap.host}:${account.imap.port} — ${imapResult.details?.messages} messages, ${imapResult.details?.folders} folders`,
@@ -31,7 +31,7 @@ async function testAccount(account: AccountConfig, oauth: OAuthService): Promise
 
   // Test SMTP
   spinner.start(`SMTP ${account.smtp.host}:${account.smtp.port}...`);
-  const smtpResult = await ConnectionManager.testSmtp(account, oauth);
+  const smtpResult = await testSmtp(account, oauth);
   if (smtpResult.success) {
     spinner.stop(`SMTP  ✓ ${account.smtp.host}:${account.smtp.port} — authenticated`);
   } else {
