@@ -134,8 +134,12 @@ describe('OAuthService.getAccessToken', () => {
     vi.setSystemTime(issuedAt + 30 * 60_000);
     expect(await service.getAccessToken(oauth2)).toBe('tok-1');
 
-    // Past the five-minute buffer before the one-hour expiry.
-    vi.setSystemTime(issuedAt + 56 * 60_000);
+    // One millisecond short of the five-minute buffer before the one-hour expiry.
+    vi.setSystemTime(issuedAt + 55 * 60_000 - 1);
+    expect(await service.getAccessToken(oauth2)).toBe('tok-1');
+    expect(calls).toHaveLength(1);
+
+    vi.setSystemTime(issuedAt + 55 * 60_000);
     expect(await service.getAccessToken(oauth2)).toBe('tok-2');
     expect(calls).toHaveLength(2);
   });
