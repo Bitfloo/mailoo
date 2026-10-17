@@ -1,9 +1,11 @@
+import type { Socket } from 'node:net';
+
 import { ImapFlow } from 'imapflow';
 
 import type { NewEmailEvent } from '../services/event-bus.js';
 import { EmailEventBus } from '../services/event-bus.js';
 import WatcherService from '../services/watcher.service.js';
-import type { WatcherConfig } from '../types/index.js';
+import type { AccountConfig, WatcherConfig } from '../types/index.js';
 import {
   buildTestAccount,
   getGreenMailPorts,
@@ -15,18 +17,28 @@ import {
 const IDLE_START_MS = 1_500;
 /** A real-time notice has to beat this, measured from the moment SMTP accepted the message. */
 const ARRIVAL_DEADLINE_MS = 5_000;
+/** The first retry follows a refusal by 1 s less up to a quarter; the top leaves room for logins. */
+const FIRST_RETRY_MIN_MS = 750;
+const FIRST_RETRY_MAX_MS = 1_500;
+/** After the second failure the next attempt is 1.5 s to 2 s away, so sockets must be gone by then. */
+const SOCKET_RELEASE_DEADLINE_MS = 1_000;
+/** Long enough for a duplicate report to show up after the first one. */
+const DUPLICATE_WINDOW_MS = 2_500;
 
 const inbox: WatcherConfig = { enabled: true, folders: ['INBOX'], idleTimeout: 1740 };
 
 const running: WatcherService[] = [];
 
-function startWatcher(): { watcher: WatcherService; subjects: () => string[] } {
+function startWatcher(
+  config: WatcherConfig = inbox,
+  account: AccountConfig = buildTestAccount(),
+): { watcher: WatcherService; subjects: () => string[] } {
   const events = new EmailEventBus();
   const arrivals: NewEmailEvent[] = [];
   events.on('email:new', (event) => {
     arrivals.push(event);
   });
-  const watcher = new WatcherService(inbox, [buildTestAccount()], events);
+  const watcher = new WatcherService(config, [account], events);
   running.push(watcher);
   return {
     watcher,
@@ -59,8 +71,49 @@ async function expungeBySubject(subject: string): Promise<number> {
   }
 }
 
+interface ConnectAttempt {
+  client: ImapFlow;
+  at: number;
+}
+
+/** Records every ImapFlow connect() the watcher makes, then lets the real one run. */
+function recordConnects(): ConnectAttempt[] {
+  const attempts: ConnectAttempt[] = [];
+  const { connect } = ImapFlow.prototype;
+  vi.spyOn(ImapFlow.prototype, 'connect').mockImplementation(async function recorded(
+    this: ImapFlow,
+  ) {
+    attempts.push({ client: this, at: Date.now() });
+    return connect.call(this);
+  });
+  return attempts;
+}
+
+function openSockets(): number {
+  return process.getActiveResourcesInfo().filter((name) => name === 'TCPSocketWrap').length;
+}
+
+/** GreenMail cannot end a session from the server side, so the test cuts the client's socket. */
+function dropSession(client: ImapFlow): void {
+  (client as unknown as { socket: Socket | null }).socket?.destroy();
+}
+
+const crashes: unknown[] = [];
+const recordCrash = (err: unknown): void => {
+  crashes.push(err);
+};
+
+beforeEach(() => {
+  crashes.length = 0;
+  process.on('uncaughtException', recordCrash);
+  process.on('unhandledRejection', recordCrash);
+});
+
 afterEach(async () => {
   await Promise.all(running.splice(0).map(async (watcher) => watcher.stop()));
+  process.off('uncaughtException', recordCrash);
+  process.off('unhandledRejection', recordCrash);
+  vi.restoreAllMocks();
 });
 
 describe('WatcherService on a live IMAP server', () => {
@@ -107,5 +160,88 @@ describe('WatcherService on a live IMAP server', () => {
       },
       { timeout: ARRIVAL_DEADLINE_MS, interval: 50 },
     );
+  });
+});
+
+type Refusal = [string, () => { config: WatcherConfig; account: AccountConfig }];
+
+const refusals: Refusal[] = [
+  [
+    'the password is wrong',
+    () => ({ config: inbox, account: buildTestAccount({ password: 'wrong-password' }) }),
+  ],
+  [
+    'the folder does not exist',
+    () => ({ config: { ...inbox, folders: ['Missing-Folder'] }, account: buildTestAccount() }),
+  ],
+];
+
+async function waitForSecondAttempt(attempts: ConnectAttempt[]): Promise<void> {
+  await vi.waitFor(
+    () => {
+      expect(attempts).toHaveLength(2);
+    },
+    { timeout: FIRST_RETRY_MAX_MS * 2, interval: 20 },
+  );
+}
+
+describe('WatcherService against refusals from a live IMAP server', () => {
+  it.each(refusals)('should retry about 1 s after the first refusal when %s', async (_, setup) => {
+    const { config, account } = setup();
+    const attempts = recordConnects();
+    const { watcher } = startWatcher(config, account);
+    await watcher.start();
+    await waitForSecondAttempt(attempts);
+    const gap = attempts[1].at - attempts[0].at;
+    expect(gap).toBeGreaterThanOrEqual(FIRST_RETRY_MIN_MS);
+    expect(gap).toBeLessThan(FIRST_RETRY_MAX_MS);
+  });
+
+  it.each(refusals)('should leave no socket open after a refusal when %s', async (_, setup) => {
+    const { config, account } = setup();
+    const before = openSockets();
+    const attempts = recordConnects();
+    const { watcher } = startWatcher(config, account);
+    await watcher.start();
+    await waitForSecondAttempt(attempts);
+    await vi.waitFor(
+      () => {
+        expect(openSockets()).toBeLessThanOrEqual(before);
+      },
+      { timeout: SOCKET_RELEASE_DEADLINE_MS, interval: 20 },
+    );
+  });
+
+  it.each(refusals)('should raise no uncaught error while it retries when %s', async (_, setup) => {
+    const { config, account } = setup();
+    const attempts = recordConnects();
+    const { watcher } = startWatcher(config, account);
+    await watcher.start();
+    await waitForSecondAttempt(attempts);
+    expect(crashes).toEqual([]);
+  });
+});
+
+describe('WatcherService after a dropped session', () => {
+  it('should report mail delivered during the outage exactly once', async () => {
+    const attempts = recordConnects();
+    const { watcher, subjects } = startWatcher();
+    await watcher.start();
+    await waitForDelivery(IDLE_START_MS);
+
+    dropSession(attempts[0].client);
+    const subject = `watcher-outage-${Date.now()}`;
+    await seedEmail({ subject });
+    // Still down when SMTP accepted it, so only the catch-up after the reconnect can report it.
+    expect(watcher.getStatus()[0].connected).toBe(false);
+
+    await vi.waitFor(
+      () => {
+        expect(subjects()).toContain(subject);
+      },
+      { timeout: ARRIVAL_DEADLINE_MS, interval: 50 },
+    );
+    await waitForDelivery(DUPLICATE_WINDOW_MS);
+    expect(subjects().filter((reported) => reported === subject)).toEqual([subject]);
   });
 });
