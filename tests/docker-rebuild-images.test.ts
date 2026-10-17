@@ -2,8 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
-
-const workflowDir = join(repoRoot, '.github/workflows');
+import { workflowDir } from './workflow-yaml.js';
 
 function goreleaserImage(yaml: string, id: string): string {
   const match = yaml.match(new RegExp(`- id: ${id}\\n[\\s\\S]*?(?=\\n  - id: |\\nrelease:)`));
