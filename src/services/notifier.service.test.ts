@@ -488,6 +488,27 @@ describe('NotifierService alert log', () => {
     ]);
   });
 
+  it('should name a sender without a display name by address', async () => {
+    const notifier = new NotifierService(quiet);
+    await notifier.alert({ ...payload('low'), sender: { address: 'billing@example.com' } });
+    notifier.stop();
+
+    expect(sent.map((m) => m.data)).toEqual([
+      '📧 [LOW] personal/INBOX uid 4711 from billing@example.com: "Quarterly numbers for review" ' +
+        '[Finance] (rule: finance-team)',
+    ]);
+  });
+
+  it('should leave the folder and uid out of the entry when the payload has neither', async () => {
+    const notifier = new NotifierService(quiet);
+    await notifier.alert({ ...payload('normal'), folder: undefined, uid: undefined });
+    notifier.stop();
+
+    expect(sent.find((m) => m.level === 'info')?.data).toBe(
+      '📧 [NORMAL] personal [Finance] (rule: finance-team)',
+    );
+  });
+
   it('should send a low alert as one debug message with the sender and subject', async () => {
     await alertAt('low');
 

@@ -113,6 +113,36 @@ describe('listEvents script', () => {
       calendar: literalAfter(script, 'set calFilter to '),
     }).toEqual({ title: opts.title, calendar: opts.calendarName });
   });
+
+  it('should pass the requested from date into the list_events script', async () => {
+    const script = await listScript({ from: '2026-11-02T08:30:00' });
+    expect(dateSetBy(script, 'fromDate', new Date(2026, 9, 31, 12, 0, 0))).toEqual(
+      new Date(2026, 10, 2, 8, 30, 0),
+    );
+  });
+});
+
+describe('checkPermissions', () => {
+  it('should report calendar access granted when Calendar returns its calendar count', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '4\n', stderr: '' });
+    const result = await onDarwin(async () => new LocalCalendarService().checkPermissions());
+    expect(result).toEqual({ granted: true, platform: 'darwin', instructions: [] });
+  });
+
+  it('should report calendar access denied when osascript rejects', async () => {
+    osascriptImpl.mockRejectedValueOnce(
+      Object.assign(new Error('Command failed: osascript'), {
+        killed: false,
+        code: 1,
+        stderr: '0:47: execution error: Not authorized to send Apple events to Calendar. (-1743)\n',
+      }),
+    );
+    const result = await onDarwin(async () => new LocalCalendarService().checkPermissions());
+    expect({ granted: result.granted, first: result.instructions[0] }).toEqual({
+      granted: false,
+      first: 'Calendar access was denied or unavailable.',
+    });
+  });
 });
 
 describe('addEvent duplicate check', () => {

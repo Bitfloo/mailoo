@@ -105,6 +105,11 @@ describe('addEvent confirm dialog', () => {
     ]);
   });
 
+  it('should end the dialog with the calendar name and alarm minutes', async () => {
+    const lines = await dialogFor(review);
+    expect(lines.at(-1)).toBe('\u{1F4C6} Work \u00B7 \u23F0 15 min before');
+  });
+
   it('should show the event start and end in the dialog, not the script that reads them', async () => {
     const lines = await dialogFor(review);
     expect(lines[1]).toBe('\u{1F550} <eventStart> \u2013 <eventEnd>');

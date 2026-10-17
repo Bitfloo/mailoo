@@ -110,6 +110,30 @@ describe('RemindersService osascript results', () => {
   });
 });
 
+describe('RemindersService checkPermissions', () => {
+  it('should report Reminders access granted when Reminders returns its list count', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '3\n', stderr: '' });
+    const result = await onDarwin(async (svc) => svc.checkPermissions());
+    expect(result).toEqual({ granted: true, platform: 'darwin', instructions: [] });
+  });
+
+  it('should report no Reminders access when osascript rejects', async () => {
+    osascriptImpl.mockRejectedValueOnce(
+      Object.assign(new Error('Command failed: osascript'), {
+        killed: false,
+        code: 1,
+        stderr:
+          '0:46: execution error: Not authorized to send Apple events to Reminders. (-1743)\n',
+      }),
+    );
+    const result = await onDarwin(async (svc) => svc.checkPermissions());
+    expect({ granted: result.granted, first: result.instructions[0] }).toEqual({
+      granted: false,
+      first: 'Reminders access was denied or unavailable.',
+    });
+  });
+});
+
 describe('listReminders script', () => {
   it('should keep a quoted title and list filter intact in the list_reminders script', async () => {
     const opts = { title: 'Pay "Acme" \\ invoice', listName: 'Home "Q4"' };

@@ -640,6 +640,19 @@ describe('SmtpService', () => {
       );
     });
 
+    it('should remove the draft from the Drafts folder the server reported', async () => {
+      // The caller names no folder; fetchDraft found Gmail's special-use Drafts folder.
+      vi.mocked(imap.fetchDraft).mockResolvedValue({
+        ...draftInDrafts(),
+        mailbox: '[Gmail]/Drafts',
+      } as never);
+      vi.mocked(imap.deleteDraft).mockResolvedValue(undefined);
+
+      await service.sendDraft('test', 42);
+
+      expect(vi.mocked(imap.deleteDraft).mock.calls).toEqual([['test', 42, '[Gmail]/Drafts']]);
+    });
+
     it('should report the draft as removed when the delete succeeds', async () => {
       vi.mocked(imap.deleteDraft).mockResolvedValue(undefined);
 

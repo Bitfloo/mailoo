@@ -1,11 +1,17 @@
 import type ImapService from '../services/imap.service.js';
 import type SmtpService from '../services/smtp.service.js';
+import { readAuditEntries } from '../test-support/audit-home.js';
 import type { SendResult } from '../types/index.js';
 import registerDraftTools from './drafts.tool.js';
 
-const { log } = vi.hoisted(() => ({ log: vi.fn() }));
-// The real audit log writes under the user's data directory.
-vi.mock('../safety/audit.js', () => ({ default: { log } }));
+const { auditHome } = await vi.hoisted(async () => {
+  const { pinAuditHome } = await import('../test-support/audit-home.js');
+  return { auditHome: await pinAuditHome() };
+});
+
+afterAll(async () => {
+  await auditHome.restore();
+});
 
 type Handler = (args: {
   account: string;
@@ -54,5 +60,22 @@ describe('send_draft tool', () => {
     expect(text).toBe(
       '✅ Draft sent (Message-ID: <draft-42@example.com>). Draft removed from folder.',
     );
+  });
+
+  it('should record the sent draft in the audit log', async () => {
+    await sendDraftText({
+      messageId: '<draft-42@example.com>',
+      status: 'sent',
+      savedToSent: true,
+      draftDeleted: true,
+    });
+
+    expect((await readAuditEntries(auditHome)).at(-1)).toEqual({
+      ts: expect.any(String),
+      tool: 'send_draft',
+      account: 'work',
+      params: { id: 42 },
+      result: 'ok',
+    });
   });
 });
