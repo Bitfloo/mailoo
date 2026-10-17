@@ -61,6 +61,10 @@ async function provision(
 }
 
 describe('buildSmtpAuth', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('should use the password when the account has no oauth2 block', () => {
     const auth = buildSmtpAuth(passwordAccount, tokenSource('unused'));
     expect(auth).toEqual({ user: 'me@example.com', pass: 'app-password' });
@@ -82,6 +86,19 @@ describe('buildSmtpAuth', () => {
     };
     const result = await provision(buildSmtpAuth(account, tokens));
     expect(result).toEqual({ err: null, token: 'ya29.token', expires: 1_790_000_000_000 });
+  });
+
+  it('should provision an expiry of now when the token source cached none', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-01T08:00:00.000Z'));
+    const result = await provision(
+      buildSmtpAuth(structuredClone(oauthAccount), tokenSource('ya29.token')),
+    );
+    expect(result).toEqual({
+      err: null,
+      token: 'ya29.token',
+      expires: new Date('2026-10-01T08:00:00.000Z').getTime(),
+    });
   });
 
   it('should hand a token refresh failure to nodemailer as an error', async () => {
