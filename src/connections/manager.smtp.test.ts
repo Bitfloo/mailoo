@@ -124,6 +124,14 @@ describe('ConnectionManager.getSmtpTransport', () => {
     expect(second).not.toBe(first);
   });
 
+  it('should return the cached transport without verifying it again when no check was asked for', async () => {
+    const manager = new ConnectionManager([account]);
+    const first = await manager.getSmtpTransport('test');
+    // A re-check would fail and replace the transport, so only a skipped one returns the first.
+    verifyErrors.push(new Error('421 Service not available'));
+    expect(await manager.getSmtpTransport('test')).toBe(first);
+  });
+
   it('should close the cached transport, and only that one, when its re-check fails', async () => {
     const manager = new ConnectionManager([account]);
     await manager.getSmtpTransport('test');
