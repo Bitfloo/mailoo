@@ -238,6 +238,23 @@ describe('mailoo test with two accounts in the config file', () => {
     );
     await expect(runTest()).rejects.toThrow('Connection tests failed');
   });
+
+  // The refused second account fails its own run, so the first run passes only if it skipped it.
+  it('should probe only the named account', async () => {
+    h.imapRefusals.set(
+      'imap.second.example.com',
+      Object.assign(new Error('connect ECONNREFUSED 192.0.2.10:993'), { code: 'ECONNREFUSED' }),
+    );
+    const outcome = async (name: string): Promise<string> =>
+      runTest(name).then(
+        () => 'passed',
+        (error: Error) => error.message,
+      );
+    expect([await outcome('first'), await outcome('second')]).toEqual([
+      'passed',
+      'Connection tests failed',
+    ]);
+  });
 });
 
 describe('mailoo test with an account filter', () => {
