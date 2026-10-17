@@ -776,6 +776,26 @@ describe('ImapService', () => {
 
       expect(Buffer.from(result.contentBase64, 'base64').toString()).toBe('body-of-part-3');
     });
+
+    // imapflow numbers every child part. A structure that arrives without those
+    // numbers must be numbered the same way, or the download reads another part.
+    it('should number attachment parts by position when the structure has none', async () => {
+      const structure = twinAttachmentStructure('a.txt', 'b.txt');
+      client.fetchOne.mockResolvedValue({
+        uid: 9,
+        bodyStructure: {
+          ...structure,
+          childNodes: structure.childNodes.map((node) =>
+            Object.fromEntries(Object.entries(node).filter(([key]) => key !== 'part')),
+          ),
+        },
+      });
+      downloadReturnsPartName();
+
+      const result = await service.downloadAttachment('test', '9', 'INBOX', 'b.txt');
+
+      expect(Buffer.from(result.contentBase64, 'base64').toString()).toBe('body-of-part-3');
+    });
   });
 
   describe('saveEmailAttachments', () => {
