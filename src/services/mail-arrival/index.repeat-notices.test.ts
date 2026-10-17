@@ -1,3 +1,4 @@
+import type { SdkReply } from '../../test-support/mail-arrival-harness.js';
 import {
   arrivalEmail,
   createArrival,
@@ -28,6 +29,11 @@ async function handleMany(arrival: MailArrival, count: number, prefix: string): 
 }
 
 const filedAsReceipt = { kind: 'apply', destinationMailbox: 'Receipts', flag: true };
+
+function answersWith(overrides: Partial<SdkReply['answers']>): SdkReply {
+  const reply = sdkAnswers();
+  return { ...reply, answers: { ...reply.answers, ...overrides } as SdkReply['answers'] };
+}
 
 describe('MailArrival.handle repeat notices', () => {
   beforeEach(() => {
@@ -67,6 +73,32 @@ describe('MailArrival.handle repeat notices', () => {
     await arrival.handle(arrivalEmail('10'));
     expect(await arrival.handle(arrivalEmail('10'))).toEqual(filedAsReceipt);
   });
+
+  it.each([
+    ['injection_filter', { contains_prompt_injection: { type: 'noul', noul: 0.9 } }],
+    ['spam_uncertain', { requests_credentials: { type: 'noul', noul: 1 } }],
+    [
+      'no_folder_fit',
+      {
+        folder_fit_receipts: { type: 'noul', noul: 0.1 },
+        importance: { type: 'score', score: 1, confidence: 0.8 },
+      },
+    ],
+  ] as const)(
+    'should not classify a message again after a deliberate %s noop',
+    async (reason, answers) => {
+      systemOneMock.mockResolvedValue(answersWith(answers));
+      const arrival = await createArrival(mockImap());
+      const actions = [
+        await arrival.handle(arrivalEmail('10')),
+        await arrival.handle(arrivalEmail('10')),
+      ];
+      expect(actions).toEqual([
+        { kind: 'noop', reason },
+        { kind: 'noop', reason: 'already_seen' },
+      ]);
+    },
+  );
 
   it('should still remember a message after 4999 newer ones', async () => {
     const arrival = await createArrival(mockImap());
