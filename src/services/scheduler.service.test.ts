@@ -1288,6 +1288,36 @@ describe('overlapping queue checks', () => {
       await fs.rm(queueDir, { recursive: true, force: true });
     }
   });
+
+  // No newer claim here, so only the age check after parking stops the take-over.
+  it('should put back and not send past a parked claim its holder renewed meanwhile', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-renewed-'));
+    const id = queueId(4);
+    const lockPath = path.join(queueDir, `${id}${SCHEDULE_CLAIM_SUFFIX}`);
+    const originalRename = fs.rename.bind(fs);
+    const spy = vi.spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+      await originalRename(from, to);
+      if (String(from) === lockPath) {
+        const renewed = new Date();
+        await fs.utimes(to, renewed, renewed);
+      }
+    });
+    try {
+      await writeDue(queueDir, id, 'sending');
+      await fs.writeFile(lockPath, 'renewing', { flag: 'wx' });
+      const lateRenewal = new Date(Date.now() - STALE_LOCK_MS - 1000);
+      await fs.utimes(lockPath, lateRenewal, lateRenewal);
+      const { service, smtp } = createService(queueDir);
+      await service.checkAndSend();
+      expect({
+        lock: await fs.readFile(lockPath, 'utf8').catch(() => 'gone'),
+        sends: smtp.sendEmail.mock.calls.length,
+      }).toEqual({ lock: 'renewing', sends: 0 });
+    } finally {
+      spy.mockRestore();
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('full disk', () => {
