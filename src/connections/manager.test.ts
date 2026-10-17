@@ -188,6 +188,24 @@ describe('ConnectionManager.getImapClient', () => {
     expect(imapInstances).toHaveLength(1);
     expect(new Set(clients).size).toBe(1);
   });
+
+  it('should replace a cached client that is no longer usable', async () => {
+    const manager = new ConnectionManager([account]);
+    const first = await manager.getImapClient('test');
+    imapInstances[0].usable = false;
+    const second = await manager.getImapClient('test');
+    expect(second).not.toBe(first);
+    expect(imapInstances[0].close).toHaveBeenCalledOnce();
+  });
+
+  it('should reconnect on the next call after the cached client emitted close', async () => {
+    const manager = new ConnectionManager([account]);
+    const first = await manager.getImapClient('test');
+    first.emit('close');
+    const second = await manager.getImapClient('test');
+    expect(second).not.toBe(first);
+    expect(imapInstances).toHaveLength(2);
+  });
 });
 
 describe('ConnectionManager.closeAll', () => {
@@ -202,6 +220,77 @@ describe('ConnectionManager.closeAll', () => {
     await pending;
     expect(imapInstances).toHaveLength(1);
     expect(imapInstances[0].logout).toHaveBeenCalledOnce();
+  });
+
+  it('should log out every cached IMAP client', async () => {
+    const manager = new ConnectionManager([account, { ...account, name: 'second' }]);
+    await manager.getImapClient('test');
+    await manager.getImapClient('second');
+    await manager.closeAll();
+    expect(imapInstances.map((client) => client.logout.mock.calls.length)).toEqual([1, 1]);
+  });
+
+  it('should close every cached SMTP transport', async () => {
+    smtpTransports.length = 0;
+    const manager = new ConnectionManager([account, { ...account, name: 'second' }]);
+    await manager.getSmtpTransport('test');
+    await manager.getSmtpTransport('second');
+    await manager.closeAll();
+    expect(smtpTransports.map((transport) => transport.close.mock.calls.length)).toEqual([1, 1]);
+  });
+
+  it('should connect afresh after closeAll', async () => {
+    const manager = new ConnectionManager([account]);
+    const first = await manager.getImapClient('test');
+    await manager.closeAll();
+    const second = await manager.getImapClient('test');
+    expect(second).not.toBe(first);
+  });
+});
+
+describe('ConnectionManager SMTP transport options', () => {
+  beforeEach(() => {
+    smtpTransports.length = 0;
+  });
+
+  async function optionsFor(
+    smtp: Partial<AccountConfig['smtp']>,
+  ): Promise<Record<string, unknown>> {
+    const manager = new ConnectionManager([{ ...account, smtp: { ...account.smtp, ...smtp } }]);
+    await manager.getSmtpTransport('test');
+    return smtpTransports[0].options;
+  }
+
+  it('should verify the server certificate when verifySsl is true', async () => {
+    const options = await optionsFor({ verifySsl: true });
+    expect(options.tls).toEqual({ rejectUnauthorized: true });
+  });
+
+  it('should skip certificate verification only when verifySsl is false', async () => {
+    const options = await optionsFor({ verifySsl: false });
+    expect(options.tls).toEqual({ rejectUnauthorized: false });
+  });
+
+  it('should pool one connection for 100 messages when no pool block is configured', async () => {
+    const options = await optionsFor({});
+    expect(options).toMatchObject({ pool: true, maxConnections: 1, maxMessages: 100 });
+  });
+
+  it('should not pool when pool.enabled is false', async () => {
+    const options = await optionsFor({
+      pool: { enabled: false, maxConnections: 5, maxMessages: 10 },
+    });
+    expect(options.pool).toBe(false);
+    expect(options).not.toHaveProperty('maxConnections');
+  });
+
+  it.each([
+    [true, false, { secure: true, requireTLS: false, ignoreTLS: false }],
+    [false, true, { secure: false, requireTLS: true, ignoreTLS: false }],
+    [false, false, { secure: false, requireTLS: false, ignoreTLS: true }],
+  ] as const)('should map tls=%s starttls=%s to %o', async (tls, starttls, expected) => {
+    const options = await optionsFor({ tls, starttls });
+    expect(options).toMatchObject(expected);
   });
 });
 
