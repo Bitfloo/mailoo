@@ -1,3 +1,5 @@
+import { keyLines } from './workflow-yaml.js';
+
 // An expression inside run: is pasted into the script before bash parses it,
 // so a crafted value runs as code. An env: value reaches bash as data. A pushed
 // branch or tag name can hold shell syntax just like a dispatch input.
@@ -34,9 +36,7 @@ function scriptRanges(lines: string[]): [number, number][] {
  */
 export function unpinnedUses(yaml: string): string[] {
   const pin = /^\s*(?:-\s*)?uses:\s+\S+@[0-9a-f]{40}\s+#\s+v\d+\.\d+\.\d+\s*$/;
-  return yaml
-    .split('\n')
-    .filter((line) => !line.trim().startsWith('#') && /\buses["']?\s*:/.test(line))
+  return keyLines(yaml, 'uses')
     .filter((line) => !pin.test(line))
     .map((line) => line.trim());
 }

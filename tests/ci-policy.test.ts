@@ -250,10 +250,22 @@ describe('pinned GitHub Actions', () => {
     expect(unpinned).toEqual([]);
   });
 
-  it('should find a uses: written in a flow mapping', () => {
-    expect(unpinnedUses('    steps:\n      - { uses: actions/checkout@v6 }\n')).toEqual([
-      '- { uses: actions/checkout@v6 }',
-    ]);
+  const sha = 'd23441a48e516b6c34aea4fa41551a30e30af803';
+
+  it.each([
+    '- { uses: actions/checkout@v6 }',
+    `- uses: a/b@${sha.slice(0, 7)} # v1.2.3`,
+    `- uses: a/b@${sha}`,
+    `- uses: a/b@${sha} # main`,
+    '- "uses": a/b@v4',
+    '- uses: ./local',
+    '- uses: docker://alpine:3',
+  ])('should flag %j as a uses: not pinned to a commit SHA and version tag', (line) => {
+    expect(unpinnedUses(`    steps:\n      ${line}\n`)).toEqual([line]);
+  });
+
+  it('should pass a uses: pinned to a commit SHA with its version tag in a comment', () => {
+    expect(unpinnedUses(`    steps:\n      - uses: a/b@${sha} # v1.2.3\n`)).toEqual([]);
   });
 });
 
