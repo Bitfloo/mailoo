@@ -856,6 +856,16 @@ describe('ImapService', () => {
       expect(Buffer.from(result.contentBase64, 'base64').toString()).toBe('body-of-part-3');
     });
 
+    // The size is what was downloaded, not the encoded BODYSTRUCTURE size (16 here).
+    it('should return the size of the downloaded content', async () => {
+      fetchOneByUid({ uid: 9, bodyStructure: twinAttachmentStructure('a.txt', 'b.txt') });
+      downloadReturnsPartName();
+
+      const result = await service.downloadAttachment('test', '9', 'INBOX', 'b.txt');
+
+      expect(result.size).toBe('body-of-part-3'.length);
+    });
+
     // imapflow numbers every child part. A structure that arrives without those
     // numbers must be numbered the same way, or the download reads another part.
     it('should number attachment parts by position when the structure has none', async () => {
