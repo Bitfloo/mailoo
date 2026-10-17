@@ -106,6 +106,18 @@ describe('writer lease', () => {
     });
   });
 
+  // A leader that kept its writers after its lock vanished would run beside the next leader.
+  it('should stop its writers when its lock file was deleted', async () => {
+    const holder = startProcess();
+    await holder.lease.tick();
+    await fs.unlink(lockPath);
+    await holder.lease.tick();
+    expect({ losses: holder.losses, leading: holder.lease.leading }).toEqual({
+      losses: 1,
+      leading: false,
+    });
+  });
+
   it('should hand the lease to a follower once the holder releases it', async () => {
     const holder = startProcess();
     const follower = startProcess();
