@@ -1,6 +1,9 @@
 import { EventEmitter } from 'node:events';
 
+import XOAuth2 from 'nodemailer/lib/xoauth2';
+
 import { mcpLog } from '../logging.js';
+import OAuthService from '../services/oauth.service.js';
 import type { AccountConfig } from '../types/index.js';
 import ConnectionManager, { bindImapLifecycle, buildImapFlowOptions } from './manager.js';
 
@@ -366,6 +369,59 @@ describe('ConnectionManager reconnect backoff', () => {
       'Last SMTP connect for "test" failed: 535 Authentication failed',
     );
     expect(smtpTransports).toHaveLength(1);
+  });
+});
+
+describe('ConnectionManager SMTP OAuth2', () => {
+  const oauthAccount: AccountConfig = {
+    ...account,
+    name: 'work',
+    password: undefined,
+    oauth2: {
+      provider: 'google',
+      clientId: 'client-id',
+      clientSecret: 'client-secret',
+      refreshToken: 'refresh-token',
+    },
+  };
+
+  beforeEach(() => {
+    smtpTransports.length = 0;
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-01T00:00:00.000Z'));
+    let issued = 0;
+    // Google's token endpoint answers each refresh with a new token valid for one hour.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        issued += 1;
+        return new Response(JSON.stringify({ access_token: `tok-${issued}`, expires_in: 3600 }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  async function tokenFor(oauth2: XOAuth2): Promise<string> {
+    return new Promise((resolve, reject) => {
+      oauth2.getToken(false, (err, token) => (err ? reject(err) : resolve(token)));
+    });
+  }
+
+  it('should hand the cached transport a fresh token after the first one expired', async () => {
+    const manager = new ConnectionManager([structuredClone(oauthAccount)], new OAuthService());
+    await manager.getSmtpTransport('work');
+    // nodemailer builds one XOAuth2 generator per connection from these auth options.
+    const generator = new XOAuth2(smtpTransports[0].options.auth as never);
+    expect(await tokenFor(generator)).toBe('tok-1');
+    vi.setSystemTime(Date.now() + 3_600_000);
+    expect(await tokenFor(generator)).toBe('tok-2');
   });
 });
 

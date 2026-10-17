@@ -264,7 +264,7 @@ export default class ConnectionManager implements IConnectionManager {
 
     let transport: Transporter | undefined;
     try {
-      const auth = await buildSmtpAuth(account, this.oauthService);
+      const auth = buildSmtpAuth(account, this.oauthService);
       transport = nodemailer.createTransport(
         ConnectionManager.buildSmtpTransportOptions(account, auth),
       );
@@ -362,7 +362,7 @@ export default class ConnectionManager implements IConnectionManager {
   ): Promise<{ success: boolean; error?: string }> {
     let transport: Transporter | undefined;
     try {
-      const auth = await buildSmtpAuth(account, oauthService);
+      const auth = buildSmtpAuth(account, oauthService);
 
       transport = nodemailer.createTransport(
         ConnectionManager.buildSmtpTransportOptions(account, auth),
