@@ -657,6 +657,31 @@ describe('unreadable send times', () => {
   });
 });
 
+describe('due boundary', () => {
+  it('should send an email due now and hold one due 1 ms later', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-due-'));
+    try {
+      const now = Date.now();
+      await fs.writeFile(
+        path.join(queueDir, `${queueId(1)}.json`),
+        JSON.stringify(pendingRecord(queueId(1), new Date(now).toISOString())),
+      );
+      await fs.writeFile(
+        path.join(queueDir, `${queueId(2)}.json`),
+        JSON.stringify(pendingRecord(queueId(2), new Date(now + 1).toISOString())),
+      );
+      const { service } = createService(queueDir);
+      await service.checkAndSend();
+      expect(await jsonNames(path.join(queueDir, 'sent'))).toEqual([`${queueId(1)}.json`]);
+    } finally {
+      vi.useRealTimers();
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('successful send', () => {
   it('removes the pending queue file after SMTP accepts the email', async () => {
     const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-sent-'));
@@ -705,6 +730,24 @@ describe('retried and delivered sends', () => {
         (call) => (call[1] as { messageId?: string }).messageId,
       );
       expect(ids).toEqual([`<${id}@example.com>`, `<${id}@example.com>`]);
+    });
+  });
+
+  it('should mark an email failed after three rejected sends', async () => {
+    await withDueQueue(async ({ queueDir, pendingPath }) => {
+      const { service, smtp } = createService(queueDir);
+      smtp.sendEmail.mockRejectedValue(new Error('550 mailbox unavailable'));
+      await service.checkAndSend();
+      await service.checkAndSend();
+      await service.checkAndSend();
+      await service.checkAndSend();
+      const record = JSON.parse(await fs.readFile(pendingPath, 'utf8')) as ScheduledEmail;
+      expect({
+        sends: smtp.sendEmail.mock.calls.length,
+        status: record.status,
+        attempts: record.attempts,
+        lastError: record.lastError,
+      }).toEqual({ sends: 3, status: 'failed', attempts: 3, lastError: '550 mailbox unavailable' });
     });
   });
 
@@ -1150,6 +1193,27 @@ describe('list order', () => {
       const { service } = createService(queueDir);
       const listed = await service.list({ status: 'pending' });
       expect(listed.map((email) => email.id)).toEqual([queueId(2), queueId(0), queueId(1)]);
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should order a list of every status by send time across the queue and sent/', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-order-all-'));
+    try {
+      // The queue directory is read before sent/, so an unsorted list puts the pending email first.
+      await fs.writeFile(
+        path.join(queueDir, `${queueId(0)}.json`),
+        JSON.stringify(pendingRecord(queueId(0), daysFromNow(3))),
+      );
+      await fs.mkdir(path.join(queueDir, 'sent'));
+      await fs.writeFile(
+        path.join(queueDir, 'sent', `${queueId(1)}.json`),
+        JSON.stringify({ ...pendingRecord(queueId(1), daysFromNow(1)), status: 'sent' }),
+      );
+      const { service } = createService(queueDir);
+      const listed = await service.list({ status: 'all' });
+      expect(listed.map((email) => email.id)).toEqual([queueId(1), queueId(0)]);
     } finally {
       await fs.rm(queueDir, { recursive: true, force: true });
     }
