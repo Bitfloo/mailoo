@@ -325,6 +325,11 @@ export function emlFilename(internalDate: Date | string | undefined, uid: string
   return sanitizeAttachmentFilename(`${day}_${uid}.eml`);
 }
 
+/** UID set for a bulk action. Each id must be one canonical UID, as for single-message tools. */
+function bulkUidSet(ids: number[]): string {
+  return ids.map((id) => parseMessageUid(String(id))).join(',');
+}
+
 function exportTooLarge(uid: string, size: number, maxSizeBytes: number): Error {
   return new Error(`Email ${uid} is ${size} bytes, over the ${maxSizeBytes}-byte limit`);
 }
@@ -1019,8 +1024,10 @@ export default class ImapService {
     mailbox: string,
     action: 'mark_read' | 'mark_unread' | 'flag' | 'unflag',
   ): Promise<BulkResult> {
+    const range = bulkUidSet(ids);
+    const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
-    const lock = await client.getMailboxLock(mailbox);
+    const lock = await client.getMailboxLock(safeMailbox);
     const result: BulkResult = {
       total: ids.length,
       succeeded: 0,
@@ -1035,7 +1042,6 @@ export default class ImapService {
         unflag: { flags: ['\\Flagged'], add: false },
       };
       const { flags, add } = flagMap[action];
-      const range = ids.join(',');
       let ok: boolean;
       if (add) {
         ok = await client.messageFlagsAdd(range, flags, { uid: true });
@@ -1064,9 +1070,12 @@ export default class ImapService {
     mailbox: string,
     destination: string,
   ): Promise<BulkResult> {
+    const range = bulkUidSet(ids);
+    const safeMailbox = sanitizeMailboxName(mailbox);
+    const safeDest = sanitizeMailboxName(destination);
     const client = await this.connections.getImapClient(accountName);
-    await ImapService.assertRealMailbox(client, mailbox);
-    const lock = await client.getMailboxLock(mailbox);
+    await ImapService.assertRealMailbox(client, safeMailbox);
+    const lock = await client.getMailboxLock(safeMailbox);
     const result: BulkResult = {
       total: ids.length,
       succeeded: 0,
@@ -1074,8 +1083,7 @@ export default class ImapService {
       errors: [],
     };
     try {
-      const range = ids.join(',');
-      const ok = await client.messageMove(range, destination, { uid: true });
+      const ok = await client.messageMove(range, safeDest, { uid: true });
       if (ok) {
         result.succeeded = ids.length;
       } else {
@@ -1098,6 +1106,8 @@ export default class ImapService {
     mailbox: string,
     permanent = false,
   ): Promise<BulkResult> {
+    const range = bulkUidSet(ids);
+    const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
     const result: BulkResult = {
       total: ids.length,
@@ -1107,9 +1117,8 @@ export default class ImapService {
     };
 
     if (permanent) {
-      const lock = await client.getMailboxLock(mailbox);
+      const lock = await client.getMailboxLock(safeMailbox);
       try {
-        const range = ids.join(',');
         const ok = await client.messageDelete(range, { uid: true });
         if (ok) {
           result.succeeded = ids.length;
@@ -1124,14 +1133,13 @@ export default class ImapService {
         lock.release();
       }
     } else {
-      await ImapService.assertRealMailbox(client, mailbox);
+      await ImapService.assertRealMailbox(client, safeMailbox);
       const mailboxes = await client.list();
       const trash = mailboxes.find((mb) => mb.specialUse === '\\Trash');
       const trashPath = trash?.path ?? 'Trash';
 
-      const lock = await client.getMailboxLock(mailbox);
+      const lock = await client.getMailboxLock(safeMailbox);
       try {
-        const range = ids.join(',');
         const ok = await client.messageMove(range, trashPath, { uid: true });
         if (ok) {
           result.succeeded = ids.length;
@@ -1561,8 +1569,9 @@ export default class ImapService {
     messageCount: number;
   }> {
     const MAX_THREAD_MESSAGES = 50;
+    const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
-    const lock = await client.getMailboxLock(mailbox);
+    const lock = await client.getMailboxLock(safeMailbox);
     try {
       // Collect all Message-IDs in the thread
       const targetMsgIds = new Set<string>([messageId]);
@@ -1723,8 +1732,8 @@ export default class ImapService {
     accountName: string,
     options: { mailbox?: string; limit?: number } = {},
   ): Promise<Contact[]> {
+    const mailbox = sanitizeMailboxName(options.mailbox ?? 'INBOX');
     const client = await this.connections.getImapClient(accountName);
-    const mailbox = options.mailbox ?? 'INBOX';
     const limit = Math.min(options.limit ?? 100, 500);
 
     const lock = await client.getMailboxLock(mailbox);
@@ -1806,6 +1815,7 @@ export default class ImapService {
     mailbox: string,
     period: 'day' | 'week' | 'month',
   ): Promise<EmailStats> {
+    const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
 
     const now = new Date();
@@ -1814,7 +1824,7 @@ export default class ImapService {
     else if (period === 'week') since.setDate(since.getDate() - 7);
     else since.setMonth(since.getMonth() - 1);
 
-    const lock = await client.getMailboxLock(mailbox);
+    const lock = await client.getMailboxLock(safeMailbox);
     try {
       // Date-range search
       const uids: number[] = await client

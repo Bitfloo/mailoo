@@ -664,10 +664,32 @@ describe('ImapService', () => {
       ['getCalendarParts', async (svc) => svc.getCalendarParts('test', 'INBOX\r\nSent', '8')],
       ['deleteDraft', async (svc) => svc.deleteDraft('test', 8, 'Drafts\nOther')],
       ['fetchDraft', async (svc) => svc.fetchDraft('test', 8, 'Drafts\r\nOther')],
+      ['bulkSetFlags', async (svc) => svc.bulkSetFlags('test', [8], 'INBOX\r\nSent', 'flag')],
+      ['bulkMove source', async (svc) => svc.bulkMove('test', [8], 'INBOX\nSent', 'Archive')],
+      ['bulkMove destination', async (svc) => svc.bulkMove('test', [8], 'INBOX', 'Arch\r\nive')],
+      ['bulkDelete', async (svc) => svc.bulkDelete('test', [8], 'INBOX\x00')],
+      ['getThread', async (svc) => svc.getThread('test', '<m@example.com>', 'INBOX\r\nSent')],
+      ['extractContacts', async (svc) => svc.extractContacts('test', { mailbox: 'IN\nBOX' })],
+      ['getEmailStats', async (svc) => svc.getEmailStats('test', 'INBOX\x7F', 'week')],
     ])(
       'should reject a mailbox name with a control character from %s before contacting IMAP',
       async (_name, call) => {
         await expect(call(service)).rejects.toThrow(/control characters/);
+        expect(connections.getImapClient).not.toHaveBeenCalled();
+      },
+    );
+
+    // bulk_action takes any JSON integer; 0 or a negative id is not a UID, and
+    // imapflow would send it inside the UID set as typed.
+    it.each<[string, Call]>([
+      ['bulkSetFlags zero', async (svc) => svc.bulkSetFlags('test', [5, 0], 'INBOX', 'flag')],
+      ['bulkMove negative', async (svc) => svc.bulkMove('test', [-4], 'INBOX', 'Archive')],
+      ['bulkDelete fraction', async (svc) => svc.bulkDelete('test', [1.5], 'INBOX')],
+      ['bulkDelete above 2^32-1', async (svc) => svc.bulkDelete('test', [2 ** 32], 'INBOX', true)],
+    ])(
+      'should reject a bulk id that is not a UID from %s before contacting IMAP',
+      async (_name, call) => {
+        await expect(call(service)).rejects.toThrow(/positive integer UID/);
         expect(connections.getImapClient).not.toHaveBeenCalled();
       },
     );

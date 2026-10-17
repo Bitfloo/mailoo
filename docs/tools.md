@@ -57,6 +57,13 @@ Both accept ISO 8601 `since` and `before`.
 (`since` / `before` win if both are set). `query` may be omitted for a
 filter-only search.
 
+## `bulk_action`
+
+Every id must be a single UID (a positive integer up to 4294967295), the
+same rule as the single-message tools; any other id rejects the whole call
+before the server is contacted. `mailbox` and `destination` follow the
+mailbox-name rules of the other tools (no control characters or wildcards).
+
 ## `get_email_security`
 
 Read-only. Returns SPF/DKIM/DMARC from `Authentication-Results` (and
