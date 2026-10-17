@@ -1,7 +1,3 @@
-/**
- * IMAP and SMTP credentials for an account, password or OAuth2.
- */
-
 import type { XOAuth2ProvisionCallback } from 'nodemailer/lib/xoauth2';
 
 import type { AccountConfig } from '../types/index.js';
