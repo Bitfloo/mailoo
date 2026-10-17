@@ -32,7 +32,13 @@ export const HTTP_MAX_HEADER_COUNT = 100;
 
 const LOOPBACK_BIND_HOSTS = ['127.0.0.1', '::1'] as const;
 
-const METHODS = new Set(['GET', 'POST', 'DELETE']);
+/** The guard's method check, the route match and every 405's Allow read this one table. */
+const ROUTE_METHODS = new Map<string, readonly string[]>([
+  ['/mcp', ['GET', 'POST', 'DELETE']],
+  ['/health', ['GET']],
+]);
+
+const METHODS = new Set([...ROUTE_METHODS.values()].flat());
 
 const HOST_HEADER_RE =
   /^(?:\[([0-9a-f:]*)\]|([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*))(?::(\d{1,5}))?$/i;
@@ -389,9 +395,15 @@ export function bearerAuthorizationMatches(
 export type HttpRoute = 'health' | 'mcp' | 'missing' | 'method';
 
 export function resolveHttpRoute(method: string | undefined, url: string | undefined): HttpRoute {
-  if (url === '/health') return method === 'GET' ? 'health' : 'method';
-  if (url === '/mcp') return method !== undefined && METHODS.has(method) ? 'mcp' : 'method';
-  return 'missing';
+  const methods = ROUTE_METHODS.get(url ?? '');
+  if (!methods) return 'missing';
+  if (method === undefined || !methods.includes(method)) return 'method';
+  return url === '/health' ? 'health' : 'mcp';
+}
+
+/** The Allow value for a 405 on `url`. A path no route serves lists every method the guard accepts. */
+export function allowedMethods(url: string | undefined): string {
+  return [...(ROUTE_METHODS.get(url ?? '') ?? METHODS)].join(', ');
 }
 
 export function evaluateHttpAccess(
@@ -507,6 +519,7 @@ function rejectRequest(
     Connection: 'close',
   };
   if (status === 401) headers['WWW-Authenticate'] = 'Bearer';
+  if (status === 405) headers.Allow = allowedMethods(req.url);
   res.writeHead(status, headers);
   res.end(body, () => {
     req.destroy();

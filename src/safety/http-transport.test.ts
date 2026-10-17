@@ -89,6 +89,24 @@ describe('startGuardedHttpServers', () => {
     }
   });
 
+  // RFC 9110 section 15.5.6: a 405 response must carry Allow, naming what the target supports.
+  it.each([
+    ['/mcp', 'GET, POST, DELETE'],
+    ['/health', 'GET'],
+    ['/other', 'GET, POST, DELETE'],
+  ])('should list %s methods in Allow when it refuses PUT with 405', async (path, allow) => {
+    const policy = resolveHttpListen({ port: 0, host: '127.0.0.1' });
+    const listener = await startGuardedHttpServers(policy, okHandler);
+    try {
+      const host = `127.0.0.1:${listener.port}`;
+      const res = await send(listener.port, { host }, { method: 'PUT', path });
+
+      expect({ status: res.status, allow: res.headers.allow }).toEqual({ status: 405, allow });
+    } finally {
+      await listener.close();
+    }
+  });
+
   it('returns 403 for a foreign Origin', async () => {
     const policy = resolveHttpListen({ port: 0, host: '127.0.0.1' });
     const listener = await startGuardedHttpServers(policy, okHandler);

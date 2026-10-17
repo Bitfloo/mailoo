@@ -33,7 +33,12 @@ import HttpSessionStore, {
   DEFAULT_HTTP_MAX_SESSIONS,
   DEFAULT_HTTP_SESSION_TTL_MS,
 } from './http-sessions.js';
-import { readLimitedBody, resolveHttpRoute, rpcErrorBody } from './http-transport.js';
+import {
+  allowedMethods,
+  readLimitedBody,
+  resolveHttpRoute,
+  rpcErrorBody,
+} from './http-transport.js';
 import RateLimiter from './rate-limiter.js';
 import { maybeStartMailboxWriters } from './write-side-effects.js';
 
@@ -245,7 +250,7 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
     const route = resolveHttpRoute(req.method, req.url);
     // Only /health gets here: the guard refuses methods outside GET, POST and DELETE first.
     if (route === 'method') {
-      res.writeHead(405, { Allow: 'GET' });
+      res.writeHead(405, { Allow: allowedMethods(req.url) });
       res.end();
       return;
     }
