@@ -172,15 +172,19 @@ describe('release supply chain', () => {
     expect(step).toContain('sha256sum -c');
   });
 
-  it('retries MCP publish only while npm has not propagated the version', () => {
+  it('should retry MCP publish up to six times, 20 seconds apart', () => {
     const step = releaseStep(releaseYml, 'Publish to MCP Registry');
-    const marker = npmRetryMarker(step);
-    const unmatched = step.indexOf('if ! grep -F -q');
-    const exitStatus = step.indexOf('exit "$status"', unmatched);
     expect(step).toContain('./mcp-publisher publish');
     expect(step).toContain('attempts=6');
     expect(step).toContain('pause=20');
     expect(step).toContain('for ((attempt = 1; attempt <= attempts; attempt++)); do');
+  });
+
+  it('should stop MCP publish at once on any error but npm not having the version yet', () => {
+    const step = releaseStep(releaseYml, 'Publish to MCP Registry');
+    const marker = npmRetryMarker(step);
+    const unmatched = step.indexOf('if ! grep -F -q');
+    const exitStatus = step.indexOf('exit "$status"', unmatched);
     expect(unmatched).toBeGreaterThan(step.indexOf('./mcp-publisher publish'));
     expect(exitStatus).toBeGreaterThan(unmatched);
     expect(step.indexOf('sleep "$pause"')).toBeGreaterThan(exitStatus);
