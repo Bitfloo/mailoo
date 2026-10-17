@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import withFullDisk from '../test-support/full-disk.js';
+import withTrackedUtimes from '../test-support/tracked-utimes.js';
 
 const stateHome = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-calendar-state-'));
 vi.stubEnv('XDG_STATE_HOME', stateHome);
@@ -212,5 +213,23 @@ describe('calendar state lock window', () => {
       finish();
       spy.mockRestore();
     }
+  });
+
+  // A renewal left running would keep refreshing whichever lock sits at that path,
+  // so a later holder that died would block calendar writes for as long as this process lives.
+  it('should stop renewing the lock once the write finished', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+    vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
+    await withTrackedUtimes(async (settled) => {
+      await markCalendarProcessed('personal', '1', 'event');
+      await fs.writeFile(lockPath, 'another process', { flag: 'wx' });
+      const takenAt = new Date(Date.now() - 1_000);
+      await fs.utimes(lockPath, takenAt, takenAt);
+      const before = (await fs.stat(lockPath)).mtimeMs;
+      // Four 2 s renewal intervals.
+      await vi.advanceTimersByTimeAsync(4 * 2_000);
+      await settled();
+      expect((await fs.stat(lockPath)).mtimeMs).toBe(before);
+    });
   });
 });
