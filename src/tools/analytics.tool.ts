@@ -7,6 +7,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
+import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
 
 export default function registerAnalyticsTools(server: McpServer, imapService: ImapService): void {
@@ -38,7 +39,8 @@ export default function registerAnalyticsTools(server: McpServer, imapService: I
         content: [
           {
             type: 'text' as const,
-            text: JSON.stringify(stats, null, 2),
+            // Top-sender names and addresses come from mail headers anyone can write.
+            text: delimitUntrusted(JSON.stringify(stats, null, 2)),
           },
         ],
       };
