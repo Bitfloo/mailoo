@@ -63,6 +63,25 @@ host = "imap.example.com"
 host = "smtp.example.com"
 `;
 
+/** Real shape: a config account add wrote, with one setting changed by hand. */
+const CONFIG_WITH_PERSONAL = `[settings]
+rate_limit = 3
+
+[[accounts]]
+name = "personal"
+email = "me@example.com"
+password = "secret"
+
+[accounts.imap]
+host = "imap.example.com"
+
+[accounts.smtp]
+host = "smtp.example.com"
+`;
+
+/** Parses as TOML, fails the schema: the account email is not an address. */
+const CONFIG_FAILING_SCHEMA = CONFIG_WITH_PERSONAL.replace('me@example.com', 'nope');
+
 describe('mailoo account add and setup', () => {
   let home: string;
   let configFile: string;
@@ -115,6 +134,57 @@ describe('mailoo account add and setup', () => {
       expect(await fs.readFile(configFile, 'utf-8')).toBe(CONFIG_WITH_SYNTAX_ERROR);
     },
   );
+
+  it.each(['setup', 'account add'] as const)(
+    'should reject with the schema error when mailoo %s meets a config that parses but is not valid',
+    async (command) => {
+      await fs.writeFile(configFile, CONFIG_FAILING_SCHEMA, { mode: 0o600 });
+      const run = await entryPoint(command);
+
+      await expect(run()).rejects.toThrow('Invalid email address');
+    },
+  );
+
+  it.each(['setup', 'account add'] as const)(
+    'should leave a config that parses but is not valid byte-identical when mailoo %s stops',
+    async (command) => {
+      await fs.writeFile(configFile, CONFIG_FAILING_SCHEMA, { mode: 0o600 });
+      const run = await entryPoint(command);
+
+      await run().catch(() => undefined);
+
+      expect(await fs.readFile(configFile, 'utf-8')).toBe(CONFIG_FAILING_SCHEMA);
+    },
+  );
+
+  it.each(['setup', 'account add'] as const)(
+    'should leave the config byte-identical when mailoo %s meets an account name that already exists',
+    async (command) => {
+      const existing = CONFIG_WITH_PERSONAL.replace('"personal"', '"work"');
+      await fs.writeFile(configFile, existing, { mode: 0o600 });
+      const run = await entryPoint(command);
+
+      await run();
+
+      expect(await fs.readFile(configFile, 'utf-8')).toBe(existing);
+    },
+  );
+
+  it('should append the new account and keep the existing accounts and settings when a valid config exists', async () => {
+    await fs.writeFile(configFile, CONFIG_WITH_PERSONAL, { mode: 0o600 });
+    const run = await entryPoint('account add');
+
+    await run();
+
+    const saved = parseTOML(await fs.readFile(configFile, 'utf-8')) as {
+      settings: { rate_limit: number };
+      accounts: { name: string }[];
+    };
+    expect({
+      rateLimit: saved.settings.rate_limit,
+      names: saved.accounts.map((a) => a.name),
+    }).toEqual({ rateLimit: 3, names: ['personal', 'work'] });
+  });
 
   it('should write a new config with the schema settings when no config file exists', async () => {
     const run = await entryPoint('account add');
