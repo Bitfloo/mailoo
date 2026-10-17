@@ -41,11 +41,6 @@ describe('code scanning workflows', () => {
     expect(workflowName(codeqlYml)).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
   });
 
-  it('should hold the CodeQL workflow token at contents read', () => {
-    expect(topLevelPermissions(codeqlYml)).not.toMatch(/write/);
-    expect(topLevelPermissions(codeqlYml)).toContain('contents: read');
-  });
-
   it('should run CodeQL analysis in exactly one job', () => {
     expect(analyzeJobs).toHaveLength(1);
   });
@@ -82,10 +77,6 @@ describe('code scanning workflows', () => {
     expect(workflowName(scorecardYml)).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
   });
 
-  it('should keep write scopes off the Scorecard workflow token', () => {
-    expect(topLevelPermissions(scorecardYml)).not.toMatch(/write/);
-  });
-
   it('should run the Scorecard action in exactly one job', () => {
     expect(scorecardJobs).toHaveLength(1);
     expect(scorecardYml).toContain('ossf/scorecard-action@');
@@ -109,9 +100,14 @@ describe('code scanning workflows', () => {
   });
 });
 
-/** A job's own token: the scope: level lines of its permissions block, or a one-line value such as write-all. */
-function jobToken(job: string): string[] {
-  const block = job.match(/^ {4}permissions:(.*)((?:\n {6}.*)*)/m);
+/**
+ * The token a permissions key at this indent grants: the scope: level lines of its block, or a
+ * one-line value such as write-all. Indent 0 reads the workflow token, indent 4 a job's own.
+ */
+function token(text: string, indent: number): string[] {
+  const block = text.match(
+    new RegExp(`^ {${indent}}permissions:(.*)((?:\\n {${indent + 2}}.*)*)`, 'm'),
+  );
   if (!block) {
     return [];
   }
@@ -148,28 +144,28 @@ describe('workflow job reader', () => {
 describe('workflow token is no wider than the job writes', () => {
   it('should give every workflow job exactly the token scopes this roster lists', () => {
     // Read from the tree, so a new workflow, a new job or a new scope at any level fails until listed here.
+    // (workflow) is the token of every job that sets none; no job id can take that name.
     const roster = Object.fromEntries(
-      workflowFiles().map((name) => [
-        name,
-        Object.fromEntries(
-          jobSections(readFileSync(join(workflowDir, name), 'utf8')).map((job) => [
-            jobKey(job),
-            jobToken(job),
-          ]),
-        ),
-      ]),
+      workflowFiles().map((name) => {
+        const yaml = readFileSync(join(workflowDir, name), 'utf8');
+        const jobs = jobSections(yaml).map((job) => [jobKey(job), token(job, 4)]);
+        return [name, Object.fromEntries([['(workflow)', token(yaml, 0)], ...jobs])];
+      }),
     );
+    const read = ['contents: read'];
     expect(roster).toEqual({
-      'ci.yml': { check: [], docker: [], integration: [], 'public-log': [] },
-      'codeql.yml': { analyze: ['contents: read', 'security-events: write'] },
-      'docker-rebuild.yml': { rebuild: ['contents: read', 'packages: write'] },
-      'docker-sha.yml': { 'sha-images': ['contents: read', 'packages: write'] },
+      'ci.yml': { '(workflow)': read, check: [], docker: [], integration: [], 'public-log': [] },
+      'codeql.yml': { '(workflow)': read, analyze: ['contents: read', 'security-events: write'] },
+      'docker-rebuild.yml': { '(workflow)': read, rebuild: ['contents: read', 'packages: write'] },
+      'docker-sha.yml': { '(workflow)': read, 'sha-images': ['contents: read', 'packages: write'] },
       'release.yml': {
+        '(workflow)': read,
         npm: ['contents: read', 'id-token: write'],
         mcp: ['contents: read', 'id-token: write'],
         docker: ['contents: write', 'packages: write'],
       },
       'scorecard.yml': {
+        '(workflow)': ['read-all'],
         analysis: ['actions: read', 'contents: read', 'id-token: write', 'security-events: write'],
       },
     });
