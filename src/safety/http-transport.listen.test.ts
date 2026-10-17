@@ -50,6 +50,15 @@ describe('resolveHttpListen', () => {
     );
   });
 
+  // Neighbours of 127/8, a private range, and a name that ends in "localhost"
+  // without the dot: none of them stays on this machine.
+  it.each(['10.0.0.5', '126.255.255.255', '128.0.0.1', 'evillocalhost'])(
+    'refuses to listen on %s when no bearer token is configured',
+    (host) => {
+      expect(() => resolveHttpListen({ port: 8080, host })).toThrow(/MCP_EMAIL_HTTP_TOKEN/);
+    },
+  );
+
   it('accepts 192.0.2.10 when a bearer token is configured', () => {
     const policy = resolveHttpListen({ port: 8080, host: '192.0.2.10', token: TOKEN });
     expect(policy.hosts).toEqual(['192.0.2.10']);
