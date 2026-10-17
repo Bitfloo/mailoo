@@ -94,6 +94,13 @@ export default class SmtpService {
     return this.sendAndAppend(accountName, mail);
   }
 
+  /** The same token gives the same Message-ID, so a recipient can drop a resent copy. */
+  messageIdFor(accountName: string, token: string): string {
+    const { email } = this.connections.getAccount(accountName);
+    const at = email.lastIndexOf('@');
+    return `<${token}@${at === -1 ? 'localhost' : email.slice(at + 1)}>`;
+  }
+
   // -------------------------------------------------------------------------
   // Reply
   // -------------------------------------------------------------------------

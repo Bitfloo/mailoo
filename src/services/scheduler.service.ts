@@ -212,6 +212,15 @@ function isDue(scheduled: ScheduledEmail, id: string, now: number): boolean {
   );
 }
 
+interface Delivery {
+  outcome: 'sent' | 'failed' | 'skipped';
+  error?: string;
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 const CANCEL_ALREADY_BEING_SENT = 'Cannot cancel email that is already being sent';
 
 function scheduledEmailNotFound(scheduleId: string): string {
@@ -541,10 +550,8 @@ export default class SchedulerService {
       const delivery = await this.processQueueFile(file, now);
       if (delivery.outcome === 'skipped') continue;
       if (delivery.outcome === 'sent') result.sent += 1;
-      else if (delivery.outcome === 'failed') {
-        result.failed += 1;
-        if (delivery.error !== undefined) result.errors.push(`${file}: ${delivery.error}`);
-      }
+      else result.failed += 1;
+      if (delivery.error !== undefined) result.errors.push(`${file}: ${delivery.error}`);
     }
 
     return result;
@@ -575,10 +582,7 @@ export default class SchedulerService {
     await writeFileAtomic(filePath, JSON.stringify(scheduled, null, 2));
   }
 
-  private async processQueueFile(
-    file: string,
-    now: number,
-  ): Promise<{ outcome: 'sent' | 'failed' | 'skipped'; error?: string }> {
+  private async processQueueFile(file: string, now: number): Promise<Delivery> {
     const id = scheduleIdFromFilename(file);
     if (!id) return { outcome: 'skipped' };
     const filePath = queueFile(this.pendingDir, id);
@@ -587,10 +591,16 @@ export default class SchedulerService {
     try {
       const content = await fs.readFile(filePath, 'utf-8');
       const scheduled = JSON.parse(content) as ScheduledEmail;
-      if (!isDue(scheduled, id, now)) return { outcome: 'skipped' };
+      const delivered = scheduled.id === id && scheduled.status === 'sent';
+      if (!delivered && !isDue(scheduled, id, now)) return { outcome: 'skipped' };
 
       claimToken = await claimSchedule(this.pendingDir, id, now);
       if (!claimToken) return { outcome: 'skipped' };
+      if (delivered) {
+        // Only the move into sent/ was lost. A failed move is tried again on the next check.
+        await this.moveToSent(id).catch(() => undefined);
+        return { outcome: 'skipped' };
+      }
 
       const fresh = await readScheduled(filePath);
       if (!fresh || !isDue(fresh, id, now)) return { outcome: 'skipped' };
@@ -601,10 +611,9 @@ export default class SchedulerService {
         return { outcome: 'failed' };
       }
 
-      await this.sendClaimedEmail(fresh, id);
-      return { outcome: 'sent' };
+      return await this.sendClaimedEmail(fresh, id);
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
+      const errorMsg = errorMessage(err);
       await this.writeSendFailure(id, errorMsg);
       return { outcome: 'failed', error: errorMsg };
     } finally {
@@ -612,8 +621,7 @@ export default class SchedulerService {
     }
   }
 
-  private async sendClaimedEmail(queued: ScheduledEmail, id: string): Promise<void> {
-    const filePath = queueFile(this.pendingDir, id);
+  private async sendClaimedEmail(queued: ScheduledEmail, id: string): Promise<Delivery> {
     const sending: ScheduledEmail = {
       ...queued,
       status: 'sending',
@@ -630,27 +638,61 @@ export default class SchedulerService {
         cc: sending.cc,
         bcc: sending.bcc,
         html: sending.html,
+        messageId: this.smtpService.messageIdFor(sending.account, id),
       });
 
-      const sent: ScheduledEmail = {
+      // SMTP accepted the message. Nothing below may send it back into the retry path.
+      const recordError = await this.recordSent({
         ...sending,
         status: 'sent',
         sentAt: new Date().toISOString(),
         sentMessageId: sendResult.messageId,
-      };
-      await writeFileAtomic(queueFile(this.sentDir, id), JSON.stringify(sent, null, 2));
-      await fs.unlink(filePath);
+      });
 
-      if (sent.draftMessageId && sent.draftMailbox) {
+      if (sending.draftMessageId && sending.draftMailbox) {
         try {
-          await this.imapService.deleteEmail(sent.account, sent.draftMessageId, sent.draftMailbox);
+          await this.imapService.deleteEmail(
+            sending.account,
+            sending.draftMessageId,
+            sending.draftMailbox,
+          );
         } catch {
           // Best-effort
         }
       }
+      if (recordError === undefined) return { outcome: 'sent' };
+      return {
+        outcome: 'sent',
+        error: `sent, but the queue record was not updated: ${recordError}`,
+      };
     } finally {
       stopRenewal();
     }
+  }
+
+  /**
+   * The first write is the commit point: a record that says sent is never due
+   * again, so a crash or a failed move after it cannot resend the email. The
+   * move into sent/ runs even when that write failed, because a rename needs
+   * no free space and takes the email out of the due set.
+   */
+  private async recordSent(sent: ScheduledEmail): Promise<string | undefined> {
+    let problem: string | undefined;
+    try {
+      await this.writeScheduledFile(sent);
+    } catch (err) {
+      problem = errorMessage(err);
+    }
+    try {
+      await this.moveToSent(sent.id);
+    } catch (err) {
+      problem ??= errorMessage(err);
+    }
+    return problem;
+  }
+
+  private async moveToSent(id: string): Promise<void> {
+    await fs.rename(queueFile(this.pendingDir, id), queueFile(this.sentDir, id));
   }
 
   private async writeSendFailure(id: string, errorMsg: string): Promise<void> {
