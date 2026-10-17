@@ -28,6 +28,10 @@ describe('workflow shell input', () => {
     'run: echo "${{ github[\'head_ref\'] }}"',
     'run: echo "${{ inputs[\'version\'] }}"',
     'with:\n  args: release ${{ github.head_ref }}',
+    "run: echo '${{ toJSON(github) }}'",
+    "run: echo '${{ toJSON(inputs) }}'",
+    'env:\n  B: ${{ github.head_ref }}\nrun: echo "${{ env.B }}"',
+    'env:\n  B: ${{ inputs.version }}\nwith:\n  script: core.info("${{ env[\'B\'] }}")',
   ])('should flag %j as an untrusted expression pasted into code', (yaml) => {
     expect(shellPastes(yaml)).not.toEqual([]);
   });
@@ -41,6 +45,8 @@ describe('workflow shell input', () => {
     'run: echo "${{ github.event_name }}"',
     'run: echo "${{ github[\'ref_type\'] }}"',
     '  run: echo "$REF"\n  env:\n    REF: ${{ github.ref }}',
+    'env:\n  B: ${{ github.sha }}\nrun: echo "${{ env.B }}"',
+    'env:\n  B: ${{ github.head_ref }}\nrun: echo "${{ env.BB }}"',
   ])('should pass %j as a value no shell or script parses', (yaml) => {
     expect(shellPastes(yaml)).toEqual([]);
   });

@@ -2,9 +2,10 @@
 // so a crafted value runs as code. An env: value reaches bash as data. A pushed
 // branch or tag name can hold shell syntax just like a dispatch input.
 // The name can sit anywhere before the closing }}, even after a lone } such as format's {0},
-// and can be written with an index: github['head_ref'], inputs['version'].
+// and can be written with an index: github['head_ref'], inputs['version']. toJSON(github) pastes
+// every field at once.
 const untrusted =
-  /\$\{\{(?:[^}]|\}(?!\}))*\b(?:inputs\s*[.[]|github\s*(?:\.|\[\s*['"])(?:event|head_ref|base_ref|ref(?:_name)?)\b)/;
+  /\$\{\{(?:[^}]|\}(?!\}))*\b(?:inputs\s*[.[)]|github\s*\)|github\s*(?:\.|\[\s*['"])(?:event|head_ref|base_ref|ref(?:_name)?)\b)/;
 // A concurrency group is a name the runner compares, never a script.
 const allowed = /^\s*(?:if|group|[A-Z][A-Z0-9_]*):\s/;
 
@@ -48,10 +49,19 @@ export function shellPastes(yaml: string): string[] {
   const lines = yaml.split('\n');
   const scripts = scriptRanges(lines);
   const inScript = (index: number) => scripts.some(([start, end]) => index >= start && index < end);
+  // An env value is data to bash, but ${{ env.NAME }} pastes that same value into the code.
+  const tainted = lines.flatMap((line, index) => {
+    const name = line.match(/^\s*([A-Z][A-Z0-9_]*):\s/)?.[1];
+    return name && !inScript(index) && untrusted.test(line) ? [name] : [];
+  });
+  const names = tainted.join('|');
+  const viaEnv = new RegExp(
+    String.raw`\$\{\{(?:[^}]|\}(?!\}))*\benv\s*(?:\.\s*(?:${names})\b|\[\s*['"](?:${names})['"])`,
+  );
   return [
     ...scripts
       .map(([start, end]) => lines.slice(start, end).join('\n'))
-      .filter((script) => untrusted.test(script)),
+      .filter((script) => untrusted.test(script) || (names !== '' && viaEnv.test(script))),
     ...lines.filter(
       (line, index) => !inScript(index) && untrusted.test(line) && !allowed.test(line),
     ),
