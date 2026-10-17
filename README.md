@@ -1010,7 +1010,7 @@ pnpm build              # build
 pnpm start              # run
 ```
 
-`pnpm test:integration` and `pnpm test:all` need Docker. `pnpm ci:local` skips GreenMail when Docker is down. GitHub runs linux GreenMail and an image build on pull requests, not on every push. `mailoo test` / `npx -y @bitfloo/mailoo test` is a live-account connection probe, not Vitest.
+`pnpm test:integration` and `pnpm test:all` need Docker. `pnpm ci:local` skips GreenMail when Docker is down. On pull requests GitHub runs lint, typecheck, unit tests, linux GreenMail and an image build; a push alone does not start them. `mailoo test` / `npx -y @bitfloo/mailoo test` is a live-account connection probe, not Vitest.
 
 ## License
 

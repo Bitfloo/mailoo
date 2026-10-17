@@ -39,10 +39,12 @@ See `README.md` for the feature list, `docs/` for deeper guides, and
 
 Always run `pnpm ci:local` before declaring work done (lint, typecheck, unit;
 GreenMail when Docker is up; `pnpm ci:local -- --image` also builds the image).
-GitHub Actions does **not** repeat unit CI on operator pushes — it runs linux
-GreenMail + image on pull requests, and the same on `workflow_dispatch`. Tick
-`include-unit` on dispatch only when lefthook did not run. `mailoo test` /
-`src/cli/test.ts` is a CLI connection probe, not Vitest.
+GitHub CI (`ci.yml`) has no push trigger, so it does **not** repeat unit CI on
+operator pushes. A pull request to `develop` runs lint, typecheck and unit
+(`Check, typecheck, test`), linux GreenMail, the Docker build, and the public
+commit/PR text check. A `workflow_dispatch` runs GreenMail and the Docker build;
+tick `include-unit` to add lint and unit, only when lefthook did not run.
+`mailoo test` / `src/cli/test.ts` is a CLI connection probe, not Vitest.
 
 ## Conventions to follow
 

@@ -49,8 +49,10 @@ LGPL-3.0-or-later (see [LICENSE](LICENSE) and [COPYING](COPYING)).
 | `pnpm ci:local` | Lint, typecheck, unit; GreenMail when Docker is up (`pnpm ci:local -- --image` also builds) |
 
 `pnpm test:integration` needs Docker. `pnpm ci:local` skips that lane when Docker
-is down (lefthook pre-push uses the same script). GitHub Actions runs linux
-GreenMail and a Docker build on **pull requests**, not on every operator push.
+is down (lefthook pre-push uses the same script). On a **pull request** to
+`develop`, GitHub Actions runs lint, typecheck and unit tests, linux GreenMail, a
+Docker build, a check of the commit and pull request text, and CodeQL. Pushing a
+branch starts none of them.
 `node dist/main.js test` / `mailoo test` is a live-account connection probe, not Vitest.
 
 ### Code Style
@@ -133,7 +135,7 @@ Open pull requests against **`develop`** (the GitHub default branch).
 `develop` is the release line: releases are cut from it and tagged `v*`.
 There is no `main` branch.
 
-1. Ensure `pnpm check` and `pnpm typecheck` pass
+1. Ensure `pnpm check`, `pnpm typecheck` and `pnpm test` pass (the pull request runs all three)
 2. Update documentation if your change affects user-facing behavior
 3. Write a clear PR description explaining what and why
 4. Link any related issues
