@@ -209,7 +209,8 @@ describe('WatcherService UID range', () => {
     const [filtered] = deliver('INBOX', 'Filtered by another client');
     expunge('INBOX', [filtered]);
     await settle();
-    expect(arrivedSubjects(arrivals)).toEqual(['Kept']);
+    // Matched whole, not flattened to subjects: an event with no emails must fail too.
+    expect(arrivals).toMatchObject([{ emails: [{ subject: 'Kept' }] }]);
   });
 });
 
