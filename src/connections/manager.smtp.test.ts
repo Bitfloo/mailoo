@@ -54,11 +54,13 @@ const account: AccountConfig = {
   smtp: { host: 'smtp.example.com', port: 465, tls: true, starttls: false, verifySsl: true },
 };
 
-describe('ConnectionManager SMTP transport options', () => {
-  beforeEach(() => {
-    smtpTransports.length = 0;
-  });
+// File-wide: a test that queues an error its path never consumes must not fail another test.
+beforeEach(() => {
+  smtpTransports.length = 0;
+  verifyErrors.length = 0;
+});
 
+describe('ConnectionManager SMTP transport options', () => {
   async function optionsFor(
     smtp: Partial<AccountConfig['smtp']>,
   ): Promise<Record<string, unknown>> {
@@ -101,11 +103,6 @@ describe('ConnectionManager SMTP transport options', () => {
 });
 
 describe('ConnectionManager.getSmtpTransport', () => {
-  beforeEach(() => {
-    smtpTransports.length = 0;
-    verifyErrors.length = 0;
-  });
-
   it('should build exactly one transport when 20 callers ask for the same account at once', async () => {
     const manager = new ConnectionManager([account]);
     const transports = await Promise.all(
@@ -142,10 +139,6 @@ describe('ConnectionManager.getSmtpTransport', () => {
 });
 
 describe('ConnectionManager.closeAll for SMTP', () => {
-  beforeEach(() => {
-    smtpTransports.length = 0;
-  });
-
   it('should close every cached SMTP transport', async () => {
     const manager = new ConnectionManager([account, { ...account, name: 'second' }]);
     await manager.getSmtpTransport('test');
@@ -165,8 +158,6 @@ describe('ConnectionManager.closeAll for SMTP', () => {
 
 describe('ConnectionManager SMTP reconnect backoff', () => {
   beforeEach(() => {
-    smtpTransports.length = 0;
-    verifyErrors.length = 0;
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-01T00:00:00.000Z'));
     vi.spyOn(Math, 'random').mockReturnValue(0);
@@ -219,7 +210,6 @@ describe('ConnectionManager SMTP OAuth2', () => {
   };
 
   beforeEach(() => {
-    smtpTransports.length = 0;
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-01T00:00:00.000Z'));
     let issued = 0;
