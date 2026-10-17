@@ -1,7 +1,7 @@
 /**
  * What the HTTP host does outside any one session: whether read_only keeps
- * the process-wide mail writers off, and its answers on paths that are not
- * the MCP endpoint.
+ * the process-wide mail writers off, whether close() stops them, and its
+ * answers on paths that are not the MCP endpoint.
  */
 
 import fs from 'node:fs/promises';
@@ -10,6 +10,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 import HooksService from '../services/hooks.service.js';
+import WatcherService from '../services/watcher.service.js';
 import { send } from '../test-support/http-transport-harness.js';
 import { startHost, testConfig } from './helpers/http-host.js';
 
@@ -48,6 +49,55 @@ describe('HTTP host read_only', () => {
 
   it('should arm the scheduler and start the hooks when settings.readOnly is false', async () => {
     expect(await writersAfterBoot(false)).toEqual({ hooksStarted: true, schedulerRan: true });
+  });
+});
+
+// The scheduler, hooks and watcher outlive every session; only close() stops
+// them, so a closed host that skipped one would keep sending or listening.
+describe('HTTP host close', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  async function writersAfterClose(): Promise<Record<string, number>> {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const config = testConfig();
+    config.settings.readOnly = false;
+    config.settings.watcher.enabled = true;
+    config.settings.hooks.onNewEmail = 'notify';
+    const watcherStop = vi.spyOn(WatcherService.prototype, 'stop');
+    const running = await startHost({ now: 1_000 }, 5_000, config);
+    const checkAndSend = vi.spyOn(running.host.scheduler, 'checkAndSend');
+    const client = new Client({ name: 'mailoo-close', version: '0.0.0' });
+    try {
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${running.port}/mcp`)),
+      );
+      await running.host.ready;
+    } finally {
+      await client.close().catch(() => undefined);
+      await running.stop();
+    }
+    const runsAtClose = checkAndSend.mock.calls.length;
+    vi.advanceTimersByTime(2 * 60_000);
+    return {
+      schedulerRunsAfterClose: checkAndSend.mock.calls.length - runsAtClose,
+      newMailListeners: running.host.events.listenerCount('email:new'),
+      watcherStops: watcherStop.mock.calls.length,
+    };
+  }
+
+  it('should run the scheduler no more once the host closes', async () => {
+    expect((await writersAfterClose()).schedulerRunsAfterClose).toBe(0);
+  });
+
+  it('should leave no hook listening for new mail once the host closes', async () => {
+    expect((await writersAfterClose()).newMailListeners).toBe(0);
+  });
+
+  it('should stop the watcher once when the host closes', async () => {
+    expect((await writersAfterClose()).watcherStops).toBe(1);
   });
 });
 
