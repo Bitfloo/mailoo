@@ -8,7 +8,7 @@ import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { parse as parseTOML, stringify as stringifyTOML } from 'smol-toml';
+import { parse as parseTOML, stringify as stringifyTOML, TomlError } from 'smol-toml';
 import type {
   AccountConfig,
   AppConfig,
@@ -192,12 +192,23 @@ async function loadFromFile(filePath: string = CONFIG_FILE): Promise<RawAppConfi
   }
   if (!info.isFile()) return null;
   warnIfGroupOrOtherCanRead(filePath, info.mode);
+  let content: string;
   try {
-    const content = await fs.readFile(filePath, 'utf-8');
-    const parsed = parseTOML(content);
-    return parsed as unknown as RawAppConfig;
-  } catch {
-    return null;
+    content = await fs.readFile(filePath, 'utf-8');
+  } catch (error) {
+    if (isEnoent(error)) return null;
+    throw error;
+  }
+  try {
+    return parseTOML(content) as unknown as RawAppConfig;
+  } catch (error) {
+    if (!(error instanceof TomlError)) throw error;
+    // The first line only: the rest quotes the file, which may hold a password.
+    const reason = error.message.split('\n')[0];
+    throw new Error(
+      `Config file ${filePath} is not valid TOML (line ${error.line}, column ${error.column}): ${reason}`,
+      { cause: error },
+    );
   }
 }
 

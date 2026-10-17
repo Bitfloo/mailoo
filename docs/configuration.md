@@ -7,6 +7,10 @@ shape. This page is the SSOT for behaviour added around Sent copies,
 IMAP4rev2, ManageSieve, read-only side effects, stdio lifecycle,
 and webhook targets.
 
+A config file that is not valid TOML stops the server and the CLI with
+`Config file <path> is not valid TOML (line L, column C): <reason>`. The
+message leaves out the line text, which may hold a password.
+
 Vulnerability reports: [SECURITY.md](../SECURITY.md). Do not open public
 issues for credential leaks.
 

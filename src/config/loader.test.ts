@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { configExists, generateTemplate, loadConfig, saveConfig } from './loader.js';
+import { configExists, generateTemplate, loadConfig, loadRawConfig, saveConfig } from './loader.js';
 
 const MINIMAL_TOML = `
 [[accounts]]
@@ -27,6 +27,10 @@ const MCP_ENV_KEYS = Object.keys(process.env).filter((k) => k.startsWith('MCP_EM
 
 function permissionBits(mode: number): number {
   return mode % 0o1000;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 describe('Config Loader', () => {
@@ -167,6 +171,40 @@ describe('Config Loader', () => {
     it('throws when config file does not exist', async () => {
       const badPath = path.join(tmpDir, 'nonexistent.toml');
       await expect(loadConfig(badPath)).rejects.toThrow('No configuration found');
+    });
+
+    // A typo used to read as "No configuration found" and point at setup,
+    // which can overwrite the file the user only needed to fix.
+    it('should name the file, line and column when the TOML has a syntax error', async () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      await writeOwnerOnly(configPath, `${MINIMAL_TOML}\n[accounts.smtp\n`);
+
+      await expect(loadConfig(configPath)).rejects.toThrow(
+        new RegExp(
+          `^Config file ${escapeRegExp(configPath)} is not valid TOML \\(line 13, column \\d+\\): `,
+        ),
+      );
+    });
+
+    it('should not point at setup when the TOML has a syntax error', async () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      await writeOwnerOnly(configPath, `${MINIMAL_TOML}\n[accounts.smtp\n`);
+
+      await expect(loadConfig(configPath)).rejects.not.toThrow(/No configuration found|setup/);
+    });
+
+    it('should keep the offending line text out of the TOML syntax error', async () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      await writeOwnerOnly(configPath, MINIMAL_TOML.replace('"secret"', '"hunter2'));
+
+      await expect(loadConfig(configPath)).rejects.not.toThrow(/hunter2/);
+    });
+
+    it('should name the file when loadRawConfig meets a TOML syntax error', async () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      await writeOwnerOnly(configPath, `${MINIMAL_TOML}\n[accounts.smtp\n`);
+
+      await expect(loadRawConfig(configPath)).rejects.toThrow(`Config file ${configPath}`);
     });
 
     it('normalizes snake_case to camelCase', async () => {
