@@ -174,4 +174,78 @@ describe('TemplateService', () => {
     expect(result.subject).toBe('Hello Alice');
     expect(result.body).toBe('Dear Alice, welcome to {{company}}!');
   });
+
+  it('should escape markup in a variable value when html is true', async () => {
+    await fs.writeFile(path.join(tempDir, 'greeting.toml'), VALID_TEMPLATE);
+
+    const result = await service.applyTemplate(
+      'greeting',
+      { name: `<b>"Al" & 'Bo'</b>`, company: 'Acme' },
+      true,
+    );
+
+    expect(result.subject).toBe('Hello &lt;b&gt;&quot;Al&quot; &amp; &#39;Bo&#39;&lt;/b&gt;');
+  });
+
+  it('should leave a plain-text variable value as given, markup and line breaks included', async () => {
+    // The mail composer replaces a header line break with a space; the body keeps it.
+    await fs.writeFile(path.join(tempDir, 'greeting.toml'), VALID_TEMPLATE);
+
+    const result = await service.applyTemplate('greeting', {
+      name: 'x <y> &\r\nBcc: a@example.test',
+      company: 'Acme',
+    });
+
+    expect(result.subject).toBe('Hello x <y> &\r\nBcc: a@example.test');
+  });
+
+  it('should substitute an empty string value', async () => {
+    await fs.writeFile(path.join(tempDir, 'greeting.toml'), VALID_TEMPLATE);
+
+    const result = await service.applyTemplate('greeting', { name: '', company: 'Acme' });
+
+    expect(result.subject).toBe('Hello ');
+  });
+
+  it('should ignore a file without the .toml extension', async () => {
+    await fs.writeFile(path.join(tempDir, 'greeting.toml'), VALID_TEMPLATE);
+    await fs.writeFile(path.join(tempDir, 'minimal.toml.bak'), MINIMAL_TEMPLATE);
+
+    const templates = await service.listTemplates();
+
+    expect(templates.map((t) => t.name)).toEqual(['greeting']);
+  });
+
+  it.each([
+    ['an empty name', 'name = ""\nsubject = "S"\nbody = "B"\nvariables = []\n'],
+    [
+      'a variable that is not a string',
+      'name = "n"\nsubject = "S"\nbody = "B"\nvariables = ["a", 3]\n',
+    ],
+    ['no body', 'name = "n"\nsubject = "S"\nvariables = []\n'],
+  ])('should skip a template with %s', async (_case, toml) => {
+    await fs.writeFile(path.join(tempDir, 'greeting.toml'), VALID_TEMPLATE);
+    await fs.writeFile(path.join(tempDir, 'broken.toml'), toml);
+
+    const templates = await service.listTemplates();
+
+    expect(templates.map((t) => t.name)).toEqual(['greeting']);
+  });
+
+  it('should drop a description that is not a string', async () => {
+    await fs.writeFile(
+      path.join(tempDir, 'numbered.toml'),
+      'name = "numbered"\ndescription = 42\nsubject = "S"\nbody = "B"\nvariables = []\n',
+    );
+
+    const template = await service.getTemplate('numbered');
+
+    expect(template.description).toBeUndefined();
+  });
+
+  it('should name none as available when no template exists', async () => {
+    await expect(service.getTemplate('nope')).rejects.toThrow(
+      'Template "nope" not found. Available: none',
+    );
+  });
 });
