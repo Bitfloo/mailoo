@@ -159,20 +159,31 @@ export function findTextMimeParts(bodyStructure: unknown, partPath = ''): TextMi
   }, here);
 }
 
+/** Content of one MIME part with its transfer encoding (base64, quoted-printable) removed. */
+async function downloadPart(
+  client: ImapFlow,
+  uid: string,
+  part: string,
+): Promise<Buffer | undefined> {
+  const downloaded = await client.download(uid, part, { uid: true });
+  if (!downloaded?.content) return undefined;
+  const chunks: Buffer[] = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for await (const chunk of downloaded.content) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
 async function downloadMimePart(
   client: ImapFlow,
   uid: number,
   part: string,
 ): Promise<string | undefined> {
   try {
-    const downloaded = await client.download(String(uid), part, { uid: true });
-    if (!downloaded?.content) return undefined;
-    const chunks: Buffer[] = [];
-    // eslint-disable-next-line no-restricted-syntax
-    for await (const chunk of downloaded.content) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    const text = Buffer.concat(chunks).toString('utf-8');
+    const content = await downloadPart(client, String(uid), part);
+    if (!content) return undefined;
+    const text = content.toString('utf-8');
     if (looksLikeRawMime(text)) return undefined;
     return text;
   } catch {
@@ -1381,21 +1392,10 @@ export default class ImapService {
         throw new Error(`Could not locate MIME part for "${filename}"`);
       }
 
-      // Download the part
-      const downloadResult = await client.download(uidText, partNumber, {
-        uid: true,
-      });
-
-      if (!downloadResult?.content) {
+      const content = await downloadPart(client, uidText, partNumber);
+      if (!content) {
         throw new Error(`Failed to download attachment "${filename}"`);
       }
-
-      const chunks: Buffer[] = [];
-      // eslint-disable-next-line no-restricted-syntax
-      for await (const chunk of downloadResult.content) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-      }
-      const content = Buffer.concat(chunks);
 
       return {
         filename: attachment.filename,
@@ -1979,32 +1979,15 @@ export default class ImapService {
     try {
       const icsContents: string[] = [];
 
-      // Fetch body structure
-      for await (const msg of client.fetch(
-        uidText,
-        { uid: true, bodyStructure: true },
-        { uid: true },
-      )) {
-        const structure = (msg as unknown as Record<string, unknown>).bodyStructure;
-        const parts = this.findCalendarParts(structure);
+      const msg = await client.fetchOne(uidText, { uid: true, bodyStructure: true }, { uid: true });
+      if (!msg) return icsContents;
 
-        // Fetch each calendar part
-        for (const partId of parts) {
-          for await (const partMsg of client.fetch(
-            uidText,
-            { uid: true, bodyParts: [partId] },
-            { uid: true },
-          )) {
-            const bodyParts = (partMsg as unknown as Record<string, unknown>).bodyParts as
-              | Map<string, Buffer>
-              | undefined;
-            if (bodyParts) {
-              bodyParts.forEach((buf) => {
-                icsContents.push(buf.toString('utf-8'));
-              });
-            }
-          }
-        }
+      // imapflow runs one command at a time, so each part is downloaded only
+      // after the structure fetch has finished. A part fetched inside an open
+      // FETCH loop never starts.
+      for (const partId of this.findCalendarParts(msg.bodyStructure)) {
+        const content = await downloadPart(client, uidText, partId);
+        if (content) icsContents.push(content.toString('utf-8'));
       }
 
       return icsContents;
