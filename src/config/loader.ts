@@ -513,7 +513,7 @@ save_to_sent = true  # IMAP APPEND to \\Sent after SMTP send (set false for Gmai
 # auto_label = false       # auto-apply AI-suggested labels
 # auto_flag = false        # auto-flag urgent emails
 # batch_delay = 5          # seconds to batch before processing
-# custom_instructions = "I'm a software engineer. Emails from @company.com are high priority."
+# custom_instructions = "I'm a software engineer. Emails from @example.com are high priority."
 # system_prompt = ""       # full override (only when preset = "custom")
 
 # Static rules — run BEFORE AI triage, skip AI if matched
@@ -524,7 +524,7 @@ save_to_sent = true  # IMAP APPEND to \\Sent after SMTP send (set false for Gmai
 #
 # [[settings.hooks.rules]]
 # name = "VIP Contacts"
-# match = { from = "ceo@company.com" }
+# match = { from = "ceo@example.com" }
 # actions = { flag = true, alert = true, labels = ["VIP"] }
 
 # [settings.hooks.alerts]
