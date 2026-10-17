@@ -161,7 +161,7 @@ npx -y @bitfloo/mailoo test            # all accounts
 npx -y @bitfloo/mailoo test personal   # specific account
 ```
 
-`npx -y @bitfloo/mailoo test` / `mailoo test` is a **live-account connection probe**, not Vitest. Unit and integration tests are `pnpm test` / `pnpm test:integration` (see [Contributing](#contributing)).
+`npx -y @bitfloo/mailoo test` / `mailoo test` is a **live-account connection probe**, not Vitest. Unit and integration tests are `pnpm test` / `pnpm test:integration` (see [Contributing](#contributing)). OAuth2 accounts log in with an access token refreshed from the configured refresh token.
 
 ### Configure Your MCP Client
 

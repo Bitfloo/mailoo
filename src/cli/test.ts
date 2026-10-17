@@ -8,17 +8,18 @@ import { intro, log, outro, spinner as p_spinner } from '@clack/prompts';
 
 import { loadConfig } from '../config/loader.js';
 import ConnectionManager from '../connections/manager.js';
+import OAuthService from '../services/oauth.service.js';
 
 import type { AccountConfig } from '../types/index.js';
 
-async function testAccount(account: AccountConfig): Promise<boolean> {
+async function testAccount(account: AccountConfig, oauth: OAuthService): Promise<boolean> {
   log.step(`Testing account: ${account.name} (${account.email})`);
   let ok = true;
 
   // Test IMAP
   const spinner = p_spinner();
   spinner.start(`IMAP ${account.imap.host}:${account.imap.port}...`);
-  const imapResult = await ConnectionManager.testImap(account);
+  const imapResult = await ConnectionManager.testImap(account, oauth);
   if (imapResult.success) {
     spinner.stop(
       `IMAP  ✓ ${account.imap.host}:${account.imap.port} — ${imapResult.details?.messages} messages, ${imapResult.details?.folders} folders`,
@@ -30,7 +31,7 @@ async function testAccount(account: AccountConfig): Promise<boolean> {
 
   // Test SMTP
   spinner.start(`SMTP ${account.smtp.host}:${account.smtp.port}...`);
-  const smtpResult = await ConnectionManager.testSmtp(account);
+  const smtpResult = await ConnectionManager.testSmtp(account, oauth);
   if (smtpResult.success) {
     spinner.stop(`SMTP  ✓ ${account.smtp.host}:${account.smtp.port} — authenticated`);
   } else {
@@ -61,13 +62,14 @@ export default async function runTest(accountFilter?: string): Promise<void> {
     throw new Error('No matching accounts found');
   }
 
+  const oauth = new OAuthService();
   let allPassed = true;
 
   // Sequential testing — connections can't be parallelized reliably
   // eslint-disable-next-line no-restricted-syntax
   for (const account of accounts) {
     // eslint-disable-next-line no-await-in-loop
-    const ok = await testAccount(account);
+    const ok = await testAccount(account, oauth);
     if (!ok) allPassed = false;
   }
 
