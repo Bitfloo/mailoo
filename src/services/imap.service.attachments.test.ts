@@ -39,6 +39,49 @@ describe('ImapService', () => {
       );
     });
 
+    it.each([
+      { structure: twinAttachmentStructure('a.txt', 'b.txt'), available: 'a.txt, b.txt' },
+      { structure: mixedStructure(), available: 'none' },
+    ])(
+      'should list the available attachments ($available) when no attachment has the name',
+      async ({ structure, available }) => {
+        fetchOneByUid(client, { uid: 9, bodyStructure: structure });
+        downloadReturnsPartName(client);
+
+        await expect(service.downloadAttachment('test', '9', 'INBOX', 'c.txt')).rejects.toThrow(
+          `Attachment "c.txt" not found. Available: ${available}`,
+        );
+      },
+    );
+
+    it('should say the email is not in the mailbox when fetchOne finds no message', async () => {
+      fetchOneByUid(client, { uid: 9, bodyStructure: twinAttachmentStructure('a.txt', 'b.txt') });
+      downloadReturnsPartName(client);
+
+      await expect(service.downloadAttachment('test', '8', 'INBOX', 'a.txt')).rejects.toThrow(
+        'Email 8 not found in INBOX',
+      );
+    });
+
+    // Content-Disposition: attachment with no parameters; the name is then
+    // only in the Content-Type name parameter.
+    it('should find an attachment by its Content-Type name when the disposition has no parameters', async () => {
+      fetchOneByUid(client, {
+        uid: 9,
+        bodyStructure: mixedStructure(
+          attachmentNode('2', 'a.pdf', {
+            type: 'application/pdf',
+            dispositionParameters: undefined,
+          }),
+        ),
+      });
+      downloadReturnsPartName(client);
+
+      const result = await service.downloadAttachment('test', '9', 'INBOX', 'a.pdf');
+
+      expect(Buffer.from(result.contentBase64, 'base64').toString()).toBe('body-of-part-2');
+    });
+
     it('should download the MIME part of a filename that matches once', async () => {
       fetchOneByUid(client, {
         uid: 9,
