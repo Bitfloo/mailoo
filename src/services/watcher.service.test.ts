@@ -18,6 +18,7 @@ import {
   inboxOnly,
   oauthAccount,
   stopWatchers,
+  testAccount,
   watch,
 } from '../test-support/watcher-harness.js';
 import { AUTO_IDLE_DELAY_MS, buildEmailMeta } from './watcher.service.js';
@@ -77,6 +78,29 @@ describe('WatcherService start', () => {
   });
 });
 
+describe('WatcherService with two accounts', () => {
+  const otherAccount = { ...testAccount, name: 'other', username: 'other@example.com' };
+
+  it('should list the same folder of two accounts separately', async () => {
+    const { watcher } = watch(inboxOnly, [testAccount, otherAccount]);
+    await watcher.start();
+    expect(watcher.getStatus().map((status) => `${status.account}/${status.folder}`)).toEqual([
+      'test/INBOX',
+      'other/INBOX',
+    ]);
+  });
+
+  it('should report a delivery once to each account watching that folder', async () => {
+    const { watcher, arrivals } = watch(inboxOnly, [testAccount, otherAccount]);
+    await watcher.start();
+    await advance(AUTO_IDLE_DELAY_MS);
+    // The in-memory server has one folder tree, so both accounts see the same INBOX.
+    deliver('INBOX', 'Shared');
+    await settle();
+    expect(arrivals.map((arrival) => arrival.account).sort()).toEqual(['other', 'test']);
+  });
+});
+
 describe('WatcherService new mail', () => {
   it('should report a message delivered while the connection idles', async () => {
     const { watcher, arrivals } = watch();
@@ -108,6 +132,20 @@ describe('WatcherService new mail', () => {
     fake.clients[0].emit('exists', { path: 'INBOX', count: 2, prevCount: 3 });
     await settle();
     expect(fake.clients[0].fetchCount).toBe(0);
+  });
+});
+
+describe('WatcherService arrival folder', () => {
+  it('should name the folder an arrival came from', async () => {
+    seedFolder('Sent', [3]);
+    const { watcher, arrivals } = watch({ ...inboxOnly, folders: ['INBOX', 'Sent'] });
+    await watcher.start();
+    await advance(AUTO_IDLE_DELAY_MS);
+    deliver('Sent', 'Re: Invoice 2026-10');
+    await settle();
+    expect(arrivals).toMatchObject([
+      { mailbox: 'Sent', emails: [{ subject: 'Re: Invoice 2026-10' }] },
+    ]);
   });
 });
 
