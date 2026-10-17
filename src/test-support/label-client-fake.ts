@@ -14,6 +14,7 @@ type LabelCommand =
   | 'fetchOne'
   | 'search'
   | 'messageDelete'
+  | 'mailboxCreate'
   | 'mailboxDelete';
 
 // Written out because tsc cannot name the inferred vi.fn() type in a declaration.
@@ -36,6 +37,7 @@ export function mockClient(gmail: boolean): LabelClient {
     fetchOne: vi.fn().mockResolvedValue(false),
     search: vi.fn().mockResolvedValue([]),
     messageDelete: vi.fn().mockResolvedValue(true),
+    mailboxCreate: vi.fn().mockResolvedValue({ path: 'created', created: true }),
     mailboxDelete: vi.fn().mockResolvedValue({ path: 'deleted' }),
     releaseFn,
   };
@@ -91,5 +93,5 @@ export function recordSelectedMailbox(client: LabelClient) {
     ranIn.push(selected);
     return result;
   };
-  return { ranIn, record };
+  return { ranIn, record, selected: () => selected };
 }
