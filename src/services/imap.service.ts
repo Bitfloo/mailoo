@@ -242,6 +242,9 @@ async function writeAttachmentParts(
   return saved;
 }
 
+/** get_thread fetches each message in full; a mailing-list thread can run to hundreds. */
+export const MAX_THREAD_MESSAGES = 50;
+
 const THREAD_HEADERS = ['Message-ID', 'References', 'In-Reply-To'];
 
 /** Every Message-ID a fetched header block names, unfolding continuation lines first. */
@@ -1653,7 +1656,6 @@ export default class ImapService {
     participants: EmailAddress[];
     messageCount: number;
   }> {
-    const MAX_THREAD_MESSAGES = 50;
     const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
     const lock = await lockMailbox(client, safeMailbox);

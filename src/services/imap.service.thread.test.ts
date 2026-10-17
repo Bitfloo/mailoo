@@ -6,7 +6,7 @@ import {
   rejectCommandsDuringFetch,
   requireUidRange,
 } from '../test-support/imap-client-fake.js';
-import ImapService from './imap.service.js';
+import ImapService, { MAX_THREAD_MESSAGES } from './imap.service.js';
 
 describe('ImapService', () => {
   let client: ReturnType<typeof createMockImapClient>;
@@ -200,16 +200,16 @@ describe('ImapService', () => {
     });
 
     // A mailing-list thread can run to hundreds of messages, each fetched in full.
-    it('should return at most 50 messages of a longer thread', async () => {
+    it('should return at most MAX_THREAD_MESSAGES messages of a longer thread', async () => {
       const root = threadMessage(1, []);
-      const replies = Array.from({ length: 59 }, (_, i) =>
+      const replies = Array.from({ length: MAX_THREAD_MESSAGES + 9 }, (_, i) =>
         threadMessage(i + 2, ['<thread-1@example.test>']),
       );
       serveThread([root, ...replies]);
 
       const result = await service.getThread('test', '<thread-1@example.test>');
 
-      expect(result.messages).toHaveLength(50);
+      expect(result.messages).toHaveLength(MAX_THREAD_MESSAGES);
     });
 
     it('should still find the thread when the server fails a References search', async () => {
