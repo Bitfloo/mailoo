@@ -133,6 +133,47 @@ describe('label mailbox selection', () => {
 
     expect(ranIn).toEqual(['Archive']);
   });
+
+  it('should delete a ProtonMail label copy in the label folder', async () => {
+    const { client, strategy } = await protonStrategy();
+    const { ranIn, record } = recordSelectedMailbox(client);
+    client.fetchOne.mockResolvedValue({
+      uid: 5,
+      envelope: { messageId: '<label-removal@example.test>' },
+    });
+    client.search.mockImplementation(record([12]));
+    client.messageDelete.mockImplementation(record(true));
+
+    await strategy.removeLabel(client as unknown as ImapFlow, '5', 'Archive', 'Work');
+
+    expect(ranIn).toEqual(['Labels/Work', 'Labels/Work']);
+  });
+});
+
+// A lock left held makes every later call on the account wait out the lock timeout.
+describe('label lock release', () => {
+  it('should release the lock once after a ProtonMail addLabel', async () => {
+    const { client, strategy } = await protonStrategy();
+    client.releaseFn.mockClear();
+
+    await strategy.addLabel(client as unknown as ImapFlow, '5', 'Archive', 'Work');
+
+    expect(client.releaseFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('should release both locks once after a ProtonMail removeLabel', async () => {
+    const { client, strategy } = await protonStrategy();
+    client.fetchOne.mockResolvedValue({
+      uid: 5,
+      envelope: { messageId: '<label-removal@example.test>' },
+    });
+    client.search.mockResolvedValue([12]);
+    client.releaseFn.mockClear();
+
+    await strategy.removeLabel(client as unknown as ImapFlow, '5', 'Archive', 'Work');
+
+    expect(client.releaseFn).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('keyword labels', () => {
