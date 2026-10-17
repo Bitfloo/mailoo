@@ -290,6 +290,21 @@ describe('HooksService batch queue', () => {
     expect(handled).toEqual(['1']);
   });
 
+  it('should unsubscribe from email:new on stop', async () => {
+    const handled: string[] = [];
+    hooks = new HooksService(
+      hooksConfig(),
+      mockImap() as unknown as ImapService,
+      recorder(handled),
+    );
+    hooks.start({} as never, { sampling: false });
+
+    hooks.stop();
+    await flushHooks([meta({ id: '1' })]);
+
+    expect(handled).toEqual([]);
+  });
+
   /** A sampling client that triages every email as urgent. */
   function urgentClient() {
     return vi.fn().mockResolvedValue({
