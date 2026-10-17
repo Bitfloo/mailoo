@@ -211,6 +211,34 @@ describe('Email Read Operations', () => {
       },
       GET_THREAD_TIMEOUT_MS,
     );
+
+    // Some clients set only In-Reply-To on a reply, so the thread links one hop per message.
+    it(
+      'should find every reply of an In-Reply-To chain asked for by its root',
+      async () => {
+        const subject = 'In-Reply-To chain asked for by its root';
+        const first = await seedEmail({ from: 'alice@localhost', subject, text: 'chain-body-1' });
+        const second = await seedEmail({
+          from: 'bob@localhost',
+          subject: `Re: ${subject}`,
+          text: 'chain-body-2',
+          inReplyTo: first,
+        });
+        await seedEmail({
+          from: 'alice@localhost',
+          subject: `Re: ${subject}`,
+          text: 'chain-body-3',
+          inReplyTo: second,
+        });
+        await waitForDelivery();
+
+        const thread = await services.imapService.getThread(TEST_ACCOUNT_NAME, first);
+
+        const bodies = thread.messages.map((m) => m.bodyText?.trim()).sort();
+        expect(bodies).toEqual(['chain-body-1', 'chain-body-2', 'chain-body-3']);
+      },
+      GET_THREAD_TIMEOUT_MS,
+    );
   });
 
   // ---------------------------------------------------------------------------

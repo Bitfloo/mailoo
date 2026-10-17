@@ -198,6 +198,68 @@ async function downloadMimePart(
   }
 }
 
+const THREAD_HEADERS = ['Message-ID', 'References', 'In-Reply-To'];
+
+/** Every Message-ID a fetched header block names, unfolding continuation lines first. */
+function threadIdsInHeaders(headers: Buffer | undefined): string[] {
+  if (!headers) return [];
+  return headers
+    .toString('utf-8')
+    .replace(/\r?\n[ \t]+/g, ' ')
+    .split(/\r?\n/)
+    .filter((line) => /^(message-id|references|in-reply-to):/i.test(line))
+    .flatMap((line) => line.match(/<[^<>\s]+>/g) ?? []);
+}
+
+/* eslint-disable no-await-in-loop, no-restricted-syntax -- imapflow runs one command at a time */
+/** UIDs whose Message-ID is id, or whose References or In-Reply-To names it. */
+async function searchThreadHeaders(client: ImapFlow, id: string): Promise<number[]> {
+  const uids: number[] = [];
+  for (const header of THREAD_HEADERS) {
+    try {
+      const result = await client.search({ header: { [header]: id } }, { uid: true });
+      if (Array.isArray(result)) uids.push(...result);
+    } catch {
+      // Header search may fail on some servers
+    }
+  }
+  return uids;
+}
+
+/**
+ * UIDs of the thread around messageId, at most max. A reply may name only the
+ * message it answers, in In-Reply-To, so the ids of every message found are
+ * searched in turn until no new message turns up.
+ */
+async function findThreadUids(client: ImapFlow, messageId: string, max: number): Promise<number[]> {
+  const ids = new Set([messageId]);
+  const searched = new Set<string>();
+  const found = new Set<number>();
+  const read = new Set<number>();
+  let unread: number[] = [];
+  do {
+    for (const id of [...ids].filter((known) => !searched.has(known))) {
+      if (found.size >= max) break;
+      searched.add(id);
+      for (const uid of await searchThreadHeaders(client, id)) found.add(uid);
+    }
+    unread = [...found].filter((uid) => !read.has(uid));
+    if (unread.length > 0 && found.size < max) {
+      for (const uid of unread) read.add(uid);
+      const rows = await client.fetchAll(
+        unread.join(','),
+        { uid: true, headers: THREAD_HEADERS },
+        { uid: true },
+      );
+      for (const row of rows) {
+        for (const id of threadIdsInHeaders(row.headers)) ids.add(id);
+      }
+    }
+  } while (unread.length > 0 && found.size < max);
+  return [...found].slice(0, max);
+}
+/* eslint-enable no-await-in-loop, no-restricted-syntax */
+
 async function orderUidsByDate(client: ImapFlow, uids: number[]): Promise<number[]> {
   if (uids.length === 0) return [];
   const dated: { uid: number; t: number }[] = [];
@@ -1594,96 +1656,8 @@ export default class ImapService {
     const client = await this.connections.getImapClient(accountName);
     const lock = await lockMailbox(client, safeMailbox);
     try {
-      // Collect all Message-IDs in the thread
-      const targetMsgIds = new Set<string>([messageId]);
-
-      // First, find the root message to get its References chain
-      const rootSearch = await client.search(
-        { header: { 'Message-ID': messageId } },
-        { uid: true },
-      );
-      const rootUids: number[] = Array.isArray(rootSearch) ? rootSearch : [];
-
-      if (rootUids.length > 0) {
-        const rootMsg = await client.fetchOne(
-          String(rootUids[0]),
-          { uid: true, envelope: true, source: true },
-          { uid: true },
-        );
-
-        if (rootMsg) {
-          const raw = rootMsg as unknown as Record<string, unknown>;
-          const envelope = (raw.envelope ?? {}) as Record<string, unknown>;
-          const inReplyTo = envelope.inReplyTo as string | undefined;
-          if (inReplyTo) targetMsgIds.add(inReplyTo);
-
-          // Parse References header from source
-          if (raw.source && Buffer.isBuffer(raw.source)) {
-            const src = raw.source.toString('utf-8');
-            const refMatch = /^References:\s*(.+?)(?:\r?\n(?!\s))/ms.exec(src);
-            if (refMatch) {
-              refMatch[1]
-                .split(/\s+/)
-                .filter(Boolean)
-                .forEach((ref) => {
-                  targetMsgIds.add(ref);
-                });
-            }
-          }
-        }
-      }
-
-      // Search for all related messages by Message-ID
-      const foundUids = new Set<number>();
-      // eslint-disable-next-line no-restricted-syntax
-      for (const msgId of targetMsgIds) {
-        if (foundUids.size >= MAX_THREAD_MESSAGES) break;
-
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          const searchResult = await client.search(
-            { header: { 'Message-ID': msgId } },
-            { uid: true },
-          );
-          if (Array.isArray(searchResult)) {
-            searchResult.forEach((uid) => {
-              foundUids.add(uid);
-            });
-          }
-        } catch {
-          // Header search may not be supported for all messages
-        }
-      }
-
-      // Also search for messages that reference any of our Message-IDs
-      // eslint-disable-next-line no-restricted-syntax
-      for (const msgId of targetMsgIds) {
-        if (foundUids.size >= MAX_THREAD_MESSAGES) break;
-
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          const refSearch = await client.search({ header: { References: msgId } }, { uid: true });
-          if (Array.isArray(refSearch)) {
-            refSearch.forEach((uid) => {
-              foundUids.add(uid);
-            });
-          }
-          // eslint-disable-next-line no-await-in-loop
-          const replySearch = await client.search(
-            { header: { 'In-Reply-To': msgId } },
-            { uid: true },
-          );
-          if (Array.isArray(replySearch)) {
-            replySearch.forEach((uid) => {
-              foundUids.add(uid);
-            });
-          }
-        } catch {
-          // Header search may fail on some servers
-        }
-      }
-
-      if (foundUids.size === 0) {
+      const uidList = await findThreadUids(client, messageId, MAX_THREAD_MESSAGES);
+      if (uidList.length === 0) {
         return {
           threadId: messageId,
           messages: [],
@@ -1693,7 +1667,6 @@ export default class ImapService {
       }
 
       // Fetch full content for all thread messages
-      const uidList = Array.from(foundUids).slice(0, MAX_THREAD_MESSAGES);
       const range = uidList.join(',');
       const messages: Email[] = [];
 

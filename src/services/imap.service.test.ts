@@ -1182,12 +1182,19 @@ describe('ImapService', () => {
      * A GreenMail thread message as fetchAll returns it: one text/plain part
      * with a base64 body. A real server also reports In-Reply-To in the ENVELOPE.
      */
-    function threadMessage(uid: number, references: string[], inReplyTo = references.at(-1)) {
+    function threadMessage(
+      uid: number,
+      references: string[],
+      inReplyTo: string | null = references.at(-1) ?? null,
+    ) {
       const messageId = `<thread-${uid}@example.test>`;
-      const headers = [
+      const threadHeaders = [
         `Message-ID: ${messageId}`,
         ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`] : []),
         ...(references.length > 0 ? [`References: ${references.join(' ')}`] : []),
+      ];
+      const headers = [
+        ...threadHeaders,
         'Subject: Re: Thread',
         'Content-Type: text/plain; charset=utf-8',
         'Content-Transfer-Encoding: base64',
@@ -1202,7 +1209,7 @@ describe('ImapService', () => {
           from: [{ name: '', address: 'alice@example.test' }],
           to: [{ name: '', address: 'bob@example.test' }],
           messageId,
-          inReplyTo,
+          inReplyTo: inReplyTo ?? undefined,
         },
         flags: new Set<string>(),
         bodyStructure: {
@@ -1213,12 +1220,14 @@ describe('ImapService', () => {
           lineCount: 1,
         },
         source: Buffer.from(`${headers.join('\r\n')}\r\n\r\n${body}\r\n`),
+        // BODY[HEADER.FIELDS (MESSAGE-ID REFERENCES IN-REPLY-TO)] as imapflow returns it.
+        headers: Buffer.from(`${threadHeaders.join('\r\n')}\r\n\r\n`),
       };
     }
 
     /**
-     * SEARCH HEADER matches a substring of the named header; the last message
-     * is the one asked for. Returns the commands issued while a FETCH was open.
+     * SEARCH HEADER matches a substring of the named header. Returns the
+     * commands issued while a FETCH was open.
      */
     function serveThread(messages: ReturnType<typeof threadMessage>[]) {
       const headerOf = (message: (typeof messages)[number], name: string) =>
@@ -1231,7 +1240,6 @@ describe('ImapService', () => {
         const [[name, value]] = Object.entries(query.header);
         return messages.filter((m) => headerOf(m, name).includes(value)).map((m) => m.uid);
       });
-      fetchOneByUid(...messages);
       client.download.mockImplementation(
         async (uid: string, _part: string, options?: { uid?: boolean }) => {
           requireUidRange('download', uid, options);
@@ -1282,6 +1290,46 @@ describe('ImapService', () => {
         '<thread-1@example.test>',
         '<thread-2@example.test>',
       ]);
+    });
+
+    // Each reply names only the message it answers, so the thread is one hop per message.
+    const inReplyToChain = [
+      threadMessage(1, []),
+      threadMessage(2, [], '<thread-1@example.test>'),
+      threadMessage(3, [], '<thread-2@example.test>'),
+    ];
+    const chainIds = [
+      '<thread-1@example.test>',
+      '<thread-2@example.test>',
+      '<thread-3@example.test>',
+    ];
+
+    it('should find every reply of an In-Reply-To chain asked for by its root', async () => {
+      serveThread(inReplyToChain);
+
+      const result = await service.getThread('test', '<thread-1@example.test>');
+
+      expect(result.messages.map((m) => m.messageId)).toEqual(chainIds);
+    });
+
+    it('should find every parent of an In-Reply-To chain asked for by its newest reply', async () => {
+      serveThread(inReplyToChain);
+
+      const result = await service.getThread('test', '<thread-3@example.test>');
+
+      expect(result.messages.map((m) => m.messageId)).toEqual(chainIds);
+    });
+
+    it('should find the replies that name the root only in References', async () => {
+      serveThread([
+        threadMessage(1, []),
+        threadMessage(2, ['<thread-1@example.test>'], null),
+        threadMessage(3, ['<thread-1@example.test>', '<thread-2@example.test>'], null),
+      ]);
+
+      const result = await service.getThread('test', '<thread-1@example.test>');
+
+      expect(result.messages.map((m) => m.messageId)).toEqual(chainIds);
     });
   });
 
