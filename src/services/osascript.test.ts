@@ -119,6 +119,27 @@ describe('runOsascript', () => {
     });
   });
 
+  it('should report a maxBuffer overflow as a failure, not a timeout', async () => {
+    // Node sets no `killed` on this error; the child is killed after the error is built.
+    osascriptImpl.mockRejectedValueOnce(
+      Object.assign(new Error('stdout maxBuffer length exceeded'), {
+        code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
+        stdout: '',
+        stderr: '',
+      }),
+    );
+    await expect(runOsascript('return 1', 10_000)).rejects.toThrow(
+      /^osascript failed: exit ERR_CHILD_PROCESS_STDIO_MAXBUFFER$/,
+    );
+  });
+
+  it('should name the exit code when osascript fails with empty stderr', async () => {
+    osascriptImpl.mockRejectedValueOnce(
+      execFailure({ killed: false, code: 3, signal: null, stderr: '' }),
+    );
+    await expect(runOsascript('return 1', 10_000)).rejects.toThrow(/^osascript failed: exit 3$/);
+  });
+
   it('should return trimmed stdout on success', async () => {
     osascriptImpl.mockResolvedValueOnce({ stdout: '{"found":false}\n', stderr: '' });
     await expect(runOsascript('return 1', 10_000)).resolves.toBe('{"found":false}');
@@ -134,6 +155,13 @@ describe('classifyOsascriptFailure', () => {
   it('should read error -1743 from a refused Apple event as denied', () => {
     const err = new Error(
       'osascript failed: 0:42: execution error: Not authorized to send Apple events to Calendar. (-1743)',
+    );
+    expect(classifyOsascriptFailure(err).kind).toBe('denied');
+  });
+
+  it('should read an access refusal without -1743 as denied', () => {
+    const err = new Error(
+      'osascript failed: 0:57: execution error: Calendar got an error: Access not allowed. (-1723)',
     );
     expect(classifyOsascriptFailure(err).kind).toBe('denied');
   });

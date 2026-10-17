@@ -124,3 +124,44 @@ describe('addEvent dates', () => {
     expect(dateSetBy(script, 'eventStart', new Date(2026, 8, 30, 12, 0, 0))).toEqual(start);
   });
 });
+
+describe('addEvent failures', () => {
+  /** Adds an event while osascript exits non-zero with `stderr`, as execFile rejects. */
+  async function addRejectedWith(stderr: string) {
+    osascriptImpl.mockRejectedValueOnce(
+      Object.assign(new Error('Command failed: osascript -e set eventTitle to "Budget review"'), {
+        killed: false,
+        code: 1,
+        stderr,
+      }),
+    );
+    return onDarwin(async () =>
+      new LocalCalendarService().addEvent(
+        {
+          title: 'Budget review',
+          start: new Date(2026, 9, 5, 9, 0, 0),
+          end: new Date(2026, 9, 5, 10, 0, 0),
+        },
+        'Work',
+        { confirm: false, skipDuplicateCheck: true },
+      ),
+    );
+  }
+
+  it('should report an add the user cancelled (-128) as cancelled', async () => {
+    await expect(
+      addRejectedWith('0:312: execution error: User canceled. (-128)\n'),
+    ).resolves.toEqual({ status: 'cancelled', message: 'Cancelled by user.' });
+  });
+
+  it('should report a refused add as no_display with the access-denied message', async () => {
+    await expect(
+      addRejectedWith(
+        '0:312: execution error: Not authorized to send Apple events to Calendar. (-1743)\n',
+      ),
+    ).resolves.toEqual({
+      status: 'no_display',
+      message: 'Calendar access denied. Run check_calendar_permissions for setup instructions.',
+    });
+  });
+});

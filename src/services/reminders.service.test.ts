@@ -173,3 +173,35 @@ describe('addReminder script', () => {
     expect(osascriptImpl.mock.calls[0]?.[2].timeout).toBe(90_000);
   });
 });
+
+describe('addReminder failures', () => {
+  /** Adds a reminder while osascript exits non-zero with `stderr`, as execFile rejects. */
+  async function addRejectedWith(stderr: string) {
+    osascriptImpl.mockRejectedValueOnce(
+      Object.assign(new Error('Command failed: osascript -e set dialogText to "Call the bank"'), {
+        killed: false,
+        code: 1,
+        stderr,
+      }),
+    );
+    return onDarwin(async (svc) => svc.addReminder({ title: 'Call the bank' }, { confirm: false }));
+  }
+
+  it('should report an add the user cancelled (-128) as cancelled', async () => {
+    await expect(
+      addRejectedWith('0:208: execution error: User canceled. (-128)\n'),
+    ).resolves.toEqual({ status: 'cancelled', message: 'Cancelled by user.' });
+  });
+
+  it('should report a refused add as no_display with the access-denied message', async () => {
+    await expect(
+      addRejectedWith(
+        '0:208: execution error: Not authorized to send Apple events to Reminders. (-1743)\n',
+      ),
+    ).resolves.toEqual({
+      status: 'no_display',
+      message:
+        'Reminders access denied. Go to System Settings → Privacy → Reminders and enable Terminal.',
+    });
+  });
+});

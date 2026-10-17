@@ -78,7 +78,8 @@ export async function runOsascript(script: string, timeoutMs: number): Promise<s
     return stdout.trim();
   } catch (err) {
     const failure = err as { killed?: boolean; code?: unknown; stderr?: unknown };
-    if (failure.killed === true && failure.code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+    // Only the timeout kill sets `killed`; a maxBuffer overflow error carries no such field.
+    if (failure.killed === true) {
       throw new Error(`osascript timed out after ${Math.round(timeoutMs / 1000)} s`, {
         cause: err,
       });
