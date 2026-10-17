@@ -1,0 +1,285 @@
+import { timingSafeEqual } from 'node:crypto';
+import type http from 'node:http';
+import type { IncomingMessage } from 'node:http';
+import { Readable } from 'node:stream';
+
+import { deny, loopbackPolicy, TOKEN } from '../test-support/http-transport-harness.js';
+import {
+  bearerAuthorizationMatches,
+  evaluateHttpAccess,
+  readLimitedBody,
+  resolveHttpListen,
+} from './http-transport.js';
+
+function fakeRequest(chunks: Buffer[], headers: http.IncomingHttpHeaders = {}): IncomingMessage {
+  const readable = Readable.from(chunks);
+  return Object.assign(readable, { headers }) as IncomingMessage;
+}
+
+describe('evaluateHttpAccess', () => {
+  const policy = loopbackPolicy();
+
+  it('allows a request with no Origin header', () => {
+    expect(
+      evaluateHttpAccess({ method: 'GET', headers: { host: '127.0.0.1:8080' } }, policy).ok,
+    ).toBe(true);
+  });
+
+  it('allows Origin http://127.0.0.1:8080', () => {
+    expect(
+      evaluateHttpAccess(
+        {
+          method: 'POST',
+          headers: {
+            host: '127.0.0.1:8080',
+            origin: 'http://127.0.0.1:8080',
+            'content-type': 'application/json',
+          },
+        },
+        policy,
+      ).ok,
+    ).toBe(true);
+  });
+
+  it('rejects a foreign Origin', () => {
+    expect(
+      deny(
+        evaluateHttpAccess(
+          {
+            method: 'POST',
+            headers: {
+              host: '127.0.0.1:8080',
+              origin: 'http://rebind.example',
+              'content-type': 'application/json',
+            },
+          },
+          policy,
+        ),
+      ),
+    ).toEqual({ status: 403, message: 'Invalid Origin header' });
+  });
+
+  it('rejects Origin null', () => {
+    expect(
+      deny(
+        evaluateHttpAccess(
+          {
+            method: 'POST',
+            headers: {
+              host: '127.0.0.1:8080',
+              origin: 'null',
+              'content-type': 'application/json',
+            },
+          },
+          policy,
+        ),
+      ).message,
+    ).toBe('Invalid Origin header');
+  });
+
+  it('rejects an Origin whose port is not the listen port', () => {
+    expect(
+      deny(
+        evaluateHttpAccess(
+          {
+            method: 'GET',
+            headers: { host: '127.0.0.1:8080', origin: 'http://127.0.0.1:9090' },
+          },
+          policy,
+        ),
+      ).status,
+    ).toBe(403);
+  });
+
+  it('rejects Sec-Fetch-Site cross-site', () => {
+    expect(
+      deny(
+        evaluateHttpAccess(
+          {
+            method: 'GET',
+            headers: { host: '127.0.0.1:8080', 'sec-fetch-site': 'cross-site' },
+          },
+          policy,
+        ),
+      ),
+    ).toEqual({ status: 403, message: 'Forbidden' });
+  });
+
+  it('rejects POST without an application/json content type', () => {
+    expect(
+      deny(
+        evaluateHttpAccess(
+          {
+            method: 'POST',
+            headers: { host: '127.0.0.1:8080', 'content-type': 'text/plain' },
+          },
+          policy,
+        ),
+      ),
+    ).toEqual({ status: 415, message: 'Unsupported media type' });
+  });
+
+  it('allows POST with application/json; charset=utf-8', () => {
+    expect(
+      evaluateHttpAccess(
+        {
+          method: 'POST',
+          headers: {
+            host: '127.0.0.1:8080',
+            'content-type': 'application/json; charset=utf-8',
+          },
+        },
+        policy,
+      ).ok,
+    ).toBe(true);
+  });
+
+  it('rejects a method other than GET, POST, or DELETE', () => {
+    expect(
+      deny(evaluateHttpAccess({ method: 'TRACE', headers: { host: '127.0.0.1:8080' } }, policy))
+        .status,
+    ).toBe(405);
+  });
+
+  it('rejects a Content-Length one byte over the configured limit', () => {
+    const limited = resolveHttpListen({ port: 8080, bodyLimitBytes: 32 });
+    expect(
+      deny(
+        evaluateHttpAccess(
+          {
+            method: 'POST',
+            headers: {
+              host: '127.0.0.1:8080',
+              'content-type': 'application/json',
+              'content-length': '33',
+            },
+          },
+          limited,
+        ),
+      ).status,
+    ).toBe(413);
+  });
+
+  it('allows a Content-Length equal to the configured limit', () => {
+    const limited = resolveHttpListen({ port: 8080, bodyLimitBytes: 32 });
+    expect(
+      evaluateHttpAccess(
+        {
+          method: 'POST',
+          headers: {
+            host: '127.0.0.1:8080',
+            'content-type': 'application/json',
+            'content-length': '32',
+          },
+        },
+        limited,
+      ).ok,
+    ).toBe(true);
+  });
+
+  it('rejects a non-numeric Content-Length', () => {
+    expect(
+      deny(
+        evaluateHttpAccess(
+          {
+            method: 'POST',
+            headers: {
+              host: '127.0.0.1:8080',
+              'content-type': 'application/json',
+              'content-length': '12,12',
+            },
+          },
+          policy,
+        ),
+      ).status,
+    ).toBe(400);
+  });
+
+  it('returns 401 when a bearer token is required and Authorization is missing', () => {
+    const guarded = loopbackPolicy({ token: TOKEN });
+    expect(
+      deny(evaluateHttpAccess({ method: 'GET', headers: { host: '127.0.0.1:8080' } }, guarded)),
+    ).toEqual({ status: 401, message: 'Unauthorized' });
+  });
+
+  it('returns 401 when the bearer token does not match', () => {
+    const guarded = loopbackPolicy({ token: TOKEN });
+    expect(
+      deny(
+        evaluateHttpAccess(
+          {
+            method: 'GET',
+            headers: { host: '127.0.0.1:8080', authorization: 'Bearer wrong-token-value' },
+          },
+          guarded,
+        ),
+      ).message,
+    ).toBe('Unauthorized');
+  });
+
+  it('allows a matching bearer token', () => {
+    const guarded = loopbackPolicy({ token: TOKEN });
+    expect(
+      evaluateHttpAccess(
+        {
+          method: 'GET',
+          headers: { host: '127.0.0.1:8080', authorization: `Bearer ${TOKEN}` },
+        },
+        guarded,
+      ).ok,
+    ).toBe(true);
+  });
+});
+
+describe('bearerAuthorizationMatches', () => {
+  it('accepts the configured token with a case-insensitive scheme', () => {
+    expect(bearerAuthorizationMatches(`bearer ${TOKEN}`, TOKEN)).toBe(true);
+  });
+
+  it('rejects a same-length token that differs by one character', () => {
+    const wrong = `${TOKEN.slice(0, -1)}2`;
+    expect(wrong.length).toBe(TOKEN.length);
+    expect(bearerAuthorizationMatches(`Bearer ${wrong}`, TOKEN)).toBe(false);
+  });
+
+  it('rejects a duplicated Authorization header', () => {
+    expect(bearerAuthorizationMatches([`Bearer ${TOKEN}`, `Bearer ${TOKEN}`], TOKEN)).toBe(false);
+  });
+
+  it('compares a different-length token with equal-sized buffers', () => {
+    const sizes: number[] = [];
+    const matches = bearerAuthorizationMatches('Bearer short', TOKEN, (left, right) => {
+      sizes.push(left.byteLength, right.byteLength);
+      return timingSafeEqual(left, right);
+    });
+    expect(matches).toBe(false);
+    expect(sizes).toEqual([Buffer.byteLength(TOKEN), Buffer.byteLength(TOKEN)]);
+  });
+});
+
+describe('readLimitedBody', () => {
+  it('returns a body that is within the limit', async () => {
+    const body = await readLimitedBody(fakeRequest([Buffer.from('{"jsonrpc":"2.0"}')]), 64);
+    expect(body.toString('utf8')).toBe('{"jsonrpc":"2.0"}');
+  });
+
+  it('rejects streamed bytes one past the limit', async () => {
+    const req = fakeRequest([Buffer.alloc(8), Buffer.alloc(1)]);
+    await expect(readLimitedBody(req, 8)).rejects.toMatchObject({ status: 413 });
+  });
+
+  it('rejects a declared Content-Length over the limit before reading the stream', async () => {
+    let pulled = false;
+    const readable = new Readable({
+      read() {
+        pulled = true;
+        this.push(null);
+      },
+    });
+    const req = Object.assign(readable, {
+      headers: { 'content-length': '100' },
+    }) as IncomingMessage;
+    await expect(readLimitedBody(req, 8)).rejects.toMatchObject({ status: 413 });
+    expect(pulled).toBe(false);
+  });
+});
