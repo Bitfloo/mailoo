@@ -97,6 +97,32 @@ describe('ImapService', () => {
       expect(parts).toEqual(['body-of-part-2']);
     });
 
+    // imapflow's fetchOne answers false for a UID the mailbox does not hold, and
+    // undefined once the connection has dropped and no mailbox is selected.
+    it.each([false, undefined])(
+      'should return no calendar part when fetchOne returns %s',
+      async (missing) => {
+        client.fetchOne.mockResolvedValue(missing);
+
+        const parts = await service.getCalendarParts('test', 'INBOX', '9');
+
+        expect(parts).toEqual([]);
+      },
+    );
+
+    // imapflow's download resolves {} when it gets no body back for the part.
+    it('should skip a calendar part the server returns no content for', async () => {
+      fetchOneByUid(client, {
+        uid: 9,
+        bodyStructure: mixedStructure({ part: '2', ...calendarPart }),
+      });
+      client.download.mockResolvedValue({});
+
+      const parts = await service.getCalendarParts('test', 'INBOX', '9');
+
+      expect(parts).toEqual([]);
+    });
+
     it('should release the mailbox lock once after reading the parts', async () => {
       fetchOneByUid(client, {
         uid: 9,

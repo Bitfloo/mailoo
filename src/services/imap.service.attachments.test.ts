@@ -131,6 +131,16 @@ describe('ImapService', () => {
       );
     });
 
+    // imapflow's download resolves {} when it gets no body back for the part.
+    it('should say the download failed when the part has no content', async () => {
+      fetchOneByUid(client, { uid: 9, bodyStructure: twinAttachmentStructure('a.txt', 'b.txt') });
+      client.download.mockResolvedValue({});
+
+      await expect(service.downloadAttachment('test', '9', 'INBOX', 'b.txt')).rejects.toThrow(
+        'Failed to download attachment "b.txt"',
+      );
+    });
+
     // A lock left held makes every later call on the account wait out the lock timeout.
     it('should release the mailbox lock once after downloading', async () => {
       fetchOneByUid(client, { uid: 9, bodyStructure: twinAttachmentStructure('a.txt', 'b.txt') });

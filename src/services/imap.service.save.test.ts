@@ -215,6 +215,16 @@ describe('ImapService', () => {
     });
 
     // A lock left held makes every later call on the account wait out the lock timeout.
+    // imapflow's fetchOne answers false for a UID the mailbox does not hold, and
+    // undefined once the connection has dropped and no mailbox is selected.
+    it.each([false, undefined])('should save nothing when fetchOne returns %s', async (missing) => {
+      client.fetchOne.mockResolvedValue(missing);
+
+      const saved = await service.saveEmailAttachments('test', '9', 'INBOX', root);
+
+      expect(saved).toEqual([]);
+    });
+
     it('should release the mailbox lock once after saving', async () => {
       fetchOneByUid(client, {
         uid: 9,
