@@ -35,9 +35,10 @@ host = "imap.example.com"
 host = "smtp.example.com"
 `;
 
+/** Desktop and sound differ, so a swap between them shows in the written file. */
 const UPDATED = {
   desktop: true,
-  sound: true,
+  sound: false,
   urgencyThreshold: 'normal' as const,
   webhookUrl: 'https://hooks.example.com/alerts',
   webhookEvents: ['urgent' as const, 'normal' as const],
@@ -70,7 +71,7 @@ describe('persistAlerts', () => {
 
     expect(settings.hooks.alerts).toEqual({
       desktop: true,
-      sound: true,
+      sound: false,
       urgency_threshold: 'normal',
       webhook_url: 'https://hooks.example.com/alerts',
       webhook_events: ['urgent', 'normal'],

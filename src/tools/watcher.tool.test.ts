@@ -1,3 +1,4 @@
+import { AppConfigFileSchema } from '../config/schema.js';
 import type HooksService from '../services/hooks.service.js';
 import NotifierService from '../services/notifier.service.js';
 import { readAuditEntries } from '../test-support/audit-home.js';
@@ -27,9 +28,8 @@ type Handler = (args: Record<string, unknown>) => Promise<{
   content: { type: string; text: string }[];
 }>;
 
-function captureConfigureAlerts(notifier: NotifierService): Handler {
-  let handler: Handler | undefined;
-  const hooksConfig = {
+function hooksConfigFor(notifier: NotifierService) {
+  return {
     onNewEmail: 'notify' as const,
     preset: 'priority-focus' as const,
     autoLabel: false,
@@ -38,6 +38,13 @@ function captureConfigureAlerts(notifier: NotifierService): Handler {
     rules: [],
     alerts: notifier.getConfig(),
   };
+}
+
+function captureConfigureAlerts(
+  notifier: NotifierService,
+  hooksConfig = hooksConfigFor(notifier),
+): Handler {
+  let handler: Handler | undefined;
   const server = {
     registerTool: (name: string, _config: unknown, fn: Handler) => {
       if (name === 'configure_alerts') handler = fn;
@@ -122,6 +129,111 @@ describe('configure_alerts', () => {
   });
 });
 
+describe('configure_alerts replies and state', () => {
+  const base = {
+    desktop: false,
+    sound: false,
+    urgencyThreshold: 'high' as const,
+    webhookUrl: '',
+    webhookEvents: ['urgent' as const, 'high' as const],
+  };
+
+  /** What loadRawConfig returns for a wizard-written file with a private-webhook opt-in. */
+  function rawConfig() {
+    return AppConfigFileSchema.parse({
+      accounts: [
+        {
+          name: 'personal',
+          email: 'me@example.com',
+          password: 'test-only-password',
+          imap: { host: 'imap.example.com' },
+          smtp: { host: 'smtp.example.com' },
+        },
+      ],
+      settings: { hooks: { alerts: { desktop: false, allow_private_webhooks: true } } },
+    });
+  }
+
+  let notifier: NotifierService;
+
+  beforeEach(() => {
+    loadRawConfig.mockReset();
+    saveConfig.mockReset();
+    notifier = new NotifierService(base);
+  });
+
+  afterEach(() => {
+    notifier.stop();
+  });
+
+  it('should show the current config when no field is given', async () => {
+    const result = await captureConfigureAlerts(notifier)({ save: false });
+
+    expect(result.content[0]?.text).toBe(
+      'No changes specified. Current config:\n' +
+        '  Desktop:   ❌\n' +
+        '  Sound:     ❌\n' +
+        '  Threshold: high\n' +
+        '  Webhook:   (none)\n' +
+        '  Events:    urgent, high',
+    );
+  });
+
+  it('should confirm every setting and the save when save succeeds', async () => {
+    loadRawConfig.mockResolvedValue(rawConfig());
+    saveConfig.mockResolvedValue(undefined);
+
+    const result = await captureConfigureAlerts(notifier)({
+      desktop: true,
+      urgency_threshold: 'normal',
+      webhook_events: ['urgent'],
+      save: true,
+    });
+
+    expect(result.content[0]?.text).toBe(
+      [
+        '✅ Alerts configuration updated:',
+        '   Desktop:   ✅ enabled',
+        '   Sound:     ❌ disabled',
+        '   Threshold: normal',
+        '   Webhook:   (none)',
+        '   Events:    urgent',
+        '',
+        '',
+        '💾 Changes saved to config file.',
+      ].join('\n'),
+    );
+  });
+
+  it('should write the merged alerts to the config file when save is true', async () => {
+    loadRawConfig.mockResolvedValue(rawConfig());
+    saveConfig.mockResolvedValue(undefined);
+
+    await captureConfigureAlerts(notifier)({
+      desktop: true,
+      urgency_threshold: 'normal',
+      save: true,
+    });
+
+    expect(saveConfig.mock.calls[0]?.[0].settings.hooks.alerts).toEqual({
+      desktop: true,
+      sound: false,
+      urgency_threshold: 'normal',
+      webhook_url: '',
+      webhook_events: ['urgent', 'high'],
+      allow_private_webhooks: true,
+    });
+  });
+
+  it('should keep the hooks config alerts equal to the notifier config after a change', async () => {
+    const hooksConfig = hooksConfigFor(notifier);
+
+    await captureConfigureAlerts(notifier, hooksConfig)({ desktop: true, save: false });
+
+    expect(hooksConfig.alerts).toEqual(notifier.getConfig());
+  });
+});
+
 describe('configure_alerts audit log', () => {
   const base = {
     desktop: false,
@@ -180,6 +292,13 @@ describe('configure_alerts audit log', () => {
     const entry = await lastEntryAfter({ webhook_url: 'mailto:ops-s3cr3t@example.test' });
 
     expect(entry?.params).toEqual({ webhookUrl: '[not an http(s) URL]', save: false });
+  });
+
+  it("should record an emptied webhook_url as ''", async () => {
+    // An empty URL turns the webhook off; it is not an invalid URL.
+    const entry = await lastEntryAfter({ webhook_url: '' });
+
+    expect(entry?.params).toEqual({ webhookUrl: '', save: false });
   });
 
   it('should record a change whose save failed as an error with the reason', async () => {
