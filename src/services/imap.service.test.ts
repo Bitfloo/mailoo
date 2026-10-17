@@ -215,6 +215,25 @@ describe('ImapService', () => {
 
       await expect(service.listLabels('test')).resolves.toEqual([]);
     });
+
+    // Detection sends LIST and may SELECT INBOX, which would otherwise repeat on every label call.
+    it.each<[string, (svc: ImapService) => Promise<unknown>]>([
+      [
+        'one after the other',
+        async (svc) => {
+          await svc.listLabels('test');
+          await svc.listLabels('test');
+        },
+      ],
+      [
+        'at the same time',
+        async (svc) => Promise.all([svc.listLabels('test'), svc.listLabels('test')]),
+      ],
+    ])('should detect the strategy once for two calls made %s', async (_when, calls) => {
+      await calls(service);
+
+      expect(client.list).toHaveBeenCalledTimes(1);
+    });
   });
 
   // -----------------------------------------------------------------------
