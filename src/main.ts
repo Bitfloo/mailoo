@@ -23,13 +23,10 @@ import {
   readHttpLaunchOptions,
   startGuardedHttpServers,
 } from './safety/http-transport.js';
-import type { ShutdownStep } from './safety/shutdown.js';
 import createShutdown from './safety/shutdown.js';
 import attachStdioShutdown from './safety/stdio-lifecycle.js';
-import type { MailboxWriterStarts } from './safety/write-side-effects.js';
-import { maybeStartMailboxWriters } from './safety/write-side-effects.js';
-import type { WriterLease } from './safety/writer-lease.js';
-import { createWriterLease, WRITER_LEASE_FILE } from './safety/writer-lease.js';
+import createStdioWriters from './safety/stdio-writers.js';
+import { WRITER_LEASE_FILE } from './safety/writer-lease.js';
 import createServer, { PKG_VERSION } from './server.js';
 import CalendarService from './services/calendar.service.js';
 import HooksService from './services/hooks.service.js';
@@ -135,31 +132,32 @@ async function runServer(): Promise<void> {
   // the real capabilities (including `sampling` support).
   // --------------------------------------------------------------------------
 
-  let stopScheduler: (() => void) | undefined;
-  let writerLease: WriterLease | undefined;
-
   const lowLevelServer = server.server;
 
   const canWrite = !config.settings.readOnly;
 
-  const mailboxWriters: MailboxWriterStarts = {
-    startHooks: () => {
-      const clientCaps = lowLevelServer.getClientCapabilities?.() ?? {};
-      hooksService.start(lowLevelServer, { sampling: clientCaps.sampling != null });
+  const writers = createStdioWriters({
+    lockPath: WRITER_LEASE_FILE,
+    services: {
+      startHooks: () => {
+        const clientCaps = lowLevelServer.getClientCapabilities?.() ?? {};
+        hooksService.start(lowLevelServer, { sampling: clientCaps.sampling != null });
+      },
+      hooks: hooksService,
+      watcher: watcherService,
+      startScheduler: () => {
+        const log = async (level: 'info' | 'warning', message: string) => {
+          await mcpLog(level, 'scheduler', message);
+        };
+        return startSchedulerLoop(schedulerService, log);
+      },
+      connections,
+      server,
     },
-    startWatcher: async () => watcherService.start(),
-    startScheduler: () => {
-      const log = async (level: 'info' | 'warning', message: string) => {
-        await mcpLog(level, 'scheduler', message);
-      };
-      stopScheduler = startSchedulerLoop(schedulerService, log);
+    log: async (level, message) => {
+      await mcpLog(level, 'server', message);
     },
-  };
-  const mailboxWriterStops: ShutdownStep[] = [
-    ['scheduler', () => stopScheduler?.()],
-    ['hooks', () => hooksService.stop()],
-    ['watcher', async () => watcherService.stop()],
-  ];
+  });
 
   lowLevelServer.oninitialized = () => {
     markInitialized();
@@ -186,29 +184,8 @@ async function runServer(): Promise<void> {
         }
 
         if (canWrite) {
-          writerLease = createWriterLease({
-            lockPath: WRITER_LEASE_FILE,
-            onLead: async () => {
-              await maybeStartMailboxWriters(canWrite, mailboxWriters);
-              await mcpLog('info', 'server', 'This process runs hooks, watcher, and scheduler');
-            },
-            onLose: async () => {
-              await mailboxWriterStops.reduce(async (previous, [, stop]) => {
-                await previous;
-                await stop();
-              }, Promise.resolve());
-              await mcpLog(
-                'warning',
-                'server',
-                'Another Mailoo process took over hooks, watcher, and scheduler',
-              );
-            },
-            report: (message) => {
-              mcpLog('warning', 'server', message).catch(() => undefined);
-            },
-          });
-          await writerLease.start();
-          if (!writerLease.leading) {
+          await writers.lease.start();
+          if (!writers.lease.leading) {
             await mcpLog(
               'info',
               'server',
@@ -233,18 +210,10 @@ async function runServer(): Promise<void> {
     })();
   };
 
-  const shutdown = createShutdown(
-    [
-      // Halt first so this process cannot win the lease mid-shutdown, and
-      // release only after its writers stopped so the next leader never overlaps them.
-      ['writer lease', async () => writerLease?.halt()],
-      ...mailboxWriterStops,
-      ['writer lease release', async () => writerLease?.release()],
-      ['connections', async () => connections.closeAll()],
-      ['server', async () => server.close()],
-    ],
-    { exit: exitProcess, report: reportToStderr },
-  );
+  const shutdown = createShutdown(writers.shutdownSteps, {
+    exit: exitProcess,
+    report: reportToStderr,
+  });
 
   attachStdioShutdown(process.stdin, shutdown);
   process.on('SIGINT', shutdown);
