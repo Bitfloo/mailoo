@@ -189,6 +189,12 @@ describe('Config Loader', () => {
       await expect(loadConfig(badPath)).rejects.toThrow('No configuration found');
     });
 
+    it('should reject a config path that contains a null byte before reading it', async () => {
+      await expect(loadConfig(path.join(tmpDir, 'a\0b.toml'))).rejects.toThrow(
+        'Config path is not valid',
+      );
+    });
+
     it('should treat a directory at the config path as no config file', async () => {
       const configPath = path.join(tmpDir, 'config.toml');
       await fs.mkdir(configPath);
