@@ -167,6 +167,16 @@ describe('mailoo install', () => {
     ]);
   });
 
+  it('should register into a client config file that holds only whitespace', async () => {
+    await fs.writeFile(cursorConfig, '\n  \n');
+
+    await runInstallCommand();
+
+    expect(Object.keys(JSON.parse(await fs.readFile(cursorConfig, 'utf-8')).mcpServers)).toEqual([
+      'mailoo',
+    ]);
+  });
+
   // An in-place truncate-and-write keeps the inode; a crash mid-write left a
   // truncated client config.
   it('should replace the client config by rename instead of rewriting it in place', async () => {
@@ -231,4 +241,21 @@ describe('mailoo install', () => {
     );
     stdout.mockRestore();
   });
+
+  // Only a parse failure is reported in the table; an unreadable file read as
+  // "not valid JSON" would send the user to fix content that is fine.
+  // root bypasses file permission bits
+  it.skipIf(process.getuid?.() === 0)(
+    'should reject with EACCES in status when the client config cannot be read',
+    async () => {
+      await fs.writeFile(cursorConfig, CURSOR_CONFIG);
+      await fs.chmod(cursorConfig, 0o000);
+      const stdout = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+      try {
+        await expect(runInstallCommand('status')).rejects.toMatchObject({ code: 'EACCES' });
+      } finally {
+        stdout.mockRestore();
+      }
+    },
+  );
 });
