@@ -9,6 +9,13 @@ import { decodeEntities, isSpace, MAX_DECODE_PASSES, sanitizeAttributes } from '
 
 export type BodyFormat = 'full' | 'text' | 'stripped';
 
+/**
+ * Upper bound on HTML handed to the tag walker. The walk runs on the one event loop that
+ * also serves every MCP session and the watcher, so a hostile newsletter must not hold it.
+ */
+export const MAX_HTML_INPUT_CHARS = 2 * 1024 * 1024;
+export const HTML_TRUNCATED_NOTE = `\n\n… (HTML part cut at ${MAX_HTML_INPUT_CHARS} characters before conversion)`;
+
 /** Tags whose contents are not text (or can load or run). */
 const DROP_WITH_CONTENT = new Set([
   'script',
@@ -83,9 +90,16 @@ function readTag(html: string, start: number): HtmlTag | undefined {
   return undefined;
 }
 
-function skipUntilClose(html: string, from: number, name: string): number {
+/**
+ * Lowercases A-Z only, so every index still points at the same character of the source.
+ * `toLowerCase()` turns 'İ' into two code units and shifts every later match.
+ */
+function asciiLower(text: string): string {
+  return text.replace(/[A-Z]+/g, (run) => run.toLowerCase());
+}
+
+function skipUntilClose(html: string, lower: string, from: number, name: string): number {
   const needle = `</${name}`;
-  const lower = html.toLowerCase();
   let i = from;
   while (i < lower.length) {
     const found = lower.indexOf(needle, i);
@@ -114,6 +128,8 @@ function sanitizeTag(raw: string): string {
 
 function walkHtml(html: string, mode: 'text' | 'html'): string {
   const parts: string[] = [];
+  // One lowercase copy per walk: a copy per dropped tag made the walk quadratic in tag count.
+  let lower: string | undefined;
   let i = 0;
   while (i < html.length) {
     const next = html.indexOf('<', i);
@@ -129,7 +145,8 @@ function walkHtml(html: string, mode: 'text' | 'html'): string {
       parts.push('<');
       i = next + 1;
     } else if (DROP_WITH_CONTENT.has(tag.name) && !tag.closing) {
-      i = skipUntilClose(html, tag.end, tag.name);
+      lower ??= asciiLower(html);
+      i = skipUntilClose(html, lower, tag.end, tag.name);
     } else if (
       mode === 'html' &&
       (DROP_TAG.has(tag.name) || tag.name === 'comment' || tag.name === '!')
@@ -146,22 +163,29 @@ function walkHtml(html: string, mode: 'text' | 'html'): string {
   return parts.join('');
 }
 
+function capHtml(html: string): { html: string; note: string } {
+  if (html.length <= MAX_HTML_INPUT_CHARS) return { html, note: '' };
+  return { html: html.slice(0, MAX_HTML_INPUT_CHARS), note: HTML_TRUNCATED_NOTE };
+}
+
 /** Strips HTML markup and decodes common entities to produce readable plain text. */
 export function stripHtml(html: string): string {
-  let current = html;
+  const capped = capHtml(html);
+  let current = capped.html;
   for (let pass = 0; pass < MAX_DECODE_PASSES; pass += 1) {
     const text = walkHtml(decodeEntities(current), 'text')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
-    if (text === current) return text;
+    if (text === current) break;
     current = text;
   }
-  return current;
+  return current + capped.note;
 }
 
 /** Removes active and remote-loading markup. Safe tags are left in place. */
 function sanitizeEmailHtml(html: string): string {
-  return walkHtml(html, 'html');
+  const capped = capHtml(html);
+  return walkHtml(capped.html, 'html') + capped.note;
 }
 
 /** Removes quoted reply chains and signatures from plain text. */

@@ -49,6 +49,12 @@ The mailbox is opened read-only (EXAMINE) and the source is fetched with
 over the limit returns an error and nothing is written to disk. The size the
 server reports (`RFC822.SIZE`) is checked before the source is fetched.
 
+## HTML bodies (`get_email`, `get_emails`, `get_thread`)
+
+An HTML part is converted (to text, or to sanitized HTML for `format="full"`)
+from its first 2,097,152 characters only. A longer part ends with a note
+that it was cut. Use `export_email` for the complete source.
+
 ## `list_emails` / `search_emails` dates
 
 Both accept ISO 8601 `since` and `before`.
