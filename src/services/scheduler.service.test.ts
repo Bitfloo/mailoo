@@ -1006,6 +1006,31 @@ describe('retried and delivered sends', () => {
     },
   );
 
+  // Sending the record read before the claim would undo another check's attempt count,
+  // so a failing email would be retried past its attempt limit.
+  it('should count the attempts another check recorded after this one first read the record', async () => {
+    await withDueQueue(async ({ queueDir, id, pendingPath, sentDir }) => {
+      const { service } = createService(queueDir);
+      await withHeldFirstRead(pendingPath, async (held, resume) => {
+        const checking = service.checkAndSend();
+        await held;
+        // Another check failed its second attempt and released its claim.
+        const retried = {
+          ...pendingRecord(id, '2020-01-01T00:00:00Z'),
+          attempts: 2,
+          lastError: '421 try again later',
+        };
+        await fs.writeFile(pendingPath, JSON.stringify(retried));
+        resume();
+        await checking;
+      });
+      const sent = JSON.parse(
+        await fs.readFile(path.join(sentDir, `${id}.json`), 'utf8'),
+      ) as ScheduledEmail;
+      expect(sent.attempts).toBe(3);
+    });
+  });
+
   it('should not send again when the disk fills while recording a delivered email', async () => {
     await withDueQueue(async ({ queueDir }) => {
       const { service, smtp } = createService(queueDir);
