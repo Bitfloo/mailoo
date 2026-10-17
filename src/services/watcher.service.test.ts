@@ -128,7 +128,8 @@ vi.mock('imapflow', async () => {
       };
     }
 
-    async* fetch(
+    fetch = async function* fetchMessages(
+      this: FakeImapFlow,
       range: string,
       _query: Record<string, unknown>,
       options?: { uid?: boolean },
@@ -163,7 +164,7 @@ vi.mock('imapflow', async () => {
         }
       }
       this.armIdle();
-    }
+    };
 
     async logout(): Promise<void> {
       await Promise.resolve();
