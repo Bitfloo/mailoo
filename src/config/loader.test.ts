@@ -61,6 +61,8 @@ describe('Config Loader', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     await fs.rm(tmpDir, { recursive: true, force: true });
 
     // Restore env vars
@@ -778,6 +780,62 @@ host = "smtp.example.com"
       await expect(
         saveConfig(rawConfig as unknown as Parameters<typeof saveConfig>[0], 'bad\0.toml'),
       ).rejects.toThrow(/not valid/);
+    });
+
+    describe('temp file', () => {
+      const RAW_CONFIG = {
+        accounts: [
+          {
+            name: 'saved-test',
+            email: 'saved@example.com',
+            password: 'saved-pass',
+            imap: { host: 'imap.saved.com' },
+            smtp: { host: 'smtp.saved.com' },
+          },
+        ],
+      } as unknown as Parameters<typeof saveConfig>[0];
+
+      function staleTempPath(): string {
+        return path.join(tmpDir, `.config.toml.${process.pid}.tmp`);
+      }
+
+      // The temp file holds the whole config, passwords included.
+      it('should leave no temp file behind when replacing the config fails', async () => {
+        const configPath = path.join(tmpDir, 'config.toml');
+        await writeOwnerOnly(configPath, MINIMAL_TOML);
+        vi.spyOn(fs, 'rename').mockRejectedValueOnce(
+          Object.assign(new Error('cross-device link not permitted'), { code: 'EXDEV' }),
+        );
+
+        const outcome = await saveConfig(RAW_CONFIG, configPath).then(
+          () => 'saved',
+          (error: Error) => error.message,
+        );
+
+        expect({ outcome, entries: await fs.readdir(tmpDir) }).toEqual({
+          outcome: 'cross-device link not permitted',
+          entries: ['config.toml'],
+        });
+      });
+
+      it('should save over a stale temp file left by an earlier process with the same pid', async () => {
+        const configPath = path.join(tmpDir, 'config.toml');
+        await fs.writeFile(staleTempPath(), 'stale');
+
+        await saveConfig(RAW_CONFIG, configPath);
+
+        expect(await fs.readFile(configPath, 'utf-8')).toContain('saved-test');
+      });
+
+      it('should remove a stale temp symlink without writing to its target', async () => {
+        const decoy = path.join(tmpDir, 'decoy.txt');
+        await fs.writeFile(decoy, 'decoy');
+        await fs.symlink(decoy, staleTempPath());
+
+        await saveConfig(RAW_CONFIG, path.join(tmpDir, 'config.toml'));
+
+        expect(await fs.readFile(decoy, 'utf-8')).toBe('decoy');
+      });
     });
   });
 
