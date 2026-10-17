@@ -7,6 +7,7 @@ import { Readable } from 'node:stream';
 
 import type { IConnectionManager } from '../connections/types.js';
 import ImapService, { findTextMimeParts } from './imap.service.js';
+import { MAILBOX_LOCK_TIMEOUT_MS } from './mailbox-lock.js';
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -226,7 +227,9 @@ describe('ImapService', () => {
 
       await service.moveEmail('test', '42', 'INBOX', 'Archive');
 
-      expect(client.getMailboxLock).toHaveBeenCalledWith('INBOX', { acquireTimeout: 60_000 });
+      expect(client.getMailboxLock).toHaveBeenCalledWith('INBOX', {
+        acquireTimeout: MAILBOX_LOCK_TIMEOUT_MS,
+      });
       expect(client.messageMove).toHaveBeenCalledWith('42', 'Archive', { uid: true });
       expect(client._releaseFn).toHaveBeenCalled();
     });
@@ -639,7 +642,7 @@ describe('ImapService', () => {
       expect(text).toBe('hello');
       expect(client.getMailboxLock).toHaveBeenCalledWith('INBOX', {
         readOnly: true,
-        acquireTimeout: 60_000,
+        acquireTimeout: MAILBOX_LOCK_TIMEOUT_MS,
       });
       expect(client.fetchOne).toHaveBeenCalledWith(
         '10',
@@ -662,7 +665,7 @@ describe('ImapService', () => {
 
       expect(client.getMailboxLock).toHaveBeenCalledWith('INBOX', {
         readOnly: true,
-        acquireTimeout: 60_000,
+        acquireTimeout: MAILBOX_LOCK_TIMEOUT_MS,
       });
       expect(client.fetchOne).toHaveBeenCalledWith(
         '10',
@@ -709,7 +712,7 @@ describe('ImapService', () => {
 
       expect(client.getMailboxLock).toHaveBeenCalledWith('Archive', {
         readOnly: true,
-        acquireTimeout: 60_000,
+        acquireTimeout: MAILBOX_LOCK_TIMEOUT_MS,
       });
       expect(client.getMailboxLock).toHaveBeenCalledTimes(1);
     });
@@ -1509,7 +1512,7 @@ describe('ImapService', () => {
 
       expect(client.getMailboxLock).toHaveBeenCalledWith('INBOX', {
         readOnly: true,
-        acquireTimeout: 60_000,
+        acquireTimeout: MAILBOX_LOCK_TIMEOUT_MS,
       });
       expect(client.fetchOne).toHaveBeenCalledWith(
         '10',

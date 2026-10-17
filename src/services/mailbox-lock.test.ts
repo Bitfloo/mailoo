@@ -89,6 +89,7 @@ describe('lockMailbox', () => {
     expect(((await pending) as Error).cause).toMatchObject({ code: 'LockTimeout' });
   });
 
+  // The one literal pin of the acquireTimeout option; the other suites read MAILBOX_LOCK_TIMEOUT_MS.
   it('should open the mailbox read-only with a 60 s acquire timeout when asked to', async () => {
     const getMailboxLock = vi.fn().mockResolvedValue({ path: 'Archive', release: vi.fn() });
 
