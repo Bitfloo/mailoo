@@ -286,6 +286,20 @@ describe('WatcherService stop', () => {
     await starting;
   });
 
+  it('should leave no reconnect pending after it closed a connection still logging in', async () => {
+    let answerLogin = (): void => {};
+    fake.loginPending = new Promise((resolve) => {
+      answerLogin = resolve;
+    });
+    const { watcher } = watch();
+    const starting = watcher.start();
+    await settle();
+    await watcher.stop();
+    answerLogin();
+    await starting;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('should leave no timer running after it logged out of a live connection', async () => {
     const { watcher } = watch();
     await watcher.start();
