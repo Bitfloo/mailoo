@@ -33,8 +33,8 @@ const CLAIM_RENEW_MS = STALE_LOCK_MS / 5;
 /** Beside `<id>.json`. Exclusive create (`wx`) is the only claim. */
 export const SCHEDULE_CLAIM_SUFFIX = '.lock';
 
-/** Max retry attempts before marking as "failed" */
-const MAX_ATTEMPTS = 3;
+/** Send attempts before an entry is marked `failed`. */
+export const MAX_ATTEMPTS = 3;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 

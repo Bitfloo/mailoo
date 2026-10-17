@@ -15,6 +15,7 @@ vi.stubEnv('XDG_STATE_HOME', stateHome);
 
 const {
   default: SchedulerService,
+  MAX_ATTEMPTS,
   SCHEDULE_CLAIM_SUFFIX,
   STALE_LOCK_MS,
 } = await import('./scheduler.service.js');
@@ -1633,5 +1634,17 @@ describe('list filters', () => {
     await withQueue(records, async (service) => {
       expect(ids(await service.list({ account: 'work' }))).toEqual([queueId(1)]);
     });
+  });
+});
+
+describe('attempt limit in README.md', () => {
+  it('should state the attempt limit the scheduler enforces', async () => {
+    const readme = await fs.readFile(new URL('../../README.md', import.meta.url), 'utf8');
+    const start = readme.indexOf('### Email Scheduling');
+    const section = readme.slice(start, readme.indexOf('\n### ', start + 1));
+    const counts = [
+      ...section.matchAll(/attempted up to \*\*(\d+) times\*\*|its attempts \(at most (\d+)\)/g),
+    ].map((match) => Number(match[1] ?? match[2]));
+    expect(counts).toEqual([MAX_ATTEMPTS, MAX_ATTEMPTS]);
   });
 });

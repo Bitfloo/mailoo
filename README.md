@@ -507,8 +507,8 @@ The scheduler enables future email delivery with a layered architecture:
 > **Important — the daemon must be installed for reliable delivery.**
 > Without it, scheduled emails only fire while an AI client is actively connected.
 > Your machine also needs to be running at the scheduled time; if it's asleep or
-> off, the daemon will process overdue emails on next wake/startup. Failed sends
-> are retried up to **3 times** before being marked `failed`.
+> off, the daemon will process overdue emails on next wake/startup. A failing send
+> is attempted up to **3 times** before the email is marked `failed`.
 
 #### Setting up the daemon
 
@@ -529,7 +529,7 @@ npx -y @bitfloo/mailoo scheduler check
 npx -y @bitfloo/mailoo scheduler uninstall
 ```
 
-Scheduled emails are JSON files in `~/.local/state/mailoo/scheduled/`. Before sending, a check claims the entry with a lock file next to it and keeps that claim fresh while SMTP runs, so the in-process timer, `mailoo scheduler check` and other server processes do not send it twice. If the process dies after the server accepted a message but before it was recorded as sent, the entry can be sent again after the claim goes stale (at least once, not exactly once). Every attempt for one entry carries the same Message-ID, `<schedule id@account domain>`, so a receiving server or client can drop the second copy. Once SMTP has accepted a message, a failure to update the queue file is reported, and the entry is not sent again as long as either the sent record or the move into `sent/` succeeded. If both failed, the next check sends it again unless it has used all 3 attempts, then it is marked `failed`. Each entry tracks attempts (max 3) and the last error, so you can inspect failures with `scheduler list`. An entry the rate limit holds back stays pending for the next check and does not use an attempt.
+Scheduled emails are JSON files in `~/.local/state/mailoo/scheduled/`. Before sending, a check claims the entry with a lock file next to it and keeps that claim fresh while SMTP runs, so the in-process timer, `mailoo scheduler check` and other server processes do not send it twice. If the process dies after the server accepted a message but before it was recorded as sent, the entry can be sent again after the claim goes stale (at least once, not exactly once). Every attempt for one entry carries the same Message-ID, `<schedule id@account domain>`, so a receiving server or client can drop the second copy. Once SMTP has accepted a message, a failure to update the queue file is reported, and the entry is not sent again as long as either the sent record or the move into `sent/` succeeded. If both failed, the next check sends it again unless it has used all its attempts, then it is marked `failed`. Each entry tracks its attempts (at most 3) and the last error, so you can inspect failures with `scheduler list`. An entry the rate limit holds back stays pending for the next check and does not use an attempt.
 
 ### Real-time Watcher & AI Hooks
 
