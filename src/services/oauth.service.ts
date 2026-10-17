@@ -39,6 +39,16 @@ const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 
 export default class OAuthService {
   /**
+   * Refreshes in flight, keyed by refresh token. When a token expires, the IMAP pool, the SMTP
+   * transport and the watcher all ask at once, each through its own service instance; without
+   * this every one of them POSTs the same refresh token and providers throttle the burst.
+   */
+  private static readonly pendingRefresh = new Map<
+    string,
+    Promise<{ accessToken: string; tokenExpiry: number }>
+  >();
+
+  /**
    * Get a valid access token, refreshing if expired.
    */
   // eslint-disable-next-line class-methods-use-this
@@ -47,15 +57,25 @@ export default class OAuthService {
       return oauth2.accessToken;
     }
 
-    const result = await OAuthService.refreshAccessToken(oauth2);
+    const { refreshToken } = oauth2;
+    let pending = OAuthService.pendingRefresh.get(refreshToken);
+    if (!pending) {
+      pending = OAuthService.refreshAccessToken(oauth2)
+        .then((result) => ({
+          accessToken: result.accessToken,
+          tokenExpiry: Date.now() + result.expiresIn * 1000,
+        }))
+        .finally(() => {
+          OAuthService.pendingRefresh.delete(refreshToken);
+        });
+      OAuthService.pendingRefresh.set(refreshToken, pending);
+    }
 
     // Cache on the config object (in-memory only)
-    Object.assign(oauth2, {
-      accessToken: result.accessToken,
-      tokenExpiry: Date.now() + result.expiresIn * 1000,
-    });
+    const token = await pending;
+    Object.assign(oauth2, token);
 
-    return result.accessToken;
+    return token.accessToken;
   }
 
   /**
