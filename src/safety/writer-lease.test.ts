@@ -63,11 +63,21 @@ describe('writer lease', () => {
     expect([first.leads, second.leads]).toEqual([1, 0]);
   });
 
-  it('should take over a lease its holder stopped renewing', async () => {
+  // Literals, not the constants: four missed 30 s renewals is the contract.
+  it('should not take over a lease renewed 90 s ago', async () => {
     const holder = startProcess();
     const follower = startProcess();
     await holder.lease.tick();
-    clock += WRITER_LEASE_STALE_MS + MARGIN_MS;
+    clock += 90_000;
+    await follower.lease.tick();
+    expect(follower.lease.leading).toBe(false);
+  });
+
+  it('should take over a lease unrenewed for 121 s', async () => {
+    const holder = startProcess();
+    const follower = startProcess();
+    await holder.lease.tick();
+    clock += 121_000;
     await follower.lease.tick();
     expect(follower.lease.leading).toBe(true);
   });
@@ -115,18 +125,76 @@ describe('writer lease', () => {
     expect([halted.leads, next.leads]).toEqual([0, 1]);
   });
 
-  it('should try again as a follower on every renewal interval', async () => {
-    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  it('should try again as a follower every 30 s', async () => {
+    // The lease reads the injected clock, so a fake Date only measures when the timer fires.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
     const holder = startProcess();
     const follower = startProcess();
     await holder.lease.tick();
     await follower.lease.start();
     await holder.lease.release();
-    vi.advanceTimersByTime(WRITER_LEASE_RENEW_MS);
+    const releasedAt = Date.now();
+    vi.advanceTimersToNextTimer();
+    const retriedAfter = Date.now() - releasedAt;
     await vi.waitFor(() => {
       expect(follower.lease.leading).toBe(true);
     });
     await follower.lease.halt();
+    expect(retriedAfter).toBe(30_000);
+  });
+
+  it('should not touch the lock after halt()', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const holder = startProcess();
+    const follower = startProcess();
+    await holder.lease.tick();
+    await follower.lease.start();
+    await follower.lease.halt();
+    const before = await fs.stat(lockPath);
+    // From here the holder's lock is stale, so any attempt the follower makes takes it.
+    clock += 121_000;
+    vi.advanceTimersByTime(2 * WRITER_LEASE_RENEW_MS);
+    await follower.lease.halt();
+    const after = await fs.stat(lockPath).catch(() => undefined);
+    expect({ ino: after?.ino, mtimeMs: after?.mtimeMs }).toEqual({
+      ino: before.ino,
+      mtimeMs: before.mtimeMs,
+    });
+  });
+
+  it('should not start writers again while a lease loss is still stopping them', async () => {
+    const events: string[] = [];
+    let finishStopping: () => void = () => {};
+    const stopping = new Promise<void>((resolve) => {
+      finishStopping = resolve;
+    });
+    const holder = createWriterLease({
+      lockPath,
+      onLead: () => {
+        events.push('lead');
+      },
+      onLose: async () => {
+        events.push('lose');
+        await stopping;
+        events.push('stopped');
+      },
+      report: () => undefined,
+      now: () => clock,
+    });
+    const thief = startProcess();
+    await holder.tick();
+    clock += WRITER_LEASE_STALE_MS + MARGIN_MS;
+    await thief.lease.tick();
+    const losing = holder.tick();
+    await vi.waitFor(() => {
+      expect(events).toContain('lose');
+    });
+    // The lease is free again while the writers are still stopping.
+    await thief.lease.release();
+    const during = holder.tick();
+    finishStopping();
+    await Promise.all([losing, during]);
+    expect(events).toEqual(['lead', 'lose', 'stopped']);
   });
 
   it('should report a lock it cannot create instead of throwing', async () => {
