@@ -1,7 +1,4 @@
-/**
- * Shared stubs for export_email unit suites. Kept out of the suites so each
- * file stays under the 300 code-LOC unit size gate.
- */
+/** Shared stubs for the export_email unit suites. */
 
 import fs from 'node:fs/promises';
 import os from 'node:os';

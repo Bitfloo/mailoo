@@ -1,7 +1,4 @@
-/**
- * Shared fixtures for the HooksService unit suites. Kept out of the suites so each
- * file stays under the 300 code-LOC unit size gate.
- */
+/** Shared fixtures for the HooksService unit suites. */
 
 import type { Mock } from 'vitest';
 

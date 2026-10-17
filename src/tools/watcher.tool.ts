@@ -24,7 +24,6 @@ function webhookOrigin(url: string): string {
   }
 }
 
-/** The configure_alerts input; its parsed type is what the handler and alertsPatch read. */
 const configureAlertsInput = {
   desktop: z.boolean().optional().describe('Enable/disable desktop notifications'),
   sound: z.boolean().optional().describe('Enable/disable sound alerts for urgent emails'),
@@ -48,7 +47,6 @@ const configureAlertsInput = {
 
 type ConfigureAlertsArgs = z.infer<z.ZodObject<typeof configureAlertsInput>>;
 
-/** The settings a configure_alerts call sets; an omitted field stays as it is. */
 function alertsPatch(args: ConfigureAlertsArgs): Partial<AlertsConfig> {
   const partial: Partial<AlertsConfig> = {};
   if (args.desktop !== undefined) partial.desktop = args.desktop;
