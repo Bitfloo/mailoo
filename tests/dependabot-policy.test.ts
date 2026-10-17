@@ -39,11 +39,18 @@ describe('dependabot groups', () => {
 
   /** Every ignore entry of every npm update, read whole and sorted by name. */
   function npmHolds(yaml: string): string[][] {
-    const held = [
-      ...npmUpdates(yaml)
-        .join('\n')
-        .matchAll(/^ {4}ignore:\n((?: {6}.*\n?)+)/gm),
-    ]
+    const updates = npmUpdates(yaml).join('\n');
+    const code = yaml
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('#'))
+      .join('\n');
+    // A list in flow style, at its key indent or outside an npm update holds packages this reader never sees.
+    const keys = code.match(/^[ \t]*(?:- )?["']?ignore["']?[ \t]*:/gm)?.length ?? 0;
+    const lists = updates.match(/^ {4}ignore:\n {6}/gm)?.length ?? 0;
+    if (lists !== keys) {
+      throw new Error(`read ${lists} of ${keys} ignore lists`);
+    }
+    const held = [...updates.matchAll(/^ {4}ignore:\n((?: {6}.*\n?)+)/gm)]
       .flatMap(([, list]) => list.split(/^(?= {6}- )/m))
       .map((entry) =>
         entry
@@ -59,8 +66,8 @@ describe('dependabot groups', () => {
         return plain ? [plain[1], plain[2]] : [entry.trim(), 'not a lone >= floor'];
       })
       .sort(byName);
-    // An ignore list at another indent holds packages this reader never sees, so every name must be read.
-    const names = yaml.match(/^[ \t]*(?:- )?dependency-name:/gm)?.length ?? 0;
+    // A name in a flow mapping or under another key is one this reader never sees, so every name must be read.
+    const names = code.match(/dependency-name["']?[ \t]*:/g)?.length ?? 0;
     if (held.length !== names) {
       throw new Error(`read ${held.length} of ${names} ignore entries`);
     }
@@ -102,6 +109,34 @@ describe('dependabot groups', () => {
       '    ignore:',
       '    - dependency-name: "pnpm"',
       '      versions: [">=1.0.0"]',
+    ].join('\n');
+    expect(() => npmHolds(yaml)).toThrow('read 0 of 1 ignore lists');
+  });
+
+  it.each([
+    { block: 'an npm', ecosystem: 'npm', name: 'vite' },
+    { block: 'the github-actions', ecosystem: 'github-actions', name: 'actions/checkout' },
+  ])(
+    'should refuse a config when an ignore list in $block block is written in flow style',
+    ({ ecosystem, name }) => {
+      const yaml = [
+        'updates:',
+        '  - package-ecosystem: npm',
+        '    directory: /a',
+        `  - package-ecosystem: ${ecosystem}`,
+        '    directory: /',
+        `    ignore: [{ dependency-name: "${name}", versions: [">=8.0.0"] }]`,
+      ].join('\n');
+      expect(() => npmHolds(yaml)).toThrow('read 0 of 1 ignore lists');
+    },
+  );
+
+  it('should refuse a config when a dependency name sits in a flow mapping under another key', () => {
+    const yaml = [
+      'updates:',
+      '  - package-ecosystem: npm',
+      '    directory: /',
+      '    allow: [{ dependency-name: "vite" }]',
     ].join('\n');
     expect(() => npmHolds(yaml)).toThrow('read 0 of 1 ignore entries');
   });
