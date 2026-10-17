@@ -174,6 +174,102 @@ describe('Advanced Email Operations', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Part downloads address the message by UID
+  // ---------------------------------------------------------------------------
+
+  // A fresh GreenMail folder numbers messages with sequence number == UID.
+  // Expunging the first of two leaves the second at sequence 1 and UID 2, so
+  // a part read by sequence number asks for a message that does not exist.
+  describe('when the sequence number differs from the UID', () => {
+    const folder = 'Sequence Gap';
+    const eventUid = 'mailoo-sequence-gap@example.test';
+    let emailId: string;
+    let root: string;
+
+    beforeAll(async () => {
+      const subject = 'Sequence number differs from the UID';
+      await services.imapService.createMailbox(TEST_ACCOUNT_NAME, folder);
+      await seedEmail({ subject, text: 'expunged-first' });
+      await seedEmail({
+        subject,
+        text: 'Invitation',
+        attachments: [
+          { filename: 'agenda.txt', content: 'agenda-body', contentType: 'text/plain' },
+        ],
+        icalEvent: {
+          method: 'REQUEST',
+          content: [
+            'BEGIN:VCALENDAR',
+            'VERSION:2.0',
+            'PRODID:-//Mailoo//Integration//EN',
+            'METHOD:REQUEST',
+            'BEGIN:VEVENT',
+            `UID:${eventUid}`,
+            'DTSTAMP:20260101T090000Z',
+            'DTSTART:20260115T100000Z',
+            'DTEND:20260115T110000Z',
+            'SUMMARY:Sequence gap',
+            'END:VEVENT',
+            'END:VCALENDAR',
+            '',
+          ].join('\r\n'),
+        },
+      });
+      await waitForDelivery();
+      const inbox = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { subject });
+      const byUid = (a: string, b: string) => Number(a) - Number(b);
+      const ids = inbox.items.map((m) => m.id).sort(byUid);
+      await services.imapService.bulkMove(TEST_ACCOUNT_NAME, ids.map(Number), 'INBOX', folder);
+      const moved = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { mailbox: folder });
+      const [first, second] = moved.items.map((m) => m.id).sort(byUid);
+      await services.imapService.deleteEmail(TEST_ACCOUNT_NAME, first, folder, true);
+      emailId = second;
+      if (emailId === '1') throw new Error('fixture expects the remaining message to have UID 2');
+    });
+
+    afterAll(async () => {
+      await services.imapService.deleteMailbox(TEST_ACCOUNT_NAME, folder);
+    });
+
+    beforeEach(async () => {
+      root = await mkdtemp(join(tmpdir(), 'mailoo-seq-'));
+    });
+
+    afterEach(async () => {
+      await rm(root, { recursive: true, force: true });
+    });
+
+    it('should download the attachment of the message the UID names', async () => {
+      const attachment = await services.imapService.downloadAttachment(
+        TEST_ACCOUNT_NAME,
+        emailId,
+        folder,
+        'agenda.txt',
+      );
+
+      expect(Buffer.from(attachment.contentBase64, 'base64').toString('utf-8')).toBe('agenda-body');
+    });
+
+    it('should save the attachments of the message the UID names', async () => {
+      const saved = await services.imapService.saveEmailAttachments(
+        TEST_ACCOUNT_NAME,
+        emailId,
+        folder,
+        root,
+      );
+
+      const contents = await Promise.all(saved.map(async (s) => readFile(s.localPath, 'utf-8')));
+      expect(contents).toEqual(['agenda-body']);
+    });
+
+    it('should read the calendar part of the message the UID names', async () => {
+      const parts = await services.imapService.getCalendarParts(TEST_ACCOUNT_NAME, folder, emailId);
+
+      expect(parts.join('\n')).toContain(`UID:${eventUid}`);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // extract_contacts
   // ---------------------------------------------------------------------------
 
