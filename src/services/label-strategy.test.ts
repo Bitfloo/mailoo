@@ -128,6 +128,31 @@ describe('Gmail labels', () => {
     });
   });
 
+  // A UID names a message only within the selected mailbox, and imapflow
+  // selects it when the lock is taken: another mailbox would label another message.
+  it.each(['addLabel', 'removeLabel'] as const)(
+    'should %s while the message mailbox is selected',
+    async (method) => {
+      const { client, strategy } = await gmailStrategy();
+      let selected = '';
+      const storedIn: string[] = [];
+      client.getMailboxLock.mockImplementation(async (path: string) => {
+        selected = path;
+        return { release: vi.fn() };
+      });
+      const store = async () => {
+        storedIn.push(selected);
+        return true;
+      };
+      client.messageFlagsAdd.mockImplementation(store);
+      client.messageFlagsRemove.mockImplementation(store);
+
+      await strategy[method](client as unknown as ImapFlow, '5', 'Archive', 'Work');
+
+      expect(storedIn).toEqual(['Archive']);
+    },
+  );
+
   // On Gmail a label is a folder: deleting [Gmail]/Trash or INBOX through
   // delete_label would remove a system folder, not a label.
   it.each([
