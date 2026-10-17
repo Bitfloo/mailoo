@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { permissionBits } from '../test-support/config-sandbox.js';
 import runInstallCommand from './install-commands.js';
 
 // The terminal UI is the only boundary replaced: answers pick Cursor and npx.
@@ -40,10 +41,6 @@ const CURSOR_CONFIG_REGISTERED = `{
   }
 }
 `;
-
-function permissionBits(mode: number): number {
-  return mode % 0o1000;
-}
 
 describe('mailoo install', () => {
   let home: string;

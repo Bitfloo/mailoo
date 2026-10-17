@@ -2,14 +2,11 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { permissionBits } from '../test-support/config-sandbox.js';
 import type { AuditEntry } from '../types/index.js';
 import type audit from './audit.js';
 
 type Audit = typeof audit;
-
-function permissionBits(mode: number): number {
-  return mode % 0o1000;
-}
 
 describe('Audit Logger', () => {
   let dataHome: string;
