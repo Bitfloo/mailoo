@@ -161,7 +161,7 @@ describe('ImapService', () => {
 
       await service.moveEmail('test', '42', 'INBOX', 'Archive');
 
-      expect(client.getMailboxLock).toHaveBeenCalledWith('INBOX');
+      expect(client.getMailboxLock).toHaveBeenCalledWith('INBOX', { acquireTimeout: 60_000 });
       expect(client.messageMove).toHaveBeenCalledWith('42', 'Archive', { uid: true });
       expect(client._releaseFn).toHaveBeenCalled();
     });
@@ -365,7 +365,10 @@ describe('ImapService', () => {
       const text = await service.peekText('test', '10', 'INBOX');
 
       expect(text).toBe('hello');
-      expect(client.getMailboxLock).toHaveBeenCalledWith('INBOX', { readOnly: true });
+      expect(client.getMailboxLock).toHaveBeenCalledWith('INBOX', {
+        readOnly: true,
+        acquireTimeout: 60_000,
+      });
       expect(client.fetchOne).toHaveBeenCalledWith(
         '10',
         { uid: true, bodyStructure: true },
@@ -385,7 +388,10 @@ describe('ImapService', () => {
 
       await service.peekAttachments('test', '10', 'INBOX');
 
-      expect(client.getMailboxLock).toHaveBeenCalledWith('INBOX', { readOnly: true });
+      expect(client.getMailboxLock).toHaveBeenCalledWith('INBOX', {
+        readOnly: true,
+        acquireTimeout: 60_000,
+      });
       expect(client.fetchOne).toHaveBeenCalledWith(
         '10',
         { uid: true, bodyStructure: true },
@@ -429,7 +435,10 @@ describe('ImapService', () => {
 
       await service.exportEmail('test', '10', 'Archive', 1024);
 
-      expect(client.getMailboxLock).toHaveBeenCalledWith('Archive', { readOnly: true });
+      expect(client.getMailboxLock).toHaveBeenCalledWith('Archive', {
+        readOnly: true,
+        acquireTimeout: 60_000,
+      });
       expect(client.getMailboxLock).toHaveBeenCalledTimes(1);
     });
 
@@ -703,7 +712,10 @@ describe('ImapService', () => {
 
       await service.getEmailSecurity('test', '10', 'INBOX');
 
-      expect(client.getMailboxLock).toHaveBeenCalledWith('INBOX', { readOnly: true });
+      expect(client.getMailboxLock).toHaveBeenCalledWith('INBOX', {
+        readOnly: true,
+        acquireTimeout: 60_000,
+      });
       expect(client.fetchOne).toHaveBeenCalledWith(
         '10',
         { uid: true, envelope: true, headers: true },

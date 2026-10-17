@@ -87,6 +87,14 @@ clients file into these folders.
 On Gmail a label is a folder, so `delete_label` applies the same refusal
 (`INBOX`, `[Gmail]/Trash`, `[Gmail]/Sent Mail`, …).
 
+## Calls on one account wait for each other
+
+Mailoo keeps one IMAP connection per account, and that connection runs one
+command at a time, so tool calls on the same account queue. A call that
+waits more than 60 seconds for its turn fails with `Mailbox "<name>" stayed
+busy for 60 s: an earlier operation on this account has not finished.` The
+earlier operation is not cancelled; retry the call once it has finished.
+
 ## `get_email_security`
 
 Read-only. Returns SPF/DKIM/DMARC from `Authentication-Results` (and
