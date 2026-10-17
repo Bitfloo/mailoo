@@ -81,11 +81,27 @@ describe('lockMailbox', () => {
     expect(settled).toBe(false);
   });
 
+  it('should keep the imapflow LockTimeout error as the cause', async () => {
+    const pending = lockMailbox(clientWithHeldLock(), 'INBOX').catch((err: unknown) => err);
+
+    await vi.advanceTimersByTimeAsync(MAILBOX_LOCK_TIMEOUT_MS);
+
+    expect(((await pending) as Error).cause).toMatchObject({ code: 'LockTimeout' });
+  });
+
   it('should pass any other lock error through unchanged', async () => {
     const failure = new Error('Mailbox does not exist');
     const client = { getMailboxLock: vi.fn().mockRejectedValue(failure) } as unknown as ImapFlow;
 
     await expect(lockMailbox(client, 'Gone')).rejects.toBe(failure);
+  });
+
+  // A dropped connection is not a busy mailbox; reporting it as one hides the real fault.
+  it('should pass an imapflow error with another code through unchanged', async () => {
+    const failure = Object.assign(new Error('Connection not available'), { code: 'NoConnection' });
+    const client = { getMailboxLock: vi.fn().mockRejectedValue(failure) } as unknown as ImapFlow;
+
+    await expect(lockMailbox(client, 'INBOX')).rejects.toBe(failure);
   });
 });
 
