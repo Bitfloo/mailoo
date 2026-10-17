@@ -102,25 +102,38 @@ describe('Config Loader', () => {
       }
     });
 
-    it('should name chmod 600 and the path in the group-readable warning', async () => {
-      const configPath = path.join(tmpDir, 'config.toml');
-      await fs.writeFile(configPath, MINIMAL_TOML, 'utf-8');
-      await fs.chmod(configPath, 0o644);
+    describe('group-readable config file', () => {
+      let configPath: string;
 
-      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-      try {
+      beforeEach(async () => {
+        configPath = path.join(tmpDir, 'config.toml');
+        await fs.writeFile(configPath, MINIMAL_TOML, 'utf-8');
+        await fs.chmod(configPath, 0o644);
+        vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      });
+
+      it('should name chmod 600 and the path in the warning', async () => {
+        await loadConfig(configPath);
+
+        expect(
+          vi
+            .mocked(process.stderr.write)
+            .mock.calls.map((call) => String(call[0]))
+            .filter((line) => line.includes('warning')),
+        ).toEqual([expect.stringContaining(`chmod 600 ${configPath}`)]);
+      });
+
+      it('should leave the file mode unchanged when it warns', async () => {
+        await loadConfig(configPath);
+
+        expect(permissionBits((await fs.stat(configPath)).mode)).toBe(0o644);
+      });
+
+      it('should still load the accounts when it warns', async () => {
         const config = await loadConfig(configPath);
 
         expect(config.accounts[0].email).toBe('test@example.com');
-        expect(permissionBits((await fs.stat(configPath)).mode)).toBe(0o644);
-        const warnings = stderr.mock.calls
-          .map((call) => String(call[0]))
-          .filter((line) => line.includes('warning'));
-        expect(warnings).toHaveLength(1);
-        expect(warnings[0]).toContain(`chmod 600 ${configPath}`);
-      } finally {
-        stderr.mockRestore();
-      }
+      });
     });
 
     it('should load config when the file is a symlink', async () => {
@@ -302,34 +315,64 @@ host = "smtp.example.com"
       expect(config.accounts[0].sentMailbox).toBe('INBOX.Sent Messages');
     });
 
-    it('applies default values for optional fields', async () => {
-      const configPath = path.join(tmpDir, 'config.toml');
-      await writeOwnerOnly(configPath, MINIMAL_TOML);
+    describe('defaults for optional fields', () => {
+      let config: AppConfig;
 
-      const config = await loadConfig(configPath);
+      beforeEach(async () => {
+        const configPath = path.join(tmpDir, 'config.toml');
+        await writeOwnerOnly(configPath, MINIMAL_TOML);
+        config = await loadConfig(configPath);
+      });
 
-      // Account defaults
-      expect(config.accounts[0].imap.port).toBe(993);
-      expect(config.accounts[0].imap.tls).toBe(true);
-      expect(config.accounts[0].imap.verifySsl).toBe(true);
-      expect(config.accounts[0].smtp.port).toBe(465);
-      expect(config.accounts[0].smtp.pool?.enabled).toBe(true);
-      expect(config.accounts[0].smtp.pool?.maxConnections).toBe(1);
+      it('should apply the IMAP defaults when the account sets only the host', () => {
+        const { port, tls, verifySsl } = config.accounts[0].imap;
 
-      // Settings defaults
-      expect(config.settings.rateLimit).toBe(10);
-      expect(config.settings.readOnly).toBe(false);
-      expect(config.settings.watcher.enabled).toBe(false);
-      expect(config.settings.watcher.folders).toEqual(['INBOX']);
-      expect(config.settings.hooks.onNewEmail).toBe('notify');
-      expect(config.settings.hooks.preset).toBe('priority-focus');
-      expect(config.settings.systemOne.enabled).toBe(false);
-      expect(config.settings.systemOne.autoMove).toBe(false);
-      expect(config.settings.systemOne.autoFlag).toBe(false);
-      expect(config.settings.hooks.alerts.allowPrivateWebhooks).toBe(false);
-      expect(config.settings.systemOne.includeBody).toBe(false);
-      expect(config.settings.systemOne.thresholds.isCriticalMin).toBe(0.85);
-      expect(config.settings.systemOne.thresholds.injectionHigh).toBe(0.75);
+        expect({ port, tls, verifySsl }).toEqual({ port: 993, tls: true, verifySsl: true });
+      });
+
+      it('should apply the SMTP and pool defaults when the account sets only the host', () => {
+        const { smtp } = config.accounts[0];
+
+        expect({
+          port: smtp.port,
+          poolEnabled: smtp.pool?.enabled,
+          maxConnections: smtp.pool?.maxConnections,
+        }).toEqual({ port: 465, poolEnabled: true, maxConnections: 1 });
+      });
+
+      it('should apply the settings defaults when the file has no [settings] table', () => {
+        const { settings } = config;
+
+        expect({
+          rateLimit: settings.rateLimit,
+          readOnly: settings.readOnly,
+          watcherEnabled: settings.watcher.enabled,
+          watcherFolders: settings.watcher.folders,
+          onNewEmail: settings.hooks.onNewEmail,
+          preset: settings.hooks.preset,
+          allowPrivateWebhooks: settings.hooks.alerts.allowPrivateWebhooks,
+          systemOneEnabled: settings.systemOne.enabled,
+          autoMove: settings.systemOne.autoMove,
+          autoFlag: settings.systemOne.autoFlag,
+          includeBody: settings.systemOne.includeBody,
+          isCriticalMin: settings.systemOne.thresholds.isCriticalMin,
+          injectionHigh: settings.systemOne.thresholds.injectionHigh,
+        }).toEqual({
+          rateLimit: 10,
+          readOnly: false,
+          watcherEnabled: false,
+          watcherFolders: ['INBOX'],
+          onNewEmail: 'notify',
+          preset: 'priority-focus',
+          allowPrivateWebhooks: false,
+          systemOneEnabled: false,
+          autoMove: false,
+          autoFlag: false,
+          includeBody: false,
+          isCriticalMin: 0.85,
+          injectionHigh: 0.75,
+        });
+      });
     });
 
     it('keeps move_to through normalizeHookRule', async () => {
