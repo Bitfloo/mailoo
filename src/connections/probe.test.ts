@@ -87,11 +87,15 @@ describe('testImap', () => {
     expect(h.logout).toHaveBeenCalledOnce();
   });
 
-  it('should log out after a successful probe', async () => {
+  it('should report the INBOX message count and the folder count', async () => {
     expect(await testImap(account)).toEqual({
       success: true,
       details: { messages: 12, folders: 2 },
     });
+  });
+
+  it('should log out after a successful probe', async () => {
+    await testImap(account);
     expect(h.logout).toHaveBeenCalledOnce();
   });
 
