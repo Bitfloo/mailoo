@@ -22,6 +22,21 @@ function tokenResponse(accessToken: string): () => Response {
     });
 }
 
+/** A fetch that never answers until its signal aborts, like a stalled token endpoint. */
+function stalledTokenEndpoint() {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async (_url: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => {
+            reject(init.signal?.reason);
+          });
+        }),
+    ),
+  );
+}
+
 let refreshSeq = 0;
 
 function googleConfig(overrides: Partial<OAuth2Config> = {}): OAuth2Config {
@@ -83,5 +98,47 @@ describe('OAuthService.getAccessToken', () => {
     await expect(service.getAccessToken(oauth2)).rejects.toThrow('(503)');
     expect(await service.getAccessToken(oauth2)).toBe('tok-2');
     expect(calls).toHaveLength(2);
+  });
+
+  it('should give up on a token endpoint that does not answer', async () => {
+    const controller = new AbortController();
+    vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal);
+    stalledTokenEndpoint();
+    const pending = new OAuthService().getAccessToken(googleConfig());
+    controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
+    await expect(pending).rejects.toThrow('OAuth2 token refresh timed out after 15s');
+  });
+
+  it('should arm a 15 s timeout on the refresh request', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    const calls = fakeTokenEndpoint(tokenResponse('tok-1'));
+    await new OAuthService().getAccessToken(googleConfig());
+    expect(timeout.mock.calls).toEqual([[15_000]]);
+    expect(calls[0].init.signal).toBe(timeout.mock.results[0].value);
+  });
+});
+
+describe('OAuthService.exchangeCode', () => {
+  it('should give up on a token endpoint that does not answer', async () => {
+    const controller = new AbortController();
+    vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal);
+    stalledTokenEndpoint();
+    const pending = OAuthService.exchangeCode(
+      googleConfig(),
+      'auth-code',
+      'http://localhost:3000/cb',
+    );
+    controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
+    await expect(pending).rejects.toThrow('OAuth2 code exchange timed out after 15s');
+  });
+
+  it('should arm a 15 s timeout on the code exchange request', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    const calls = fakeTokenEndpoint(() =>
+      Response.json({ access_token: 'tok', refresh_token: 'refresh', expires_in: 3600 }),
+    );
+    await OAuthService.exchangeCode(googleConfig(), 'auth-code', 'http://localhost:3000/cb');
+    expect(timeout.mock.calls).toEqual([[15_000]]);
+    expect(calls[0].init.signal).toBe(timeout.mock.results[0].value);
   });
 });

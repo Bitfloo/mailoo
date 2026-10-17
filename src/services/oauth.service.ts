@@ -37,6 +37,31 @@ const PROVIDER_ENDPOINTS: Record<string, ProviderEndpoints> = {
 /** 5-minute safety buffer before token expiry */
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 
+/** A token endpoint that stops answering would otherwise stall every IMAP or SMTP connect behind it. */
+const TOKEN_REQUEST_TIMEOUT_MS = 15_000;
+
+async function postTokenRequest(
+  tokenUrl: string,
+  body: URLSearchParams,
+  action: string,
+): Promise<Response> {
+  try {
+    return await fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+      signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'TimeoutError') {
+      throw new Error(`OAuth2 ${action} timed out after ${TOKEN_REQUEST_TIMEOUT_MS / 1000}s`, {
+        cause: err,
+      });
+    }
+    throw err;
+  }
+}
+
 export default class OAuthService {
   /**
    * Refreshes in flight, keyed by refresh token. When a token expires, the IMAP pool, the SMTP
@@ -101,11 +126,7 @@ export default class OAuthService {
       refresh_token: oauth2.refreshToken,
     });
 
-    const response = await fetch(endpoints.tokenUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-    });
+    const response = await postTokenRequest(endpoints.tokenUrl, body, 'token refresh');
 
     if (!response.ok) {
       const text = await response.text();
@@ -179,11 +200,7 @@ export default class OAuthService {
       redirect_uri: redirectUri,
     });
 
-    const response = await fetch(endpoints.tokenUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-    });
+    const response = await postTokenRequest(endpoints.tokenUrl, body, 'code exchange');
 
     if (!response.ok) {
       const text = await response.text();
