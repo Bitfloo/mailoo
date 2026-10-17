@@ -240,18 +240,42 @@ describe('pinned GitHub Actions', () => {
 });
 
 describe('workflow shell input', () => {
-  it('should expand dispatch inputs and event fields only in if: and env: lines', () => {
-    // An expression inside run: is pasted into the script before bash parses it,
-    // so a crafted value runs as code. An env: value reaches bash as data.
+  // An expression inside run: is pasted into the script before bash parses it,
+  // so a crafted value runs as code. An env: value reaches bash as data. A pushed
+  // branch or tag name can hold shell syntax just like a dispatch input.
+  const untrusted =
+    /\$\{\{[^}]*\b(?:inputs\.|github\.event\.|github\.head_ref\b|github\.ref(?:_name)?\b)/;
+  // A concurrency group is a name the runner compares, never a script.
+  const allowed = /^\s*(?:if|group|[A-Z][A-Z0-9_]*):\s/;
+  const pastedIntoShell = (line: string): boolean => untrusted.test(line) && !allowed.test(line);
+
+  // biome-ignore-start lint/suspicious/noTemplateCurlyInString: values are workflow lines with GitHub expressions, not JS templates
+  it.each([
+    'run: echo "${{ github.ref_name }}"',
+    'run: git tag -d "${{ github.ref }}"',
+    'run: bash stamp.sh "${{ inputs.version }}"',
+  ])('should flag %j as an expression pasted into a shell', (line) => {
+    expect(pastedIntoShell(line)).toBe(true);
+  });
+
+  it.each([
+    'GITHUB_REF_NAME: ${{ github.ref_name }}',
+    "if: ${{ github.ref == 'refs/heads/develop' }}",
+    'group: ${{ github.workflow }}-${{ github.ref }}',
+    'run: echo "${{ github.ref_type }}"',
+  ])('should pass %j as a value the shell does not parse', (line) => {
+    expect(pastedIntoShell(line)).toBe(false);
+  });
+  // biome-ignore-end lint/suspicious/noTemplateCurlyInString: end of workflow lines
+
+  it('should expand inputs, event fields and ref names only in if:, env: and group: lines', () => {
     const files = readdirSync(workflowDir).filter((name) => name.endsWith('.yml'));
     expect(files.length).toBeGreaterThan(0);
-    const untrusted = /\$\{\{[^}]*\b(?:inputs\.|github\.event\.|github\.head_ref\b)/;
-    const allowed = /^\s*(?:if|[A-Z][A-Z0-9_]*):\s/;
     const inline: string[] = [];
     for (const name of files) {
       const lines = readFileSync(join(workflowDir, name), 'utf8').split('\n');
       for (const line of lines) {
-        if (untrusted.test(line) && !allowed.test(line)) {
+        if (pastedIntoShell(line)) {
           inline.push(`${name}: ${line.trim()}`);
         }
       }
