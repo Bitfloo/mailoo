@@ -247,10 +247,11 @@ describe('WatcherService reconnect timer', () => {
     expect(timer?.hasRef()).toBe(false);
   });
 
-  // Placed after the spy test on purpose: a teardown that left that test's fake setTimeout on
-  // globalThis would hand it back here as the real one, and this timer would never fire.
+  // Spies and tears down itself, so no test order or filter can skip the check. A teardown that
+  // left the fake setTimeout on globalThis would make this timer never fire.
   it('should have real timers again after a test that spied on setTimeout', async () => {
-    vi.useRealTimers();
+    vi.spyOn(globalThis, 'setTimeout');
+    await tearDownWatchers();
     const fired = await new Promise<boolean>((resolve) => {
       setTimeout(() => resolve(true), 5);
     });
