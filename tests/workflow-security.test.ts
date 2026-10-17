@@ -5,6 +5,7 @@ import {
   jobSections,
   onBlock,
   topLevelPermissions,
+  triggers,
   workflowDir,
   workflowFiles,
 } from './workflow-yaml.js';
@@ -91,12 +92,8 @@ describe('code scanning workflows', () => {
     expect(cron[4]).toMatch(/^[0-6]$/);
   });
 
-  it('should run Scorecard when branch protection changes', () => {
-    expect(onBlock(scorecardYml)).toContain('branch_protection_rule:');
-  });
-
-  it('should not run Scorecard on push', () => {
-    expect(onBlock(scorecardYml)).not.toMatch(/^\s+push:/m);
+  it('should run Scorecard only on its schedule and when branch protection changes', () => {
+    expect(triggers(scorecardYml)).toEqual(['  schedule:', '  branch_protection_rule:']);
   });
 });
 

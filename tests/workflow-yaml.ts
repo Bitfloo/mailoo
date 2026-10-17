@@ -26,6 +26,11 @@ export function onBlock(yaml: string): string {
   return match[1];
 }
 
+/** Each line of the on: block above the trigger settings, as written, so a trigger in any form is listed. */
+export function triggers(yaml: string): string[] {
+  return releaseSteps(onBlock(yaml)).match(/^ {0,2}\S.*$/gm) ?? [];
+}
+
 /** Job keys are indented, so a column-0 match stays on the workflow permissions. */
 export function topLevelPermissions(yaml: string): string {
   const match = yaml.match(/^permissions:[^\n]*(?:\n {2}[^\n]*)*/m);

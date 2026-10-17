@@ -15,6 +15,7 @@ import {
   releaseYml,
   stepEnv,
   topLevelPermissions,
+  triggers,
   workflowDir,
   workflowFiles,
 } from './workflow-yaml.js';
@@ -28,15 +29,11 @@ const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as 
 
 describe('CI spend policy', () => {
   it('keeps GitHub ci.yml off push so the laptop script owns unit lint', () => {
-    const on = onBlock(ciYml);
-    expect(on).toContain('pull_request:');
-    expect(on).toContain('workflow_dispatch:');
-    expect(on).not.toMatch(/^\s+push:/m);
+    expect(triggers(ciYml)).toEqual(['  pull_request:', '  workflow_dispatch:']);
   });
 
   it('does not publish a SHA image on every main push', () => {
-    expect(onBlock(dockerSha)).not.toMatch(/^\s+push:/m);
-    expect(onBlock(dockerSha)).toContain('workflow_dispatch:');
+    expect(triggers(dockerSha)).toEqual(['  workflow_dispatch:']);
   });
 
   it('wires ci-local into package scripts and pre-push', () => {
