@@ -14,6 +14,7 @@ const xdgRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-cli-xdg-'));
 vi.stubEnv('XDG_CONFIG_HOME', path.join(xdgRoot, 'config'));
 vi.stubEnv('XDG_STATE_HOME', path.join(xdgRoot, 'state'));
 
+const { CONFIG_FILE, SCHEDULED_DIR } = await import('../config/xdg.js');
 const { loadConfig } = await import('../config/loader.js');
 const { default: ConnectionManager } = await import('../connections/manager.js');
 const {
@@ -441,7 +442,10 @@ describe('scheduler check command', () => {
     due?: number;
   }
 
-  async function writeConfig({ auth = 'password', saveToSent = false, rateLimit }: CheckOptions) {
+  async function writeConfig(
+    { auth = 'password', saveToSent = false, rateLimit }: CheckOptions,
+    configPath = path.join(root, 'config.toml'),
+  ) {
     const credentials =
       auth === 'password'
         ? ['password = "not-a-secret"']
@@ -454,7 +458,7 @@ describe('scheduler check command', () => {
             `token_url = "${token.url}"`,
             `auth_url = "${token.url.replace('/token', '/auth')}"`,
           ];
-    const configPath = path.join(root, 'config.toml');
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
     await fs.writeFile(
       configPath,
       [
@@ -484,9 +488,12 @@ describe('scheduler check command', () => {
     return loadConfig(configPath);
   }
 
-  async function writeDueEmails(options: CheckOptions) {
-    const config = await writeConfig(options);
-    const queueDir = path.join(root, 'scheduled');
+  async function writeDueEmails(
+    options: CheckOptions,
+    paths = { config: path.join(root, 'config.toml'), queue: path.join(root, 'scheduled') },
+  ) {
+    const config = await writeConfig(options, paths.config);
+    const queueDir = paths.queue;
     await fs.mkdir(queueDir, { recursive: true });
     await Promise.all(
       DUE_IDS.slice(0, options.due ?? 1).map(async (id) => {
@@ -524,6 +531,20 @@ describe('scheduler check command', () => {
       queueDir,
     );
     expect(lines).toEqual(['✅ Sent 1 scheduled email(s)']);
+  });
+
+  // `mailoo scheduler check` calls runCheck with no arguments, so its defaults are what users run.
+  it('should read the default config and print to the console when called with no arguments', async () => {
+    await writeDueEmails({}, { config: CONFIG_FILE, queue: SCHEDULED_DIR });
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await runCheck();
+      expect(log.mock.calls).toEqual([['✅ Sent 1 scheduled email(s)']]);
+    } finally {
+      log.mockRestore();
+      await fs.rm(path.dirname(CONFIG_FILE), { recursive: true, force: true });
+      await fs.rm(SCHEDULED_DIR, { recursive: true, force: true });
+    }
   });
 
   it('should send with the access token from the OAuth endpoint when the account uses oauth2', async () => {
