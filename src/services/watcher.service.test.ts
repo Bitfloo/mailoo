@@ -237,6 +237,27 @@ function seedFolder(path: string, uids: number[], uidValidity = 7n): void {
   });
 }
 
+function folderAt(path: string): FakeFolder {
+  const folder = fake.folders.get(path);
+  if (!folder) throw new Error(`no folder ${path}`);
+  return folder;
+}
+
+/** Delivers the messages together, as one server-side change. */
+function deliver(path: string, ...subjects: string[]): number[] {
+  const folder = folderAt(path);
+  const uids = subjects.map((subject) => {
+    const uid = folder.uidNext;
+    folder.uidNext += 1;
+    folder.messages.push({ uid, subject });
+    return uid;
+  });
+  fake.clients.forEach((client) => {
+    client.notify(path);
+  });
+  return uids;
+}
+
 /** Lets every pending promise chain run; the fake server yields on microtasks only. */
 async function settle(): Promise<void> {
   return new Promise((resolve) => {
@@ -310,6 +331,34 @@ describe('WatcherService start', () => {
     const { watcher } = watch({ ...inboxOnly, folders: ['INBOX', 'Sent'] });
     await watcher.start();
     expect(watcher.getStatus().map((status) => status.folder)).toEqual(['INBOX', 'Sent']);
+  });
+});
+
+describe('WatcherService new mail', () => {
+  it('should report a message delivered while the connection idles', async () => {
+    const { watcher, arrivals } = watch();
+    await watcher.start();
+    await advance(1_000);
+    deliver('INBOX', 'Invoice 2026-10');
+    await settle();
+    expect(arrivals).toMatchObject([
+      { account: 'test', mailbox: 'INBOX', emails: [{ id: '42', subject: 'Invoice 2026-10' }] },
+    ]);
+  });
+
+  it('should report the next message one second after the previous one was fetched', async () => {
+    const { watcher, arrivals } = watch();
+    await watcher.start();
+    await advance(1_000);
+    deliver('INBOX', 'First');
+    await settle();
+    await advance(1_000);
+    deliver('INBOX', 'Second');
+    await settle();
+    expect(arrivals.flatMap((arrival) => arrival.emails.map((email) => email.subject))).toEqual([
+      'First',
+      'Second',
+    ]);
   });
 });
 

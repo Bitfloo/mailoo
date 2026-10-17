@@ -535,7 +535,7 @@ Scheduled emails are JSON files in `~/.local/state/mailoo/scheduled/`. Before se
 
 ### Real-time Watcher & AI Hooks
 
-The IMAP IDLE watcher monitors configured mailboxes in real-time using persistent IDLE connections (separate from tool connections). When new emails arrive:
+The IMAP IDLE watcher monitors configured mailboxes in real-time using persistent IDLE connections (separate from tool connections). Each folder stays in IDLE between fetches, IDLE resumes about a second after each fetch, and `idle_timeout` sets how often IDLE is restarted. When new emails arrive:
 
 1. **Static rules** — Pattern-match on from/to/subject → apply labels, flag, or mark read instantly (no AI)
 2. **AI triage** — Remaining emails are analyzed via MCP sampling with a customizable preset prompt
