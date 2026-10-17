@@ -309,7 +309,7 @@ These are lower priority but provide meaningful improvements for power users.
 
 #### P4.4 — IMAP IDLE for Real-Time Notifications ✅ Done
 
-**Current**: Done 2026-10-17 — the opt-in watcher (`watcher.service.ts`) idles on each watched folder and emits an event for each new message. **Original target**: Optional IDLE mode that emits events on new message arrival.
+**Current**: Done 2026-10-17 — the opt-in watcher (`watcher.service.ts`) idles on each watched folder and emits an `email:new` event for each batch of new messages. **Original target**: Optional IDLE mode that emits events on new message arrival.
 
 #### P4.5 — Selective BODYSTRUCTURE Fetch
 
