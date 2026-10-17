@@ -948,7 +948,7 @@ src/
 │   ├── test.ts            — Connection tester
 │   ├── config-commands.ts — Config management (show, edit, path, init)
 │   ├── install-commands.ts — MCP client registration (install, status, remove)
-│   ├── providers.ts       — Provider auto-detection + OAuth2 endpoints (experimental)
+│   ├── providers.ts       — Provider auto-detection (IMAP/SMTP presets)
 │   └── scheduler.ts       — Scheduler CLI
 ├── config/                — Configuration layer
 │   ├── xdg.ts             — XDG Base Directory paths

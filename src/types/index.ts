@@ -15,12 +15,6 @@ export interface EmailAddress {
 // Account
 // ---------------------------------------------------------------------------
 
-export interface Account {
-  name: string;
-  email: string;
-  fullName?: string;
-}
-
 export interface ImapConfig {
   host: string;
   port: number;
@@ -309,17 +303,6 @@ export interface AuditEntry {
 }
 
 // ---------------------------------------------------------------------------
-// Threads
-// ---------------------------------------------------------------------------
-
-export interface ThreadResult {
-  threadId: string;
-  messages: Email[];
-  participants: EmailAddress[];
-  messageCount: number;
-}
-
-// ---------------------------------------------------------------------------
 // Templates
 // ---------------------------------------------------------------------------
 
@@ -341,11 +324,6 @@ export interface ProviderConfig {
   imap: ImapConfig;
   smtp: SmtpConfig;
   notes?: string;
-  oauth2?: {
-    authUrl: string;
-    tokenUrl: string;
-    scopes: string[];
-  };
 }
 
 // ---------------------------------------------------------------------------

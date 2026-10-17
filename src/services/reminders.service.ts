@@ -39,11 +39,6 @@ export interface AddReminderResult {
   message: string;
 }
 
-export interface ReminderListInfo {
-  id: string;
-  name: string;
-}
-
 export interface ReminderSummary {
   id: string;
   title: string;
@@ -107,20 +102,6 @@ async function checkPermissionsMacOS(): Promise<boolean> {
     return parseInt(stdout.trim(), 10) >= 0;
   } catch {
     return false;
-  }
-}
-
-async function listListsMacOS(): Promise<ReminderListInfo[]> {
-  const script = 'tell application "Reminders" to return name of every list';
-  try {
-    const { stdout } = await execFile('osascript', ['-e', script], {
-      timeout: 10_000,
-    });
-    const raw = stdout.trim();
-    if (!raw) return [];
-    return raw.split(', ').map((name) => ({ id: name, name }));
-  } catch {
-    return [];
   }
 }
 
@@ -351,10 +332,6 @@ return jsonResult
 export default class RemindersService {
   private readonly platform = process.platform;
 
-  get isSupported(): boolean {
-    return this.platform === 'darwin';
-  }
-
   async checkPermissions(): Promise<{
     granted: boolean;
     platform: string;
@@ -379,11 +356,6 @@ export default class RemindersService {
         '3. Quit and restart the terminal, then try again.',
       ],
     };
-  }
-
-  async listLists(): Promise<ReminderListInfo[]> {
-    if (this.platform !== 'darwin') return [];
-    return listListsMacOS();
   }
 
   async addReminder(

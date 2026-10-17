@@ -587,16 +587,6 @@ export default class LocalCalendarService {
     return listCalendarsMacOS();
   }
 
-  /** Check all calendars for an existing event matching by ICS UID or title+startDate. */
-  async findExistingEvent(
-    title: string,
-    start: Date,
-    icsUid?: string,
-  ): Promise<ExistingEventResult> {
-    if (this.platform !== 'darwin') return { found: false };
-    return findExistingEventMacOS(title, start, icsUid);
-  }
-
   async addEvent(
     event: LocalCalendarEventInput,
     calendarName?: string,
