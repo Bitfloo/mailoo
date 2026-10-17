@@ -19,18 +19,25 @@ type Handler = (args: {
   mailbox?: string;
 }) => Promise<{ isError?: boolean; content: { type: string; text: string }[] }>;
 
-async function sendDraftText(result: SendResult): Promise<string> {
+/** The send_draft handler over an SmtpService whose sendDraft is `sendDraft`. */
+function sendDraftTool(sendDraft: SmtpService['sendDraft']): Handler {
   const handlers = new Map<string, Handler>();
   const server = {
     registerTool: (name: string, _config: unknown, handler: Handler) => {
       handlers.set(name, handler);
     },
   };
-  const smtp = { sendDraft: vi.fn().mockResolvedValue(result) };
-  registerDraftTools(server as never, {} as ImapService, smtp as unknown as SmtpService);
+  registerDraftTools(server as never, {} as ImapService, { sendDraft } as unknown as SmtpService);
   const handler = handlers.get('send_draft');
   if (!handler) throw new Error('send_draft handler was not registered');
-  const response = await handler({ account: 'work', id: 42 });
+  return handler;
+}
+
+async function sendDraftText(result: SendResult): Promise<string> {
+  const response = await sendDraftTool(vi.fn().mockResolvedValue(result))({
+    account: 'work',
+    id: 42,
+  });
   return response.content[0].text;
 }
 
@@ -76,6 +83,65 @@ describe('send_draft tool', () => {
       account: 'work',
       params: { id: 42 },
       result: 'ok',
+    });
+  });
+
+  it('should pass the mailbox to sendDraft', async () => {
+    const sendDraft = vi.fn().mockResolvedValue({
+      messageId: '<draft-42@example.com>',
+      status: 'sent',
+      savedToSent: true,
+      draftDeleted: true,
+    });
+
+    await sendDraftTool(sendDraft)({ account: 'work', id: 42, mailbox: 'Drafts' });
+
+    expect(sendDraft.mock.calls).toEqual([['work', 42, 'Drafts']]);
+  });
+
+  it('should record the mailbox in the audit entry of a sent draft', async () => {
+    await sendDraftTool(
+      vi.fn().mockResolvedValue({
+        messageId: '<draft-42@example.com>',
+        status: 'sent',
+        savedToSent: true,
+        draftDeleted: true,
+      }),
+    )({ account: 'work', id: 42, mailbox: 'Drafts' });
+
+    expect((await readAuditEntries(auditHome)).at(-1)?.params).toEqual({
+      id: 42,
+      mailbox: 'Drafts',
+    });
+  });
+
+  it('should return isError with the reason when sending fails', async () => {
+    const response = await sendDraftTool(vi.fn().mockRejectedValue(new Error('smtp down')))({
+      account: 'work',
+      id: 42,
+      mailbox: 'Drafts',
+    });
+
+    expect(response).toEqual({
+      isError: true,
+      content: [{ type: 'text', text: 'Failed to send draft: smtp down' }],
+    });
+  });
+
+  it('should audit a failed send as an error with the reason and the mailbox', async () => {
+    await sendDraftTool(vi.fn().mockRejectedValue(new Error('smtp down')))({
+      account: 'work',
+      id: 42,
+      mailbox: 'Drafts',
+    });
+
+    expect((await readAuditEntries(auditHome)).at(-1)).toEqual({
+      ts: expect.any(String),
+      tool: 'send_draft',
+      account: 'work',
+      params: { id: 42, mailbox: 'Drafts' },
+      result: 'error',
+      error: 'smtp down',
     });
   });
 });
