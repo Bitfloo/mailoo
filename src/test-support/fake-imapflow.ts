@@ -77,19 +77,43 @@ export class FakeImapFlow extends EventEmitter {
 
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
 
+  // Set while connect() is pending; failing the login goes through it.
+  private failLogin: ((err: Error) => void) | undefined;
+
   constructor(readonly options: FakeOptions) {
     super();
     fake.clients.push(this);
   }
 
   async connect(): Promise<void> {
-    await (fake.loginPending ?? Promise.resolve());
-    // imapflow rejects a pending connect() when close() is called.
-    if (this.closed) throw new Error('Unexpected close');
+    const failed = new Promise<never>((_resolve, reject) => {
+      this.failLogin = reject;
+    });
+    try {
+      await Promise.race([fake.loginPending ?? Promise.resolve(), failed]);
+    } finally {
+      this.failLogin = undefined;
+    }
     const error = fake.connectErrors.shift();
     // Like imapflow, a rejected login leaves the socket open.
     if (error) throw error;
     this.usable = true;
+  }
+
+  /**
+   * A socket error, routed as imapflow 1.7's emitError() routes it: while connect() is pending
+   * it rejects that promise and emits no 'error' event; after that it emits 'error'. Either way
+   * the connection closes on the next turn of the event loop.
+   */
+  socketError(err: Error): void {
+    setImmediate(() => {
+      this.shutdown();
+    });
+    if (this.failLogin) {
+      this.failLogin(err);
+      return;
+    }
+    this.emit('error', err);
   }
 
   async mailboxOpen(path: string): Promise<FakeMailbox> {
@@ -233,6 +257,8 @@ export class FakeImapFlow extends EventEmitter {
     this.usable = false;
     this.idling = false;
     clearTimeout(this.idleTimer);
+    // imapflow's close() rejects a pending connect() with this message, then emits 'close'.
+    this.failLogin?.(new Error('Unexpected close'));
     this.emit('close');
   }
 }

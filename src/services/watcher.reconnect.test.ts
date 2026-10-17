@@ -130,30 +130,19 @@ function holdLogin(): () => void {
   };
 }
 
-describe('WatcherService events during login', () => {
-  it('should survive an error the connection raises while the login is pending', async () => {
+describe('WatcherService listeners bound before connect', () => {
+  it('should already have an error listener while the login is pending', async () => {
     const answerLogin = holdLogin();
     const { watcher } = watch();
     const starting = watcher.start();
     await settle();
+    // Emitted directly: imapflow itself reports a socket error during login through connect().
     expect(() => fake.clients[0].emit('error', new Error('read ECONNRESET'))).not.toThrow();
     answerLogin();
     await starting;
   });
 
-  it('should connect again 1 s after an error raised while the login was pending', async () => {
-    const answerLogin = holdLogin();
-    const { watcher } = watch();
-    const starting = watcher.start();
-    await settle();
-    fake.clients[0].emit('error', new Error('read ECONNRESET'));
-    answerLogin();
-    await starting;
-    await advance(1_000);
-    expect(fake.clients.map((client) => client.usable)).toEqual([false, true]);
-  });
-
-  it('should make one new attempt when the connection closed while the login was pending', async () => {
+  it('should make one new attempt when a close during login reaches both its listener and the failed connect', async () => {
     const answerLogin = holdLogin();
     const { watcher } = watch();
     const starting = watcher.start();
@@ -163,6 +152,20 @@ describe('WatcherService events during login', () => {
     await starting;
     await advance(60_000);
     expect(fake.clients).toHaveLength(2);
+  });
+});
+
+describe('WatcherService socket error during login', () => {
+  it('should connect again 1 s after a socket error failed the pending login', async () => {
+    const answerLogin = holdLogin();
+    const { watcher } = watch();
+    const starting = watcher.start();
+    await settle();
+    fake.clients[0].socketError(new Error('read ECONNRESET'));
+    answerLogin();
+    await starting;
+    await advance(1_000);
+    expect(fake.clients.map((client) => client.usable)).toEqual([false, true]);
   });
 });
 

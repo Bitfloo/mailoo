@@ -232,7 +232,8 @@ export default class WatcherService {
       });
       const current = client;
       this.updateState(key, { client: current });
-      // Bound before connect: an 'error' event with no listener throws and ends the process.
+      // Bound before connect: the client is in the state from here on, so a close during login,
+      // from stop() or from imapflow after a socket error, must reach forgetClient too.
       bindImapLifecycle(state.account.name, current, () => {
         this.forgetClient(key, current);
       });
