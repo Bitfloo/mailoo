@@ -769,6 +769,13 @@ describe('ImapService', () => {
     return mixedStructure(attachmentNode('2', filename), attachmentNode('3', secondFilename));
   }
 
+  /** The same structure with imapflow's part numbers removed at every depth. */
+  function withoutPartNumbers(node: object): object {
+    const { childNodes, ...fields } = node as { childNodes?: object[]; part?: string };
+    delete fields.part;
+    return childNodes ? { ...fields, childNodes: childNodes.map(withoutPartNumbers) } : fields;
+  }
+
   /** client.fetchOne as imapflow answers a UID FETCH: false for a UID the mailbox does not hold. */
   function fetchOneByUid(...messages: ({ uid: number } & Record<string, unknown>)[]) {
     client.fetchOne.mockImplementation(
@@ -820,21 +827,63 @@ describe('ImapService', () => {
     // imapflow numbers every child part. A structure that arrives without those
     // numbers must be numbered the same way, or the download reads another part.
     it('should number attachment parts by position when the structure has none', async () => {
-      const structure = twinAttachmentStructure('a.txt', 'b.txt');
       fetchOneByUid({
         uid: 9,
-        bodyStructure: {
-          ...structure,
-          childNodes: structure.childNodes.map((node) =>
-            Object.fromEntries(Object.entries(node).filter(([key]) => key !== 'part')),
-          ),
-        },
+        bodyStructure: withoutPartNumbers(twinAttachmentStructure('a.txt', 'b.txt')),
       });
       downloadReturnsPartName();
 
       const result = await service.downloadAttachment('test', '9', 'INBOX', 'b.txt');
 
       expect(Buffer.from(result.contentBase64, 'base64').toString()).toBe('body-of-part-3');
+    });
+
+    it('should number a nested attachment by its dotted path when the structure has none', async () => {
+      fetchOneByUid({
+        uid: 9,
+        bodyStructure: withoutPartNumbers({
+          type: 'multipart/mixed',
+          childNodes: [
+            {
+              type: 'multipart/related',
+              childNodes: [
+                { part: '1.1', type: 'text/html', encoding: '7bit', size: 40, lineCount: 1 },
+                attachmentNode('1.2', 'logo.png', { type: 'image/png' }),
+              ],
+            },
+            attachmentNode('2', 'terms.pdf', { type: 'application/pdf' }),
+          ],
+        }),
+      });
+      downloadReturnsPartName();
+
+      const result = await service.downloadAttachment('test', '9', 'INBOX', 'logo.png');
+
+      expect(Buffer.from(result.contentBase64, 'base64').toString()).toBe('body-of-part-1.2');
+    });
+
+    it('should refuse an attachment a byte over the size limit', async () => {
+      fetchOneByUid({
+        uid: 9,
+        bodyStructure: mixedStructure(attachmentNode('2', 'big.txt', { size: 17 })),
+      });
+      downloadReturnsPartName();
+
+      await expect(service.downloadAttachment('test', '9', 'INBOX', 'big.txt', 16)).rejects.toThrow(
+        /exceeds/,
+      );
+    });
+
+    it('should download an attachment exactly at the size limit', async () => {
+      fetchOneByUid({
+        uid: 9,
+        bodyStructure: mixedStructure(attachmentNode('2', 'edge.txt', { size: 16 })),
+      });
+      downloadReturnsPartName();
+
+      const result = await service.downloadAttachment('test', '9', 'INBOX', 'edge.txt', 16);
+
+      expect(Buffer.from(result.contentBase64, 'base64').toString()).toBe('body-of-part-2');
     });
   });
 
