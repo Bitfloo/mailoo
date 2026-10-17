@@ -140,6 +140,12 @@ describe('release job gates', () => {
     expect(stampJob()).toContain('needs: [npm]');
   });
 
+  it('should run every step of the job that stamps server.json whenever the job runs', () => {
+    // A tag push and a manual run both publish, so a step-level if: would skip the stamp, the login
+    // or the publish on one of them.
+    expect(stampJob()).not.toMatch(/^ {8}if:/m);
+  });
+
   it('should make the Docker job need npm and MCP when its if: reads both results', () => {
     expect(dockerJob()).toContain('needs: [npm, mcp]');
   });

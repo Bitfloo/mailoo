@@ -225,11 +225,10 @@ describe('release version selection', () => {
     }
   });
 
-  it('should run the server.json stamp step as the harness runs it on every release event', () => {
-    // A tag push and a manual run both publish, so a step-level if: would ship one of them unstamped.
+  it('should run the server.json stamp step with the shell and directory the harness uses', () => {
     // shell and working-directory would run other code than the harness checks.
     expect(releaseStep(releaseYml, 'Set version in server.json')).not.toMatch(
-      /^ {8}(?:if|shell|working-directory):/m,
+      /^ {8}(?:shell|working-directory):/m,
     );
   });
 
