@@ -350,6 +350,16 @@ describe('NotifierService runtime alert updates', () => {
     allowPrivateWebhooks: false,
   };
 
+  it('should not keep the process alive with the desktop rate reset interval', () => {
+    const notifier = new NotifierService(base);
+    // Private on purpose: hasRef() is the only observable of an unref'd interval in-process.
+    const timer = (notifier as unknown as { desktopResetTimer: NodeJS.Timeout }).desktopResetTimer;
+    const referenced = timer.hasRef();
+    notifier.stop();
+
+    expect(referenced).toBe(false);
+  });
+
   it('does not store a webhook URL that contains a line break', () => {
     const notifier = new NotifierService(base);
     expect(() => notifier.updateConfig({ webhookUrl: 'http://hooks.example.com/hook\n' })).toThrow(

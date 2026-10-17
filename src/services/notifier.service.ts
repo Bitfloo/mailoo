@@ -307,6 +307,8 @@ export default class NotifierService {
     this.desktopResetTimer = setInterval(() => {
       this.desktopCount = 0;
     }, 60_000);
+    // A rate counter reset must not keep the server process alive after its transport closes.
+    this.desktopResetTimer.unref();
   }
 
   stop(): void {

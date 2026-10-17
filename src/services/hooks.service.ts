@@ -102,6 +102,9 @@ export default class HooksService {
 
   private batchTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Each flush waits for the previous one, so two batches never handle mail at once. */
+  private flushChain: Promise<void> = Promise.resolve();
+
   private rateCounter = 0;
 
   private rateResetTimer: ReturnType<typeof setInterval> | null = null;
@@ -119,6 +122,13 @@ export default class HooksService {
   private readonly events: EmailEventBus;
 
   private static readonly MAX_SAMPLING_PER_MIN = 10;
+
+  /**
+   * A resync after a long disconnect can report thousands of UIDs at once. Hooks act on
+   * fresh mail; past this a single flush would hold the queue for minutes. Skipped mail
+   * stays in the mailbox unchanged.
+   */
+  static readonly MAX_PENDING_EMAILS = 500;
 
   private readonly handleNewEmail = (event: NewEmailEvent): void => {
     this.onNewEmail(event);
@@ -186,6 +196,7 @@ export default class HooksService {
     this.rateResetTimer = setInterval(() => {
       this.rateCounter = 0;
     }, 60_000);
+    this.rateResetTimer.unref();
 
     const ruleCount = this.config.rules.length;
     mcpLog(
@@ -224,7 +235,18 @@ export default class HooksService {
   // -------------------------------------------------------------------------
 
   private onNewEmail(event: NewEmailEvent): void {
-    const items = event.emails.map((meta) => ({
+    const room = Math.max(0, HooksService.MAX_PENDING_EMAILS - this.pendingEmails.length);
+    const accepted = event.emails.slice(0, room);
+    const skipped = event.emails.length - accepted.length;
+    if (skipped > 0) {
+      mcpLog(
+        'warning',
+        'hooks',
+        `Hook queue full (${HooksService.MAX_PENDING_EMAILS}): skipped ${skipped} new email(s) ` +
+          `in ${event.account}/${event.mailbox}`,
+      ).catch(() => {});
+    }
+    const items = accepted.map((meta) => ({
       account: event.account,
       mailbox: event.mailbox,
       meta,
@@ -232,10 +254,12 @@ export default class HooksService {
     this.pendingEmails.push(...items);
 
     this.batchTimer ??= setTimeout(() => {
-      this.flushBatch().catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        mcpLog('warning', 'hooks', `flushBatch failed: ${msg}`).catch(() => {});
-      });
+      this.flushChain = this.flushChain
+        .then(async () => this.flushBatch())
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          mcpLog('warning', 'hooks', `flushBatch failed: ${msg}`).catch(() => {});
+        });
     }, this.config.batchDelay * 1000);
   }
 

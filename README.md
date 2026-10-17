@@ -577,6 +577,9 @@ match = { from = "ceo@example.com|cto@example.test" }
 actions = { flag = true, labels = ["VIP"] }
 ```
 
+Batches run one at a time. At most 500 new emails wait for the next batch; more
+are skipped with a warning in the log and stay in the mailbox unchanged.
+
 #### Presets
 
 | Preset | Focus | Suggested Labels |

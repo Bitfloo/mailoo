@@ -240,6 +240,101 @@ describe('HooksService IMAP apply', () => {
   });
 });
 
+describe('HooksService batch queue', () => {
+  let hooks: HooksService | undefined;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    hooks?.stop();
+    hooks = undefined;
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('should not start a second flush while the first is still handling mail', async () => {
+    const trace: string[] = [];
+    const releases: (() => void)[] = [];
+    const handle = vi.fn(async (email: { meta: EmailMeta }) => {
+      trace.push(`start ${email.meta.id}`);
+      await new Promise<void>((resolve) => {
+        releases.push(resolve);
+      });
+      trace.push(`end ${email.meta.id}`);
+      return { kind: 'noop' };
+    });
+    hooks = new HooksService(hooksConfig(), mockImap() as unknown as ImapService, {
+      mailArrival: { handle } as unknown as MailArrival,
+    });
+    hooks.start({} as never, { sampling: false });
+
+    await flushHooks([meta({ id: '1' })]);
+    await flushHooks([meta({ id: '2' })]);
+    releases.shift()?.();
+    await vi.advanceTimersByTimeAsync(0);
+    releases.shift()?.();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(trace).toEqual(['start 1', 'end 1', 'start 2', 'end 2']);
+  });
+
+  it('should keep only the first queued emails when a burst exceeds the cap', async () => {
+    const handled: string[] = [];
+    const handle = vi.fn(async (email: { meta: EmailMeta }) => {
+      handled.push(email.meta.id);
+      return { kind: 'noop' };
+    });
+    hooks = new HooksService(
+      hooksConfig({ batchDelay: 3600 }),
+      mockImap() as unknown as ImapService,
+      { mailArrival: { handle } as unknown as MailArrival },
+    );
+    hooks.start({} as never, { sampling: false });
+    const burst = Array.from({ length: 600 }, (_, i) => meta({ id: String(i + 1) }));
+
+    eventBus.emit('email:new', { account: 'personal', mailbox: 'INBOX', emails: burst });
+    // Private on purpose; the batch timer is an hour away and gives no promise to await.
+    await (hooks as unknown as { flushBatch: () => Promise<void> }).flushBatch();
+
+    expect({ count: handled.length, first: handled[0], last: handled.at(-1) }).toEqual({
+      count: 500,
+      first: '1',
+      last: '500',
+    });
+  });
+
+  it('should warn with the account, mailbox and skipped count when the queue is full', async () => {
+    hooks = new HooksService(
+      hooksConfig({ batchDelay: 3600 }),
+      mockImap() as unknown as ImapService,
+    );
+    hooks.start({} as never, { sampling: false });
+    const burst = Array.from({ length: 503 }, (_, i) => meta({ id: String(i + 1) }));
+
+    eventBus.emit('email:new', { account: 'personal', mailbox: 'INBOX', emails: burst });
+
+    expect(mcpLog).toHaveBeenCalledWith(
+      'warning',
+      'hooks',
+      'Hook queue full (500): skipped 3 new email(s) in personal/INBOX',
+    );
+  });
+
+  it('should not keep the process alive with the rate-limit reset interval', () => {
+    vi.useRealTimers();
+    hooks = new HooksService(hooksConfig(), mockImap() as unknown as ImapService);
+    hooks.start({} as never, { sampling: false });
+
+    // Private on purpose: hasRef() is the only observable of an unref'd interval in-process.
+    const timer = (hooks as unknown as { rateResetTimer: NodeJS.Timeout }).rateResetTimer;
+
+    expect(timer.hasRef()).toBe(false);
+  });
+});
+
 describe('HooksService calendar auto-add state', () => {
   let hooks: HooksService | undefined;
   let addEvent: MockInstance<LocalCalendarService['addEvent']>;
