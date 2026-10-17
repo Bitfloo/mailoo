@@ -51,6 +51,70 @@ describe('RateLimiter', () => {
     expect(limiter.tryConsume('acct')).toBe(true);
   });
 
+  // A limit of 2 per minute earns one token every 30 s. Flooring the refill
+  // and restarting the clock at "now" dropped the 15 s remainder below.
+  it('should keep the partial refill interval when a token is earned mid-interval', () => {
+    vi.useFakeTimers();
+    const limiter = new RateLimiter(2);
+    limiter.tryConsume('acct');
+    limiter.tryConsume('acct');
+
+    vi.advanceTimersByTime(45_000);
+    expect(limiter.tryConsume('acct')).toBe(true);
+    vi.advanceTimersByTime(15_000);
+
+    expect(limiter.tryConsume('acct')).toBe(true);
+  });
+
+  it('should not count elapsed time twice when tokens are earned in steps', () => {
+    vi.useFakeTimers();
+    const limiter = new RateLimiter(2);
+    limiter.tryConsume('acct');
+    limiter.tryConsume('acct');
+
+    vi.advanceTimersByTime(30_000);
+    limiter.tryConsume('acct');
+    vi.advanceTimersByTime(30_000);
+    limiter.tryConsume('acct');
+
+    expect(limiter.tryConsume('acct')).toBe(false);
+  });
+
+  it('should allow at most the limit in a burst after a long idle period', () => {
+    vi.useFakeTimers();
+    const limiter = new RateLimiter(3);
+    limiter.tryConsume('acct');
+
+    vi.advanceTimersByTime(10 * 60_000);
+    const results = Array.from({ length: 5 }, () => limiter.tryConsume('acct'));
+
+    expect(results).toEqual([true, true, true, false, false]);
+  });
+
+  it('should not bank refill time while the bucket is full', () => {
+    vi.useFakeTimers();
+    const limiter = new RateLimiter(2);
+    limiter.tryConsume('acct');
+    vi.advanceTimersByTime(45_000);
+    limiter.tryConsume('acct');
+
+    vi.advanceTimersByTime(15_000);
+    const results = [limiter.tryConsume('acct'), limiter.tryConsume('acct')];
+
+    expect(results).toEqual([true, false]);
+  });
+
+  it('remaining() counts tokens refilled since the last consume', () => {
+    vi.useFakeTimers();
+    const limiter = new RateLimiter(2);
+    limiter.tryConsume('acct');
+    limiter.tryConsume('acct');
+
+    vi.advanceTimersByTime(30_000);
+
+    expect(limiter.remaining('acct')).toBe(1);
+  });
+
   it('uses default limit of 10 when no argument provided', () => {
     const limiter = new RateLimiter();
     expect(limiter.remaining('any')).toBe(10);
