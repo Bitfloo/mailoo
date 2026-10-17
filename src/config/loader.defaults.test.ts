@@ -209,4 +209,62 @@ host = "smtp.example.com"
       expect(read(config)).toBe(expected);
     },
   );
+
+  // IMAP and SMTP each carry their own tls, starttls and verify_ssl; a key
+  // read for the other protocol turns certificate checks off on the wrong one.
+  const FLAG_DEFAULTS = { tls: true, starttls: false, verify_ssl: true };
+  const SECURITY_FLAGS = [
+    ['imap', 'tls', 'MCP_EMAIL_IMAP_TLS'],
+    ['imap', 'starttls', 'MCP_EMAIL_IMAP_STARTTLS'],
+    ['imap', 'verify_ssl', 'MCP_EMAIL_IMAP_VERIFY_SSL'],
+    ['smtp', 'tls', 'MCP_EMAIL_SMTP_TLS'],
+    ['smtp', 'starttls', 'MCP_EMAIL_SMTP_STARTTLS'],
+    ['smtp', 'verify_ssl', 'MCP_EMAIL_SMTP_VERIFY_SSL'],
+  ] as const;
+
+  interface SecurityFlags {
+    tls: boolean;
+    starttls: boolean;
+    verifySsl: boolean;
+  }
+
+  function securityFlags(config: AppConfig): Record<string, SecurityFlags> {
+    const pick = ({ tls, starttls, verifySsl }: SecurityFlags) => ({ tls, starttls, verifySsl });
+    return { imap: pick(config.accounts[0].imap), smtp: pick(config.accounts[0].smtp) };
+  }
+
+  function withOneFlipped(side: string, key: keyof typeof FLAG_DEFAULTS): unknown {
+    return camelKeys({
+      imap: FLAG_DEFAULTS,
+      smtp: FLAG_DEFAULTS,
+      [side]: { ...FLAG_DEFAULTS, [key]: !FLAG_DEFAULTS[key] },
+    });
+  }
+
+  it.each(SECURITY_FLAGS)(
+    'should change only %s %s when %s is the one flag set',
+    async (side, key, name) => {
+      stubEnv({ ...ENV_ACCOUNT, [name]: String(!FLAG_DEFAULTS[key]) });
+
+      const config = await loadConfig(path.join(sandbox.dir, 'nonexistent.toml'));
+
+      expect(securityFlags(config)).toEqual(withOneFlipped(side, key));
+    },
+  );
+
+  it.each(SECURITY_FLAGS)(
+    'should change only %s %s when the TOML file sets that one flag',
+    async (side, key) => {
+      const host = `host = "${side}.example.com"`;
+      const configPath = path.join(sandbox.dir, 'config.toml');
+      await writeOwnerOnly(
+        configPath,
+        TOML_ACCOUNT.replace(host, `${host}\n${key} = ${String(!FLAG_DEFAULTS[key])}`),
+      );
+
+      const config = await loadConfig(configPath);
+
+      expect(securityFlags(config)).toEqual(withOneFlipped(side, key));
+    },
+  );
 });
