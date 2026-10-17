@@ -227,6 +227,127 @@ describe('HooksService batch queue', () => {
     expect(handled).toEqual(['2']);
   });
 
+  /** A MailArrival that records the id of each email it handles. */
+  function recorder(handled: string[]): { mailArrival: MailArrival } {
+    return {
+      mailArrival: {
+        handle: async (email: { meta: EmailMeta }) => {
+          handled.push(email.meta.id);
+          return { kind: 'noop' };
+        },
+      } as unknown as MailArrival,
+    };
+  }
+
+  it('should flush a batch once batch_delay has passed and not a millisecond before', async () => {
+    const handled: string[] = [];
+    hooks = new HooksService(
+      hooksConfig({ batchDelay: 3 }),
+      mockImap() as unknown as ImapService,
+      recorder(handled),
+    );
+    hooks.start({} as never, { sampling: false });
+    eventBus.emit('email:new', { account: 'personal', mailbox: 'INBOX', emails: [meta()] });
+
+    await vi.advanceTimersByTimeAsync(2999);
+    const before = [...handled];
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect({ before, after: handled }).toEqual({ before: [], after: ['10'] });
+  });
+
+  it('should warn when exactly one email is over the cap', () => {
+    hooks = new HooksService(
+      hooksConfig({ batchDelay: 3600 }),
+      mockImap() as unknown as ImapService,
+    );
+    hooks.start({} as never, { sampling: false });
+    const burst = Array.from({ length: 501 }, (_, i) => meta({ id: String(i + 1) }));
+
+    eventBus.emit('email:new', { account: 'personal', mailbox: 'INBOX', emails: burst });
+
+    expect(
+      vi
+        .mocked(mcpLog)
+        .mock.calls.filter(([, , message]) => String(message).startsWith('Hook queue full')),
+    ).toEqual([
+      ['warning', 'hooks', 'Hook queue full (500): skipped 1 new email(s) in personal/INBOX'],
+    ]);
+  });
+
+  it('should handle a mail once when start is called twice', async () => {
+    const handled: string[] = [];
+    hooks = new HooksService(
+      hooksConfig(),
+      mockImap() as unknown as ImapService,
+      recorder(handled),
+    );
+    hooks.start({} as never, { sampling: false });
+    hooks.start({} as never, { sampling: false });
+
+    await flushHooks([meta({ id: '1' })]);
+
+    expect(handled).toEqual(['1']);
+  });
+
+  /** A sampling client that triages every email as urgent. */
+  function urgentClient() {
+    return vi.fn().mockResolvedValue({
+      model: 'fast',
+      content: { type: 'text', text: JSON.stringify([{ priority: 'urgent' }]) },
+    });
+  }
+
+  /** Flushes one batch per id, in order; each flush takes the 1 s batch delay. */
+  async function flushEach(ids: string[]): Promise<void> {
+    await ids.reduce(async (previous, id) => {
+      await previous;
+      await flushHooks([meta({ id })]);
+    }, Promise.resolve());
+  }
+
+  it('should sample at most 10 batches a minute and 10 more after the 60 s reset', async () => {
+    vi.spyOn(NotifierService.prototype, 'alert').mockResolvedValue(undefined);
+    const createMessage = urgentClient();
+    hooks = new HooksService(
+      hooksConfig({ onNewEmail: 'triage' }),
+      mockImap() as unknown as ImapService,
+    );
+    hooks.start({ createMessage } as never, { sampling: true });
+    const ids = Array.from({ length: 22 }, (_, i) => String(i + 1));
+
+    await flushEach(ids.slice(0, 11));
+    const firstMinute = createMessage.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(60_000 - 11_000);
+    await flushEach(ids.slice(11));
+
+    expect({ firstMinute, total: createMessage.mock.calls.length }).toEqual({
+      firstMinute: 10,
+      total: 20,
+    });
+  });
+
+  it('should fall back to a plain notify once the sampling limit is reached', async () => {
+    const alert = vi.spyOn(NotifierService.prototype, 'alert').mockResolvedValue(undefined);
+    hooks = new HooksService(
+      hooksConfig({ onNewEmail: 'triage' }),
+      mockImap() as unknown as ImapService,
+    );
+    hooks.start({ createMessage: urgentClient() } as never, { sampling: true });
+
+    await flushEach(Array.from({ length: 11 }, (_, i) => String(i + 1)));
+
+    expect({
+      eleventh: alert.mock.calls.at(-1)?.[0],
+      warned: vi
+        .mocked(mcpLog)
+        .mock.calls.filter(([, , message]) => String(message).startsWith('Sampling rate limit')),
+    }).toMatchObject({
+      eleventh: { uid: '11', priority: 'normal' },
+      warned: [['warning', 'hooks', 'Sampling rate limit reached — falling back to notify']],
+    });
+  });
+
   it('should not keep the process alive with the rate-limit reset interval', () => {
     vi.useRealTimers();
     hooks = new HooksService(hooksConfig(), mockImap() as unknown as ImapService);
