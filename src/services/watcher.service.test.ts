@@ -97,6 +97,35 @@ describe('WatcherService new mail', () => {
   });
 });
 
+describe('WatcherService failed fetch', () => {
+  it('should report the next message after a fetch failed', async () => {
+    fake.fetchErrors.push(new Error('Command failed'));
+    const { watcher, arrivals } = watch();
+    await watcher.start();
+    await advance(1_000);
+    deliver('INBOX', 'Lost');
+    await settle();
+    await advance(1_000);
+    deliver('INBOX', 'Next');
+    await settle();
+    expect(arrivedSubjects(arrivals)).toEqual(['Lost', 'Next']);
+  });
+
+  it('should report a message once after the connection dropped while fetching it', async () => {
+    fake.fetchErrors.push(
+      Object.assign(new Error('Connection not available'), { code: 'NoConnection' }),
+    );
+    const { watcher, arrivals } = watch();
+    await watcher.start();
+    await advance(1_000);
+    deliver('INBOX', 'Mid-fetch');
+    await settle();
+    await advance(1_000);
+    await advance(1_000);
+    expect(arrivedSubjects(arrivals)).toEqual(['Mid-fetch']);
+  });
+});
+
 describe('WatcherService UID range', () => {
   it('should report every message of a burst when UIDs run ahead of sequence numbers', async () => {
     const { watcher, arrivals } = watch();

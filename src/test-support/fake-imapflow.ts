@@ -44,6 +44,9 @@ export const fake = {
   connectErrors: [] as Error[],
   // While set, connect() waits for it: a login the server has not answered yet.
   loginPending: null as Promise<void> | null,
+  // Errors the next fetch() calls fail with, in order. A `NoConnection` one drops the connection
+  // first, as imapflow closes before it fails the command that was in flight.
+  fetchErrors: [] as Error[],
 };
 
 /**
@@ -131,6 +134,11 @@ export class FakeImapFlow extends EventEmitter {
   ): AsyncGenerator<FakeFetchedMessage> {
     this.fetchCount += 1;
     await this.command();
+    const error = fake.fetchErrors.shift();
+    if (error) {
+      if ((error as { code?: string }).code === 'NoConnection') this.shutdown();
+      throw error;
+    }
     const folder = this.mailbox ? fake.folders.get(this.mailbox.path) : undefined;
     if (!folder) throw new Error('No mailbox selected');
     const field = options?.uid === true ? 'uid' : 'seq';
@@ -234,6 +242,7 @@ export function resetFakeServer(): void {
   fake.clients.length = 0;
   fake.connectErrors.length = 0;
   fake.loginPending = null;
+  fake.fetchErrors.length = 0;
 }
 
 /** UIDs with gaps, as left behind by earlier expunges, so UIDs and sequence numbers differ. */
