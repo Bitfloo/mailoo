@@ -20,6 +20,9 @@ describe('isEnoent', () => {
 
   it.each([
     ['an EACCES error', Object.assign(new Error('permission denied'), { code: 'EACCES' })],
+    ['an ENOTDIR error', Object.assign(new Error('not a directory'), { code: 'ENOTDIR' })],
+    ['an EPERM error', Object.assign(new Error('operation not permitted'), { code: 'EPERM' })],
+    ['an EISDIR error', Object.assign(new Error('is a directory'), { code: 'EISDIR' })],
     ['an error without a code', new Error('ENOENT')],
     ['null', null],
     ['the string ENOENT', 'ENOENT'],
