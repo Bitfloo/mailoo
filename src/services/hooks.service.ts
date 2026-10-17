@@ -16,6 +16,7 @@ import type { EmailMeta, HookRule, HooksConfig } from '../types/index.js';
 import type { EmailEventBus, NewEmailEvent } from './event-bus.js';
 import eventBus from './event-bus.js';
 import type ImapService from './imap.service.js';
+import type { AddEventStatus } from './local-calendar.service.js';
 import LocalCalendarService from './local-calendar.service.js';
 import type { MailArrival } from './mail-arrival/index.js';
 import type { AlertPayload, UrgencyLevel } from './notifier.service.js';
@@ -51,6 +52,12 @@ interface RuleNoMatch {
 }
 
 type StaticMatchOutcome = RuleMatchResult | RuleNoMatch;
+
+const SETTLED_CALENDAR_STATUSES: ReadonlySet<AddEventStatus> = new Set([
+  'added',
+  'duplicate',
+  'cancelled',
+]);
 
 // ---------------------------------------------------------------------------
 // Pattern matching helpers
@@ -393,20 +400,7 @@ export default class HooksService {
 
     // Add to calendar if rule requests it or global auto_calendar is on
     if (actions.addToCalendar ?? this.config.autoCalendar) {
-      const { isCalendarProcessed, markCalendarProcessed } = await import(
-        '../utils/calendar-state.js'
-      );
-      const already = await isCalendarProcessed(email.account, email.meta.id);
-      if (!already) {
-        await this.applyCalendarAction(email);
-        await markCalendarProcessed(email.account, email.meta.id, 'event', email.meta.subject);
-      } else {
-        await mcpLog(
-          'info',
-          'hooks',
-          `Calendar: skipping auto-add for ${email.meta.id} (already processed once)`,
-        );
-      }
+      await this.addToCalendarOnce(email, 'already processed once');
     }
   }
 
@@ -548,20 +542,7 @@ export default class HooksService {
 
     // Add to calendar if AI triage requested it or global auto_calendar is on
     if (triage.addToCalendar ?? this.config.autoCalendar) {
-      const { isCalendarProcessed, markCalendarProcessed } = await import(
-        '../utils/calendar-state.js'
-      );
-      const already = await isCalendarProcessed(email.account, email.meta.id);
-      if (!already) {
-        await this.applyCalendarAction(email);
-        await markCalendarProcessed(email.account, email.meta.id, 'event', email.meta.subject);
-      } else {
-        await mcpLog(
-          'info',
-          'hooks',
-          `Calendar: skipping auto-add for ${email.meta.id} (already processed once — instruct AI to add again)`,
-        );
-      }
+      await this.addToCalendarOnce(email, 'already processed once — instruct AI to add again');
     }
   }
 
@@ -569,7 +550,29 @@ export default class HooksService {
   // Calendar auto-add helper
   // -------------------------------------------------------------------------
 
-  private async applyCalendarAction(email: BatchEmail): Promise<void> {
+  /** Marks the email processed only after a settled outcome, so a failed add is retried. */
+  private async addToCalendarOnce(email: BatchEmail, skipReason: string): Promise<void> {
+    const { isCalendarProcessed, markCalendarProcessed } = await import(
+      '../utils/calendar-state.js'
+    );
+    if (await isCalendarProcessed(email.account, email.meta.id)) {
+      await mcpLog(
+        'info',
+        'hooks',
+        `Calendar: skipping auto-add for ${email.meta.id} (${skipReason})`,
+      );
+      return;
+    }
+    if (await this.applyCalendarAction(email)) {
+      await markCalendarProcessed(email.account, email.meta.id, 'event', email.meta.subject);
+    }
+  }
+
+  /**
+   * True when the user's calendar settled the event (added, already there, or declined
+   * in the dialog). A timed-out dialog, a missing display or a thrown error is false.
+   */
+  private async applyCalendarAction(email: BatchEmail): Promise<boolean> {
     const { buildCalendarNotes } = await import('../utils/calendar-notes.js');
     const { extractConferenceDetails } = await import('../utils/conference-details.js');
     const { extractMeetingUrl } = await import('../utils/meeting-url.js');
@@ -661,10 +664,13 @@ export default class HooksService {
         { confirm: this.config.calendarConfirm !== false },
       );
 
-      await mcpLog('info', 'hooks', `Calendar: ${result.message}`);
+      const settled = SETTLED_CALENDAR_STATUSES.has(result.status);
+      await mcpLog(settled ? 'info' : 'warning', 'hooks', `Calendar: ${result.message}`);
+      return settled;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await mcpLog('warning', 'hooks', `Calendar auto-add failed: ${msg}`);
+      return false;
     }
   }
 
