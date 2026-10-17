@@ -35,11 +35,14 @@ host = "imap.example.com"
 host = "smtp.example.com"
 `;
 
-/** Desktop and sound differ, so a swap between them shows in the written file. */
+/**
+ * Desktop and sound differ, so a swap between them shows in the written file; `low` is
+ * not a threshold any code path defaults to, so a fixed value shows too.
+ */
 const UPDATED = {
   desktop: true,
   sound: false,
-  urgencyThreshold: 'normal' as const,
+  urgencyThreshold: 'low' as const,
   webhookUrl: 'https://hooks.example.com/alerts',
   webhookEvents: ['urgent' as const, 'normal' as const],
 };
@@ -72,7 +75,7 @@ describe('persistAlerts', () => {
     expect(settings.hooks.alerts).toEqual({
       desktop: true,
       sound: false,
-      urgency_threshold: 'normal',
+      urgency_threshold: 'low',
       webhook_url: 'https://hooks.example.com/alerts',
       webhook_events: ['urgent', 'normal'],
       allow_private_webhooks: true,

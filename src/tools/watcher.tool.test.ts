@@ -232,6 +232,60 @@ describe('configure_alerts replies and state', () => {
 
     expect(hooksConfig.alerts).toEqual(notifier.getConfig());
   });
+
+  it('should turn desktop and sound off when they are given as false', async () => {
+    const loud = new NotifierService({ ...base, desktop: true, sound: true });
+    try {
+      await captureConfigureAlerts(loud)({ desktop: false, sound: false, save: false });
+
+      expect({ desktop: loud.getConfig().desktop, sound: loud.getConfig().sound }).toEqual({
+        desktop: false,
+        sound: false,
+      });
+    } finally {
+      loud.stop();
+    }
+  });
+
+  it('should apply an empty webhook_events list', async () => {
+    await captureConfigureAlerts(notifier)({ webhook_events: [], save: false });
+
+    expect(notifier.getConfig().webhookEvents).toEqual([]);
+  });
+
+  it('should show desktop and sound separately when no field is given', async () => {
+    const desktopOnly = new NotifierService({ ...base, desktop: true });
+    try {
+      const result = await captureConfigureAlerts(desktopOnly)({ save: false });
+
+      expect(result.content[0]?.text.split('\n').slice(1, 3)).toEqual([
+        '  Desktop:   ✅',
+        '  Sound:     ❌',
+      ]);
+    } finally {
+      desktopOnly.stop();
+    }
+  });
+
+  it('should list every webhook event comma separated in the confirmation', async () => {
+    const result = await captureConfigureAlerts(notifier)({
+      webhook_events: ['urgent', 'normal'],
+      save: false,
+    });
+
+    expect(result.content[0]?.text.split('\n')).toContain('   Events:    urgent, normal');
+  });
+
+  it('should tell the user the save failed and the change is session-only', async () => {
+    loadRawConfig.mockRejectedValue(new Error('No config file found at: config.toml'));
+
+    const result = await captureConfigureAlerts(notifier)({ sound: true, save: true });
+
+    expect(result.content[0]?.text.split('\n').slice(-2)).toEqual([
+      '⚠️ Could not save to config file: No config file found at: config.toml',
+      '   Changes are active for this session only.',
+    ]);
+  });
 });
 
 describe('configure_alerts audit log', () => {
