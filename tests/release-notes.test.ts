@@ -173,18 +173,22 @@ describe('release notes', () => {
     expect(goreleaser).toMatch(/^release:\n(?: {2}.*\n)*? {2}mode: replace$/m);
   });
 
-  const dockerJob = jobSections(releaseSteps(releaseYml)).find((job) =>
-    job.includes('goreleaser/goreleaser-action@'),
-  );
-  if (!dockerJob) {
-    throw new Error('release.yml has no GoReleaser job');
-  }
+  const dockerJob = () => {
+    const job = jobSections(releaseSteps(releaseYml)).find((section) =>
+      section.includes('goreleaser/goreleaser-action@'),
+    );
+    if (!job) {
+      throw new Error('release.yml has no GoReleaser job');
+    }
+    return job;
+  };
 
   it('should run only the docker setup actions between the checkout and the release notes', () => {
     // Another checkout or a run step there could hand the notes step another CHANGELOG.md or none.
-    const before = dockerJob.slice(
-      dockerJob.indexOf('- uses: actions/checkout@'),
-      dockerJob.indexOf('- name: Write release notes\n'),
+    const job = dockerJob();
+    const before = job.slice(
+      job.indexOf('- uses: actions/checkout@'),
+      job.indexOf('- name: Write release notes\n'),
     );
     expect(
       before.split(/\n {6}- /).map((step) => step.match(/uses: ([\w-]+\/[\w-]+)@/)?.[1] ?? step),
@@ -197,7 +201,8 @@ describe('release notes', () => {
   });
 
   it('should read CHANGELOG.md from a full, unconditional checkout of the release commit', () => {
-    const checkout = dockerJob.slice(dockerJob.indexOf('- uses: actions/checkout@'));
+    const job = dockerJob();
+    const checkout = job.slice(job.indexOf('- uses: actions/checkout@'));
     // ref, repository, path or sparse-checkout would hand the step another CHANGELOG.md or none.
     expect(checkout.slice(0, checkout.indexOf('\n      - ')).split('\n').slice(1)).toEqual([
       '        with:',
@@ -208,7 +213,8 @@ describe('release notes', () => {
   it('should write the release notes right before GoReleaser reads them', () => {
     // A step in between could rewrite the file GoReleaser publishes as the release body.
     const written = releaseStep(releaseYml, 'Write release notes');
-    expect(dockerJob.slice(dockerJob.indexOf(written) + written.length)).toMatch(
+    const job = dockerJob();
+    expect(job.slice(job.indexOf(written) + written.length)).toMatch(
       /^\n {6}- name: Run GoReleaser\n/,
     );
   });

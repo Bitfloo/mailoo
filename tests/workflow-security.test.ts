@@ -32,12 +32,6 @@ function weeklyCron(yaml: string): string[] {
 
 const codeqlYml = readFileSync(join(workflowDir, 'codeql.yml'), 'utf8');
 const scorecardYml = readFileSync(join(workflowDir, 'scorecard.yml'), 'utf8');
-const analyzeJobs = jobSections(codeqlYml).filter((job) =>
-  job.includes('github/codeql-action/analyze@'),
-);
-const scorecardJobs = jobSections(scorecardYml).filter((job) =>
-  job.includes('ossf/scorecard-action@'),
-);
 
 describe('code scanning workflows', () => {
   it('should name the CodeQL workflow in lowercase kebab-case', () => {
@@ -45,7 +39,10 @@ describe('code scanning workflows', () => {
   });
 
   it('should run CodeQL analysis in exactly one job', () => {
-    expect(analyzeJobs).toHaveLength(1);
+    const jobs = jobSections(codeqlYml).filter((job) =>
+      job.includes('github/codeql-action/analyze@'),
+    );
+    expect(jobs).toHaveLength(1);
   });
 
   it('should run CodeQL on develop pull requests', () => {
@@ -81,7 +78,8 @@ describe('code scanning workflows', () => {
   });
 
   it('should run the Scorecard action in exactly one job', () => {
-    expect(scorecardJobs).toHaveLength(1);
+    const jobs = jobSections(scorecardYml).filter((job) => job.includes('ossf/scorecard-action@'));
+    expect(jobs).toHaveLength(1);
     expect(scorecardYml).toContain('ossf/scorecard-action@');
   });
 
