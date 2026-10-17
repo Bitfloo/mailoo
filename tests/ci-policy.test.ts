@@ -190,7 +190,6 @@ describe('release supply chain', () => {
       job.includes('goreleaser/goreleaser-action@'),
     );
     expect(docker).toContain('needs: [npm, mcp]');
-    expect(docker).toContain("needs.mcp.result == 'success'");
   });
 });
 
@@ -232,9 +231,9 @@ describe('release version selection', () => {
 
   it('should run the server.json stamp step as the harness runs it on every release event', () => {
     // A tag push and a manual run both publish, so a step-level if: would ship one of them unstamped.
-    // continue-on-error publishes past a refused version; shell and working-directory run other code.
+    // shell and working-directory would run other code than the harness checks.
     expect(releaseStep(releaseYml, 'Set version in server.json')).not.toMatch(
-      /^ {8}(?:if|continue-on-error|shell|working-directory):/m,
+      /^ {8}(?:if|shell|working-directory):/m,
     );
   });
 

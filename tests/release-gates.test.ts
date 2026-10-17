@@ -1,5 +1,5 @@
 import { jobGate, runsJob } from './workflow-gates.js';
-import { jobSections, releaseYml } from './workflow-yaml.js';
+import { jobSections, releaseSteps, releaseYml } from './workflow-yaml.js';
 
 function releaseJob(marker: string): string {
   const job = jobSections(releaseYml).find((section) => section.includes(marker));
@@ -77,6 +77,20 @@ describe('release job gates', () => {
 
   it.each(['failure', 'cancelled'])('should not publish Docker images when npm is %s', (npm) => {
     expect(runsJob(jobGate(dockerJob()), { npm, mcp: 'success' })).toBe(false);
+  });
+
+  it.each(['failure', 'cancelled', 'skipped'])(
+    'should not publish Docker images when MCP is %s',
+    (mcp) => {
+      // The GitHub release and images would then name a version the registry does not have.
+      expect(runsJob(jobGate(dockerJob()), { npm: 'success', mcp })).toBe(false);
+    },
+  );
+
+  it('should keep continue-on-error off every release job and step', () => {
+    // needs.<job>.result reads success after a failure that continue-on-error let through, so the
+    // gates above would publish past a failed npm or MCP publish.
+    expect(releaseSteps(releaseYml)).not.toMatch(/^\s*continue-on-error:/m);
   });
 
   it('should make the job that stamps server.json need npm when its if: reads the npm result', () => {

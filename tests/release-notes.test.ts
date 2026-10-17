@@ -207,7 +207,7 @@ describe('release notes', () => {
   it.each(['Write release notes', 'Run GoReleaser'])(
     'lets a failure in %s stop the release',
     (name) => {
-      expect(releaseStep(releaseYml, name)).not.toMatch(/^ +(?:if|continue-on-error):/m);
+      expect(releaseStep(releaseYml, name)).not.toMatch(/^ +if:/m);
     },
   );
 
@@ -228,9 +228,5 @@ describe('release notes', () => {
 
   it('should set no run defaults the release-notes harness does not model', () => {
     expect(releaseSteps(releaseYml)).not.toMatch(/^ *defaults:/m);
-  });
-
-  it('should fail the release when a docker job step fails', () => {
-    expect(dockerJob).not.toMatch(/^ {4}continue-on-error:/m);
   });
 });
