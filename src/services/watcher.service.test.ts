@@ -258,6 +258,15 @@ function deliver(path: string, ...subjects: string[]): number[] {
   return uids;
 }
 
+function expunge(path: string, uids: number[]): void {
+  const folder = folderAt(path);
+  const before = folder.messages.length;
+  folder.messages = folder.messages.filter((message) => !uids.includes(message.uid));
+  fake.clients.forEach((client) => {
+    client.noteExpunge(path, before - folder.messages.length);
+  });
+}
+
 /** Lets every pending promise chain run; the fake server yields on microtasks only. */
 async function settle(): Promise<void> {
   return new Promise((resolve) => {
@@ -358,6 +367,36 @@ describe('WatcherService new mail', () => {
     expect(arrivals.flatMap((arrival) => arrival.emails.map((email) => email.subject))).toEqual([
       'First',
       'Second',
+    ]);
+  });
+});
+
+describe('WatcherService UID range', () => {
+  it('should report every message of a burst when UIDs run ahead of sequence numbers', async () => {
+    const { watcher, arrivals } = watch();
+    await watcher.start();
+    await advance(1_000);
+    deliver('INBOX', 'A', 'B', 'C');
+    await settle();
+    expect(arrivals.flatMap((arrival) => arrival.emails.map((email) => email.id))).toEqual([
+      '42',
+      '43',
+      '44',
+    ]);
+  });
+
+  it('should not report the newest message again when the new one is gone before the fetch', async () => {
+    const { watcher, arrivals } = watch();
+    await watcher.start();
+    await advance(1_000);
+    deliver('INBOX', 'Kept');
+    await settle();
+    await advance(1_000);
+    const [filtered] = deliver('INBOX', 'Filtered by another client');
+    expunge('INBOX', [filtered]);
+    await settle();
+    expect(arrivals.flatMap((arrival) => arrival.emails.map((email) => email.subject))).toEqual([
+      'Kept',
     ]);
   });
 });

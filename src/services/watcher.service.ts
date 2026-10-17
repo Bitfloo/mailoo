@@ -307,12 +307,13 @@ export default class WatcherService {
       let maxUid = state.lastSeenUid;
 
       // eslint-disable-next-line no-restricted-syntax -- need sequential async iteration
-      for await (const msg of client.fetch(searchRange, {
-        uid: true,
-        envelope: true,
-        flags: true,
-        bodyStructure: true,
-      })) {
+      for await (const msg of client.fetch(
+        searchRange,
+        { uid: true, envelope: true, flags: true, bodyStructure: true },
+        // Without it imapflow reads the range as sequence numbers, which trail UIDs after deletes.
+        { uid: true },
+      )) {
+        // `N:*` still matches the newest message when no UID reaches N.
         if (msg.uid > state.lastSeenUid) {
           emails.push(buildEmailMeta(msg));
           maxUid = Math.max(maxUid, msg.uid);
