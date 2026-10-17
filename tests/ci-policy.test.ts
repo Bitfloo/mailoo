@@ -110,17 +110,24 @@ describe('release supply chain', () => {
     expect(shrink.packages['node_modules/pnpm']?.integrity).toMatch(/^sha512-/);
   });
 
-  it('prepares the packageManager pnpm in the alpine image and the Cursor install', () => {
+  it('prepares the packageManager pnpm by its tarball hash in the alpine image and the Cursor install', () => {
+    // Corepack checks the download against a +sha512.<hex> suffix. The hash is the
+    // shrinkwrap integrity the Debian image installs, so all three move together.
     const root = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
       packageManager: string;
     };
+    const shrink = JSON.parse(
+      readFileSync(join(repoRoot, 'docker/pnpm-cli/npm-shrinkwrap.json'), 'utf8'),
+    ) as { packages: Record<string, { integrity?: string }> };
+    const integrity = shrink.packages['node_modules/pnpm']?.integrity ?? '';
+    const hex = Buffer.from(integrity.replace(/^sha512-/, ''), 'base64').toString('hex');
     const pins = ['Dockerfile.alpine', '.cursor/environment.json'].map((file) => [
       file,
-      readFileSync(join(repoRoot, file), 'utf8').match(/corepack prepare (pnpm@\S+)/)?.[1],
+      readFileSync(join(repoRoot, file), 'utf8').match(/corepack prepare (pnpm@[^\s"]+)/)?.[1],
     ]);
     expect(pins).toEqual([
-      ['Dockerfile.alpine', root.packageManager],
-      ['.cursor/environment.json', root.packageManager],
+      ['Dockerfile.alpine', `${root.packageManager}+sha512.${hex}`],
+      ['.cursor/environment.json', `${root.packageManager}+sha512.${hex}`],
     ]);
   });
 
