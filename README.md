@@ -693,7 +693,7 @@ actions = { flag = true, alert = true, labels = ["VIP"] }
 ```
 
 Features:
-- **Auto-reconnect** — Retries a dropped or failed folder connection on the [reconnect backoff](docs/configuration.md#reconnect-backoff) schedule; mail delivered while the connection was down is reported after the reconnect, unless the server changed the folder's UIDVALIDITY; a folder that has not connected yet starts from the mail already in it
+- **Auto-reconnect** — Retries a dropped or failed folder connection on the [reconnect backoff](docs/configuration.md#reconnect-backoff) schedule; mail delivered while the connection was down is reported after the reconnect, unless the server changed the folder's UIDVALIDITY; a folder that has not connected yet reports only mail that arrives after its first successful connect
 - **Batching** — Groups arrivals within a configurable delay to reduce AI calls
 - **Rate limiting** — Max 10 sampling calls per minute
 - **Graceful degradation** — Falls back to notify mode if client doesn't support sampling
