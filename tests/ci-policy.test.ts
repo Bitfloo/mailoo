@@ -257,18 +257,59 @@ describe('workflow shell input', () => {
   // so a crafted value runs as code. An env: value reaches bash as data. A pushed
   // branch or tag name can hold shell syntax just like a dispatch input.
   const untrusted =
-    /\$\{\{[^}]*\b(?:inputs\.|github\.event\.|github\.head_ref\b|github\.ref(?:_name)?\b)/;
+    /\$\{\{[^}]*\b(?:inputs\.|github\.event\.|github\.(?:head_ref|base_ref|ref(?:_name)?)\b)/;
   // A concurrency group is a name the runner compares, never a script.
   const allowed = /^\s*(?:if|group|[A-Z][A-Z0-9_]*):\s/;
-  const pastedIntoShell = (line: string): boolean => untrusted.test(line) && !allowed.test(line);
+
+  /** Line ranges of each run: key with its deeper lines, the whole script the runner hands bash. */
+  function runRanges(lines: string[]): [number, number][] {
+    return lines.flatMap((line, start): [number, number][] => {
+      const key = line.match(/^(\s*(?:- )?)run:/);
+      if (!key) {
+        return [];
+      }
+      let end = start + 1;
+      while (
+        end < lines.length &&
+        (!lines[end].trim() || lines[end].search(/\S/) > key[1].length)
+      ) {
+        end += 1;
+      }
+      return [[start, end]];
+    });
+  }
+
+  /**
+   * The workflow text that pastes an untrusted expression into code. A run: script is
+   * matched whole: an expression can span lines, and a script line can look like an env key.
+   */
+  function shellPastes(yaml: string): string[] {
+    const lines = yaml.split('\n');
+    const runs = runRanges(lines);
+    const inRun = (index: number) => runs.some(([start, end]) => index >= start && index < end);
+    return [
+      ...runs
+        .map(([start, end]) => lines.slice(start, end).join('\n'))
+        .filter((script) => untrusted.test(script)),
+      ...lines.filter(
+        (line, index) => !inRun(index) && untrusted.test(line) && !allowed.test(line),
+      ),
+    ].map((text) => text.trim());
+  }
 
   // biome-ignore-start lint/suspicious/noTemplateCurlyInString: values are workflow lines with GitHub expressions, not JS templates
   it.each([
     'run: echo "${{ github.ref_name }}"',
     'run: git tag -d "${{ github.ref }}"',
+    'run: echo "${{ github.head_ref }}"',
+    'run: echo "${{ github.base_ref }}"',
+    'run: echo "${{ github.event.pull_request.title }}"',
     'run: bash stamp.sh "${{ inputs.version }}"',
-  ])('should flag %j as an expression pasted into a shell', (line) => {
-    expect(pastedIntoShell(line)).toBe(true);
+    'run: |\n  echo "${{\n    github.head_ref }}"',
+    'run: |\n  cat <<EOF\n  REF: ${{ github.ref }}\n  EOF',
+    'script: core.info("${{ github.head_ref }}")',
+  ])('should flag %j as an untrusted expression pasted into code', (yaml) => {
+    expect(shellPastes(yaml)).not.toEqual([]);
   });
 
   it.each([
@@ -276,23 +317,18 @@ describe('workflow shell input', () => {
     "if: ${{ github.ref == 'refs/heads/develop' }}",
     'group: ${{ github.workflow }}-${{ github.ref }}',
     'run: echo "${{ github.ref_type }}"',
-  ])('should pass %j as a value the shell does not parse', (line) => {
-    expect(pastedIntoShell(line)).toBe(false);
+    '  run: echo "$REF"\n  env:\n    REF: ${{ github.ref }}',
+  ])('should pass %j as a value no shell or script parses', (yaml) => {
+    expect(shellPastes(yaml)).toEqual([]);
   });
   // biome-ignore-end lint/suspicious/noTemplateCurlyInString: end of workflow lines
 
   it('should expand inputs, event fields and ref names only in if:, env: and group: lines', () => {
     const files = readdirSync(workflowDir).filter((name) => name.endsWith('.yml'));
     expect(files.length).toBeGreaterThan(0);
-    const inline: string[] = [];
-    for (const name of files) {
-      const lines = readFileSync(join(workflowDir, name), 'utf8').split('\n');
-      for (const line of lines) {
-        if (pastedIntoShell(line)) {
-          inline.push(`${name}: ${line.trim()}`);
-        }
-      }
-    }
+    const inline = files.flatMap((name) =>
+      shellPastes(readFileSync(join(workflowDir, name), 'utf8')).map((text) => `${name}: ${text}`),
+    );
     expect(inline).toEqual([]);
   });
 });
