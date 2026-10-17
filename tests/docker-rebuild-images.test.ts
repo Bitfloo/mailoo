@@ -145,7 +145,7 @@ describe('docker rebuild images', () => {
     expect(metaOutputs(version)).toEqual({ bookworm_tags: bookworm, alpine_tags: alpine });
   });
 
-  it('uses the release tag names, Dockerfiles, and architectures', () => {
+  it('should use the GoReleaser tag names, Dockerfiles and architectures', () => {
     const goreleaser = readFileSync(join(repoRoot, '.goreleaser.yaml'), 'utf8');
     const workflow = readFileSync(join(workflowDir, 'docker-rebuild.yml'), 'utf8');
     for (const id of ['mailoo-debian', 'mailoo-alpine']) {

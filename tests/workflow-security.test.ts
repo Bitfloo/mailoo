@@ -54,13 +54,13 @@ describe('code scanning workflows', () => {
     expect(onBlock(codeqlYml)).toMatch(/push:\n\s+branches:\s*\[develop\]/);
   });
 
-  it('should run CodeQL on a weekly schedule', () => {
-    expect(onBlock(codeqlYml)).toContain('schedule:');
-    const cron = weeklyCron(codeqlYml);
-    expect(cron).toHaveLength(5);
-    expect(cron[2]).toBe('*');
-    expect(cron[3]).toBe('*');
-    expect(cron[4]).toMatch(/^[0-6]$/);
+  it.each([
+    ['codeql.yml', codeqlYml],
+    ['scorecard.yml', scorecardYml],
+  ])('should run %s on a weekly schedule', (_, yaml) => {
+    expect(onBlock(yaml)).toContain('schedule:');
+    const weekday = expect.stringMatching(/^[0-6]$/);
+    expect(weeklyCron(yaml)).toEqual([expect.any(String), expect.any(String), '*', '*', weekday]);
   });
 
   it.each([
@@ -89,15 +89,6 @@ describe('code scanning workflows', () => {
     const jobs = jobSections(scorecardYml).filter((job) => job.includes('ossf/scorecard-action@'));
     expect(jobs).toHaveLength(1);
     expect(scorecardYml).toContain('ossf/scorecard-action@');
-  });
-
-  it('should run Scorecard on a weekly schedule', () => {
-    expect(onBlock(scorecardYml)).toContain('schedule:');
-    const cron = weeklyCron(scorecardYml);
-    expect(cron).toHaveLength(5);
-    expect(cron[2]).toBe('*');
-    expect(cron[3]).toBe('*');
-    expect(cron[4]).toMatch(/^[0-6]$/);
   });
 
   it('should run Scorecard only on its schedule and when branch protection changes', () => {
@@ -219,14 +210,14 @@ describe('workflow token is no wider than the job writes', () => {
     expect(unread).toEqual([]);
   });
 
-  it('does not grant ci.yml any write scope', () => {
+  it('should not grant ci.yml any write scope', () => {
     expect(ciYml).not.toMatch(/:\s*write\b/);
     expect(topLevelPermissions(ciYml)).toContain('contents: read');
   });
 });
 
 describe('workflow token scope', () => {
-  it('does not grant write at the workflow level', () => {
+  it('should not grant write at the workflow level of any workflow', () => {
     for (const name of workflowFiles()) {
       const yaml = readFileSync(join(workflowDir, name), 'utf8');
       expect(topLevelPermissions(yaml), name).not.toMatch(/\bwrite\b/);

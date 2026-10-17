@@ -26,23 +26,24 @@ const dockerSha = readFileSync(join(repoRoot, '.github/workflows/docker-sha.yml'
 const lefthook = readFileSync(join(repoRoot, 'lefthook.yml'), 'utf8');
 const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
   scripts: Record<string, string>;
+  packageManager: string;
 };
 
 describe('CI spend policy', () => {
-  it('keeps GitHub ci.yml off push so the laptop script owns unit lint', () => {
+  it('should keep GitHub ci.yml off push so the laptop script owns unit and lint', () => {
     expect(triggers(ciYml)).toEqual(['  pull_request:', '  workflow_dispatch:']);
   });
 
-  it('does not publish a SHA image on every main push', () => {
+  it('should publish a SHA image only when a maintainer starts it by hand', () => {
     expect(triggers(dockerSha)).toEqual(['  workflow_dispatch:']);
   });
 
-  it('wires ci-local into package scripts and pre-push', () => {
+  it('should wire ci-local into the package scripts and pre-push', () => {
     expect(pkg.scripts['ci:local']).toBe('bash scripts/ci-local.sh');
     expect(lefthook).toContain('scripts/ci-local.sh');
   });
 
-  it('names the dispatch include-unit flag in ci.yml and CLAUDE.md', () => {
+  it('should name the dispatch include-unit flag in ci.yml and CLAUDE.md', () => {
     const claude = readFileSync(join(repoRoot, 'CLAUDE.md'), 'utf8');
     expect(ciYml).toContain('include-unit');
     expect(claude).toContain('include-unit');
@@ -100,6 +101,14 @@ function exactVersion(version: string): [number, number, number] | null {
 const npmCli = JSON.parse(readFileSync(join(repoRoot, '.github/npm-cli/package.json'), 'utf8')) as {
   dependencies: { npm: string };
 };
+const pnpmCli = JSON.parse(
+  readFileSync(join(repoRoot, 'docker/pnpm-cli/package.json'), 'utf8'),
+) as {
+  dependencies: { pnpm: string };
+};
+const pnpmShrink = JSON.parse(
+  readFileSync(join(repoRoot, 'docker/pnpm-cli/npm-shrinkwrap.json'), 'utf8'),
+) as { packages: Record<string, { version?: string; integrity?: string }> };
 
 describe('release supply chain', () => {
   it('should not install the release npm CLI from a moving tag or a global install', () => {
@@ -138,48 +147,39 @@ describe('release supply chain', () => {
     expect(shrink.packages['node_modules/npm']?.integrity).toMatch(/^sha512-/);
   });
 
-  it('installs the image pnpm CLI with npm ci against a shrinkwrap', () => {
+  it('should install the image pnpm CLI with npm ci and not a global install', () => {
     const dockerfile = readFileSync(join(repoRoot, 'Dockerfile'), 'utf8');
     expect(dockerfile).toContain('npm ci --ignore-scripts');
     expect(dockerfile).not.toContain('npm install -g pnpm@');
-    const root = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
-      packageManager: string;
-    };
-    const cli = JSON.parse(
-      readFileSync(join(repoRoot, 'docker/pnpm-cli/package.json'), 'utf8'),
-    ) as {
-      dependencies: { pnpm: string };
-    };
-    expect(`pnpm@${cli.dependencies.pnpm}`).toBe(root.packageManager);
-    const shrink = JSON.parse(
-      readFileSync(join(repoRoot, 'docker/pnpm-cli/npm-shrinkwrap.json'), 'utf8'),
-    ) as { packages: Record<string, { version?: string; integrity?: string }> };
-    expect(shrink.packages['node_modules/pnpm']?.version).toBe(cli.dependencies.pnpm);
-    expect(shrink.packages['node_modules/pnpm']?.integrity).toMatch(/^sha512-/);
   });
 
-  it('prepares the packageManager pnpm by its tarball hash in the alpine image and the Cursor install', () => {
+  it('should pin the image pnpm CLI to the packageManager version', () => {
+    expect(`pnpm@${pnpmCli.dependencies.pnpm}`).toBe(pkg.packageManager);
+  });
+
+  it('should lock the image pnpm CLI version with an sha512 hash in its shrinkwrap', () => {
+    expect(pnpmShrink.packages['node_modules/pnpm']).toMatchObject({
+      version: pnpmCli.dependencies.pnpm,
+      integrity: expect.stringMatching(/^sha512-/),
+    });
+  });
+
+  it('should prepare the packageManager pnpm by its tarball hash in the alpine image and the Cursor install', () => {
     // Corepack checks the download against a +sha512.<hex> suffix. The hash is the
     // shrinkwrap integrity the Debian image installs, so all three move together.
-    const root = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
-      packageManager: string;
-    };
-    const shrink = JSON.parse(
-      readFileSync(join(repoRoot, 'docker/pnpm-cli/npm-shrinkwrap.json'), 'utf8'),
-    ) as { packages: Record<string, { integrity?: string }> };
-    const integrity = shrink.packages['node_modules/pnpm']?.integrity ?? '';
+    const integrity = pnpmShrink.packages['node_modules/pnpm']?.integrity ?? '';
     const hex = Buffer.from(integrity.replace(/^sha512-/, ''), 'base64').toString('hex');
     const pins = ['Dockerfile.alpine', '.cursor/environment.json'].map((file) => [
       file,
       readFileSync(join(repoRoot, file), 'utf8').match(/corepack prepare (pnpm@[^\s"]+)/)?.[1],
     ]);
     expect(pins).toEqual([
-      ['Dockerfile.alpine', `${root.packageManager}+sha512.${hex}`],
-      ['.cursor/environment.json', `${root.packageManager}+sha512.${hex}`],
+      ['Dockerfile.alpine', `${pkg.packageManager}+sha512.${hex}`],
+      ['.cursor/environment.json', `${pkg.packageManager}+sha512.${hex}`],
     ]);
   });
 
-  it('pins the mcp-publisher archive hash in the install step', () => {
+  it('should pin the mcp-publisher archive hash in the install step', () => {
     const step = releaseStep(releaseYml, 'Install mcp-publisher');
     expect(step).not.toContain('releases/latest');
     expect(step).toMatch(/\b[0-9a-f]{64}\b/);
@@ -196,14 +196,12 @@ describe('release supply chain', () => {
 
   it('should stop MCP publish at once on any error but npm not having the version yet', () => {
     const step = releaseStep(releaseYml, 'Publish to MCP Registry');
-    const marker = npmRetryMarker(step);
-    const unmatched = step.indexOf('if ! grep -F -q');
+    const unmatched = step.indexOf(`if ! grep -F -q "${npmRetryMarker(step)}"`);
     const exitStatus = step.indexOf('exit "$status"', unmatched);
     expect(unmatched).toBeGreaterThan(step.indexOf('./mcp-publisher publish'));
     expect(exitStatus).toBeGreaterThan(unmatched);
     expect(step.indexOf('sleep "$pause"')).toBeGreaterThan(exitStatus);
     expect(step.slice(unmatched, exitStatus)).not.toContain('sleep');
-    expect(marker.length).toBeGreaterThan(0);
   });
 });
 
@@ -267,7 +265,7 @@ describe('release version selection', () => {
 });
 
 describe('pinned GitHub Actions', () => {
-  it('pins every uses: to a commit SHA with the version tag in a comment', () => {
+  it('should pin every uses: to a commit SHA with the version tag in a comment', () => {
     const unpinned = workflowFiles().flatMap((name) =>
       unpinnedUses(readFileSync(join(workflowDir, name), 'utf8')).map((line) => `${name}: ${line}`),
     );

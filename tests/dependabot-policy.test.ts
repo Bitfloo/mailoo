@@ -184,7 +184,7 @@ describe('dependabot groups', () => {
     expect(() => npmHolds(yaml)).toThrow('read 0 of 1 ignore entries');
   });
 
-  it('keeps every dependency still on 0.x out of its update group', () => {
+  it('should keep every dependency still on 0.x out of its update group', () => {
     // Dependabot calls 0.25 → 0.27 a minor update, but on 0.x that can break the API (node-ical 0.27 did).
     const manifest = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as Record<
       'dependencies' | 'devDependencies',
@@ -251,7 +251,7 @@ describe('dependabot groups', () => {
     expect(actions.map((update) => update.directory)).toEqual(['/']);
   });
 
-  it('groups only minor and patch updates', () => {
+  it('should group only minor and patch updates', () => {
     // A major can break the API, so it gets its own pull request instead of holding back a group.
     const groups = groupsOf(config);
     expect(groups.length).toBeGreaterThan(0);

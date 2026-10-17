@@ -93,19 +93,19 @@ describe('release bump', () => {
     pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as { version: string };
   });
 
-  it('pulls the image of the current minor line in the README Docker examples', async () => {
+  it('should pull the image of the current minor line in the README Docker examples', async () => {
     const tags = readmeImageTags(await readFile(join(root, 'README.md'), 'utf8'));
     expect(tags.length).toBeGreaterThan(0);
     expect([...new Set(tags)]).toEqual([minorLine(pkg.version)]);
   });
 
-  it('names the current minor line where the README explains the image tags', async () => {
+  it('should name the current minor line where the README explains the image tags', async () => {
     const readme = await readFile(join(root, 'README.md'), 'utf8');
     const line = minorLine(pkg.version);
     expect(readme).toContain(`The \`${line}\` tag follows the newest ${line}.x release.`);
   });
 
-  it('checks, builds and stamps the release before cog bumps it', async () => {
+  it('should check, build and stamp the release before cog bumps it', async () => {
     // A minor bump would otherwise leave the README on the old line, and the pre-push tests would stop the release push.
     // One list: a bump profile's own hooks would replace these.
     expect(cogHookLists(await readFile(join(root, 'cog.toml'), 'utf8'), 'pre_bump_hooks')).toEqual([
@@ -121,7 +121,7 @@ describe('release bump', () => {
     ]);
   });
 
-  it('pushes the bump on its own branch and leaves the tag until the pull request is merged', async () => {
+  it('should push the bump on its own branch and leave the tag until the pull request is merged', async () => {
     // develop takes changes only through a pull request, so cog's push of HEAD to it was declined at v0.2.1.
     // The tag starts the publish, so it goes up only once develop holds the bump commit.
     expect(cogHookLists(await readFile(join(root, 'cog.toml'), 'utf8'), 'post_bump_hooks')).toEqual(

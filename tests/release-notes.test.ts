@@ -77,18 +77,18 @@ describe('release notes', () => {
     expect(runBlock(step)).toBe('true\n\nfalse\n');
   });
 
-  it('uses the CHANGELOG.md section of the pushed tag as the release body', () => {
+  it('should use the CHANGELOG.md section of the tag as the release body when a tag is pushed', () => {
     const section = changelogSection('v0.2.0');
     expect(section).toMatch(/^#### ✨ Features\n- add export_email tool/);
     expect(notesBeforeInstall(releaseNotes({ ref: 'refs/tags/v0.2.0' }))).toBe(section);
   });
 
-  it('uses the CHANGELOG.md section of the version input on a manual run', () => {
+  it('should use the CHANGELOG.md section of the version input when run by hand', () => {
     const notes = releaseNotes({ ref: 'refs/heads/develop', inputVersion: '0.1.8' });
     expect(notesBeforeInstall(notes)).toBe(changelogSection('v0.1.8'));
   });
 
-  it('does not take a newer release whose version starts with the same digits', () => {
+  it('should not take a newer release when its version starts with the same digits', () => {
     const changelog = swapOnce(changelogMd, '\n## [v0.2.0](', '\n## [v0.1.10](');
     const notes = releaseNotes({ ref: 'refs/tags/v0.1.1', changelog });
     expect(notesBeforeInstall(notes)).toBe(changelogSection('v0.1.1'));
@@ -115,7 +115,7 @@ describe('release notes', () => {
     expect(notesBeforeInstall(notes)).toBe(subject(changelogSection('v0.2.0')));
   });
 
-  it('gives a release of omitted commit types only the install lines', () => {
+  it('should give only the install lines when a release holds only omitted commit types', () => {
     // cog 7 writes the heading with an empty body when every commit type in the range is omitted.
     // The empty entry goes above whichever entry is newest, under a version no release takes:
     // anchored on v0.2.0, this test failed the push of the v0.2.1 bump that moved it down.
@@ -149,7 +149,7 @@ describe('release notes', () => {
     );
   });
 
-  it('ends the release body with install commands for that version', () => {
+  it('should end the release body with the install commands for that version', () => {
     const notes = releaseNotes({ ref: 'refs/tags/v0.2.0' });
     expect(notes.trimEnd().split('\n').slice(-3)).toEqual([
       '**Install:** `npx -y @bitfloo/mailoo@0.2.0` · `docker pull ghcr.io/bitfloo/mailoo:0.2.0` (or `0.2.0-alpine`)',
@@ -158,7 +158,7 @@ describe('release notes', () => {
     ]);
   });
 
-  it('hands the written release body to GoReleaser', () => {
+  it('should hand the written release body to GoReleaser', () => {
     expect(releaseStep(releaseYml, 'Write release notes')).toContain(
       'notes="$RUNNER_TEMP/release-notes.md"',
     );
