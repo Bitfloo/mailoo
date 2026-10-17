@@ -35,6 +35,7 @@ import { looksLikeRawMime, preferRicherPlain } from '../utils/email-body.js';
 import compileRfc822 from '../utils/mail-compose.js';
 import type { LabelStrategy } from './label-strategy.js';
 import { detectLabelStrategy } from './label-strategy.js';
+import type { SavedAttachment } from './local-calendar.service.js';
 import lockMailbox from './mailbox-lock.js';
 import { resolveOutgoingAttachments } from './outgoing-attachments.js';
 import assertMailboxRemovable from './protected-mailboxes.js';
@@ -196,6 +197,46 @@ async function downloadMimePart(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Download each part by number and write it under destDir. Two attachments may
+ * share a filename, and each gets its own file instead of the first one written twice.
+ */
+async function writeAttachmentParts(
+  client: ImapFlow,
+  uid: string,
+  parts: AttachmentPart[],
+  destDir: string,
+): Promise<SavedAttachment[]> {
+  const { mkdir, writeFile } = await import('node:fs/promises');
+  await mkdir(destDir, { recursive: true });
+  const saved: SavedAttachment[] = [];
+  const usedNames = new Set<string>();
+  // eslint-disable-next-line no-restricted-syntax
+  for (const meta of parts) {
+    const name = uniqueFilename(sanitizeAttachmentFilename(meta.filename), usedNames);
+    const localPath = join(destDir, name);
+    try {
+      // imapflow runs one command at a time per connection.
+      // eslint-disable-next-line no-await-in-loop
+      const content = meta.part ? await downloadPart(client, uid, meta.part) : undefined;
+      if (content) {
+        // eslint-disable-next-line no-await-in-loop
+        await writeFile(localPath, content);
+        saved.push({
+          filename: meta.filename,
+          localPath,
+          fileUrl: `file://${localPath}`,
+          mimeType: meta.mimeType,
+          size: content.length,
+        });
+      }
+    } catch {
+      // Best effort: an unreadable part or a failed write skips that attachment only.
+    }
+  }
+  return saved;
 }
 
 const THREAD_HEADERS = ['Message-ID', 'References', 'In-Reply-To'];
@@ -1574,27 +1615,10 @@ export default class ImapService {
     mailbox: string,
     destDir: string,
     maxSizeBytes = 25 * 1024 * 1024,
-  ): Promise<
-    {
-      filename: string;
-      localPath: string;
-      fileUrl: string;
-      mimeType: string;
-      size: number;
-    }[]
-  > {
+  ): Promise<SavedAttachment[]> {
     const uidText = parseMessageUid(emailId);
     const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
-    const { mkdir, writeFile } = await import('node:fs/promises');
-
-    const saved: {
-      filename: string;
-      localPath: string;
-      fileUrl: string;
-      mimeType: string;
-      size: number;
-    }[] = [];
     const lock = await lockMailbox(client, safeMailbox);
     try {
       const msg = await client.fetchOne(uidText, { uid: true, bodyStructure: true }, { uid: true });
@@ -1602,38 +1626,10 @@ export default class ImapService {
       // biome-ignore format: line too long; eslint implicit-arrow-linebreak prevents multi-line implicit return
       const parts = listAttachmentParts(msg.bodyStructure).filter((a) => a.size <= maxSizeBytes && !a.mimeType.includes('calendar') && !a.filename.toLowerCase().endsWith('.ics'));
       if (parts.length === 0) return [];
-      await mkdir(destDir, { recursive: true });
-
-      // Parts are downloaded by number: two attachments may share a filename,
-      // and each gets its own file instead of the first one written twice.
-      const usedNames = new Set<string>();
-      // eslint-disable-next-line no-restricted-syntax
-      for (const meta of parts) {
-        const name = uniqueFilename(sanitizeAttachmentFilename(meta.filename), usedNames);
-        const localPath = join(destDir, name);
-        try {
-          // imapflow runs one command at a time per connection.
-          // eslint-disable-next-line no-await-in-loop
-          const content = meta.part ? await downloadPart(client, uidText, meta.part) : undefined;
-          if (content) {
-            // eslint-disable-next-line no-await-in-loop
-            await writeFile(localPath, content);
-            saved.push({
-              filename: meta.filename,
-              localPath,
-              fileUrl: `file://${localPath}`,
-              mimeType: meta.mimeType,
-              size: content.length,
-            });
-          }
-        } catch {
-          // Best effort: an unreadable part or a failed write skips that attachment only.
-        }
-      }
+      return await writeAttachmentParts(client, uidText, parts, destDir);
     } finally {
       lock.release();
     }
-    return saved;
   }
 
   /**
