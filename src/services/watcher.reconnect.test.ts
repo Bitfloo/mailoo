@@ -214,6 +214,17 @@ describe('WatcherService after a successful reconnect', () => {
 });
 
 describe('WatcherService status', () => {
+  it('should report the folder disconnected while its login is pending', async () => {
+    const answerLogin = holdLogin();
+    const { watcher } = watch();
+    const starting = watcher.start();
+    await settle();
+    expect(watcher.getStatus()[0].connected).toBe(false);
+    answerLogin();
+    await starting;
+    expect(watcher.getStatus()[0].connected).toBe(true);
+  });
+
   it('should report the folder disconnected as soon as its connection drops', async () => {
     const { watcher } = watch();
     await watcher.start();
