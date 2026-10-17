@@ -21,6 +21,35 @@ describe('buildEmailMeta', () => {
     expect(meta).toMatchObject({ id: '9', subject: 'Hello', messageId: '<id@example.com>' });
   });
 
+  it('should map every envelope and flag field of a fetched message', () => {
+    const meta = buildEmailMeta({
+      ...fetched,
+      flags: new Set(['\\Seen', '\\Flagged', '\\Answered', '\\Draft', '$Important']),
+      envelope: {
+        ...fetched.envelope,
+        to: [{ name: 'Bob', address: 'bob@example.com' }, { address: 'carol@example.com' }],
+      },
+    });
+    expect(meta).toEqual({
+      id: '9',
+      subject: 'Hello',
+      from: { name: 'Ada', address: 'ada@example.com' },
+      to: [{ name: 'Bob', address: 'bob@example.com' }, { address: 'carol@example.com' }],
+      date: '2026-01-02T00:00:00.000Z',
+      seen: true,
+      flagged: true,
+      answered: true,
+      hasAttachments: false,
+      labels: ['$Important'],
+      messageId: '<id@example.com>',
+    });
+  });
+
+  it("should name a message without a subject '(no subject)'", () => {
+    const { subject, ...envelope } = fetched.envelope ?? {};
+    expect(buildEmailMeta({ ...fetched, envelope }).subject).toBe('(no subject)');
+  });
+
   it('should mark a message seen only when it carries \\Seen', () => {
     const read = buildEmailMeta({ ...fetched, flags: new Set(['\\Seen', '\\Flagged']) });
     const unread = buildEmailMeta({ ...fetched, flags: new Set() });
