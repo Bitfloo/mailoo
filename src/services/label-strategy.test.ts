@@ -7,78 +7,13 @@
 
 import type { ImapFlow } from 'imapflow';
 
-import { detectLabelStrategy } from './label-strategy.js';
-
-function mockClient(gmail: boolean) {
-  const releaseFn = vi.fn();
-  return {
-    list: vi.fn().mockResolvedValue([]),
-    capabilities: new Set(gmail ? ['X-GM-EXT-1'] : []),
-    getMailboxLock: vi.fn().mockResolvedValue({ release: releaseFn }),
-    mailbox: { permanentFlags: new Set(['\\*']) },
-    messageFlagsAdd: vi.fn().mockResolvedValue(true),
-    messageFlagsRemove: vi.fn().mockResolvedValue(true),
-    messageCopy: vi.fn().mockResolvedValue({ path: 'INBOX', destination: 'Labels/Work' }),
-    fetchOne: vi.fn().mockResolvedValue(false),
-    search: vi.fn().mockResolvedValue([]),
-    messageDelete: vi.fn().mockResolvedValue(true),
-    mailboxDelete: vi.fn().mockResolvedValue({ path: 'deleted' }),
-    releaseFn,
-  };
-}
-
-/** Gmail LIST: system folders carry RFC 6154 roles, user labels carry none. */
-const GMAIL_LIST = [
-  { name: 'INBOX', path: 'INBOX', specialUse: '\\Inbox', flags: new Set<string>() },
-  { name: 'Trash', path: '[Gmail]/Trash', specialUse: '\\Trash', flags: new Set(['\\Trash']) },
-  {
-    name: 'Sent Mail',
-    path: '[Gmail]/Sent Mail',
-    specialUse: '\\Sent',
-    flags: new Set(['\\Sent']),
-  },
-  { name: 'Receipts', path: 'Receipts', flags: new Set<string>() },
-];
-
-async function keywordStrategy() {
-  const client = mockClient(false);
-  const strategy = await detectLabelStrategy(client as unknown as ImapFlow);
-  expect(strategy.type).toBe('keyword');
-  return { client, strategy };
-}
-
-async function gmailStrategy() {
-  const client = mockClient(true);
-  const strategy = await detectLabelStrategy(client as unknown as ImapFlow);
-  expect(strategy.type).toBe('gmail');
-  return { client, strategy };
-}
-
-/** ProtonMail Bridge lists its labels under a \\Noselect "Labels" folder. */
-async function protonStrategy() {
-  const client = mockClient(false);
-  client.list.mockResolvedValue([
-    { name: 'Labels', path: 'Labels', flags: new Set(['\\Noselect']) },
-  ]);
-  const strategy = await detectLabelStrategy(client as unknown as ImapFlow);
-  expect(strategy.type).toBe('protonmail');
-  return { client, strategy };
-}
-
-/** Records which mailbox the last lock selected when each command ran. */
-function recordSelectedMailbox(client: ReturnType<typeof mockClient>) {
-  let selected = '';
-  const ranIn: string[] = [];
-  client.getMailboxLock.mockImplementation(async (path: string) => {
-    selected = path;
-    return { release: client.releaseFn };
-  });
-  const record = (result: unknown) => async () => {
-    ranIn.push(selected);
-    return result;
-  };
-  return { ranIn, record };
-}
+import {
+  GMAIL_LIST,
+  gmailStrategy,
+  keywordStrategy,
+  protonStrategy,
+  recordSelectedMailbox,
+} from '../test-support/label-client-fake.js';
 
 describe('label strategy detection', () => {
   // A lock left held makes every later call on the account wait out the lock timeout.
@@ -147,41 +82,6 @@ describe('label mailbox selection', () => {
     await strategy.removeLabel(client as unknown as ImapFlow, '5', 'Archive', 'Work');
 
     expect(ranIn).toEqual(['Labels/Work', 'Labels/Work']);
-  });
-});
-
-// A lock left held makes every later call on the account wait out the lock timeout.
-describe('label lock release', () => {
-  it('should release the INBOX lock once after a keyword listLabels', async () => {
-    const { client, strategy } = await keywordStrategy();
-    client.releaseFn.mockClear();
-
-    await strategy.listLabels(client as unknown as ImapFlow);
-
-    expect(client.releaseFn).toHaveBeenCalledTimes(1);
-  });
-
-  it('should release the lock once after a ProtonMail addLabel', async () => {
-    const { client, strategy } = await protonStrategy();
-    client.releaseFn.mockClear();
-
-    await strategy.addLabel(client as unknown as ImapFlow, '5', 'Archive', 'Work');
-
-    expect(client.releaseFn).toHaveBeenCalledTimes(1);
-  });
-
-  it('should release both locks once after a ProtonMail removeLabel', async () => {
-    const { client, strategy } = await protonStrategy();
-    client.fetchOne.mockResolvedValue({
-      uid: 5,
-      envelope: { messageId: '<label-removal@example.test>' },
-    });
-    client.search.mockResolvedValue([12]);
-    client.releaseFn.mockClear();
-
-    await strategy.removeLabel(client as unknown as ImapFlow, '5', 'Archive', 'Work');
-
-    expect(client.releaseFn).toHaveBeenCalledTimes(2);
   });
 });
 
