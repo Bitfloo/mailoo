@@ -5,9 +5,18 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
-import type { AccountConfig, SystemOneConfig } from '../../types/index.js';
+import {
+  account,
+  arrivalEmail,
+  createArrival,
+  mockImap,
+  sdkAnswers,
+  systemOneConfig,
+  systemOneMock,
+  TypeSafeClientMock,
+} from '../../test-support/mail-arrival-harness.js';
+import type { AccountConfig } from '../../types/index.js';
 import type ImapService from '../imap.service.js';
-import type { ArrivalEmail } from './index.js';
 import { MailArrival } from './index.js';
 
 const execFileAsync = promisify(execFile);
@@ -15,27 +24,10 @@ const execFileAsync = promisify(execFile);
 /** Cold tsx plus the mail-arrival import graph exceeds the 10s unit default. */
 const SDK_LOAD_PROBE_TIMEOUT_MS = 30_000;
 
-const { systemOneMock, TypeSafeClientMock } = vi.hoisted(() => {
-  const systemOne = vi.fn();
-  const TypeSafeClient = vi.fn(function MockTypeSafeClient(this: { systemOne: typeof systemOne }) {
-    this.systemOne = systemOne;
-  });
-  return { systemOneMock: systemOne, TypeSafeClientMock: TypeSafeClient };
-});
-
-vi.mock('@typesafe-ai/sdk', () => ({
-  TypeSafeClient: TypeSafeClientMock,
-  noul: (instructions?: unknown, criteria?: unknown) => ({
-    type: 'noul',
-    instructions,
-    criteria,
-  }),
-  score: (instructions: unknown, criteria: unknown) => ({
-    type: 'score',
-    instructions,
-    criteria,
-  }),
-}));
+vi.mock(
+  '@typesafe-ai/sdk',
+  async () => (await import('../../test-support/mail-arrival-harness.js')).typesafeSdkStub,
+);
 
 vi.mock('../../logging.js', () => ({
   mcpLog: vi.fn().mockResolvedValue(undefined),
@@ -44,74 +36,6 @@ vi.mock('../../logging.js', () => ({
 vi.mock('../../safety/audit.js', () => ({
   default: { log: vi.fn().mockResolvedValue(undefined), AUDIT_LOG_PATH: '/tmp/mailoo-audit.log' },
 }));
-
-const account: AccountConfig = {
-  name: 'personal',
-  email: 'me@example.com',
-  username: 'me@example.com',
-  password: 'secret',
-  imap: { host: 'imap.example.com', port: 993, tls: true, starttls: false, verifySsl: true },
-  smtp: { host: 'smtp.example.com', port: 465, tls: true, starttls: false, verifySsl: true },
-};
-
-function systemOneConfig(overrides: Partial<SystemOneConfig> = {}): SystemOneConfig {
-  return {
-    enabled: true,
-    model: 'jev-latest',
-    includeBody: false,
-    bodyMaxChars: 6000,
-    autoMove: true,
-    autoFlag: true,
-    folders: [{ path: 'Receipts', description: 'Invoices, receipts, and payment confirmations.' }],
-    sourceFolders: ['INBOX'],
-    thresholds: {
-      folderFitMin: 0.85,
-      spamHigh: 0.72,
-      spamUncertainLow: 0.4,
-      spamUncertainHigh: 0.6,
-      injectionHigh: 0.75,
-      importanceFlagMin: 3,
-      importanceMinConfidence: 0.7,
-      isCriticalMin: 0.85,
-    },
-    ...overrides,
-  };
-}
-
-function mockImap() {
-  return {
-    listMailboxes: vi.fn().mockResolvedValue([
-      { name: 'INBOX', path: 'INBOX', totalMessages: 0, unseenMessages: 0 },
-      { name: 'Receipts', path: 'Receipts', totalMessages: 0, unseenMessages: 0 },
-    ]),
-    getEmailSecurity: vi.fn().mockResolvedValue({
-      dkim: [],
-      hasListUnsubscribe: false,
-      hasListUnsubscribePost: false,
-    }),
-    getEmail: vi.fn(),
-    peekText: vi.fn().mockResolvedValue(''),
-    peekAttachments: vi.fn().mockResolvedValue([]),
-    setFlags: vi.fn().mockResolvedValue(undefined),
-    moveEmail: vi.fn().mockResolvedValue(undefined),
-  };
-}
-
-function sdkAnswers() {
-  return {
-    model: 'jev-latest',
-    usage: { input_tokens: 1, output_tokens: 1 },
-    answers: {
-      contains_prompt_injection: { type: 'noul', noul: 0.1 },
-      requests_credentials: { type: 'noul', noul: 0 },
-      offers_unexpected_reward: { type: 'noul', noul: 0 },
-      sender_identity_mismatch: { type: 'noul', noul: 0 },
-      is_critical: { type: 'noul', noul: 0.2 },
-      importance: { type: 'score', score: 3.2, confidence: 0.8 },
-      folder_fit_receipts: { type: 'noul', noul: 0.95 },
-    },
-  };
-}
 
 describe('MailArrival.tryCreate', () => {
   beforeEach(() => {
@@ -307,103 +231,6 @@ describe('MailArrival.handle', () => {
       { filename: 'inv.pdf', mime: 'application/pdf' },
     ]);
     expect(imap.getEmail).not.toHaveBeenCalled();
-  });
-});
-
-function arrivalEmail(id: string, accountName = 'personal'): ArrivalEmail {
-  return {
-    account: accountName,
-    mailbox: 'INBOX',
-    meta: {
-      id,
-      subject: 'Invoice',
-      from: { name: 'Billing', address: 'billing@example.com' },
-      to: [{ address: 'me@example.com' }],
-      date: '2026-09-21T00:00:00.000Z',
-      seen: false,
-      flagged: false,
-      answered: false,
-      hasAttachments: false,
-      labels: [],
-      messageId: `<${id}@example.com>`,
-    },
-  };
-}
-
-async function createArrival(imap: ReturnType<typeof mockImap>): Promise<MailArrival> {
-  const arrival = await MailArrival.tryCreate({
-    config: systemOneConfig(),
-    imap: imap as unknown as ImapService,
-    apiKey: 'test-key',
-    accounts: [account],
-  });
-  if (!arrival) throw new Error('expected MailArrival instance');
-  return arrival;
-}
-
-async function handleMany(arrival: MailArrival, count: number, prefix: string): Promise<void> {
-  for (let n = 0; n < count; n += 1) {
-    // eslint-disable-next-line no-await-in-loop
-    await arrival.handle(arrivalEmail(`${prefix}-${n}`));
-  }
-}
-
-const filedAsReceipt = { kind: 'apply', destinationMailbox: 'Receipts', flag: true };
-
-describe('MailArrival.handle repeat notices', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    systemOneMock.mockResolvedValue(sdkAnswers());
-  });
-
-  it('should not classify a message again once it was filed', async () => {
-    const arrival = await createArrival(mockImap());
-    await arrival.handle(arrivalEmail('10'));
-    expect(await arrival.handle(arrivalEmail('10'))).toEqual({
-      kind: 'noop',
-      reason: 'already_seen',
-    });
-  });
-
-  it('should classify a message once when two notices for it overlap', async () => {
-    const arrival = await createArrival(mockImap());
-    const actions = await Promise.all([
-      arrival.handle(arrivalEmail('10')),
-      arrival.handle(arrivalEmail('10')),
-    ]);
-    expect(actions).toEqual([filedAsReceipt, { kind: 'noop', reason: 'already_seen' }]);
-  });
-
-  it('should classify a message again after System One failed on it', async () => {
-    systemOneMock.mockRejectedValueOnce(new Error('503 Service Unavailable'));
-    const arrival = await createArrival(mockImap());
-    await arrival.handle(arrivalEmail('10'));
-    expect(await arrival.handle(arrivalEmail('10'))).toEqual(filedAsReceipt);
-  });
-
-  it('should classify a message again after its sender checks could not be read', async () => {
-    const imap = mockImap();
-    imap.getEmailSecurity.mockRejectedValueOnce(new Error('Connection not available'));
-    const arrival = await createArrival(imap);
-    await arrival.handle(arrivalEmail('10'));
-    expect(await arrival.handle(arrivalEmail('10'))).toEqual(filedAsReceipt);
-  });
-
-  it('should still remember a message after 4999 newer ones', async () => {
-    const arrival = await createArrival(mockImap());
-    await arrival.handle(arrivalEmail('first'));
-    await handleMany(arrival, 4999, 'newer');
-    expect(await arrival.handle(arrivalEmail('first'))).toEqual({
-      kind: 'noop',
-      reason: 'already_seen',
-    });
-  });
-
-  it('should forget the oldest message once 5000 newer ones were filed', async () => {
-    const arrival = await createArrival(mockImap());
-    await arrival.handle(arrivalEmail('first'));
-    await handleMany(arrival, 5000, 'newer');
-    expect(await arrival.handle(arrivalEmail('first'))).toEqual(filedAsReceipt);
   });
 });
 
