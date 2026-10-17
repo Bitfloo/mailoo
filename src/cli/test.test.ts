@@ -230,6 +230,14 @@ describe('mailoo test with two accounts in the config file', () => {
     );
     await expect(runTest()).rejects.toThrow('Connection tests failed');
   });
+
+  it('should fail the command when the second of two accounts is refused and the first is fine', async () => {
+    h.imapRefusals.set(
+      'imap.second.example.com',
+      Object.assign(new Error('connect ECONNREFUSED 192.0.2.10:993'), { code: 'ECONNREFUSED' }),
+    );
+    await expect(runTest()).rejects.toThrow('Connection tests failed');
+  });
 });
 
 describe('mailoo test with an account filter', () => {
