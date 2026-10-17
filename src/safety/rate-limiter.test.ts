@@ -80,6 +80,19 @@ describe('RateLimiter', () => {
     expect(limiter.tryConsume('acct')).toBe(false);
   });
 
+  // A limit of 10 per minute earns one token every 6 s, so 18 s earns 3.
+  it('should credit every token earned in one gap when the bucket does not fill', () => {
+    vi.useFakeTimers();
+    const limiter = new RateLimiter(10);
+    Array.from({ length: 10 }, () => limiter.tryConsume('acct'));
+
+    vi.advanceTimersByTime(18_000);
+    const remaining = limiter.remaining('acct');
+    const results = Array.from({ length: 4 }, () => limiter.tryConsume('acct'));
+
+    expect({ remaining, results }).toEqual({ remaining: 3, results: [true, true, true, false] });
+  });
+
   it('should allow at most the limit in a burst after a long idle period', () => {
     vi.useFakeTimers();
     const limiter = new RateLimiter(3);
