@@ -270,6 +270,16 @@ async function searchThreadHeaders(client: ImapFlow, id: string): Promise<number
   return uids;
 }
 
+/** Add every Message-ID the thread headers of these messages name to ids. */
+async function collectThreadIds(client: ImapFlow, uids: number[], ids: Set<string>): Promise<void> {
+  const rows = await client.fetchAll(
+    uids.join(','),
+    { uid: true, headers: THREAD_HEADERS },
+    { uid: true },
+  );
+  for (const id of rows.flatMap((row) => threadIdsInHeaders(row.headers))) ids.add(id);
+}
+
 /**
  * UIDs of the thread around messageId, at most max. A reply may name only the
  * message it answers, in In-Reply-To, so the ids of every message found are
@@ -290,14 +300,7 @@ async function findThreadUids(client: ImapFlow, messageId: string, max: number):
     unread = [...found].filter((uid) => !read.has(uid));
     if (unread.length > 0 && found.size < max) {
       for (const uid of unread) read.add(uid);
-      const rows = await client.fetchAll(
-        unread.join(','),
-        { uid: true, headers: THREAD_HEADERS },
-        { uid: true },
-      );
-      for (const row of rows) {
-        for (const id of threadIdsInHeaders(row.headers)) ids.add(id);
-      }
+      await collectThreadIds(client, unread, ids);
     }
   } while (unread.length > 0 && found.size < max);
   return [...found].slice(0, max);
