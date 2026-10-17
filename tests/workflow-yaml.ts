@@ -26,6 +26,22 @@ export function releaseStep(yaml: string, name: string): string {
   return next < 0 ? rest : rest.slice(0, next);
 }
 
+/** The step's `env:` block with each `${{ expression }}` filled in from `context`, as the runner does. */
+export function stepEnv(step: string, context: Record<string, string>): Record<string, string> {
+  const block = step.match(/\n {8}env:\n((?: {10}\S.*\n)+)/)?.[1] ?? '';
+  return Object.fromEntries(
+    [...block.matchAll(/^ {10}(\w+): (.*)$/gm)].map(([, name, value]) => [
+      name,
+      value.replace(/\$\{\{ ([\w.-]+) \}\}/g, (_, expression: string) => {
+        if (!(expression in context)) {
+          throw new Error(`no value for ${expression}`);
+        }
+        return context[expression];
+      }),
+    ]),
+  );
+}
+
 /** One chunk per job so a token can be required on the scorecard job only. */
 export function jobSections(yaml: string): string[] {
   const parts = yaml.split(/^jobs:\n/m);

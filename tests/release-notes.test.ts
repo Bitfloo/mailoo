@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
 import { changelogMd, swapOnce } from './changelog-fixture.js';
-import { jobSections, releaseStep, releaseSteps, releaseYml } from './workflow-yaml.js';
+import { jobSections, releaseStep, releaseSteps, releaseYml, stepEnv } from './workflow-yaml.js';
 
 /** The step's `run: |` block, dedented, as the runner would execute it. */
 function runBlock(step: string): string {
@@ -14,22 +14,6 @@ function runBlock(step: string): string {
     throw new Error('step has no run block');
   }
   return match[1].replace(/^ {10}/gm, '');
-}
-
-/** The step's `env:` block with each `${{ expression }}` filled in from `context`, as the runner does. */
-function stepEnv(step: string, context: Record<string, string>): Record<string, string> {
-  const block = step.match(/\n {8}env:\n((?: {10}\S.*\n)+)/)?.[1] ?? '';
-  return Object.fromEntries(
-    [...block.matchAll(/^ {10}(\w+): (.*)$/gm)].map(([, name, value]) => [
-      name,
-      value.replace(/\$\{\{ ([\w.-]+) \}\}/g, (_, expression: string) => {
-        if (!(expression in context)) {
-          throw new Error(`no value for ${expression}`);
-        }
-        return context[expression];
-      }),
-    ]),
-  );
 }
 
 interface ReleaseRun {

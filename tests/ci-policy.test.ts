@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
-import { jobSections, releaseStep, releaseSteps, releaseYml } from './workflow-yaml.js';
+import { jobSections, releaseStep, releaseSteps, releaseYml, stepEnv } from './workflow-yaml.js';
 
 const ciYml = readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8');
 const dockerSha = readFileSync(join(repoRoot, '.github/workflows/docker-sha.yml'), 'utf8');
@@ -175,6 +176,43 @@ describe('release supply chain', () => {
     );
     expect(docker).toContain('needs: [npm, mcp]');
     expect(docker).toContain("needs.mcp.result == 'success'");
+  });
+});
+
+/** The step's one-line `run:` command, as the runner would execute it. */
+function runLine(step: string): string {
+  const match = step.match(/^ {8}run: (?!\|)(.+)$/m);
+  if (!match) {
+    throw new Error('step has no one-line run');
+  }
+  return match[1];
+}
+
+describe('release version selection', () => {
+  // The stamp refuses an empty or ref-shaped version, so a tag push breaks unless the step falls back to the tag.
+  it.each([
+    { event: 'tag push', ref: 'refs/tags/v1.4.2', inputVersion: '', version: '1.4.2' },
+    { event: 'manual run', ref: 'refs/heads/develop', inputVersion: '2.0.0', version: '2.0.0' },
+  ])('should hand the server.json stamp $version on a $event', ({ ref, inputVersion, version }) => {
+    const step = releaseStep(releaseYml, 'Set version in server.json');
+    const temp = mkdtempSync(join(tmpdir(), 'mailoo-server-json-step-'));
+    try {
+      mkdirSync(join(temp, 'scripts'));
+      writeFileSync(join(temp, 'scripts/bump-server-json-version.sh'), 'printf "%s\\n" "$1"\n');
+      // A run step without `shell:` gets `bash -e {0}` on the runner.
+      const stamped = execFileSync('bash', ['-e', '-c', runLine(step)], {
+        cwd: temp,
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH,
+          GITHUB_REF: ref,
+          ...stepEnv(step, { 'inputs.version': inputVersion }),
+        },
+      });
+      expect(stamped).toBe(`${version}\n`);
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
   });
 });
 
