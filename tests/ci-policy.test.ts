@@ -1,5 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
 import { jobSections, releaseStep, releaseSteps, releaseYml } from './workflow-yaml.js';
@@ -397,6 +398,26 @@ describe('dependabot groups', () => {
       production: onZero(manifest.dependencies),
       development: onZero(manifest.devDependencies),
     });
+  });
+
+  it('should update every npm manifest the repository tracks', () => {
+    // With only / listed, the release npm CLI and the image pnpm CLI never got an update.
+    const manifests = execFileSync('git', ['ls-files', '--', 'package.json', '**/package.json'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    })
+      .split('\n')
+      .filter(Boolean)
+      .map((file) => `/${dirname(file)}`.replace(/\/\.$/, '/'));
+    const covered = config
+      .split(/\n {2}- package-ecosystem: /)
+      .filter((entry) => entry.startsWith('npm\n'))
+      .flatMap((entry) => {
+        const list = entry.match(/^ {4}directories: \[(.*)\]$/m)?.[1];
+        const single = entry.match(/^ {4}directory: (\S+)$/m)?.[1];
+        return list ? [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1]) : [single];
+      });
+    expect(manifests.filter((dir) => !covered.includes(dir))).toEqual([]);
   });
 
   it('groups only minor and patch updates', () => {
