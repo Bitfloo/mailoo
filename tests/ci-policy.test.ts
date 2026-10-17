@@ -228,6 +228,17 @@ describe('release version selection', () => {
     // A tag push and a manual run both publish, so a step-level if: would ship one of them unstamped.
     expect(releaseStep(releaseYml, 'Set version in server.json')).not.toMatch(/^ {8}if:/m);
   });
+
+  it('should not gate the job that stamps server.json on the event', () => {
+    // A job-level if: on the event would skip the stamp and the registry publish for one kind of release.
+    const job = jobSections(releaseYml).find((section) =>
+      section.includes('- name: Set version in server.json\n'),
+    );
+    if (!job) {
+      throw new Error('no release job runs Set version in server.json');
+    }
+    expect(job.match(/^ {4}if:.*(?:\n {6,}\S.*)*/m)?.[0] ?? '').not.toContain('event_name');
+  });
 });
 
 const workflowDir = join(repoRoot, '.github/workflows');
