@@ -748,6 +748,47 @@ describe('emails a check skips', () => {
       await fs.rm(queueDir, { recursive: true, force: true });
     }
   });
+
+  // Status writes go to the file named by the record's id, so a record under another
+  // file name would never be marked sent and would go out again on every check.
+  it('should not send or list a record whose id differs from its file name', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-renamed-'));
+    try {
+      await fs.writeFile(
+        path.join(queueDir, `${queueId(2)}.json`),
+        JSON.stringify(pendingRecord(queueId(1), '2020-01-01T00:00:00.000Z')),
+      );
+      const { service, smtp } = createService(queueDir);
+      expect({
+        result: await service.checkAndSend(),
+        sends: smtp.sendEmail.mock.calls.length,
+        listed: await service.list({ status: 'all' }),
+      }).toEqual({ result: quiet, sends: 0, listed: [] });
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should not move a sent record whose id differs from its file name', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-renamed-sent-'));
+    try {
+      await fs.writeFile(
+        path.join(queueDir, `${queueId(2)}.json`),
+        JSON.stringify({
+          ...pendingRecord(queueId(1), '2020-01-01T00:00:00.000Z'),
+          status: 'sent',
+        }),
+      );
+      const { service } = createService(queueDir);
+      await service.checkAndSend();
+      expect({
+        queued: await jsonNames(queueDir),
+        sent: await jsonNames(path.join(queueDir, 'sent')),
+      }).toEqual({ queued: [`${queueId(2)}.json`], sent: [] });
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('successful send', () => {
