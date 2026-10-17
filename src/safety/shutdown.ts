@@ -11,7 +11,6 @@ export type ShutdownStep = [name: string, run: () => Promise<void> | void];
 export interface ShutdownOptions {
   exit: (code: number) => void;
   report: (message: string) => void;
-  deadlineMs?: number;
 }
 
 /** Runs the steps in order once, however often it is called, then exits. */
@@ -19,7 +18,6 @@ export default function createShutdown(
   steps: ShutdownStep[],
   options: ShutdownOptions,
 ): () => Promise<void> {
-  const deadlineMs = options.deadlineMs ?? SHUTDOWN_DEADLINE_MS;
   let running: Promise<void> | undefined;
 
   const run = async (): Promise<void> => {
@@ -44,12 +42,14 @@ export default function createShutdown(
     const deadline = new Promise<'deadline'>((resolve) => {
       timer = setTimeout(() => {
         resolve('deadline');
-      }, deadlineMs);
+      }, SHUTDOWN_DEADLINE_MS);
     });
     const outcome = await Promise.race([sequence, deadline]);
     clearTimeout(timer);
     if (outcome === 'deadline') {
-      options.report(`shutdown: ${current} did not finish within ${deadlineMs / 1000} s; exiting`);
+      options.report(
+        `shutdown: ${current} did not finish within ${SHUTDOWN_DEADLINE_MS / 1000} s; exiting`,
+      );
       options.exit(1);
       return;
     }
