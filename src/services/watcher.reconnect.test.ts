@@ -65,6 +65,16 @@ describe('WatcherService failed connect', () => {
     await watcher.start();
     expect(() => fake.clients[0].emit('error', new Error('read ECONNRESET'))).not.toThrow();
   });
+
+  it('should start from the mail already in a folder whose first connect failed', async () => {
+    fake.connectErrors.push(new Error('connect ECONNREFUSED'));
+    const { watcher, arrivals } = watch();
+    await watcher.start();
+    deliver('INBOX', 'Before the first connect');
+    await advance(1_000);
+    await advance(1_000);
+    expect(arrivedIds(arrivals)).toEqual([]);
+  });
 });
 
 describe('WatcherService reconnect', () => {
