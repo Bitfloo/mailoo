@@ -17,7 +17,7 @@ import { CALENDAR_STATE_FILE } from '../config/xdg.js';
 import writeFileAtomic from './atomic-write.js';
 import { acquireClaim, errnoCode, releaseClaim, startClaimRenewal } from './file-claim.js';
 
-const LOCK_FILE = `${CALENDAR_STATE_FILE}.lock`;
+export const CALENDAR_LOCK_FILE = `${CALENDAR_STATE_FILE}.lock`;
 
 /** A holder reads and rewrites one small file, so a lock this old has no live holder. */
 export const CALENDAR_LOCK_STALE_MS = 10_000;
@@ -66,7 +66,7 @@ async function writeState(state: StateFile): Promise<void> {
 }
 
 async function acquireStateLock(retries: number): Promise<string> {
-  const token = await acquireClaim(LOCK_FILE, CALENDAR_LOCK_STALE_MS);
+  const token = await acquireClaim(CALENDAR_LOCK_FILE, CALENDAR_LOCK_STALE_MS);
   if (token !== undefined) return token;
   if (retries <= 0) {
     throw new Error('Calendar state is busy in another Mailoo process. Try again shortly.');
@@ -79,14 +79,14 @@ async function acquireStateLock(retries: number): Promise<string> {
 
 /** Run fn while holding the state lock, so two processes cannot drop each other's entries. */
 async function withStateLock<T>(fn: () => Promise<T>): Promise<T> {
-  await fs.mkdir(path.dirname(LOCK_FILE), { recursive: true });
+  await fs.mkdir(path.dirname(CALENDAR_LOCK_FILE), { recursive: true });
   const token = await acquireStateLock(LOCK_RETRIES);
-  const stopRenewal = startClaimRenewal(LOCK_FILE, CALENDAR_LOCK_STALE_MS / 5);
+  const stopRenewal = startClaimRenewal(CALENDAR_LOCK_FILE, CALENDAR_LOCK_STALE_MS / 5);
   try {
     return await fn();
   } finally {
     stopRenewal();
-    await releaseClaim(LOCK_FILE, token);
+    await releaseClaim(CALENDAR_LOCK_FILE, token);
   }
 }
 
