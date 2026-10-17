@@ -1,12 +1,16 @@
 import type { SdkReply } from '../../test-support/mail-arrival-harness.js';
 import {
+  account,
   arrivalEmail,
   createArrival,
   mockImap,
   sdkAnswers,
+  systemOneConfig,
   systemOneMock,
 } from '../../test-support/mail-arrival-harness.js';
-import type { MailArrival } from './index.js';
+import type ImapService from '../imap.service.js';
+import type { ArrivalEmail } from './index.js';
+import { MailArrival } from './index.js';
 
 vi.mock(
   '@typesafe-ai/sdk',
@@ -29,6 +33,11 @@ async function handleMany(arrival: MailArrival, count: number, prefix: string): 
 }
 
 const filedAsReceipt = { kind: 'apply', destinationMailbox: 'Receipts', flag: true };
+
+/** Mail from some automated senders carries no Message-ID header. */
+function withoutMessageId(email: ArrivalEmail): ArrivalEmail {
+  return { ...email, meta: { ...email.meta, messageId: undefined } };
+}
 
 function answersWith(overrides: Partial<SdkReply['answers']>): SdkReply {
   const reply = sdkAnswers();
@@ -105,6 +114,39 @@ describe('MailArrival.handle repeat notices', () => {
       ]);
     },
   );
+
+  it('should classify a message without a Message-ID once per account and mailbox', async () => {
+    const work = {
+      ...account,
+      name: 'work',
+      email: 'work@example.com',
+      username: 'work@example.com',
+    };
+    const arrival = await MailArrival.tryCreate({
+      config: systemOneConfig({ sourceFolders: ['INBOX', 'Support'] }),
+      imap: mockImap() as unknown as ImapService,
+      apiKey: 'test-key',
+      accounts: [account, work],
+    });
+    if (!arrival) throw new Error('expected MailArrival instance');
+    const actions = [
+      await arrival.handle(withoutMessageId(arrivalEmail('10', 'personal'))),
+      await arrival.handle(withoutMessageId(arrivalEmail('10', 'work'))),
+      await arrival.handle({
+        ...withoutMessageId(arrivalEmail('10', 'personal')),
+        mailbox: 'Support',
+      }),
+    ];
+    expect(actions).toEqual([filedAsReceipt, filedAsReceipt, filedAsReceipt]);
+  });
+
+  it('should recognise a message that reappears under a new UID by its Message-ID', async () => {
+    const arrival = await createArrival(mockImap());
+    await arrival.handle(arrivalEmail('10'));
+    const renumbered = arrivalEmail('11');
+    renumbered.meta.messageId = '<10@example.com>';
+    expect(await arrival.handle(renumbered)).toEqual({ kind: 'noop', reason: 'already_seen' });
+  });
 
   it('should still remember a message after 4999 newer ones', async () => {
     const arrival = await createArrival(mockImap());
