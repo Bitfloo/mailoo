@@ -6,6 +6,9 @@ const h = vi.hoisted(() => ({
   printed: [] as string[],
   // The token the stubbed token endpoint issues; the fake servers accept nothing else.
   issuedToken: 'ya29.issued-by-refresh',
+  // Set to make one server refuse the connection whatever the credentials.
+  imapRefusal: null as Error | null,
+  smtpRefusal: null as Error | null,
 }));
 
 vi.mock('@clack/prompts', () => ({
@@ -43,6 +46,7 @@ vi.mock('imapflow', () => ({
     }
 
     async connect(): Promise<void> {
+      if (h.imapRefusal) throw h.imapRefusal;
       if (this.options.auth.accessToken !== h.issuedToken) {
         throw new Error('Command failed: AUTHENTICATIONFAILED Invalid credentials');
       }
@@ -67,6 +71,7 @@ vi.mock('nodemailer', () => ({
   default: {
     createTransport: (options: { auth: { type?: string } }) => ({
       verify: async () => {
+        if (h.smtpRefusal) throw h.smtpRefusal;
         if (options.auth.type !== 'OAuth2') {
           throw new Error('Invalid login: 535-5.7.8 Username and Password not accepted');
         }
@@ -82,6 +87,8 @@ vi.mock('nodemailer', () => ({
 
 beforeEach(() => {
   h.printed.length = 0;
+  h.imapRefusal = null;
+  h.smtpRefusal = null;
   // Single-account env config with OAuth2 and no password, as documented in the README.
   vi.stubEnv('MCP_EMAIL_ADDRESS', 'me@example.com');
   vi.stubEnv('MCP_EMAIL_PASSWORD', undefined);
@@ -135,6 +142,29 @@ describe('mailoo test with a failing login', () => {
     await runTest().catch(() => {});
     expect(h.printed).toContain(
       'IMAP  ✗ imap.example.com:993 — Command failed: AUTHENTICATIONFAILED Invalid credentials',
+    );
+  });
+});
+
+// Node's message for a refused TCP connect; 192.0.2.0/24 is reserved for documentation.
+describe('mailoo test with one protocol refused', () => {
+  it('should fail the command when only IMAP is refused', async () => {
+    h.imapRefusal = Object.assign(new Error('connect ECONNREFUSED 192.0.2.10:993'), {
+      code: 'ECONNREFUSED',
+    });
+    await expect(runTest()).rejects.toThrow('Connection tests failed');
+    expect(h.printed).toContain(
+      'IMAP  ✗ imap.example.com:993 — connect ECONNREFUSED 192.0.2.10:993',
+    );
+  });
+
+  it('should fail the command when only SMTP is refused', async () => {
+    h.smtpRefusal = Object.assign(new Error('connect ECONNREFUSED 192.0.2.10:465'), {
+      code: 'ECONNREFUSED',
+    });
+    await expect(runTest()).rejects.toThrow('Connection tests failed');
+    expect(h.printed).toContain(
+      'SMTP  ✗ smtp.example.com:465 — connect ECONNREFUSED 192.0.2.10:465',
     );
   });
 });
