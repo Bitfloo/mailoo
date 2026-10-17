@@ -83,20 +83,29 @@ function exactVersion(version: string): [number, number, number] | null {
   return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
+const npmCli = JSON.parse(readFileSync(join(repoRoot, '.github/npm-cli/package.json'), 'utf8')) as {
+  dependencies: { npm: string };
+};
+
 describe('release supply chain', () => {
-  it('installs a fixed npm CLI at or above 11.5.1', () => {
-    const steps = releaseSteps(releaseYml);
-    expect(steps).not.toContain('npm@latest');
-    expect(steps).not.toMatch(/npm install -g npm@/);
-    expect(steps).toContain('npm ci --ignore-scripts');
-    expect(steps).toContain('working-directory: .github/npm-cli');
-    expect(steps).toContain('.github/npm-cli/node_modules/.bin/npm publish --access public');
-    const cli = JSON.parse(
-      readFileSync(join(repoRoot, '.github/npm-cli/package.json'), 'utf8'),
-    ) as {
-      dependencies: { npm: string };
-    };
-    const pinned = exactVersion(cli.dependencies.npm);
+  it('should not install the release npm CLI from a moving tag or a global install', () => {
+    expect(releaseSteps(releaseYml)).not.toContain('npm@latest');
+    expect(releaseSteps(releaseYml)).not.toMatch(/npm install -g npm@/);
+  });
+
+  it('should install the release npm CLI with npm ci in .github/npm-cli', () => {
+    expect(releaseSteps(releaseYml)).toContain('npm ci --ignore-scripts');
+    expect(releaseSteps(releaseYml)).toContain('working-directory: .github/npm-cli');
+  });
+
+  it('should publish with the npm CLI installed in .github/npm-cli', () => {
+    expect(releaseSteps(releaseYml)).toContain(
+      '.github/npm-cli/node_modules/.bin/npm publish --access public',
+    );
+  });
+
+  it('should pin the release npm CLI to an exact version at or above 11.5.1', () => {
+    const pinned = exactVersion(npmCli.dependencies.npm);
     expect(pinned).not.toBeNull();
     if (!pinned) {
       return;
@@ -105,10 +114,13 @@ describe('release supply chain', () => {
     const atOrAbove =
       major > 11 || (major === 11 && minor > 5) || (major === 11 && minor === 5 && patch >= 1);
     expect(atOrAbove).toBe(true);
+  });
+
+  it('should lock the pinned npm CLI version with an sha512 hash in its shrinkwrap', () => {
     const shrink = JSON.parse(
       readFileSync(join(repoRoot, '.github/npm-cli/npm-shrinkwrap.json'), 'utf8'),
     ) as { packages: Record<string, { version?: string; integrity?: string }> };
-    expect(shrink.packages['node_modules/npm']?.version).toBe(cli.dependencies.npm);
+    expect(shrink.packages['node_modules/npm']?.version).toBe(npmCli.dependencies.npm);
     expect(shrink.packages['node_modules/npm']?.integrity).toMatch(/^sha512-/);
   });
 

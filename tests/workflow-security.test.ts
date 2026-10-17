@@ -27,56 +27,102 @@ function weeklyCron(yaml: string): string[] {
   return match[1].split(/\s+/);
 }
 
+const codeqlYml = readFileSync(join(workflowDir, 'codeql.yml'), 'utf8');
+const scorecardYml = readFileSync(join(workflowDir, 'scorecard.yml'), 'utf8');
+const analyzeJobs = jobSections(codeqlYml).filter((job) =>
+  job.includes('github/codeql-action/analyze@'),
+);
+const scorecardJobs = jobSections(scorecardYml).filter((job) =>
+  job.includes('ossf/scorecard-action@'),
+);
+
 describe('code scanning workflows', () => {
-  it('runs CodeQL on develop pull requests, develop pushes, and weekly', () => {
-    const path = join(workflowDir, 'codeql.yml');
-    const yaml = readFileSync(path, 'utf8');
-    expect(workflowName(yaml)).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
-    expect(topLevelPermissions(yaml)).not.toMatch(/write/);
-    expect(topLevelPermissions(yaml)).toContain('contents: read');
-    const analyzeJobs = jobSections(yaml).filter((job) =>
-      job.includes('github/codeql-action/analyze@'),
-    );
-    expect(analyzeJobs).toHaveLength(1);
-    expect(analyzeJobs[0]).toContain('contents: read');
-    expect(analyzeJobs[0]).toContain('security-events: write');
-    expect(yaml.replace(analyzeJobs[0], '')).not.toContain('security-events: write');
-    const on = onBlock(yaml);
-    expect(on).toContain('pull_request:');
-    expect(on).toContain('develop');
-    expect(on).toContain('schedule:');
-    expect(on).toContain('workflow_dispatch:');
-    expect(on).toMatch(/push:\n\s+branches:\s*\[develop\]/);
-    const cron = weeklyCron(yaml);
-    expect(cron).toHaveLength(5);
-    expect(cron[2]).toBe('*');
-    expect(cron[3]).toBe('*');
-    expect(cron[4]).toMatch(/^[0-6]$/);
-    expect(yaml).toContain('languages: javascript-typescript');
-    expect(yaml).toContain('github/codeql-action/init@');
-    expect(yaml).toContain('github/codeql-action/analyze@');
+  it('should name the CodeQL workflow in lowercase kebab-case', () => {
+    expect(workflowName(codeqlYml)).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
   });
 
-  it('runs OpenSSF Scorecard weekly and when branch protection changes', () => {
-    const path = join(workflowDir, 'scorecard.yml');
-    const yaml = readFileSync(path, 'utf8');
-    expect(workflowName(yaml)).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
-    expect(topLevelPermissions(yaml)).not.toMatch(/write/);
-    const jobs = jobSections(yaml);
-    const scorecardJobs = jobs.filter((job) => job.includes('ossf/scorecard-action@'));
-    expect(scorecardJobs).toHaveLength(1);
-    expect(scorecardJobs[0]).toContain('actions: read');
-    expect(yaml.replace(scorecardJobs[0], '')).not.toContain('id-token: write');
-    const on = onBlock(yaml);
-    expect(on).toContain('schedule:');
-    expect(on).toContain('branch_protection_rule:');
-    expect(on).not.toMatch(/^\s+push:/m);
-    const cron = weeklyCron(yaml);
+  it('should hold the CodeQL workflow token at contents read', () => {
+    expect(topLevelPermissions(codeqlYml)).not.toMatch(/write/);
+    expect(topLevelPermissions(codeqlYml)).toContain('contents: read');
+  });
+
+  it('should run CodeQL analysis in exactly one job', () => {
+    expect(analyzeJobs).toHaveLength(1);
+  });
+
+  it('should let the CodeQL analyze job read contents and write security-events', () => {
+    expect(analyzeJobs[0]).toContain('contents: read');
+    expect(analyzeJobs[0]).toContain('security-events: write');
+  });
+
+  it('should keep security-events write off every CodeQL job but analyze', () => {
+    expect(codeqlYml.replace(analyzeJobs[0], '')).not.toContain('security-events: write');
+  });
+
+  it('should run CodeQL on develop pull requests', () => {
+    expect(onBlock(codeqlYml)).toContain('pull_request:');
+    expect(onBlock(codeqlYml)).toContain('develop');
+  });
+
+  it('should run CodeQL on develop pushes', () => {
+    expect(onBlock(codeqlYml)).toMatch(/push:\n\s+branches:\s*\[develop\]/);
+  });
+
+  it('should run CodeQL on a weekly schedule', () => {
+    expect(onBlock(codeqlYml)).toContain('schedule:');
+    const cron = weeklyCron(codeqlYml);
     expect(cron).toHaveLength(5);
     expect(cron[2]).toBe('*');
     expect(cron[3]).toBe('*');
     expect(cron[4]).toMatch(/^[0-6]$/);
-    expect(yaml).toContain('ossf/scorecard-action@');
+  });
+
+  it('should let a maintainer start CodeQL by hand', () => {
+    expect(onBlock(codeqlYml)).toContain('workflow_dispatch:');
+  });
+
+  it('should analyze javascript-typescript with the CodeQL init and analyze actions', () => {
+    expect(codeqlYml).toContain('languages: javascript-typescript');
+    expect(codeqlYml).toContain('github/codeql-action/init@');
+    expect(codeqlYml).toContain('github/codeql-action/analyze@');
+  });
+
+  it('should name the Scorecard workflow in lowercase kebab-case', () => {
+    expect(workflowName(scorecardYml)).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+  });
+
+  it('should keep write scopes off the Scorecard workflow token', () => {
+    expect(topLevelPermissions(scorecardYml)).not.toMatch(/write/);
+  });
+
+  it('should run the Scorecard action in exactly one job', () => {
+    expect(scorecardJobs).toHaveLength(1);
+    expect(scorecardYml).toContain('ossf/scorecard-action@');
+  });
+
+  it('should let the Scorecard job read actions', () => {
+    expect(scorecardJobs[0]).toContain('actions: read');
+  });
+
+  it('should keep id-token write off every Scorecard workflow job but the analysis', () => {
+    expect(scorecardYml.replace(scorecardJobs[0], '')).not.toContain('id-token: write');
+  });
+
+  it('should run Scorecard on a weekly schedule', () => {
+    expect(onBlock(scorecardYml)).toContain('schedule:');
+    const cron = weeklyCron(scorecardYml);
+    expect(cron).toHaveLength(5);
+    expect(cron[2]).toBe('*');
+    expect(cron[3]).toBe('*');
+    expect(cron[4]).toMatch(/^[0-6]$/);
+  });
+
+  it('should run Scorecard when branch protection changes', () => {
+    expect(onBlock(scorecardYml)).toContain('branch_protection_rule:');
+  });
+
+  it('should not run Scorecard on push', () => {
+    expect(onBlock(scorecardYml)).not.toMatch(/^\s+push:/m);
   });
 });
 
@@ -87,16 +133,12 @@ function writeScopes(job?: string): string[] {
 
 describe('workflow token is no wider than the job writes', () => {
   it('gives CodeQL security-events write and no other write scope', () => {
-    const yaml = readFileSync(join(workflowDir, 'codeql.yml'), 'utf8');
-    const analyze = jobSections(yaml).find((job) => job.includes('github/codeql-action/analyze@'));
-    expect(analyze).toContain('contents: read');
-    expect(writeScopes(analyze)).toEqual(['security-events']);
+    expect(analyzeJobs[0]).toContain('contents: read');
+    expect(writeScopes(analyzeJobs[0])).toEqual(['security-events']);
   });
 
   it('should give the Scorecard job id-token and security-events write and no other write scope', () => {
-    const yaml = readFileSync(join(workflowDir, 'scorecard.yml'), 'utf8');
-    const analysis = jobSections(yaml).find((job) => job.includes('ossf/scorecard-action@'));
-    expect(writeScopes(analysis)).toEqual(['id-token', 'security-events']);
+    expect(writeScopes(scorecardJobs[0])).toEqual(['id-token', 'security-events']);
   });
 
   it('lets GHCR push jobs write packages and not repository contents', () => {
