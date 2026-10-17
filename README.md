@@ -384,6 +384,8 @@ Commands:
   scheduler install         Install OS-level scheduler (launchd/crontab)
   scheduler uninstall       Remove OS-level scheduler
   scheduler status          Show scheduler installation status
+  notify test               Send a test desktop notification
+  notify status             Check platform notification support
   --version, -v             Print the package version
   help                      Show help
 ```
