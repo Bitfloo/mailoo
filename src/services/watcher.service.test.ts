@@ -74,6 +74,9 @@ vi.mock('imapflow', async () => {
 
     private knownCount = 0;
 
+    // imapflow grants mailbox locks one at a time, in request order.
+    private lockQueue: Promise<void> = Promise.resolve();
+
     private idleTimer: ReturnType<typeof setTimeout> | undefined;
 
     constructor(readonly options: Record<string, unknown> & { auth: Record<string, unknown> }) {
@@ -97,8 +100,19 @@ vi.mock('imapflow', async () => {
     }
 
     async getMailboxLock(path: string): Promise<{ path: string; release: () => void }> {
-      await this.command();
-      if (!this.mailbox || this.mailbox.path !== path) this.select(path);
+      const previous = this.lockQueue;
+      let grantNext = (): void => {};
+      this.lockQueue = new Promise((resolve) => {
+        grantNext = resolve;
+      });
+      await previous;
+      try {
+        await this.command();
+        if (!this.mailbox || this.mailbox.path !== path) this.select(path);
+      } catch (err) {
+        grantNext();
+        throw err;
+      }
       this.locksHeld += 1;
       clearTimeout(this.idleTimer);
       let released = false;
@@ -108,6 +122,7 @@ vi.mock('imapflow', async () => {
           if (released) return;
           released = true;
           this.locksHeld -= 1;
+          grantNext();
           this.armIdle();
         },
       };
@@ -392,6 +407,21 @@ describe('WatcherService UID range', () => {
     await watcher.start();
     await advance(1_000);
     deliver('INBOX', 'A', 'B', 'C');
+    await settle();
+    expect(arrivals.flatMap((arrival) => arrival.emails.map((email) => email.id))).toEqual([
+      '42',
+      '43',
+      '44',
+    ]);
+  });
+
+  it('should report each message once when notices overlap', async () => {
+    const { watcher, arrivals } = watch();
+    await watcher.start();
+    await advance(1_000);
+    deliver('INBOX', 'A');
+    deliver('INBOX', 'B');
+    deliver('INBOX', 'C');
     await settle();
     expect(arrivals.flatMap((arrival) => arrival.emails.map((email) => email.id))).toEqual([
       '42',
