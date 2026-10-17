@@ -561,33 +561,38 @@ export default class SchedulerService {
         return { outcome: 'deferred' };
       }
 
-      // SMTP accepted the message. Nothing below may send it back into the retry path.
-      const recordError = await this.recordSent({
-        ...sending,
-        status: 'sent',
-        sentAt: new Date().toISOString(),
-        sentMessageId: sendResult.messageId,
-      });
-
-      if (sending.draftMessageId && sending.draftMailbox) {
-        try {
-          await this.imapService.deleteEmail(
-            sending.account,
-            sending.draftMessageId,
-            sending.draftMailbox,
-          );
-        } catch {
-          // Best-effort
-        }
-      }
-      if (recordError === undefined) return { outcome: 'sent' };
-      return {
-        outcome: 'sent',
-        error: `sent, but the queue record was not updated: ${recordError}`,
-      };
+      // Inside the try, so the claim stays fresh while the record is written.
+      return await this.recordDelivery(sending, sendResult);
     } finally {
       stopRenewal();
     }
+  }
+
+  /** SMTP accepted the message. Nothing here may send it back into the retry path. */
+  private async recordDelivery(sending: ScheduledEmail, sendResult: SendResult): Promise<Delivery> {
+    const recordError = await this.recordSent({
+      ...sending,
+      status: 'sent',
+      sentAt: new Date().toISOString(),
+      sentMessageId: sendResult.messageId,
+    });
+
+    if (sending.draftMessageId && sending.draftMailbox) {
+      try {
+        await this.imapService.deleteEmail(
+          sending.account,
+          sending.draftMessageId,
+          sending.draftMailbox,
+        );
+      } catch {
+        // Best-effort
+      }
+    }
+    if (recordError === undefined) return { outcome: 'sent' };
+    return {
+      outcome: 'sent',
+      error: `sent, but the queue record was not updated: ${recordError}`,
+    };
   }
 
   /**
