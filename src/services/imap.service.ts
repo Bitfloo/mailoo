@@ -1663,8 +1663,9 @@ export default class ImapService {
       const range = uidList.join(',');
       const messages: Email[] = [];
 
-      // eslint-disable-next-line no-restricted-syntax
-      for await (const msg of client.fetch(
+      // imapflow runs one command at a time and a FETCH stays in flight until
+      // its loop ends, so the body downloads in messageToEmail must start after it.
+      const rows = await client.fetchAll(
         range,
         {
           uid: true,
@@ -1674,10 +1675,12 @@ export default class ImapService {
           source: true,
         },
         { uid: true },
-      )) {
+      );
+      // eslint-disable-next-line no-restricted-syntax
+      for (const msg of rows) {
         const raw = msg as unknown as Record<string, unknown>;
-        const uid = raw.uid as number;
-        messages.push(await messageToEmail(raw, client, uid));
+        // eslint-disable-next-line no-await-in-loop
+        messages.push(await messageToEmail(raw, client, raw.uid as number));
       }
 
       // Sort chronologically
