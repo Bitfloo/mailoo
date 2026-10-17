@@ -20,14 +20,54 @@ describe('dependabot groups', () => {
     return found[1];
   }
 
-  /** Each npm update entry. GitHub's own examples quote the ecosystem name, so both forms count. */
+  /** Each npm update entry. GitHub's own examples quote the ecosystem name, so quoted, bare and commented forms count. */
   function npmUpdates(yaml: string): string[] {
-    return yaml
+    const updates = yaml
       .split(/\n {2}- package-ecosystem: /)
-      .filter((entry) => /^(["']?)npm\1\n/.test(entry));
+      .filter((entry) => /^(["']?)npm\1[ \t]*(?:#.*)?\n/.test(entry));
+    // An update this reader skips holds nothing it can see, so each one must be read as npm or github-actions.
+    const all = yaml.match(/^[ \t]*- package-ecosystem:/gm)?.length ?? 0;
+    const actions =
+      yaml.match(/^ {2}- package-ecosystem: (["']?)github-actions\1[ \t]*(?:#.*)?$/gm)?.length ?? 0;
+    if (updates.length + actions !== all) {
+      throw new Error(`read ${updates.length} npm and ${actions} github-actions of ${all} updates`);
+    }
+    return updates;
   }
 
-  it('should read an npm update whether its ecosystem name is quoted or not', () => {
+  const byName = (a: string[], b: string[]) => a[0].localeCompare(b[0]);
+
+  /** Every ignore entry of every npm update, read whole and sorted by name. */
+  function npmHolds(yaml: string): string[][] {
+    const held = [
+      ...npmUpdates(yaml)
+        .join('\n')
+        .matchAll(/^ {4}ignore:\n((?: {6}.*\n?)+)/gm),
+    ]
+      .flatMap(([, list]) => list.split(/^(?= {6}- )/m))
+      .map((entry) =>
+        entry
+          .split('\n')
+          .filter((line) => line.trim() && !line.trim().startsWith('#'))
+          .join('\n'),
+      )
+      .filter(Boolean)
+      .map((entry) => {
+        const plain = entry.match(
+          /^ {6}- dependency-name: "([^"]+)"\n {8}versions: \[">=(\d+\.\d+\.\d+)"\]$/,
+        );
+        return plain ? [plain[1], plain[2]] : [entry.trim(), 'not a lone >= floor'];
+      })
+      .sort(byName);
+    // An ignore list at another indent holds packages this reader never sees, so every name must be read.
+    const names = yaml.match(/^[ \t]*(?:- )?dependency-name:/gm)?.length ?? 0;
+    if (held.length !== names) {
+      throw new Error(`read ${held.length} of ${names} ignore entries`);
+    }
+    return held;
+  }
+
+  it('should read an npm update whether its ecosystem name is quoted or followed by a comment', () => {
     const yaml = [
       'updates:',
       '  - package-ecosystem: npm',
@@ -36,6 +76,8 @@ describe('dependabot groups', () => {
       '    directory: /a',
       "  - package-ecosystem: 'npm'",
       '    directory: /b',
+      '  - package-ecosystem: npm # tooling',
+      '    directory: /c',
       '  - package-ecosystem: github-actions',
       '    directory: /',
     ].join('\n');
@@ -43,7 +85,25 @@ describe('dependabot groups', () => {
       '/',
       '/a',
       '/b',
+      '/c',
     ]);
+  });
+
+  it('should refuse a config when an update sits where the reader does not look', () => {
+    const yaml = ['updates:', '    - package-ecosystem: npm', '      directory: /'].join('\n');
+    expect(() => npmUpdates(yaml)).toThrow('read 0 npm and 0 github-actions of 1 updates');
+  });
+
+  it('should refuse a config when an ignore list sits at its key indent', () => {
+    const yaml = [
+      'updates:',
+      '  - package-ecosystem: npm',
+      '    directory: /',
+      '    ignore:',
+      '    - dependency-name: "pnpm"',
+      '      versions: [">=1.0.0"]',
+    ].join('\n');
+    expect(() => npmHolds(yaml)).toThrow('read 0 of 1 ignore entries');
   });
 
   it('keeps every dependency still on 0.x out of its update group', () => {
@@ -90,28 +150,10 @@ describe('dependabot groups', () => {
     // A missing hold lets Dependabot open a major that breaks lint or the build. A hold at the
     // manifest's own major blocks that major's patches too. Every npm update is read: the
     // tooling CLI update holds nothing, so a hold added there has to be derived here as well.
-    const npmText = npmUpdates(config).join('\n');
     // Dependabot applies every entry, so a duplicate with a lower floor or an extra key such as
     // update-types changes what is held. Each entry is read whole and kept, not merged by name.
-    const byName = (a: string[], b: string[]) => a[0].localeCompare(b[0]);
-    const held = [...npmText.matchAll(/^ {4}ignore:\n((?: {6}.*\n?)+)/gm)]
-      .flatMap(([, list]) => list.split(/^(?= {6}- )/m))
-      .map((entry) =>
-        entry
-          .split('\n')
-          .filter((line) => line.trim() && !line.trim().startsWith('#'))
-          .join('\n'),
-      )
-      .filter(Boolean)
-      .map((entry) => {
-        const plain = entry.match(
-          /^ {6}- dependency-name: "([^"]+)"\n {8}versions: \[">=(\d+\.\d+\.\d+)"\]$/,
-        );
-        return plain ? [plain[1], plain[2]] : [entry.trim(), 'not a lone >= floor'];
-      })
-      .sort(byName);
     const eslintCeiling = peerCeiling(lockPeerRange('eslint-config-airbnb-extended', 'eslint'));
-    expect(held).toEqual(
+    expect(npmHolds(config)).toEqual(
       Object.entries({
         eslint: eslintCeiling,
         '@eslint/js': eslintCeiling,
