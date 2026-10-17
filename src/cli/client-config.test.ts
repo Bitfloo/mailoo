@@ -50,6 +50,21 @@ describe('getClients', () => {
 
     expect(getClients().find((client) => client.id === id)?.configPath).toBe(expected);
   });
+
+  it.each([
+    ['XDG_CONFIG_HOME', 'linux', '/xdg-config-test'],
+    ['APPDATA', 'win32', '/appdata-test'],
+  ] as const)(
+    'should resolve the claude config path under %s on %s when it is set',
+    (name, platform, dir) => {
+      vi.stubEnv(name, dir);
+      vi.spyOn(os, 'platform').mockReturnValue(platform);
+
+      expect(getClients().find((client) => client.id === 'claude')?.configPath).toBe(
+        `${dir}/Claude/claude_desktop_config.json`,
+      );
+    },
+  );
 });
 
 // Users edit these files by hand; keep the layout their editors produce.
