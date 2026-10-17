@@ -441,7 +441,7 @@ max_messages = 100
 
 > **Note:** OAuth2 support is experimental. Token refresh and provider-specific flows may require additional testing in your environment.
 
-Token refresh and code exchange give up after 15 seconds, so a provider that stops answering fails the connect with `OAuth2 token refresh timed out after 15s` instead of hanging it. Callers that need a fresh token at the same time share one refresh request.
+Token refresh and code exchange give up after 15 seconds, so a provider that stops answering fails the connect with `OAuth2 token refresh timed out after 15s` instead of hanging it. Callers that need a fresh token at the same time share one refresh request. The IDLE watcher logs in with the same access tokens.
 
 ```toml
 [[accounts]]

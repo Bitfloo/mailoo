@@ -12,11 +12,14 @@
 
 import type { MailboxLockObject } from 'imapflow';
 import { ImapFlow } from 'imapflow';
+import { buildImapAuth } from '../connections/auth.js';
 import { bindImapLifecycle, buildImapFlowOptions } from '../connections/manager.js';
+import type { AccessTokenSource } from '../connections/types.js';
 import { mcpLog } from '../logging.js';
 import type { AccountConfig, EmailMeta, WatcherConfig } from '../types/index.js';
 import type { EmailEventBus } from './event-bus.js';
 import eventBus from './event-bus.js';
+import OAuthService from './oauth.service.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -127,6 +130,7 @@ export default class WatcherService {
     config: WatcherConfig,
     accounts: AccountConfig[],
     private readonly events: EmailEventBus = eventBus,
+    private readonly tokens: AccessTokenSource = new OAuthService(),
   ) {
     this.config = config;
     this.accounts = accounts;
@@ -214,9 +218,9 @@ export default class WatcherService {
 
     let client: ImapFlow | undefined;
     try {
-      const auth = state.account.oauth2
-        ? { user: state.account.username, accessToken: state.account.password }
-        : { user: state.account.username, pass: state.account.password };
+      const auth = await buildImapAuth(state.account, this.tokens);
+      // stop() cannot close a client that does not exist yet.
+      if (state.stopped) return;
 
       client = new ImapFlow({
         ...buildImapFlowOptions(state.account, {

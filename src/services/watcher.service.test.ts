@@ -1,5 +1,6 @@
 import type { EventEmitter } from 'node:events';
 
+import type { AccessTokenSource } from '../connections/types.js';
 import type { AccountConfig, WatcherConfig } from '../types/index.js';
 import type { NewEmailEvent } from './event-bus.js';
 import { EmailEventBus } from './event-bus.js';
@@ -288,6 +289,19 @@ const testAccount: AccountConfig = {
   smtp: { host: 'smtp.example.com', port: 465, tls: true, starttls: false, verifySsl: true },
 };
 
+// OAuth accounts carry no password: the config schema leaves it empty for oauth2 accounts.
+const oauthAccount: AccountConfig = {
+  ...testAccount,
+  name: 'work',
+  password: undefined,
+  oauth2: {
+    provider: 'google',
+    clientId: 'client-id',
+    clientSecret: 'client-secret',
+    refreshToken: 'refresh-token',
+  },
+};
+
 const inboxOnly: WatcherConfig = { enabled: true, folders: ['INBOX'], idleTimeout: 1740 };
 
 const running: WatcherService[] = [];
@@ -295,13 +309,14 @@ const running: WatcherService[] = [];
 function watch(
   config: WatcherConfig = inboxOnly,
   accounts: AccountConfig[] = [testAccount],
+  tokens?: AccessTokenSource,
 ): { watcher: WatcherService; arrivals: NewEmailEvent[] } {
   const events = new EmailEventBus();
   const arrivals: NewEmailEvent[] = [];
   events.on('email:new', (event) => {
     arrivals.push(event);
   });
-  const watcher = new WatcherService(config, accounts, events);
+  const watcher = new WatcherService(config, accounts, events, tokens);
   running.push(watcher);
   return { watcher, arrivals };
 }
@@ -401,6 +416,34 @@ describe('WatcherService UID range', () => {
   });
 });
 
+describe('WatcherService OAuth2', () => {
+  it('should log in with a token from the token source', async () => {
+    const tokens: AccessTokenSource = { getAccessToken: async () => 'ya29.watcher-token' };
+    const { watcher } = watch(inboxOnly, [oauthAccount], tokens);
+    await watcher.start();
+    expect(fake.clients[0].options.auth).toEqual({
+      user: 'test@example.com',
+      accessToken: 'ya29.watcher-token',
+    });
+  });
+
+  it('should not open a connection when stop ran during the token refresh', async () => {
+    let issueToken = (_token: string): void => {};
+    const tokens: AccessTokenSource = {
+      getAccessToken: async () =>
+        new Promise<string>((resolve) => {
+          issueToken = resolve;
+        }),
+    };
+    const { watcher } = watch(inboxOnly, [oauthAccount], tokens);
+    const starting = watcher.start();
+    await watcher.stop();
+    issueToken('ya29.late-token');
+    await starting;
+    expect(fake.clients).toHaveLength(0);
+  });
+});
+
 describe('WatcherService failed connect', () => {
   it('should close the connection when the watched folder does not exist', async () => {
     const { watcher } = watch({ ...inboxOnly, folders: ['Archive'] });
@@ -468,6 +511,7 @@ describe('WatcherService stop', () => {
     });
     const { watcher } = watch();
     const starting = watcher.start();
+    await settle();
     await watcher.stop();
     expect(fake.clients.map((client) => client.closed)).toEqual([true]);
     answerLogin();
