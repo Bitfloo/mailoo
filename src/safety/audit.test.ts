@@ -1,37 +1,73 @@
 import fs from 'node:fs/promises';
-import audit from './audit.js';
+import os from 'node:os';
+import path from 'node:path';
 
-vi.mock('node:fs/promises');
-const mockFs = vi.mocked(fs);
+import type { AuditEntry } from '../types/index.js';
+import type audit from './audit.js';
+
+type Audit = typeof audit;
+
+function permissionBits(mode: number): number {
+  return mode % 0o1000;
+}
 
 describe('Audit Logger', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockFs.mkdir.mockResolvedValue(undefined);
-    mockFs.appendFile.mockResolvedValue(undefined);
+  let dataHome: string;
+  let logDir: string;
+  let auditLogger: Audit;
+
+  /** AUDIT_LOG_PATH is fixed when xdg.ts loads, so each test imports a fresh copy. */
+  async function loadAudit(): Promise<Audit> {
+    vi.stubEnv('XDG_DATA_HOME', dataHome);
+    vi.resetModules();
+    return (await import('./audit.js')).default;
+  }
+
+  async function readEntries(): Promise<AuditEntry[]> {
+    const text = await fs.readFile(auditLogger.AUDIT_LOG_PATH, 'utf-8');
+    return text
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as AuditEntry);
+  }
+
+  beforeEach(async () => {
+    dataHome = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-audit-'));
+    logDir = path.join(dataHome, 'mailoo');
+    auditLogger = await loadAudit();
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    await fs.chmod(dataHome, 0o700).catch(() => undefined);
+    await fs.rm(dataHome, { recursive: true, force: true });
   });
 
   it('logs an entry with tool, account, and result', async () => {
-    await audit.log('send_email', 'personal', { to: ['a@example.com'] }, 'ok');
-    expect(mockFs.appendFile).toHaveBeenCalledOnce();
-    const logLine = mockFs.appendFile.mock.calls[0][1] as string;
-    const entry = JSON.parse(logLine);
-    expect(entry.tool).toBe('send_email');
-    expect(entry.account).toBe('personal');
-    expect(entry.result).toBe('ok');
-    expect(entry.params.to).toEqual(['a@example.com']);
+    await auditLogger.log('send_email', 'personal', { to: ['a@example.com'] }, 'ok');
+    const [entry] = await readEntries();
+    expect(entry).toMatchObject({
+      tool: 'send_email',
+      account: 'personal',
+      result: 'ok',
+      params: { to: ['a@example.com'] },
+    });
   });
 
   it('redacts password field', async () => {
-    await audit.log('send_email', 'x', { password: 'secret123', to: ['a@example.com'] }, 'ok');
-    const logLine = mockFs.appendFile.mock.calls[0][1] as string;
-    const entry = JSON.parse(logLine);
-    expect(entry.params.password).toBe('[REDACTED]');
-    expect(entry.params.to).toEqual(['a@example.com']);
+    await auditLogger.log(
+      'send_email',
+      'x',
+      { password: 'secret123', to: ['a@example.com'] },
+      'ok',
+    );
+    const [entry] = await readEntries();
+    expect(entry.params).toEqual({ password: '[REDACTED]', to: ['a@example.com'] });
   });
 
   it('redacts body, bodyText, bodyHtml, content_base64', async () => {
-    await audit.log(
+    await auditLogger.log(
       'send_email',
       'x',
       {
@@ -43,17 +79,18 @@ describe('Audit Logger', () => {
       },
       'ok',
     );
-    const logLine = mockFs.appendFile.mock.calls[0][1] as string;
-    const entry = JSON.parse(logLine);
-    expect(entry.params.body).toBe('[REDACTED]');
-    expect(entry.params.bodyText).toBe('[REDACTED]');
-    expect(entry.params.bodyHtml).toBe('[REDACTED]');
-    expect(entry.params.content_base64).toBe('[REDACTED]');
-    expect(entry.params.subject).toBe('visible');
+    const [entry] = await readEntries();
+    expect(entry.params).toEqual({
+      body: '[REDACTED]',
+      bodyText: '[REDACTED]',
+      bodyHtml: '[REDACTED]',
+      content_base64: '[REDACTED]',
+      subject: 'visible',
+    });
   });
 
   it('redacts OAuth token fields in camelCase and snake_case', async () => {
-    await audit.log(
+    await auditLogger.log(
       'oauth',
       'x',
       {
@@ -67,42 +104,119 @@ describe('Audit Logger', () => {
       },
       'ok',
     );
-    const logLine = mockFs.appendFile.mock.calls[0][1] as string;
-    const entry = JSON.parse(logLine);
-    expect(entry.params.clientSecret).toBe('[REDACTED]');
-    expect(entry.params.client_secret).toBe('[REDACTED]');
-    expect(entry.params.refreshToken).toBe('[REDACTED]');
-    expect(entry.params.refresh_token).toBe('[REDACTED]');
-    expect(entry.params.accessToken).toBe('[REDACTED]');
-    expect(entry.params.access_token).toBe('[REDACTED]');
-    expect(entry.params.account).toBe('personal');
+    const [entry] = await readEntries();
+    expect(entry.params).toEqual({
+      clientSecret: '[REDACTED]',
+      client_secret: '[REDACTED]',
+      refreshToken: '[REDACTED]',
+      refresh_token: '[REDACTED]',
+      accessToken: '[REDACTED]',
+      access_token: '[REDACTED]',
+      account: 'personal',
+    });
   });
 
   it('redacts nested sensitive fields', async () => {
-    await audit.log('test', 'x', { nested: { password: 'abc', safe: 'ok' } }, 'ok');
-    const logLine = mockFs.appendFile.mock.calls[0][1] as string;
-    const entry = JSON.parse(logLine);
-    expect(entry.params.nested.password).toBe('[REDACTED]');
-    expect(entry.params.nested.safe).toBe('ok');
+    await auditLogger.log('test', 'x', { nested: { password: 'abc', safe: 'ok' } }, 'ok');
+    const [entry] = await readEntries();
+    expect(entry.params).toEqual({ nested: { password: '[REDACTED]', safe: 'ok' } });
   });
 
   it('includes error field when provided', async () => {
-    await audit.log('send_email', 'x', {}, 'error', 'Connection failed');
-    const logLine = mockFs.appendFile.mock.calls[0][1] as string;
-    const entry = JSON.parse(logLine);
-    expect(entry.result).toBe('error');
-    expect(entry.error).toBe('Connection failed');
+    await auditLogger.log('send_email', 'x', {}, 'error', 'Connection failed');
+    const [entry] = await readEntries();
+    expect(entry).toMatchObject({ result: 'error', error: 'Connection failed' });
   });
 
   it('does not include error field when not provided', async () => {
-    await audit.log('send_email', 'x', {}, 'ok');
-    const logLine = mockFs.appendFile.mock.calls[0][1] as string;
-    const entry = JSON.parse(logLine);
-    expect(entry.error).toBeUndefined();
+    await auditLogger.log('send_email', 'x', {}, 'ok');
+    const [entry] = await readEntries();
+    expect(entry).not.toHaveProperty('error');
   });
 
-  it('creates directory before writing', async () => {
-    await audit.log('test', 'x', {}, 'ok');
-    expect(mockFs.mkdir).toHaveBeenCalledBefore(mockFs.appendFile);
+  it('should append one line per call when called twice', async () => {
+    await auditLogger.log('send_email', 'x', { subject: 'first' }, 'ok');
+    await auditLogger.log('send_email', 'x', { subject: 'second' }, 'ok');
+    const entries = await readEntries();
+    expect(entries.map((entry) => entry.params.subject)).toEqual(['first', 'second']);
+  });
+
+  it('should create the log directory 0700 and the log file 0600 when neither exists', async () => {
+    await auditLogger.log('send_email', 'x', { to: ['a@example.com'] }, 'ok');
+    expect({
+      dir: permissionBits((await fs.stat(logDir)).mode),
+      file: permissionBits((await fs.stat(auditLogger.AUDIT_LOG_PATH)).mode),
+    }).toEqual({ dir: 0o700, file: 0o600 });
+  });
+
+  it.each([
+    { label: 'world-readable 0755/0644', dirMode: 0o755, fileMode: 0o644 },
+    { label: 'group-readable 0750/0640', dirMode: 0o750, fileMode: 0o640 },
+  ])(
+    'should tighten an existing $label directory and log file on the first write',
+    async ({ dirMode, fileMode }) => {
+      await fs.mkdir(logDir);
+      await fs.chmod(logDir, dirMode);
+      await fs.writeFile(auditLogger.AUDIT_LOG_PATH, '');
+      await fs.chmod(auditLogger.AUDIT_LOG_PATH, fileMode);
+
+      await auditLogger.log('send_email', 'x', { to: ['a@example.com'] }, 'ok');
+
+      expect({
+        dir: permissionBits((await fs.stat(logDir)).mode),
+        file: permissionBits((await fs.stat(auditLogger.AUDIT_LOG_PATH)).mode),
+      }).toEqual({ dir: 0o700, file: 0o600 });
+    },
+  );
+
+  it('should recreate the directory 0700 and the file 0600 when both are removed while running', async () => {
+    await auditLogger.log('send_email', 'x', { subject: 'first' }, 'ok');
+    await fs.rm(logDir, { recursive: true });
+
+    await auditLogger.log('send_email', 'x', { subject: 'second' }, 'ok');
+
+    expect({
+      dir: permissionBits((await fs.stat(logDir)).mode),
+      file: permissionBits((await fs.stat(auditLogger.AUDIT_LOG_PATH)).mode),
+      subjects: (await readEntries()).map((entry) => entry.params.subject),
+    }).toEqual({ dir: 0o700, file: 0o600, subjects: ['second'] });
+  });
+
+  // A tool audits after its side effect. A throw here turned a delivered email
+  // into an error result, and an agent retry sent it twice.
+  it('should resolve when the log file cannot be written', async () => {
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    await fs.mkdir(auditLogger.AUDIT_LOG_PATH, { recursive: true });
+
+    await expect(
+      auditLogger.log('send_email', 'x', { to: ['a@example.com'] }, 'ok'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('should write exactly one stderr line when the write fails', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    await fs.mkdir(auditLogger.AUDIT_LOG_PATH, { recursive: true });
+
+    await auditLogger.log('send_email', 'x', { to: ['a@example.com'] }, 'ok');
+
+    expect(stderr.mock.calls.map((call) => String(call[0]))).toEqual([
+      expect.stringMatching(/^\[mailoo\] audit log write failed: [^\n]+\n$/),
+    ]);
+  });
+
+  it('should keep recipients and subject out of the stderr line when the write fails', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    await fs.mkdir(auditLogger.AUDIT_LOG_PATH, { recursive: true });
+
+    await auditLogger.log('send_email', 'x', { to: ['a@example.com'], subject: 'Quarterly' }, 'ok');
+
+    expect(stderr.mock.calls.join('')).not.toMatch(/a@example\.com|Quarterly/);
+  });
+
+  it('should resolve when the log directory cannot be created', async () => {
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    await fs.writeFile(logDir, 'not a directory');
+
+    await expect(auditLogger.log('send_email', 'x', {}, 'ok')).resolves.toBeUndefined();
   });
 });
