@@ -262,8 +262,8 @@ describe('WatcherService reconnect timer', () => {
 describe('README watcher section', () => {
   it('should state how soon IDLE resumes after a fetch', async () => {
     const readme = await readFile(join(root, 'README.md'), 'utf8');
-    const seconds = AUTO_IDLE_DELAY_MS / 1000;
-    const spoken = seconds === 1 ? 'a second' : `${seconds} seconds`;
-    expect(readme).toContain(`IDLE resumes about ${spoken} after each fetch`);
+    // The README words the delay, so a new delay needs new wording there and here.
+    const wording: Record<number, string> = { 1000: 'a second' };
+    expect(readme).toContain(`IDLE resumes about ${wording[AUTO_IDLE_DELAY_MS]} after each fetch`);
   });
 });

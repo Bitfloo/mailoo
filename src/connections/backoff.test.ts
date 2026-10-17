@@ -134,7 +134,10 @@ describe('docs/configuration.md reconnect backoff', () => {
 
   it('should state how much the jitter shortens each window', async () => {
     const doc = await readFile(join(root, 'docs/configuration.md'), 'utf8');
-    const spoken = JITTER_RATIO === 0.25 ? 'a quarter' : `${JITTER_RATIO * 100}%`;
-    expect(doc.replace(/\s+/g, ' ')).toContain(`each window shortened by up to ${spoken}`);
+    // The guide words the ratio, so a new ratio needs new wording there and here.
+    const wording: Record<number, string> = { 0.25: 'a quarter' };
+    expect(doc.replace(/\s+/g, ' ')).toContain(
+      `each window shortened by up to ${wording[JITTER_RATIO]}`,
+    );
   });
 });
