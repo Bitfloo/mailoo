@@ -148,6 +148,22 @@ describe('OAuth2ConfigSchema custom endpoints', () => {
     expect(OAuth2ConfigSchema.safeParse(customOAuth(endpoint)).success).toBe(false);
   });
 
+  // Only plain http earns the loopback exception; another scheme is not https either.
+  it.each(['ftp://localhost/token', 'ws://127.0.0.1/token'])(
+    'should reject %s although its host is loopback',
+    (endpoint) => {
+      const config = { ...customOAuth('https://auth.example.com/token'), token_url: endpoint };
+      expect(OAuth2ConfigSchema.safeParse(config).success).toBe(false);
+    },
+  );
+
+  // Zod runs the https refine after .url() failed; a second issue would blame
+  // the scheme when the value is not a URL at all.
+  it('should report one issue for a token_url that is not a URL', () => {
+    const config = { ...customOAuth('https://auth.example.com/token'), token_url: 'not a url' };
+    expect(OAuth2ConfigSchema.safeParse(config).error?.issues).toHaveLength(1);
+  });
+
   it('should reject an http token_url even when auth_url is https', () => {
     const config = {
       ...customOAuth('https://auth.example.com/authorize'),
