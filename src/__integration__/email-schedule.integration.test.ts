@@ -73,7 +73,7 @@ describe('scheduled mail on GreenMail', () => {
   async function deliverDue(
     queueDir: string,
     options: { subject: string; inReplyTo?: string; references?: string[] },
-  ): Promise<{ id: string; email: Email }> {
+  ): Promise<{ id: string; email: Email; scheduled: ScheduledEmail }> {
     const { default: SchedulerService } = await import('../services/scheduler.service.js');
     const scheduler = new SchedulerService(services.smtpService, services.imapService, queueDir);
     const scheduled = await scheduler.schedule(TEST_ACCOUNT_NAME, {
@@ -99,8 +99,22 @@ describe('scheduled mail on GreenMail', () => {
     return {
       id: scheduled.id,
       email: await services.imapService.getEmail(TEST_ACCOUNT_NAME, id, 'INBOX'),
+      scheduled,
     };
   }
+
+  it('should delete the IMAP draft once the scheduled email is delivered', async () => {
+    const subject = `draft-cleanup-${Date.now()}`;
+    const { scheduled } = await deliverDue(path.join(stateHome, 'queue-draft'), { subject });
+    expect(scheduled.draftMessageId).toBeTruthy();
+    await expect(
+      services.imapService.getEmail(
+        TEST_ACCOUNT_NAME,
+        scheduled.draftMessageId ?? '',
+        scheduled.draftMailbox ?? '',
+      ),
+    ).rejects.toThrow();
+  });
 
   it('should deliver a scheduled email with a Message-ID built from its schedule id', async () => {
     const subject = `message-id-${Date.now()}`;
