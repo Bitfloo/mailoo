@@ -34,14 +34,34 @@ export const SmtpConfigSchema = z.object({
     }),
 });
 
+const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', '[::1]', 'localhost']);
+
+/** Plain http only to this machine: the token endpoint receives client_secret and refresh_token. */
+function isHttpsOrLoopback(value: string): boolean {
+  const url = URL.parse(value);
+  // Zod runs this refine even after .url() failed; that issue already covers it.
+  if (!url) return true;
+  return (
+    url.protocol === 'https:' || (url.protocol === 'http:' && LOOPBACK_HOSTNAMES.has(url.hostname))
+  );
+}
+
+const OAuthEndpointSchema = z
+  .string()
+  .url()
+  .refine(
+    isHttpsOrLoopback,
+    'OAuth2 endpoint must use https (http only for 127.0.0.1, ::1 or localhost)',
+  );
+
 export const OAuth2ConfigSchema = z.object({
   provider: z.enum(['google', 'microsoft', 'custom']),
   client_id: z.string().min(1, 'OAuth2 client_id is required'),
   client_secret: z.string().min(1, 'OAuth2 client_secret is required'),
   refresh_token: z.string().min(1, 'OAuth2 refresh_token is required'),
   // Custom provider endpoints (only when provider = "custom")
-  token_url: z.string().url().optional(),
-  auth_url: z.string().url().optional(),
+  token_url: OAuthEndpointSchema.optional(),
+  auth_url: OAuthEndpointSchema.optional(),
   scopes: z.array(z.string()).optional(),
 });
 

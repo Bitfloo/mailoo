@@ -2,6 +2,7 @@ import {
   AccountConfigSchema,
   AppConfigFileSchema,
   ImapConfigSchema,
+  OAuth2ConfigSchema,
   SettingsSchema,
   SmtpConfigSchema,
   SystemOneConfigSchema,
@@ -112,6 +113,53 @@ describe('AccountConfigSchema', () => {
 
   it('rejects missing smtp', () => {
     expect(() => AccountConfigSchema.parse({ ...validAccount(), smtp: undefined })).toThrow();
+  });
+});
+
+// The token endpoint receives client_secret and refresh_token in the POST body.
+describe('OAuth2ConfigSchema custom endpoints', () => {
+  function customOAuth(endpoint: string) {
+    return {
+      provider: 'custom' as const,
+      client_id: 'id',
+      client_secret: 'secret',
+      refresh_token: 'token',
+      token_url: endpoint,
+      auth_url: endpoint,
+    };
+  }
+
+  it.each([
+    'https://auth.example.com/token',
+    'http://127.0.0.1:8080/token',
+    'http://[::1]:8080/token',
+    'http://localhost:8080/token',
+  ])('should accept %s', (endpoint) => {
+    expect(OAuth2ConfigSchema.safeParse(customOAuth(endpoint)).success).toBe(true);
+  });
+
+  it.each([
+    'http://auth.example.com/token',
+    'http://10.0.0.5/token',
+    'http://localhost.example.com/token',
+    'ftp://auth.example.com/token',
+    'not a url',
+  ])('should reject %s', (endpoint) => {
+    expect(OAuth2ConfigSchema.safeParse(customOAuth(endpoint)).success).toBe(false);
+  });
+
+  it('should reject an http token_url even when auth_url is https', () => {
+    const config = {
+      ...customOAuth('https://auth.example.com/authorize'),
+      token_url: 'http://auth.example.com/token',
+    };
+    expect(OAuth2ConfigSchema.safeParse(config).error?.issues[0]?.path).toEqual(['token_url']);
+  });
+
+  it('should name https in the rejection message', () => {
+    expect(() => OAuth2ConfigSchema.parse(customOAuth('http://auth.example.com/token'))).toThrow(
+      /https/,
+    );
   });
 });
 
