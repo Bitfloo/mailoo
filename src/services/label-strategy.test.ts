@@ -10,14 +10,20 @@ import type { ImapFlow } from 'imapflow';
 import { detectLabelStrategy } from './label-strategy.js';
 
 function mockClient(gmail: boolean) {
+  const releaseFn = vi.fn();
   return {
     list: vi.fn().mockResolvedValue([]),
     capabilities: new Set(gmail ? ['X-GM-EXT-1'] : []),
-    getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
+    getMailboxLock: vi.fn().mockResolvedValue({ release: releaseFn }),
     mailbox: { permanentFlags: new Set(['\\*']) },
     messageFlagsAdd: vi.fn().mockResolvedValue(true),
     messageFlagsRemove: vi.fn().mockResolvedValue(true),
+    messageCopy: vi.fn().mockResolvedValue({ path: 'INBOX', destination: 'Labels/Work' }),
+    fetchOne: vi.fn().mockResolvedValue(false),
+    search: vi.fn().mockResolvedValue([]),
+    messageDelete: vi.fn().mockResolvedValue(true),
     mailboxDelete: vi.fn().mockResolvedValue({ path: 'deleted' }),
+    releaseFn,
   };
 }
 
@@ -47,6 +53,87 @@ async function gmailStrategy() {
   expect(strategy.type).toBe('gmail');
   return { client, strategy };
 }
+
+/** ProtonMail Bridge lists its labels under a \\Noselect "Labels" folder. */
+async function protonStrategy() {
+  const client = mockClient(false);
+  client.list.mockResolvedValue([
+    { name: 'Labels', path: 'Labels', flags: new Set(['\\Noselect']) },
+  ]);
+  const strategy = await detectLabelStrategy(client as unknown as ImapFlow);
+  expect(strategy.type).toBe('protonmail');
+  return { client, strategy };
+}
+
+/** Records which mailbox the last lock selected when each command ran. */
+function recordSelectedMailbox(client: ReturnType<typeof mockClient>) {
+  let selected = '';
+  const ranIn: string[] = [];
+  client.getMailboxLock.mockImplementation(async (path: string) => {
+    selected = path;
+    return { release: client.releaseFn };
+  });
+  const record = (result: unknown) => async () => {
+    ranIn.push(selected);
+    return result;
+  };
+  return { ranIn, record };
+}
+
+describe('label strategy detection', () => {
+  // A lock left held makes every later call on the account wait out the lock timeout.
+  it('should release the INBOX lock it takes to read PERMANENTFLAGS', async () => {
+    const { client } = await keywordStrategy();
+
+    expect(client.releaseFn).toHaveBeenCalledTimes(1);
+  });
+});
+
+// A UID names a message only within the selected mailbox, and imapflow
+// selects it when the lock is taken: another mailbox would label another message.
+describe('label mailbox selection', () => {
+  it.each([
+    ['keyword', 'addLabel', keywordStrategy],
+    ['keyword', 'removeLabel', keywordStrategy],
+    ['Gmail', 'addLabel', gmailStrategy],
+    ['Gmail', 'removeLabel', gmailStrategy],
+  ] as const)(
+    'should run a %s %s while the message mailbox is selected',
+    async (_, method, setup) => {
+      const { client, strategy } = await setup();
+      const { ranIn, record } = recordSelectedMailbox(client);
+      client.messageFlagsAdd.mockImplementation(record(true));
+      client.messageFlagsRemove.mockImplementation(record(true));
+
+      await strategy[method](client as unknown as ImapFlow, '5', 'Archive', 'Work');
+
+      expect(ranIn).toEqual(['Archive']);
+    },
+  );
+
+  it('should copy a ProtonMail label from the message mailbox', async () => {
+    const { client, strategy } = await protonStrategy();
+    const { ranIn, record } = recordSelectedMailbox(client);
+    client.messageCopy.mockImplementation(record({ path: 'Archive', destination: 'Labels/Work' }));
+
+    await strategy.addLabel(client as unknown as ImapFlow, '5', 'Archive', 'Work');
+
+    expect(ranIn).toEqual(['Archive']);
+  });
+
+  it('should read the Message-ID for a ProtonMail label removal in the message mailbox', async () => {
+    const { client, strategy } = await protonStrategy();
+    const { ranIn, record } = recordSelectedMailbox(client);
+    client.fetchOne.mockImplementation(
+      record({ uid: 5, envelope: { messageId: '<label-removal@example.test>' } }),
+    );
+    client.search.mockResolvedValue([12]);
+
+    await strategy.removeLabel(client as unknown as ImapFlow, '5', 'Archive', 'Work');
+
+    expect(ranIn).toEqual(['Archive']);
+  });
+});
 
 describe('keyword labels', () => {
   it('should refuse to add a system flag and not store it', async () => {
@@ -127,31 +214,6 @@ describe('Gmail labels', () => {
       useLabels: true,
     });
   });
-
-  // A UID names a message only within the selected mailbox, and imapflow
-  // selects it when the lock is taken: another mailbox would label another message.
-  it.each(['addLabel', 'removeLabel'] as const)(
-    'should %s while the message mailbox is selected',
-    async (method) => {
-      const { client, strategy } = await gmailStrategy();
-      let selected = '';
-      const storedIn: string[] = [];
-      client.getMailboxLock.mockImplementation(async (path: string) => {
-        selected = path;
-        return { release: vi.fn() };
-      });
-      const store = async () => {
-        storedIn.push(selected);
-        return true;
-      };
-      client.messageFlagsAdd.mockImplementation(store);
-      client.messageFlagsRemove.mockImplementation(store);
-
-      await strategy[method](client as unknown as ImapFlow, '5', 'Archive', 'Work');
-
-      expect(storedIn).toEqual(['Archive']);
-    },
-  );
 
   // On Gmail a label is a folder: deleting [Gmail]/Trash or INBOX through
   // delete_label would remove a system folder, not a label.
