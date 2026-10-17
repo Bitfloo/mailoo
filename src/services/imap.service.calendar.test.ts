@@ -97,6 +97,43 @@ describe('ImapService', () => {
       expect(parts).toEqual(['body-of-part-2']);
     });
 
+    it('should number a nested calendar part by its dotted path when the structure has none', async () => {
+      fetchOneByUid(client, {
+        uid: 9,
+        bodyStructure: withoutPartNumbers({
+          type: 'multipart/mixed',
+          childNodes: [
+            {
+              type: 'multipart/alternative',
+              childNodes: [
+                { part: '1.1', type: 'text/plain', encoding: '7bit', size: 10, lineCount: 1 },
+                { part: '1.2', ...calendarPart },
+              ],
+            },
+          ],
+        }),
+      });
+      downloadReturnsPartName(client);
+
+      const parts = await service.getCalendarParts('test', 'INBOX', '9');
+
+      expect(parts).toEqual(['body-of-part-1.2']);
+    });
+
+    it('should not treat physics.pdf as a calendar part', async () => {
+      fetchOneByUid(client, {
+        uid: 9,
+        bodyStructure: mixedStructure(
+          attachmentNode('2', 'physics.pdf', { type: 'application/pdf' }),
+        ),
+      });
+      downloadReturnsPartName(client);
+
+      const parts = await service.getCalendarParts('test', 'INBOX', '9');
+
+      expect(parts).toEqual([]);
+    });
+
     // imapflow's fetchOne answers false for a UID the mailbox does not hold, and
     // undefined once the connection has dropped and no mailbox is selected.
     it.each([false, undefined])(
