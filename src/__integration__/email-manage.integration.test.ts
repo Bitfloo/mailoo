@@ -286,6 +286,58 @@ describe('Email Management Operations', () => {
     });
   });
 
+  // A fresh folder numbers its messages from UID 1. This account's INBOX holds
+  // a UID of the folder too, so an expunge run in INBOX would remove that message.
+  describe('bulkDelete from a folder other than INBOX', () => {
+    const owner = 'integration-sender';
+    const folder = 'Bulk Delete Source';
+    let ownerServices: TestServices;
+
+    async function uidsIn(mailbox: string): Promise<number[]> {
+      const list = await ownerServices.imapService.listEmails(owner, { mailbox, pageSize: 100 });
+      return list.items.map((m) => Number(m.id)).sort((a, b) => a - b);
+    }
+
+    beforeAll(async () => {
+      // No other test writes to this user's INBOX, so it keeps its low UIDs.
+      ownerServices = createTestServices(
+        buildTestAccount({
+          name: owner,
+          email: 'sender@localhost',
+          username: 'sender',
+          password: 'sender',
+        }),
+      );
+      const subject = 'Bulk delete from a folder';
+      await ownerServices.imapService.createMailbox(owner, folder);
+      await seedEmails(3, { to: 'sender@localhost', subject });
+      await waitForDelivery(subject, { user: 'sender', count: 3 });
+      const seeded = await ownerServices.imapService.listEmails(owner, { subject });
+      const [, ...toMove] = seeded.items.map((m) => Number(m.id)).sort((a, b) => a - b);
+      await ownerServices.imapService.bulkMove(owner, toMove, 'INBOX', folder);
+    });
+
+    afterAll(async () => {
+      await ownerServices.imapService.deleteMailbox(owner, folder);
+      await ownerServices.connections.closeAll();
+    });
+
+    it('should expunge only the named folder and leave INBOX untouched', async () => {
+      const folderUids = await uidsIn(folder);
+      const inboxBefore = await uidsIn('INBOX');
+      if (!folderUids.some((uid) => inboxBefore.includes(uid))) {
+        throw new Error('fixture expects INBOX to hold a UID of the folder');
+      }
+
+      await ownerServices.imapService.bulkDelete(owner, folderUids, folder, true);
+
+      expect({ folder: await uidsIn(folder), inbox: await uidsIn('INBOX') }).toEqual({
+        folder: [],
+        inbox: inboxBefore,
+      });
+    });
+  });
+
   // A sequence-set is a legal IMAP UID argument and would select every message.
   describe('single-message id checks', () => {
     it('should leave both messages when deleteEmail is given a sequence set', async () => {
