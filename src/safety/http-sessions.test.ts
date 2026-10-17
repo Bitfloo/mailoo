@@ -17,6 +17,7 @@ interface Run {
 }
 
 interface Step {
+  action: 'set' | 'begin' | 'end' | 'touch' | 'wait' | 'sweep';
   added?: string;
   swept: boolean;
   overCap: boolean;
@@ -38,25 +39,29 @@ function applyRandomAction(run: Run, random: () => number): Step {
     store.set(id, fakeTransport());
     open.set(id, 0);
     lastUsed.set(id, clock.now);
-    return { added: id, swept: true, overCap: full };
+    return { action: 'set', added: id, swept: true, overCap: full };
   }
+  let action: Step['action'] = 'wait';
   if (roll < 0.4 && store.get(id)) {
     store.beginRequest(id);
     open.set(id, (open.get(id) ?? 0) + 1);
     lastUsed.set(id, clock.now);
+    action = 'begin';
   } else if (roll < 0.6) {
     store.endRequest(id);
     if (open.has(id)) open.set(id, Math.max(0, (open.get(id) ?? 0) - 1));
+    action = 'end';
   } else if (roll < 0.7 && store.get(id)) {
     store.touch(id);
     lastUsed.set(id, clock.now);
+    action = 'touch';
   } else if (roll < 0.85) {
     clock.now += Math.floor(random() * 800);
   } else {
     store.evict();
-    return { swept: true, overCap };
+    return { action: 'sweep', swept: true, overCap };
   }
-  return { swept: false, overCap };
+  return { action, swept: false, overCap };
 }
 
 /** What a session's fate after one step says about the table, if it breaks a promise. */
@@ -180,12 +185,15 @@ describe('HttpSessionStore', () => {
   it('should keep the table invariants over a seeded mix of sessions, requests, waits and sweeps', () => {
     const run = newRun();
     const random = seededRandom(20_261_017);
+    const unvisited = new Set<Step['action']>(['set', 'begin', 'end', 'touch', 'wait', 'sweep']);
 
-    const breaches = Array.from({ length: 3_000 }).flatMap((_, at) =>
-      checkInvariants(run, applyRandomAction(run, random), at),
-    );
+    const breaches = Array.from({ length: 3_000 }).flatMap((_, at) => {
+      const step = applyRandomAction(run, random);
+      unvisited.delete(step.action);
+      return checkInvariants(run, step, at);
+    });
 
-    expect(breaches).toEqual([]);
+    expect({ breaches, unvisited: [...unvisited] }).toEqual({ breaches: [], unvisited: [] });
   });
 
   it('writes stderr when transport.close rejects', async () => {

@@ -180,30 +180,32 @@ describe('RateLimiter', () => {
     const random = seededRandom(20_261_017);
     const start = Date.now();
     const exact = exactBucket(max, 60_000, start);
-    let allowed = 0;
+    const visits = { wait: 0, allowed: 0, denied: 0 };
     const breaches: string[] = [];
 
     Array.from({ length: 2_000 }).forEach((_, step) => {
       if (random() < 0.5) {
         vi.advanceTimersByTime(Math.floor(random() * 20_000));
+        visits.wait += 1;
       } else {
         const decision = limiter.tryConsume('acct');
         if (decision !== exact.tryConsume(Date.now())) {
           breaches.push(`step ${step}: allowed ${String(decision)}, the exact bucket disagrees`);
         }
-        if (decision) allowed += 1;
+        visits[decision ? 'allowed' : 'denied'] += 1;
       }
       const remaining = limiter.remaining('acct');
       const exactRemaining = exact.remaining(Date.now());
       const earned = max + (max * (Date.now() - start)) / 60_000;
-      if (remaining !== exactRemaining || remaining > max || allowed > earned) {
+      if (remaining !== exactRemaining || remaining > max || visits.allowed > earned) {
         breaches.push(
-          `step ${step}: remaining ${remaining} (exact ${exactRemaining}), allowed ${allowed} of ${earned}`,
+          `step ${step}: remaining ${remaining} (exact ${exactRemaining}), allowed ${visits.allowed} of ${earned}`,
         );
       }
     });
+    const unvisited = Object.entries(visits).flatMap(([name, count]) => (count ? [] : [name]));
 
-    expect(breaches).toEqual([]);
+    expect({ breaches, unvisited }).toEqual({ breaches: [], unvisited: [] });
   });
 
   it('uses default limit of 10 when no argument provided', () => {
