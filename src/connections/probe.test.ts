@@ -87,6 +87,14 @@ describe('testImap', () => {
     expect(h.logout).toHaveBeenCalledOnce();
   });
 
+  it('should log out after a successful probe', async () => {
+    expect(await testImap(account)).toEqual({
+      success: true,
+      details: { messages: 12, folders: 2 },
+    });
+    expect(h.logout).toHaveBeenCalledOnce();
+  });
+
   it('should count the first folder when the account has no INBOX', async () => {
     h.missing.add('INBOX');
     expect(await testImap(account)).toEqual({
@@ -97,6 +105,11 @@ describe('testImap', () => {
 });
 
 describe('testSmtp', () => {
+  it('should close the transport after a successful verify', async () => {
+    expect(await testSmtp(account)).toEqual({ success: true });
+    expect(h.close).toHaveBeenCalledOnce();
+  });
+
   it('should report the refused login and close the transport', async () => {
     h.verifyError = Object.assign(
       new Error('Invalid login: 535-5.7.8 Username and Password not accepted'),
