@@ -13,13 +13,17 @@ export function jobGate(job: string): string {
 }
 
 /**
- * Whether a job runs, given its gate and the result of each job it needs. Only always(),
- * needs.<job>.result == '<value>', &&, || and parentheses are read. Anything else throws, so a
- * gate on the event, the ref or an input cannot pass unread.
+ * Whether a job runs, given its gate, the result of each job it needs, and any other context value
+ * the caller passes, such as github.event_name. Only always(), needs.<job>.result, those values,
+ * == and != against a quoted string, !, &&, || and parentheses are read. Anything else throws, so
+ * a gate on a context the caller did not pass cannot pass unread.
  */
-export function runsJob(gate: string, needs: Record<string, string>): boolean {
-  const tokens: string[] =
-    gate.match(/always\(\)|needs\.[\w-]+\.result|==|&&|\|\||[()]|'[^']*'|\S+/g) ?? [];
+export function runsJob(
+  gate: string,
+  needs: Record<string, string>,
+  context: Record<string, string | boolean> = {},
+): boolean {
+  const tokens: string[] = gate.match(/always\(\)|[\w.-]+|==|!=|&&|\|\||[!()]|'[^']*'|\S+/g) ?? [];
   let at = 0;
   const fail = (): never => {
     throw new Error(`unsupported gate at token ${at}: ${gate}`);
@@ -35,15 +39,26 @@ export function runsJob(gate: string, needs: Record<string, string>): boolean {
       const value = either();
       return next() === ')' ? value : fail();
     }
+    if (token === '!') {
+      return !operand();
+    }
     if (token === 'always()') {
       return true;
     }
-    const job = /^needs\.([\w-]+)\.result$/.exec(token)?.[1];
-    if (job === undefined || !(job in needs) || next() !== '==') {
-      return fail();
+    const value = read(token);
+    if (tokens[at] !== '==' && tokens[at] !== '!=') {
+      return Boolean(value);
     }
+    const equal = next() === '==';
     const expected = /^'([^']*)'$/.exec(next())?.[1] ?? fail();
-    return needs[job] === expected;
+    return (value === expected) === equal;
+  };
+  const read = (name: string): string | boolean => {
+    const job = /^needs\.([\w-]+)\.result$/.exec(name)?.[1];
+    if (job === undefined) {
+      return Object.hasOwn(context, name) ? context[name] : fail();
+    }
+    return Object.hasOwn(needs, job) ? needs[job] : fail();
   };
   const both = (): boolean => {
     let value = operand();
