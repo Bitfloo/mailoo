@@ -164,12 +164,14 @@ describe('calendar state lock window', () => {
     );
   }
 
-  it('should take a lock 11 s old', async () => {
-    expect(await marksPastLockAged(11_000)).toBe(true);
+  // Half a second outside the window, so a window lengthened past it would keep the lock.
+  it('should take a lock 10 500 ms old', async () => {
+    expect(await marksPastLockAged(10_500)).toBe(true);
   });
 
-  it('should refuse a lock 9 s old as busy', async () => {
-    expect(await marksPastLockAged(9_000)).toBe(false);
+  // Half a second inside the window, so a window shortened to 9 s would take it.
+  it('should refuse a lock 9 500 ms old as busy', async () => {
+    expect(await marksPastLockAged(9_500)).toBe(false);
   });
 
   it('should renew the lock within 2 s while a write still holds it', async () => {

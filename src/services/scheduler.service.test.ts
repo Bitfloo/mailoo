@@ -1171,12 +1171,14 @@ describe('overlapping queue checks', () => {
   }
 
   // Literals, not STALE_LOCK_MS: a dead holder may hold an email back for five minutes, no longer.
-  it('should leave a claim renewed 299 s ago with its holder', async () => {
-    expect(await sentPastClaimAged(299_000)).toBe(0);
+  // Half a second inside the window, so a window shortened to 299 s would take it.
+  it('should leave a claim 299 500 ms old with its holder', async () => {
+    expect(await sentPastClaimAged(299_500)).toBe(0);
   });
 
-  it('should take a claim unrenewed for 301 s and send the email', async () => {
-    expect(await sentPastClaimAged(301_000)).toBe(1);
+  // Half a second outside the window, so a window lengthened past it would keep the claim.
+  it('should take a claim 300 500 ms old and send the email', async () => {
+    expect(await sentPastClaimAged(300_500)).toBe(1);
   });
 
   async function mtimeOf(lockPath: string): Promise<number> {
@@ -1205,7 +1207,8 @@ describe('overlapping queue checks', () => {
         expect(first.smtp.sendEmail).toHaveBeenCalledTimes(1);
       });
       const before = await mtimeOf(lockPath);
-      await vi.advanceTimersByTimeAsync(2 * STALE_LOCK_MS);
+      // Short of one stale window, so a renewal slower than the window would not land.
+      await vi.advanceTimersByTimeAsync(STALE_LOCK_MS - 1);
       await vi.waitFor(async () => {
         expect(await mtimeOf(lockPath)).toBeGreaterThan(before);
       });
