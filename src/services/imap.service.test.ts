@@ -885,6 +885,16 @@ describe('ImapService', () => {
 
       expect(Buffer.from(result.contentBase64, 'base64').toString()).toBe('body-of-part-2');
     });
+
+    // A lock left held makes every later call on the account wait out the lock timeout.
+    it('should release the mailbox lock once after downloading', async () => {
+      fetchOneByUid({ uid: 9, bodyStructure: twinAttachmentStructure('a.txt', 'b.txt') });
+      downloadReturnsPartName();
+
+      await service.downloadAttachment('test', '9', 'INBOX', 'b.txt');
+
+      expect(client._releaseFn).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('saveEmailAttachments', () => {
@@ -1134,6 +1144,15 @@ describe('ImapService', () => {
       expect(parts).toEqual(['body-of-part-2']);
     });
 
+    it('should release the mailbox lock once after reading the parts', async () => {
+      fetchOneByUid({ uid: 9, bodyStructure: mixedStructure({ part: '2', ...calendarPart }) });
+      downloadReturnsPartName();
+
+      await service.getCalendarParts('test', 'INBOX', '9');
+
+      expect(client._releaseFn).toHaveBeenCalledTimes(1);
+    });
+
     it('should issue no command while a FETCH is open', async () => {
       const message = { uid: 9, bodyStructure: { part: '2', ...calendarPart } };
       fetchOneByUid(message);
@@ -1330,6 +1349,14 @@ describe('ImapService', () => {
       const result = await service.getThread('test', '<thread-1@example.test>');
 
       expect(result.messages.map((m) => m.messageId)).toEqual(chainIds);
+    });
+
+    it('should release the mailbox lock once after reading the thread', async () => {
+      serveThread(thread);
+
+      await service.getThread('test', '<thread-3@example.test>');
+
+      expect(client._releaseFn).toHaveBeenCalledTimes(1);
     });
   });
 

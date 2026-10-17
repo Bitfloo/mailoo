@@ -89,6 +89,17 @@ describe('lockMailbox', () => {
     expect(((await pending) as Error).cause).toMatchObject({ code: 'LockTimeout' });
   });
 
+  it('should open the mailbox read-only with a 60 s acquire timeout when asked to', async () => {
+    const getMailboxLock = vi.fn().mockResolvedValue({ path: 'Archive', release: vi.fn() });
+
+    await lockMailbox({ getMailboxLock } as unknown as ImapFlow, 'Archive', { readOnly: true });
+
+    expect(getMailboxLock).toHaveBeenCalledWith('Archive', {
+      readOnly: true,
+      acquireTimeout: 60_000,
+    });
+  });
+
   it('should pass any other lock error through unchanged', async () => {
     const failure = new Error('Mailbox does not exist');
     const client = { getMailboxLock: vi.fn().mockRejectedValue(failure) } as unknown as ImapFlow;
