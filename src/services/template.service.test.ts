@@ -1,3 +1,4 @@
+import type { PathLike } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -110,6 +111,26 @@ describe('TemplateService', () => {
     const templates = await service.listTemplates();
     expect(templates).toHaveLength(1);
     expect(templates[0].name).toBe('greeting');
+  });
+
+  it('should skip a template file that vanishes before it is read', async () => {
+    await fs.writeFile(path.join(tempDir, 'greeting.toml'), VALID_TEMPLATE);
+    await fs.writeFile(path.join(tempDir, 'gone.toml'), MINIMAL_TEMPLATE);
+    const realReadFile = fs.readFile;
+    // Removed after readdir listed it, as an editor's save-and-rename or a sync client does.
+    const readFile = vi
+      .spyOn(fs, 'readFile')
+      .mockImplementation(async (file: PathLike | fs.FileHandle, options?: unknown) => {
+        if (String(file).endsWith('gone.toml')) await fs.rm(file as PathLike);
+        return realReadFile(file, options as BufferEncoding);
+      });
+    onTestFinished(() => {
+      readFile.mockRestore();
+    });
+
+    const templates = await service.listTemplates();
+
+    expect(templates.map((t) => t.name)).toEqual(['greeting']);
   });
 
   it('listTemplates() returns empty array when directory does not exist', async () => {
