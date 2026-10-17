@@ -3,7 +3,14 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 
-import { __resetForTesting, bindServer, markInitialized, mcpLog, unbindServer } from './logging.js';
+import {
+  __resetForTesting,
+  bindServer,
+  boundServerCount,
+  markInitialized,
+  mcpLog,
+  unbindServer,
+} from './logging.js';
 import createServer from './server.js';
 
 // ---------------------------------------------------------------------------
@@ -256,6 +263,23 @@ describe('mcpLog across HTTP sessions', () => {
     await flush();
 
     expect(first.received).toEqual([]);
+  });
+
+  // oninitialized can fire after the session was released; marking it then
+  // must not put the closed session's server back into the table.
+  it('should not re-add a server that was unbound before its handshake was marked', async () => {
+    const late = await connectSession();
+    bindServer(late.server);
+    unbindServer(late.server);
+    markInitialized(late.server);
+
+    await mcpLog('info', 'test', 'after release');
+    await flush();
+
+    expect({ bound: boundServerCount(), received: late.received }).toEqual({
+      bound: 0,
+      received: [],
+    });
   });
 
   it('should keep sending to a session that is bound again after its handshake', async () => {

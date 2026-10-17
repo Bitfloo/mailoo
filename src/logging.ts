@@ -64,8 +64,8 @@ export function markInitialized(server?: McpServer): void {
 }
 
 /**
- * Number of bound servers. Read-only, for tests that check a closed session
- * stops being retained.
+ * Number of bound servers. Exported for tests only: they prove a disposed
+ * session's server is released, which no log output can show.
  * @internal
  */
 export function boundServerCount(): number {
