@@ -1,45 +1,82 @@
+import { jobGate, runsJob } from './workflow-gates.js';
 import { jobSections, releaseYml } from './workflow-yaml.js';
 
-/** A job's own if:, folded lines included. */
-function jobIf(job: string): string {
-  return job.match(/^ {4}if:.*(?:\n {6,}\S.*)*/m)?.[0] ?? '';
-}
-
-/** A job gate that reads the event, the ref or an input lets only some kinds of release through. */
-const readsReleaseKind = /\b(?:github|inputs)\s*[.[]/;
-
-function stampJob(): string {
-  const job = jobSections(releaseYml).find((section) =>
-    section.includes('- name: Set version in server.json\n'),
-  );
+function releaseJob(marker: string): string {
+  const job = jobSections(releaseYml).find((section) => section.includes(marker));
   if (!job) {
-    throw new Error('no release job runs Set version in server.json');
+    throw new Error(`no release job holds ${marker.trim()}`);
   }
   return job;
 }
 
-describe('release version selection', () => {
+const stampJob = () => releaseJob('- name: Set version in server.json\n');
+const dockerJob = () => releaseJob('goreleaser/goreleaser-action@');
+
+describe('release job gate evaluator', () => {
   it.each([
     "    if: always() && github.ref_type == 'tag' && (needs.npm.result == 'success')",
     "    if: always() && inputs.version != '' && (needs.npm.result == 'success')",
     "    if: >-\n      always() &&\n      github.event_name == 'push'",
-  ])('should flag %j as a job gate on the kind of release', (job) => {
-    expect(jobIf(job)).toMatch(readsReleaseKind);
+    "    if: success() && needs.npm.result == 'success'",
+    "    if: needs.npm.result != 'failure'",
+    "    if: needs.lint.result == 'success'",
+    '    if: always() always()',
+  ])('should refuse to evaluate %j as a release job gate', (job) => {
+    expect(() => runsJob(jobGate(job), { npm: 'success' })).toThrow(/unsupported gate/);
   });
 
-  it('should pass a gate on the npm result as one every kind of release gets through', () => {
-    const gate =
-      "    if: always() && (needs.npm.result == 'success' || needs.npm.result == 'skipped')";
-    expect(jobIf(gate)).not.toMatch(readsReleaseKind);
+  it.each([
+    { job: "    if: needs.npm.result == 'success'", npm: 'success', runs: true },
+    { job: "    if: needs.npm.result == 'skipped'", npm: 'skipped', runs: false },
+    {
+      job: "    if: needs.npm.result == 'failure' || always() && needs.npm.result == 'skipped'",
+      npm: 'failure',
+      runs: true,
+    },
+    {
+      job: "    if: (needs.npm.result == 'skipped' || always()) && needs.npm.result == 'failure'",
+      npm: 'skipped',
+      runs: false,
+    },
+    {
+      job: "    if: >-\n      always() &&\n      needs.npm.result == 'skipped'",
+      npm: 'skipped',
+      runs: true,
+    },
+    {
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub expression, not a JS template
+      job: "    if: ${{ always() && needs.npm.result == 'cancelled' }}",
+      npm: 'cancelled',
+      runs: true,
+    },
+  ])('should evaluate $job to $runs when npm is $npm', ({ job, npm, runs }) => {
+    expect(runsJob(jobGate(job), { npm })).toBe(runs);
+  });
+});
+
+describe('release job gates', () => {
+  // A tag push publishes to npm first, and skip-npm skips that job on a manual run. Both must
+  // reach the registry; a failed or cancelled npm publish must stop it.
+  it.each(['success', 'skipped'])('should publish to the MCP Registry when npm is %s', (npm) => {
+    expect(runsJob(jobGate(stampJob()), { npm })).toBe(true);
   });
 
-  it('should not gate the job that stamps server.json on the kind of release', () => {
-    expect(jobIf(stampJob())).not.toMatch(readsReleaseKind);
-  });
+  it.each(['failure', 'cancelled'])(
+    'should not publish to the MCP Registry when npm is %s',
+    (npm) => {
+      expect(runsJob(jobGate(stampJob()), { npm })).toBe(false);
+    },
+  );
 
-  it('should run the job that stamps server.json when a manual run skips npm', () => {
-    // skip-npm skips the npm job, and a job that needs it is skipped too unless its if: says always().
-    expect(jobIf(stampJob())).toMatch(/^(?=.*\balways\(\))(?=.*needs\.npm\.result == 'skipped')/s);
+  it.each(['success', 'skipped'])(
+    'should publish Docker images when npm is %s and MCP succeeded',
+    (npm) => {
+      expect(runsJob(jobGate(dockerJob()), { npm, mcp: 'success' })).toBe(true);
+    },
+  );
+
+  it.each(['failure', 'cancelled'])('should not publish Docker images when npm is %s', (npm) => {
+    expect(runsJob(jobGate(dockerJob()), { npm, mcp: 'success' })).toBe(false);
   });
 
   it('should make the job that stamps server.json need npm when its if: reads the npm result', () => {

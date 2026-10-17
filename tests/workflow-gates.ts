@@ -1,0 +1,73 @@
+/** A job's if: expression with folded lines joined and any ${{ }} wrapper removed. */
+export function jobGate(job: string): string {
+  const gate = job.match(/^ {4}if:(.*(?:\n {6,}\S.*)*)/m)?.[1];
+  if (gate === undefined) {
+    throw new Error('job has no if:');
+  }
+  return gate
+    .replace(/^\s*[>|][-+]?/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^\$\{\{(.*)\}\}$/, '$1')
+    .trim();
+}
+
+/**
+ * Whether a job runs, given its gate and the result of each job it needs. Only always(),
+ * needs.<job>.result == '<value>', &&, || and parentheses are read. Anything else throws, so a
+ * gate on the event, the ref or an input cannot pass unread.
+ */
+export function runsJob(gate: string, needs: Record<string, string>): boolean {
+  const tokens: string[] =
+    gate.match(/always\(\)|needs\.[\w-]+\.result|==|&&|\|\||[()]|'[^']*'|\S+/g) ?? [];
+  let at = 0;
+  const fail = (): never => {
+    throw new Error(`unsupported gate at token ${at}: ${gate}`);
+  };
+  const next = (): string => {
+    const token = tokens[at];
+    at += 1;
+    return token ?? fail();
+  };
+  const operand = (): boolean => {
+    const token = next();
+    if (token === '(') {
+      const value = either();
+      return next() === ')' ? value : fail();
+    }
+    if (token === 'always()') {
+      return true;
+    }
+    const job = /^needs\.([\w-]+)\.result$/.exec(token)?.[1];
+    if (job === undefined || !(job in needs) || next() !== '==') {
+      return fail();
+    }
+    const expected = /^'([^']*)'$/.exec(next())?.[1] ?? fail();
+    return needs[job] === expected;
+  };
+  const both = (): boolean => {
+    let value = operand();
+    while (tokens[at] === '&&') {
+      at += 1;
+      value = operand() && value;
+    }
+    return value;
+  };
+  const either = (): boolean => {
+    let value = both();
+    while (tokens[at] === '||') {
+      at += 1;
+      value = both() || value;
+    }
+    return value;
+  };
+  const value = either();
+  if (at < tokens.length) {
+    fail();
+  }
+  // A gate with no status function gets the runner's implicit success(): every needed job succeeded.
+  return (
+    value &&
+    (tokens.includes('always()') || Object.values(needs).every((result) => result === 'success'))
+  );
+}
