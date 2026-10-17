@@ -88,8 +88,9 @@ export type AddEventStatus = (typeof ADD_EVENT_STATUSES)[number];
 
 /**
  * Settled: the event is in the calendar, was already there, or the user declined it.
- * A timed-out dialog or a missing display is not; the email stays eligible for hooks and
- * the audit log records an error. Keyed by every status, so a new one must be placed here.
+ * A timed-out dialog or a missing display is not; the email stays eligible for hooks, and
+ * an add made through the tools is audited as an error. Keyed by every status, so a new one
+ * must be placed here.
  */
 const SETTLED_ADD_STATUS: Record<AddEventStatus, boolean> = {
   added: true,
