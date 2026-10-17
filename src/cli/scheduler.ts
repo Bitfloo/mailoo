@@ -13,11 +13,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { loadConfig } from '../config/loader.js';
-import ConnectionManager from '../connections/manager.js';
-import RateLimiter from '../safety/rate-limiter.js';
-import ImapService from '../services/imap.service.js';
+import { createMailServices } from '../services/mail-services.js';
 import SchedulerService from '../services/scheduler.service.js';
-import SmtpService from '../services/smtp.service.js';
+import type { AppConfig, ScheduledEmail } from '../types/index.js';
 
 const LAUNCHD_LABEL = 'com.bitfloo.mailoo.scheduler';
 const LAUNCHD_PLIST_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents');
@@ -108,13 +106,31 @@ function getExecutablePath(): string {
   return process.argv[1] ?? 'mailoo';
 }
 
-async function createSchedulerService(): Promise<SchedulerService> {
-  const config = await loadConfig();
-  const connections = new ConnectionManager(config.accounts);
-  const rateLimiter = new RateLimiter(config.settings.rateLimit);
-  const imapService = new ImapService(connections);
-  const smtpService = new SmtpService(connections, rateLimiter, imapService);
-  return new SchedulerService(smtpService, imapService);
+// A pooled SMTP socket or an IMAP session left open keeps a cron run alive
+// after its work is done.
+async function withScheduler<T>(
+  config: AppConfig,
+  run: (scheduler: SchedulerService) => Promise<T>,
+  queueDir?: string,
+): Promise<T> {
+  const { connections, imap, smtp } = createMailServices(config);
+  try {
+    return await run(new SchedulerService(smtp, imap, queueDir));
+  } finally {
+    await connections.closeAll();
+  }
+}
+
+export async function checkScheduledEmails(
+  config: AppConfig,
+  queueDir?: string,
+): Promise<Awaited<ReturnType<SchedulerService['checkAndSend']>>> {
+  return withScheduler(config, async (scheduler) => scheduler.checkAndSend(), queueDir);
+}
+
+async function listScheduled(status: 'all' | 'pending'): Promise<ScheduledEmail[]> {
+  const list = async (scheduler: SchedulerService) => scheduler.list({ status });
+  return withScheduler(await loadConfig(), list);
 }
 
 // ---------------------------------------------------------------------------
@@ -122,8 +138,7 @@ async function createSchedulerService(): Promise<SchedulerService> {
 // ---------------------------------------------------------------------------
 
 async function runCheck(): Promise<void> {
-  const scheduler = await createSchedulerService();
-  const result = await scheduler.checkAndSend();
+  const result = await checkScheduledEmails(await loadConfig());
 
   if (result.sent > 0) {
     console.log(`✅ Sent ${result.sent} scheduled email(s)`);
@@ -142,8 +157,7 @@ async function runCheck(): Promise<void> {
 }
 
 async function runList(): Promise<void> {
-  const scheduler = await createSchedulerService();
-  const emails = await scheduler.list({ status: 'all' });
+  const emails = await listScheduled('all');
 
   if (emails.length === 0) {
     console.log('No scheduled emails.');
@@ -297,8 +311,7 @@ async function runStatus(): Promise<void> {
   }
 
   // Show queue status
-  const scheduler = await createSchedulerService();
-  const pending = await scheduler.list({ status: 'pending' });
+  const pending = await listScheduled('pending');
   const overdue = pending.filter((e) => new Date(e.sendAt).getTime() < Date.now());
 
   console.log(`\n📬 Queue: ${pending.length} pending, ${overdue.length} overdue`);

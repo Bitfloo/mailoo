@@ -14,7 +14,6 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 import { loadConfig } from './config/loader.js';
-import ConnectionManager from './connections/manager.js';
 import { bindServer, markInitialized, mcpLog } from './logging.js';
 import registerAllPrompts from './prompts/register.js';
 import registerAllResources from './resources/register.js';
@@ -24,20 +23,17 @@ import {
   readHttpLaunchOptions,
   startGuardedHttpServers,
 } from './safety/http-transport.js';
-import RateLimiter from './safety/rate-limiter.js';
 import createShutdown from './safety/shutdown.js';
 import attachStdioShutdown from './safety/stdio-lifecycle.js';
 import { maybeStartMailboxWriters } from './safety/write-side-effects.js';
 import createServer, { PKG_VERSION } from './server.js';
 import CalendarService from './services/calendar.service.js';
 import HooksService from './services/hooks.service.js';
-import ImapService from './services/imap.service.js';
 import LocalCalendarService from './services/local-calendar.service.js';
 import { MailArrival } from './services/mail-arrival/index.js';
-import OAuthService from './services/oauth.service.js';
+import { createMailConnections, createMailServices } from './services/mail-services.js';
 import RemindersService from './services/reminders.service.js';
 import SchedulerService, { startSchedulerLoop } from './services/scheduler.service.js';
-import SmtpService from './services/smtp.service.js';
 import TemplateService from './services/template.service.js';
 import WatcherService from './services/watcher.service.js';
 import registerAllTools from './tools/register.js';
@@ -95,16 +91,7 @@ function reportToStderr(message: string): void {
 async function runServer(): Promise<void> {
   const config = await loadConfig();
 
-  const oauthService = new OAuthService();
-  const connections = new ConnectionManager(config.accounts, oauthService);
-  const rateLimiter = new RateLimiter(config.settings.rateLimit);
-  const imapService = new ImapService(connections);
-  const smtpService = new SmtpService(
-    connections,
-    rateLimiter,
-    imapService,
-    config.settings.saveToSent,
-  );
+  const { connections, imap: imapService, smtp: smtpService } = createMailServices(config);
   const templateService = new TemplateService();
   const calendarService = new CalendarService();
   const localCalendarService = new LocalCalendarService();
@@ -229,9 +216,7 @@ async function runHttpServer(policy: ReturnType<typeof readHttpLaunchOptions>): 
   // One bearer token is one principal. The host keeps the rate limit, schedule
   // queue, watcher, and hooks process-wide, as on stdio. Each HTTP session only
   // owns an McpServer and its transport.
-  const oauthService = new OAuthService();
-  const connections = new ConnectionManager(config.accounts, oauthService);
-  const imapService = new ImapService(connections);
+  const { connections, imap: imapService } = createMailConnections(config);
   const templateService = new TemplateService();
   const calendarService = new CalendarService();
   const localCalendarService = new LocalCalendarService();

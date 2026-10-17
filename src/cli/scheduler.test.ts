@@ -1,9 +1,19 @@
 import fs from 'node:fs/promises';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
+import { loadConfig } from '../config/loader.js';
+import type { ScheduledEmail } from '../types/index.js';
 import type { CommandRunner } from './scheduler.js';
-import { installCrontabLine, loadLaunchAgent, removeCrontabLine } from './scheduler.js';
+import {
+  checkScheduledEmails,
+  installCrontabLine,
+  loadLaunchAgent,
+  removeCrontabLine,
+} from './scheduler.js';
 
 const SRC = path.resolve('src');
 
@@ -266,4 +276,225 @@ describe('scheduler install commands', () => {
       });
     },
   );
+});
+
+async function listenLocal(server: net.Server): Promise<number> {
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      resolve();
+    });
+  });
+  return (server.address() as AddressInfo).port;
+}
+
+async function closeLocal(server: net.Server): Promise<void> {
+  await new Promise<void>((resolve) => {
+    server.close(() => {
+      resolve();
+    });
+  });
+}
+
+/** Speaks as much ESMTP as nodemailer needs and records each AUTH line, decoded. */
+async function startFakeSmtp() {
+  const auths: string[] = [];
+  const open = new Set<net.Socket>();
+  const server = net.createServer((socket) => {
+    open.add(socket);
+    socket.on('close', () => open.delete(socket));
+    let partial = '';
+    let inData = false;
+    const reply = (line: string) => {
+      socket.write(`${line}\r\n`);
+    };
+    const handle = (line: string) => {
+      if (inData) {
+        if (line === '.') {
+          inData = false;
+          reply('250 2.0.0 queued');
+        }
+        return;
+      }
+      const [verb = '', mechanism = '', initial = ''] = line.split(' ');
+      switch (verb.toUpperCase()) {
+        case 'EHLO':
+          reply('250-fake.example.test');
+          reply('250 AUTH PLAIN XOAUTH2');
+          break;
+        case 'AUTH':
+          auths.push(`${mechanism} ${Buffer.from(initial, 'base64').toString('utf8')}`);
+          reply('235 2.7.0 accepted');
+          break;
+        case 'DATA':
+          inData = true;
+          reply('354 end with a dot');
+          break;
+        case 'QUIT':
+          reply('221 bye');
+          socket.end();
+          break;
+        default:
+          reply('250 OK');
+      }
+    };
+    socket.setEncoding('utf8');
+    socket.on('data', (chunk: string) => {
+      const lines = `${partial}${chunk}`.split('\r\n');
+      partial = lines.pop() ?? '';
+      lines.forEach(handle);
+    });
+    reply('220 fake.example.test ESMTP');
+  });
+  const port = await listenLocal(server);
+  return {
+    port,
+    auths,
+    openSockets: () => open.size,
+    close: async () => {
+      open.forEach((socket) => {
+        socket.destroy();
+      });
+      await closeLocal(server);
+    },
+  };
+}
+
+/** Counts connections and turns each away, as a server that is down would. */
+async function startFakeImap() {
+  let connections = 0;
+  const server = net.createServer((socket) => {
+    connections += 1;
+    socket.end('* BYE not accepting connections\r\n');
+  });
+  const port = await listenLocal(server);
+  return { port, connections: () => connections, close: async () => closeLocal(server) };
+}
+
+async function startTokenEndpoint() {
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ access_token: 'access-from-token-endpoint', expires_in: 3600 }));
+  });
+  const port = await listenLocal(server);
+  return { url: `http://127.0.0.1:${port}/token`, close: async () => closeLocal(server) };
+}
+
+// closeAll resolves before the server sees QUIT and FIN. Without it, the pooled
+// socket stays open until nodemailer's ten-minute idle timeout, so two seconds
+// separates the two outcomes.
+const SOCKET_CLOSE_WAIT_MS = 2_000;
+
+async function waitFor(done: () => boolean, deadline: number): Promise<void> {
+  if (done() || Date.now() >= deadline) return;
+  await new Promise((resolve) => {
+    setTimeout(resolve, 20);
+  });
+  await waitFor(done, deadline);
+}
+
+const DUE_ID = '3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b';
+
+describe('scheduler check command', () => {
+  let root: string;
+  let smtp: Awaited<ReturnType<typeof startFakeSmtp>>;
+  let imap: Awaited<ReturnType<typeof startFakeImap>>;
+  let token: Awaited<ReturnType<typeof startTokenEndpoint>>;
+
+  beforeEach(async () => {
+    // The env overlay replaces the config file when these are set.
+    vi.stubEnv('MCP_EMAIL_ADDRESS', '');
+    vi.stubEnv('MCP_EMAIL_IMAP_HOST', '');
+    vi.stubEnv('MCP_EMAIL_SMTP_HOST', '');
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-cli-check-'));
+    [smtp, imap, token] = await Promise.all([
+      startFakeSmtp(),
+      startFakeImap(),
+      startTokenEndpoint(),
+    ]);
+  });
+
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await Promise.all([smtp.close(), imap.close(), token.close()]);
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  async function checkDueEmail(auth: 'password' | 'oauth2', saveToSent: boolean) {
+    const credentials =
+      auth === 'password'
+        ? ['password = "not-a-secret"']
+        : [
+            '[accounts.oauth2]',
+            'provider = "custom"',
+            'client_id = "client-id"',
+            'client_secret = "not-a-secret"',
+            'refresh_token = "refresh-token"',
+            `token_url = "${token.url}"`,
+            `auth_url = "${token.url.replace('/token', '/auth')}"`,
+          ];
+    const configPath = path.join(root, 'config.toml');
+    await fs.writeFile(
+      configPath,
+      [
+        '[settings]',
+        `save_to_sent = ${String(saveToSent)}`,
+        '',
+        '[[accounts]]',
+        'name = "work"',
+        'email = "sender@example.test"',
+        ...credentials,
+        '',
+        '[accounts.imap]',
+        'host = "127.0.0.1"',
+        `port = ${imap.port}`,
+        'tls = false',
+        '',
+        '[accounts.smtp]',
+        'host = "127.0.0.1"',
+        `port = ${smtp.port}`,
+        'tls = false',
+        'starttls = false',
+        '',
+      ].join('\n'),
+      { mode: 0o600 },
+    );
+    const queueDir = path.join(root, 'scheduled');
+    await fs.mkdir(queueDir, { recursive: true });
+    const due: ScheduledEmail = {
+      id: DUE_ID,
+      account: 'work',
+      to: ['recipient@example.test'],
+      subject: 'Quarterly numbers',
+      body: 'The figures are below.',
+      html: false,
+      sendAt: new Date(Date.now() - 60_000).toISOString(),
+      createdAt: new Date(Date.now() - 3_600_000).toISOString(),
+      status: 'pending',
+      attempts: 0,
+    };
+    await fs.writeFile(path.join(queueDir, `${DUE_ID}.json`), JSON.stringify(due), { mode: 0o600 });
+    return checkScheduledEmails(await loadConfig(configPath), queueDir);
+  }
+
+  it('should send with the access token from the OAuth endpoint when the account uses oauth2', async () => {
+    const result = await checkDueEmail('oauth2', false);
+    expect({ sent: result.sent, auths: [...new Set(smtp.auths)] }).toEqual({
+      sent: 1,
+      auths: ['XOAUTH2 user=sender@example.test\x01auth=Bearer access-from-token-endpoint\x01\x01'],
+    });
+  });
+
+  it('should not open an IMAP connection when save_to_sent is false', async () => {
+    const result = await checkDueEmail('password', false);
+    expect({ sent: result.sent, imapConnections: imap.connections() }).toEqual({
+      sent: 1,
+      imapConnections: 0,
+    });
+  });
+
+  it('should close its SMTP connections when the check finishes', async () => {
+    await checkDueEmail('password', false);
+    await waitFor(() => smtp.openSockets() === 0, Date.now() + SOCKET_CLOSE_WAIT_MS);
+    expect(smtp.openSockets()).toBe(0);
+  });
 });

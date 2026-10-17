@@ -501,7 +501,7 @@ Sent copies, IMAP4rev2, Sieve host/port, and `read_only` env vars:
 The scheduler enables future email delivery with a layered architecture:
 
 1. **MCP auto-check** — Processes the queue on server startup, before the watcher connects, and every 60 seconds while the MCP server is running. A check still running when the next one is due is skipped, and failed sends are logged at `warning`
-2. **CLI** — `npx -y @bitfloo/mailoo scheduler check` for manual or cron-based processing
+2. **CLI** — `npx -y @bitfloo/mailoo scheduler check` for manual or cron-based processing. It sends with the same account settings as the server, including OAuth2 and `save_to_sent`, and closes its IMAP/SMTP connections before it exits
 3. **OS-level daemon** — `npx -y @bitfloo/mailoo scheduler install` sets up launchd (macOS) or crontab (Linux) to run every minute, independently of the MCP server
 
 > **Important — the daemon must be installed for reliable delivery.**
@@ -963,6 +963,7 @@ src/
 │   ├── sieve.service.ts   — ManageSieve (RFC 5804)
 │   ├── template.service.ts — Email template engine
 │   ├── oauth.service.ts   — OAuth2 token management (experimental)
+│   ├── mail-services.ts   — IMAP/SMTP services from the config, for the servers and the scheduler CLI
 │   ├── calendar.service.ts — ICS/iCalendar parsing
 │   ├── scheduler.service.ts — Email scheduling queue
 │   ├── watcher.service.ts — IMAP IDLE real-time watcher with auto-reconnect
