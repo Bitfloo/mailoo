@@ -7,9 +7,15 @@ shape. This page is the SSOT for behaviour added around Sent copies,
 IMAP4rev2, ManageSieve, read-only side effects, stdio lifecycle,
 and webhook targets.
 
-A config file that is not valid TOML stops the server and the CLI with
-`Config file <path> is not valid TOML (line L, column C): <reason>`. The
-message leaves out the line text, which may hold a password.
+A config file that is not valid TOML is reported as
+`Config file <path> is not valid TOML (line L, column C): <reason>`, without
+the line text, which may hold a password. The server, `mailoo test`,
+`mailoo scheduler` and `mailoo config show` read a complete `MCP_EMAIL_*`
+account (address, IMAP host, SMTP host, and a password or OAuth2 provider)
+from the environment before the file, so they stop on this error only when
+no such account is set; `mailoo config show` prefixes it with
+`Failed to load config:`. `mailoo config edit` and `mailoo account list`,
+`edit` and `remove` read the file directly and always stop on it.
 
 Vulnerability reports: [SECURITY.md](../SECURITY.md). Do not open public
 issues for credential leaks.

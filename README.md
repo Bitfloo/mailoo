@@ -773,7 +773,7 @@ Paths follow the XDG defaults in `src/config/xdg.ts` unless `XDG_CONFIG_HOME`, `
 | Path | What is written | Code |
 |---|---|---|
 | `$XDG_CONFIG_HOME/mailoo/config.toml` (mode `0600`) | Accounts and settings, including passwords and OAuth secrets | `src/config/loader.ts` |
-| `$XDG_DATA_HOME/mailoo/audit.log` (mode `0600`, directory `0700`) | Append-only audit lines | `src/safety/audit.ts` |
+| `$XDG_DATA_HOME/mailoo/audit.log` (mode `0600`, directory `0700`) | Append-only audit lines. A `mailoo` data directory that is a symlink keeps its target's mode | `src/safety/audit.ts` |
 | `$XDG_STATE_HOME/mailoo/scheduled/` and `scheduled/sent/` | Scheduled-send JSON | `src/services/scheduler.service.ts` |
 | `$XDG_DATA_HOME/mailoo/calendar-attachments/` | Attachment files saved for a calendar event | `src/services/imap.service.ts` |
 | `$XDG_STATE_HOME/mailoo/calendar-processed.json` and `.lock` | Which messages already created an automatic event or reminder | `src/utils/calendar-state.ts` |
