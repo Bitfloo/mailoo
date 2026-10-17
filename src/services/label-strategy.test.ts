@@ -152,6 +152,15 @@ describe('label mailbox selection', () => {
 
 // A lock left held makes every later call on the account wait out the lock timeout.
 describe('label lock release', () => {
+  it('should release the INBOX lock once after a keyword listLabels', async () => {
+    const { client, strategy } = await keywordStrategy();
+    client.releaseFn.mockClear();
+
+    await strategy.listLabels(client as unknown as ImapFlow);
+
+    expect(client.releaseFn).toHaveBeenCalledTimes(1);
+  });
+
   it('should release the lock once after a ProtonMail addLabel', async () => {
     const { client, strategy } = await protonStrategy();
     client.releaseFn.mockClear();
