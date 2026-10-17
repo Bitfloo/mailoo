@@ -57,12 +57,20 @@ describe('stdio mailbox writers', () => {
     await fs.rm(root, { recursive: true, force: true });
   });
 
-  function start(events: string[]) {
-    return createStdioWriters({
-      lockPath,
-      services: fakeServices(events),
-      log: async () => undefined,
-    });
+  type Log = (level: 'info' | 'warning', message: string) => Promise<void>;
+
+  function start(events: string[], log: Log = async () => undefined) {
+    return createStdioWriters({ lockPath, services: fakeServices(events), log });
+  }
+
+  function recordLog(): { lines: [string, string][]; log: Log } {
+    const lines: [string, string][] = [];
+    return {
+      lines,
+      log: async (level, message) => {
+        lines.push([level, message]);
+      },
+    };
   }
 
   it('should start hooks, the scheduler and the watcher once it holds the lease', async () => {
@@ -106,6 +114,47 @@ describe('stdio mailbox writers', () => {
       ['connections', ['close connections'], false],
       ['server', ['close server'], false],
     ]);
+  });
+
+  it('should not win the lease again once shutdown has halted it', async () => {
+    const events: string[] = [];
+    await fs.writeFile(lockPath, 'token of the leader');
+    const writers = start(events);
+    await writers.lease.tick();
+    const [, haltLease] = writers.shutdownSteps[0] ?? [];
+    await haltLease?.();
+    // The leader exits and frees the lease while this process is shutting down.
+    await fs.unlink(lockPath);
+    await writers.lease.tick();
+    expect({ events, leading: writers.lease.leading }).toEqual({ events: [], leading: false });
+  });
+
+  it('should log at info that it runs the writers once it holds the lease', async () => {
+    const { lines, log } = recordLog();
+    const writers = start([], log);
+    await writers.lease.tick();
+    expect(lines).toEqual([['info', 'This process runs hooks, watcher, and scheduler']]);
+  });
+
+  it('should log at warning that another process took over once it lost the lease', async () => {
+    const { lines, log } = recordLog();
+    const writers = start([], log);
+    await writers.lease.tick();
+    lines.length = 0;
+    await fs.writeFile(lockPath, 'token of another process');
+    await writers.lease.tick();
+    expect(lines).toEqual([
+      ['warning', 'Another Mailoo process took over hooks, watcher, and scheduler'],
+    ]);
+  });
+
+  it('should log a lease it cannot create at warning', async () => {
+    await fs.writeFile(path.join(root, 'state'), 'not a directory');
+    lockPath = path.join(root, 'state', 'mailbox-writers.lock');
+    const { lines, log } = recordLog();
+    const writers = start([], log);
+    await writers.lease.tick();
+    expect(lines).toEqual([['warning', expect.stringMatching(/^Mailbox writer lease: /)]]);
   });
 });
 
