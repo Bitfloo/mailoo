@@ -562,6 +562,13 @@ describe('scheduler check output', () => {
     ]);
   });
 
+  it('should report failed sends with their errors', () => {
+    expect(formatCheckResult({ ...quiet, failed: 1, errors: ['x.json: 550'] })).toEqual([
+      '❌ Failed: 1',
+      '   x.json: 550',
+    ]);
+  });
+
   it('should print the error of a delivered email whose record was not updated', () => {
     const error = `${DUE_IDS[0]}.json: sent, but the queue record was not updated: EACCES`;
     expect(formatCheckResult({ ...quiet, sent: 1, errors: [error] })).toEqual([
