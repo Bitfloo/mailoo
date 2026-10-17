@@ -162,6 +162,18 @@ describe('Config Loader', () => {
       },
     );
 
+    // root bypasses file permission bits
+    it.skipIf(process.getuid?.() === 0)(
+      'should reject with EACCES when the config file exists but cannot be read',
+      async () => {
+        const configPath = path.join(sandbox.dir, 'config.toml');
+        await writeOwnerOnly(configPath, MINIMAL_TOML);
+        await fs.chmod(configPath, 0o000);
+
+        await expect(loadConfig(configPath)).rejects.toMatchObject({ code: 'EACCES' });
+      },
+    );
+
     it('should name the path when loadRawConfig finds no config file', async () => {
       const badPath = path.join(sandbox.dir, 'nonexistent.toml');
 
