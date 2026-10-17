@@ -13,7 +13,7 @@ It is **not** an official codefuturist project. See [Upstream / Attribution](#up
 
 Enables AI assistants to read, search, send, manage, schedule, and analyze emails across multiple accounts. Exposes 57 tools, 7 prompts, and 6 resources over the MCP protocol with OAuth2 support _(experimental)_, email scheduling, calendar extraction, analytics, provider-aware label management, real-time IMAP IDLE watcher with AI-powered triage, customizable presets and static rules, ManageSieve filters, and a guided setup wizard.
 
-Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, and read-only side effects is documented in [`docs/configuration.md`](docs/configuration.md) and [`docs/tools.md`](docs/tools.md).
+Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, read-only side effects, and reconnect backoff is documented in [`docs/configuration.md`](docs/configuration.md) and [`docs/tools.md`](docs/tools.md).
 
 ## Highlights
 
@@ -64,7 +64,7 @@ Policy and how to report a vulnerability: **[SECURITY.md](SECURITY.md)**.
 
 | Topic | Where |
 |-------|--------|
-| Sent APPEND, IMAP4rev2, Sieve, `read_only`, stdio EOF | [docs/configuration.md](docs/configuration.md) |
+| Sent APPEND, IMAP4rev2, Sieve, `read_only`, reconnect backoff, stdio EOF | [docs/configuration.md](docs/configuration.md) |
 | `savePath`, search dates, `get_email_security`, sieve tools, send/draft attachments, RFC 2047 | [docs/tools.md](docs/tools.md) |
 | Performance notes | [docs/performance-roadmap.md](docs/performance-roadmap.md) |
 
@@ -693,7 +693,7 @@ actions = { flag = true, alert = true, labels = ["VIP"] }
 ```
 
 Features:
-- **Auto-reconnect** — Exponential backoff (1s → 60s, each wait up to a quarter shorter at random) on connection failures; mail delivered while the connection was down is reported after the reconnect
+- **Auto-reconnect** — Retries a dropped or failed folder connection on the [reconnect backoff](docs/configuration.md#reconnect-backoff) schedule; mail delivered while the connection was down is reported after the reconnect, unless the server changed the folder's UIDVALIDITY
 - **Batching** — Groups arrivals within a configurable delay to reduce AI calls
 - **Rate limiting** — Max 10 sampling calls per minute
 - **Graceful degradation** — Falls back to notify mode if client doesn't support sampling
