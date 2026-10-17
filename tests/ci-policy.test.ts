@@ -236,9 +236,12 @@ describe('release version selection', () => {
     }
   });
 
-  it('should run the server.json stamp step on every release event', () => {
+  it('should run the server.json stamp step as the harness runs it on every release event', () => {
     // A tag push and a manual run both publish, so a step-level if: would ship one of them unstamped.
-    expect(releaseStep(releaseYml, 'Set version in server.json')).not.toMatch(/^ {8}if:/m);
+    // continue-on-error publishes past a refused version; shell and working-directory run other code.
+    expect(releaseStep(releaseYml, 'Set version in server.json')).not.toMatch(
+      /^ {8}(?:if|continue-on-error|shell|working-directory):/m,
+    );
   });
 
   it.each([
