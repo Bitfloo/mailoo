@@ -303,6 +303,55 @@ describe('retried and delivered sends', () => {
     });
   });
 
+  // Sent back to the retry path, a delivered email would go out again on the next check.
+  it.skipIf(process.getuid?.() === 0)(
+    'should leave a record that says sent unchanged and unsent when its move into sent/ fails',
+    async () => {
+      await withDueQueue(async ({ queueDir, id, pendingPath, sentDir }) => {
+        const record = {
+          ...pendingRecord(id, '2020-01-01T00:00:00Z'),
+          status: 'sent',
+          attempts: 1,
+        };
+        await fs.writeFile(pendingPath, JSON.stringify(record));
+        await fs.mkdir(sentDir, { recursive: true });
+        await fs.chmod(sentDir, 0o500);
+        const { service, smtp } = createService(queueDir);
+        const first = await service.checkAndSend();
+        await service.checkAndSend();
+        const kept = JSON.parse(await fs.readFile(pendingPath, 'utf8')) as ScheduledEmail;
+        expect({
+          sends: smtp.sendEmail.mock.calls.length,
+          errors: first.errors,
+          status: kept.status,
+          attempts: kept.attempts,
+        }).toEqual({ sends: 0, errors: [], status: 'sent', attempts: 1 });
+      });
+    },
+  );
+
+  // The sent record is the commit point, so its error is the one that explains a resend.
+  it.skipIf(process.getuid?.() === 0)(
+    'should report the sent record error when the move into sent/ fails too',
+    async () => {
+      await withDueQueue(async ({ queueDir, sentDir }) => {
+        const { service } = createService(queueDir);
+        await fs.mkdir(sentDir, { recursive: true });
+        await fs.chmod(sentDir, 0o500);
+        let errors: string[] = [];
+        await withFullDisk(
+          (data) => data.includes('"status": "sent"'),
+          async () => {
+            ({ errors } = await service.checkAndSend());
+          },
+        );
+        expect(errors).toEqual([
+          expect.stringMatching(/sent, but the queue record was not updated: ENOSPC/),
+        ]);
+      });
+    },
+  );
+
   it('should leave a record that says sent in place while its sender still holds the claim', async () => {
     await withDueQueue(async ({ queueDir, id, pendingPath }) => {
       // The sender wrote the commit record and has not renamed it yet.
