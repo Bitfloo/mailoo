@@ -24,7 +24,7 @@ import type ImapService from '../services/imap.service.js';
 import type LocalCalendarService from '../services/local-calendar.service.js';
 import { MailArrival } from '../services/mail-arrival/index.js';
 import type RemindersService from '../services/reminders.service.js';
-import SchedulerService from '../services/scheduler.service.js';
+import SchedulerService, { startSchedulerLoop } from '../services/scheduler.service.js';
 import SmtpService from '../services/smtp.service.js';
 import type TemplateService from '../services/template.service.js';
 import WatcherService from '../services/watcher.service.js';
@@ -39,12 +39,6 @@ import HttpSessionStore, {
 import { readLimitedBody, resolveHttpRoute } from './http-transport.js';
 import RateLimiter from './rate-limiter.js';
 import { maybeStartMailboxWriters } from './write-side-effects.js';
-
-/**
- * Matches the OS scheduler cadence (launchd StartInterval 60 / cron "* * * * *"
- * in src/cli/scheduler.ts).
- */
-const SCHEDULER_INTERVAL_MS = 60_000;
 
 export interface HttpMcpHostOptions {
   config: AppConfig;
@@ -112,7 +106,7 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
   let hooksListening = false;
   let bootStarted = false;
   let ready: Promise<void> = Promise.resolve();
-  let schedulerTimer: ReturnType<typeof setInterval> | undefined;
+  let stopScheduler: (() => void) | undefined;
 
   const pickSamplingTarget = (): Server | null => {
     const best = [...candidates.values()]
@@ -130,12 +124,10 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
   };
 
   const armScheduler = (): void => {
-    if (schedulerTimer) return;
-    schedulerTimer = setInterval(() => {
-      scheduler.checkAndSend().catch(() => {});
-    }, SCHEDULER_INTERVAL_MS);
-    schedulerTimer.unref();
-    scheduler.checkAndSend().catch(() => {});
+    const log = async (level: 'info' | 'warning', message: string) => {
+      await mcpLog(level, 'scheduler', message);
+    };
+    stopScheduler ??= startSchedulerLoop(scheduler, log);
   };
 
   const bootWriters = async (fallback: Server): Promise<void> => {
@@ -356,10 +348,8 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
     events,
     async close() {
       await Promise.allSettled(sessions.values().map(async (transport) => transport.close()));
-      if (schedulerTimer) {
-        clearInterval(schedulerTimer);
-        schedulerTimer = undefined;
-      }
+      stopScheduler?.();
+      stopScheduler = undefined;
       hooks.stop();
       await watcher.stop();
       await Promise.allSettled(disposing);

@@ -18,7 +18,10 @@ import { acquireClaim, errnoCode, releaseClaim, startClaimRenewal } from '../uti
 import type ImapService from './imap.service.js';
 import type SmtpService from './smtp.service.js';
 
-/** How often a running server checks the queue. */
+/**
+ * Matches the OS scheduler's cadence: launchd StartInterval 60 and cron
+ * `* * * * *` in src/cli/scheduler.ts.
+ */
 export const SCHEDULER_INTERVAL_MS = 60_000;
 
 /** Max age (ms) of a queue claim before another check may send that email. */
