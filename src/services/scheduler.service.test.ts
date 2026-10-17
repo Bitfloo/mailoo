@@ -853,6 +853,27 @@ describe('retried and delivered sends', () => {
     });
   });
 
+  // `mailoo scheduler list` prints sentAt for every delivered email.
+  it('should record when SMTP accepted the email and the Message-ID it returned', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
+    try {
+      await withDueQueue(async ({ queueDir, id, sentDir }) => {
+        const { service } = createService(queueDir);
+        await service.checkAndSend();
+        const sent = JSON.parse(
+          await fs.readFile(path.join(sentDir, `${id}.json`), 'utf8'),
+        ) as ScheduledEmail;
+        expect({ sentAt: sent.sentAt, sentMessageId: sent.sentMessageId }).toEqual({
+          sentAt: '2028-01-15T00:00:00.000Z',
+          sentMessageId: '<scheduled@example.com>',
+        });
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // Root ignores directory permissions, so the unwritable sent/ cannot be simulated.
   it.skipIf(process.getuid?.() === 0)(
     'should not send again when the sent record cannot be written after SMTP accepted',
