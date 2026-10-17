@@ -1,5 +1,4 @@
 import { timingSafeEqual } from 'node:crypto';
-import type http from 'node:http';
 import type { IncomingMessage } from 'node:http';
 import { Readable } from 'node:stream';
 
@@ -11,9 +10,9 @@ import {
   resolveHttpListen,
 } from './http-transport.js';
 
-function fakeRequest(chunks: Buffer[], headers: http.IncomingHttpHeaders = {}): IncomingMessage {
+function fakeRequest(chunks: Buffer[]): IncomingMessage {
   const readable = Readable.from(chunks);
-  return Object.assign(readable, { headers }) as IncomingMessage;
+  return Object.assign(readable, { headers: {} }) as IncomingMessage;
 }
 
 describe('evaluateHttpAccess', () => {
