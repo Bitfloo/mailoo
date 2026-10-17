@@ -1,9 +1,20 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
 
 export const workflowDir = join(repoRoot, '.github/workflows');
+
+/** Every workflow file name. GitHub runs .yaml files too, so a check over all workflows reads both. */
+export function workflowFiles(): string[] {
+  const files = readdirSync(workflowDir)
+    .filter((name) => /\.ya?ml$/.test(name))
+    .sort();
+  if (files.length === 0) {
+    throw new Error('no workflow files');
+  }
+  return files;
+}
 
 export const releaseYml = readFileSync(join(workflowDir, 'release.yml'), 'utf8');
 

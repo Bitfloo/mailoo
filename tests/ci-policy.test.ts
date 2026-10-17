@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
+import { unpinnedUses } from './workflow-scan.js';
 import {
   jobSections,
   onBlock,
@@ -14,6 +15,7 @@ import {
   stepEnv,
   topLevelPermissions,
   workflowDir,
+  workflowFiles,
 } from './workflow-yaml.js';
 
 const ciYml = readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8');
@@ -245,21 +247,16 @@ describe('release version selection', () => {
 
 describe('pinned GitHub Actions', () => {
   it('pins every uses: to a commit SHA with the version tag in a comment', () => {
-    const files = readdirSync(workflowDir).filter((name) => name.endsWith('.yml'));
-    expect(files.length).toBeGreaterThan(0);
-    const pin = /^\s*(?:-\s*)?uses:\s+\S+@[0-9a-f]{40}\s+#\s+v\d+\.\d+\.\d+\s*$/;
-    const unpinned: string[] = [];
-    for (const name of files) {
-      const uses = readFileSync(join(workflowDir, name), 'utf8')
-        .split('\n')
-        .filter((line) => /^\s*(?:-\s*)?uses:/.test(line));
-      for (const line of uses) {
-        if (!pin.test(line)) {
-          unpinned.push(`${name}: ${line.trim()}`);
-        }
-      }
-    }
+    const unpinned = workflowFiles().flatMap((name) =>
+      unpinnedUses(readFileSync(join(workflowDir, name), 'utf8')).map((line) => `${name}: ${line}`),
+    );
     expect(unpinned).toEqual([]);
+  });
+
+  it('should find a uses: written in a flow mapping', () => {
+    expect(unpinnedUses('    steps:\n      - { uses: actions/checkout@v6 }\n')).toEqual([
+      '- { uses: actions/checkout@v6 }',
+    ]);
   });
 });
 

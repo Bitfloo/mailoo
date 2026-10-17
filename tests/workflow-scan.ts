@@ -28,6 +28,19 @@ function scriptRanges(lines: string[]): [number, number][] {
 }
 
 /**
+ * Each uses: line that does not pin a commit SHA with the version tag in a comment. A uses: in a
+ * flow mapping or under a quoted key is listed too, since the pin form below cannot match it.
+ */
+export function unpinnedUses(yaml: string): string[] {
+  const pin = /^\s*(?:-\s*)?uses:\s+\S+@[0-9a-f]{40}\s+#\s+v\d+\.\d+\.\d+\s*$/;
+  return yaml
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('#') && /\buses["']?\s*:/.test(line))
+    .filter((line) => !pin.test(line))
+    .map((line) => line.trim());
+}
+
+/**
  * The workflow text that pastes an untrusted expression into code. A run: or script: block is
  * matched whole: an expression can span lines, and a code line can look like an env key.
  */

@@ -1,8 +1,8 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { shellPastes } from './workflow-scan.js';
-import { workflowDir } from './workflow-yaml.js';
+import { workflowDir, workflowFiles } from './workflow-yaml.js';
 
 describe('workflow shell input', () => {
   // biome-ignore-start lint/suspicious/noTemplateCurlyInString: values are workflow lines with GitHub expressions, not JS templates
@@ -47,9 +47,7 @@ describe('workflow shell input', () => {
   // biome-ignore-end lint/suspicious/noTemplateCurlyInString: end of workflow lines
 
   it('should expand inputs, event fields and ref names only in if:, env: and group: lines', () => {
-    const files = readdirSync(workflowDir).filter((name) => name.endsWith('.yml'));
-    expect(files.length).toBeGreaterThan(0);
-    const inline = files.flatMap((name) =>
+    const inline = workflowFiles().flatMap((name) =>
       shellPastes(readFileSync(join(workflowDir, name), 'utf8')).map((text) => `${name}: ${text}`),
     );
     expect(inline).toEqual([]);

@@ -1,7 +1,13 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { jobSections, onBlock, topLevelPermissions, workflowDir } from './workflow-yaml.js';
+import {
+  jobSections,
+  onBlock,
+  topLevelPermissions,
+  workflowDir,
+  workflowFiles,
+} from './workflow-yaml.js';
 
 const ciYml = readFileSync(join(workflowDir, 'ci.yml'), 'utf8');
 
@@ -143,17 +149,15 @@ describe('workflow token is no wider than the job writes', () => {
   it('should give every workflow job exactly the token scopes this roster lists', () => {
     // Read from the tree, so a new workflow, a new job or a new scope at any level fails until listed here.
     const roster = Object.fromEntries(
-      readdirSync(workflowDir)
-        .filter((name) => /\.ya?ml$/.test(name))
-        .map((name) => [
-          name,
-          Object.fromEntries(
-            jobSections(readFileSync(join(workflowDir, name), 'utf8')).map((job) => [
-              jobKey(job),
-              jobToken(job),
-            ]),
-          ),
-        ]),
+      workflowFiles().map((name) => [
+        name,
+        Object.fromEntries(
+          jobSections(readFileSync(join(workflowDir, name), 'utf8')).map((job) => [
+            jobKey(job),
+            jobToken(job),
+          ]),
+        ),
+      ]),
     );
     expect(roster).toEqual({
       'ci.yml': { check: [], docker: [], integration: [], 'public-log': [] },
@@ -179,9 +183,7 @@ describe('workflow token is no wider than the job writes', () => {
 
 describe('workflow token scope', () => {
   it('does not grant write at the workflow level', () => {
-    const files = readdirSync(workflowDir).filter((name) => name.endsWith('.yml'));
-    expect(files.length).toBeGreaterThan(0);
-    for (const name of files) {
+    for (const name of workflowFiles()) {
       const yaml = readFileSync(join(workflowDir, name), 'utf8');
       expect(topLevelPermissions(yaml), name).not.toMatch(/\bwrite\b/);
     }
