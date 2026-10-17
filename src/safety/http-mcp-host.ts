@@ -243,8 +243,9 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
 
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const route = resolveHttpRoute(req.method, req.url);
+    // Only /health gets here: the guard refuses methods outside GET, POST and DELETE first.
     if (route === 'method') {
-      res.writeHead(405, { Allow: req.url === '/health' ? 'GET' : 'GET, POST, DELETE' });
+      res.writeHead(405, { Allow: 'GET' });
       res.end();
       return;
     }
