@@ -5,155 +5,24 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 
-import type { IConnectionManager } from '../connections/types.js';
+import {
+  attachmentNode,
+  mixedStructure,
+  singlePartAttachment,
+  twinAttachmentStructure,
+  withoutPartNumbers,
+} from '../test-support/imap-bodystructure.js';
+import {
+  createMockConnectionManager,
+  createMockImapClient,
+  downloadReturnsPartName,
+  fetchOneByUid,
+  gmailMailboxes,
+  rejectCommandsDuringFetch,
+  requireUidRange,
+} from '../test-support/imap-client-fake.js';
 import ImapService, { findTextMimeParts, SAVED_ATTACHMENT_MAX_BYTES } from './imap.service.js';
 import { MAILBOX_LOCK_TIMEOUT_MS } from './mailbox-lock.js';
-
-// ---------------------------------------------------------------------------
-// Mock helpers
-// ---------------------------------------------------------------------------
-
-function createMockImapClient() {
-  const releaseFn = vi.fn();
-  return {
-    usable: true,
-    getMailboxLock: vi.fn().mockResolvedValue({ release: releaseFn }),
-    list: vi.fn().mockResolvedValue([]),
-    status: vi.fn().mockResolvedValue({ messages: 5, unseen: 2 }),
-    fetch: vi.fn().mockReturnValue((async function* fetchMock() {})()),
-    search: vi.fn().mockResolvedValue([]),
-    messageMove: vi.fn().mockResolvedValue(true),
-    messageDelete: vi.fn().mockResolvedValue(true),
-    messageFlagsAdd: vi.fn().mockResolvedValue(true),
-    messageFlagsRemove: vi.fn().mockResolvedValue(true),
-    append: vi.fn().mockResolvedValue({ uid: 7 }),
-    download: vi.fn(),
-    fetchOne: vi.fn(),
-    mailboxCreate: vi.fn().mockResolvedValue({ path: 'created', created: true }),
-    mailboxRename: vi.fn().mockResolvedValue({ path: 'old', newPath: 'new' }),
-    mailboxDelete: vi.fn().mockResolvedValue({ path: 'deleted' }),
-    namespace: undefined as { prefix: string; delimiter: string } | undefined,
-    _releaseFn: releaseFn,
-  };
-}
-
-/** LIST of a Gmail account as imapflow returns it (SPECIAL-USE advertised). */
-function gmailMailboxes() {
-  return [
-    { name: 'INBOX', path: 'INBOX', specialUse: '\\Inbox', flags: new Set<string>() },
-    { name: '[Gmail]', path: '[Gmail]', flags: new Set(['\\Noselect']) },
-    { name: 'All Mail', path: '[Gmail]/All Mail', specialUse: '\\All', flags: new Set(['\\All']) },
-    {
-      name: 'Drafts',
-      path: '[Gmail]/Drafts',
-      specialUse: '\\Drafts',
-      flags: new Set(['\\Drafts']),
-    },
-    // imapflow derives specialUse only for the roles it knows; \Important is not one.
-    { name: 'Important', path: '[Gmail]/Important', flags: new Set(['\\Important']) },
-    {
-      name: 'Sent Mail',
-      path: '[Gmail]/Sent Mail',
-      specialUse: '\\Sent',
-      flags: new Set(['\\Sent']),
-    },
-    { name: 'Spam', path: '[Gmail]/Spam', specialUse: '\\Junk', flags: new Set(['\\Junk']) },
-    {
-      name: 'Starred',
-      path: '[Gmail]/Starred',
-      specialUse: '\\Flagged',
-      flags: new Set(['\\Flagged']),
-    },
-    { name: 'Trash', path: '[Gmail]/Trash', specialUse: '\\Trash', flags: new Set(['\\Trash']) },
-    { name: 'Receipts', path: 'Receipts', flags: new Set<string>() },
-  ];
-}
-
-/**
- * imapflow sends a range without { uid: true } as sequence numbers, and those
- * name another message once an earlier one is expunged.
- */
-function requireUidRange(command: string, range: string, options?: { uid?: boolean }) {
-  if (options?.uid !== true) {
-    throw new Error(`${command}(${range}) sent a sequence number, not a UID`);
-  }
-}
-
-/**
- * imapflow runs one command at a time per connection, and a FETCH holds the
- * connection until its iterator finishes. A command issued inside the loop
- * never starts; against a server the call hangs until the socket times out.
- * Here such a command rejects at once and is recorded, so the unit lane fails
- * without GreenMail. Configure the client's other mocks before calling this.
- */
-function rejectCommandsDuringFetch(
-  client: ReturnType<typeof createMockImapClient>,
-  rows: Record<string, unknown>[],
-) {
-  const issuedDuringFetch: string[] = [];
-  let fetchOpen = false;
-  const commands = client as unknown as Record<string, (...args: unknown[]) => unknown>;
-  const guard =
-    (name: string, command: (...args: unknown[]) => unknown) =>
-    async (...args: unknown[]) => {
-      if (fetchOpen) {
-        issuedDuringFetch.push(name);
-        throw new Error(`${name} issued while a FETCH iterator is open`);
-      }
-      return command(...args);
-    };
-  [
-    'download',
-    'fetchOne',
-    'search',
-    'list',
-    'status',
-    'messageMove',
-    'messageDelete',
-    'messageFlagsAdd',
-    'messageFlagsRemove',
-    'append',
-  ].forEach((name) => {
-    commands[name] = guard(name, commands[name]);
-  });
-  // Only the rows in the requested UID set, as UID FETCH returns them.
-  client.fetch.mockImplementation((range: unknown) => {
-    const uids = new Set(String(range).split(',').map(Number));
-    async function* openFetch() {
-      fetchOpen = true;
-      try {
-        yield* rows.filter((row) => uids.has(row.uid as number));
-      } finally {
-        fetchOpen = false;
-      }
-    }
-    return openFetch();
-  });
-  // imapflow's fetchAll drains fetch and returns the rows after the FETCH completes.
-  commands.fetchAll = guard('fetchAll', async (...args: unknown[]) => {
-    requireUidRange('fetchAll', String(args[0]), args[2] as { uid?: boolean } | undefined);
-    const collected: unknown[] = [];
-    for await (const row of client.fetch(...args)) collected.push(row);
-    return collected;
-  });
-  return issuedDuringFetch;
-}
-
-function createMockConnectionManager(mockClient: ReturnType<typeof createMockImapClient>) {
-  return {
-    getAccount: vi.fn().mockReturnValue({
-      name: 'test',
-      email: 'test@example.com',
-      username: 'test@example.com',
-      imap: { host: 'imap.example.com', port: 993, tls: true, starttls: false, verifySsl: true },
-      smtp: { host: 'smtp.example.com', port: 465, tls: true, starttls: false, verifySsl: true },
-    }),
-    getAccountNames: vi.fn().mockReturnValue(['test']),
-    getImapClient: vi.fn().mockResolvedValue(mockClient),
-    getSmtpTransport: vi.fn(),
-    closeAll: vi.fn(),
-  } satisfies IConnectionManager;
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -771,92 +640,13 @@ describe('ImapService', () => {
     });
   });
 
-  /** An attachment node as imapflow parses it from GreenMail BODYSTRUCTURE. */
-  function attachmentNode(part: string, name: string, overrides: object = {}) {
-    return {
-      part,
-      type: 'text/plain',
-      parameters: { name },
-      encoding: 'base64',
-      size: 16,
-      lineCount: 1,
-      disposition: 'attachment',
-      dispositionParameters: { filename: name },
-      ...overrides,
-    };
-  }
-
-  /** BODYSTRUCTURE GreenMail returns for a text body (part 1) followed by these attachments. */
-  function mixedStructure(...attachments: object[]) {
-    return {
-      childNodes: [
-        {
-          part: '1',
-          type: 'text/plain',
-          parameters: { charset: 'utf-8' },
-          encoding: '7bit',
-          size: 28,
-          lineCount: 1,
-        },
-        ...attachments,
-      ],
-      type: 'multipart/mixed',
-      parameters: { boundary: '--_NmP-97144f485bd10a4e-Part_1' },
-    };
-  }
-
-  /** BODYSTRUCTURE GreenMail returns for a text body plus two attachments (parts 2 and 3). */
-  function twinAttachmentStructure(filename: string, secondFilename = filename) {
-    return mixedStructure(attachmentNode('2', filename), attachmentNode('3', secondFilename));
-  }
-
-  /** The same structure with imapflow's part numbers removed at every depth. */
-  function withoutPartNumbers(node: object): object {
-    const { childNodes, ...fields } = node as { childNodes?: object[]; part?: string };
-    delete fields.part;
-    return childNodes ? { ...fields, childNodes: childNodes.map(withoutPartNumbers) } : fields;
-  }
-
-  /** A message whose whole body is one attachment: imapflow gives its root no part number. */
-  const singlePartAttachment = {
-    type: 'application/pdf',
-    parameters: { name: 'a.pdf' },
-    encoding: 'base64',
-    size: 16,
-    disposition: 'attachment',
-    dispositionParameters: { filename: 'a.pdf' },
-  };
-
-  /** client.fetchOne as imapflow answers a UID FETCH: false for a UID the mailbox does not hold. */
-  function fetchOneByUid(message: { uid: number } & Record<string, unknown>) {
-    client.fetchOne.mockImplementation(
-      async (range: string, _query: unknown, options?: { uid?: boolean }) => {
-        requireUidRange('fetchOne', range, options);
-        return range === String(message.uid) ? message : false;
-      },
-    );
-  }
-
-  /** client.download as imapflow resolves it: decoded part content as a stream. */
-  function downloadReturnsPartName() {
-    client.download.mockImplementation(
-      async (uid: string, part: string, options?: { uid?: boolean }) => {
-        requireUidRange('download', uid, options);
-        return {
-          meta: { contentType: 'text/plain' },
-          content: Readable.from([Buffer.from(`body-of-part-${part}`)]),
-        };
-      },
-    );
-  }
-
   describe('downloadAttachment', () => {
     it('should reject a filename two attachments share and list their MIME parts', async () => {
-      fetchOneByUid({
+      fetchOneByUid(client, {
         uid: 9,
         bodyStructure: twinAttachmentStructure('a.txt'),
       });
-      downloadReturnsPartName();
+      downloadReturnsPartName(client);
 
       await expect(service.downloadAttachment('test', '9', 'INBOX', 'a.txt')).rejects.toThrow(
         'Attachment name "a.txt" matches 2 attachments in email 9 (MIME parts 2, 3)',
@@ -864,11 +654,11 @@ describe('ImapService', () => {
     });
 
     it('should download the MIME part of a filename that matches once', async () => {
-      fetchOneByUid({
+      fetchOneByUid(client, {
         uid: 9,
         bodyStructure: twinAttachmentStructure('a.txt', 'b.txt'),
       });
-      downloadReturnsPartName();
+      downloadReturnsPartName(client);
 
       const result = await service.downloadAttachment('test', '9', 'INBOX', 'b.txt');
 
@@ -877,8 +667,8 @@ describe('ImapService', () => {
 
     // The size is what was downloaded, not the encoded BODYSTRUCTURE size (16 here).
     it('should return the size of the downloaded content', async () => {
-      fetchOneByUid({ uid: 9, bodyStructure: twinAttachmentStructure('a.txt', 'b.txt') });
-      downloadReturnsPartName();
+      fetchOneByUid(client, { uid: 9, bodyStructure: twinAttachmentStructure('a.txt', 'b.txt') });
+      downloadReturnsPartName(client);
 
       const result = await service.downloadAttachment('test', '9', 'INBOX', 'b.txt');
 
@@ -888,11 +678,11 @@ describe('ImapService', () => {
     // imapflow numbers every child part. A structure that arrives without those
     // numbers must be numbered the same way, or the download reads another part.
     it('should number attachment parts by position when the structure has none', async () => {
-      fetchOneByUid({
+      fetchOneByUid(client, {
         uid: 9,
         bodyStructure: withoutPartNumbers(twinAttachmentStructure('a.txt', 'b.txt')),
       });
-      downloadReturnsPartName();
+      downloadReturnsPartName(client);
 
       const result = await service.downloadAttachment('test', '9', 'INBOX', 'b.txt');
 
@@ -900,7 +690,7 @@ describe('ImapService', () => {
     });
 
     it('should number a nested attachment by its dotted path when the structure has none', async () => {
-      fetchOneByUid({
+      fetchOneByUid(client, {
         uid: 9,
         bodyStructure: withoutPartNumbers({
           type: 'multipart/mixed',
@@ -916,7 +706,7 @@ describe('ImapService', () => {
           ],
         }),
       });
-      downloadReturnsPartName();
+      downloadReturnsPartName(client);
 
       const result = await service.downloadAttachment('test', '9', 'INBOX', 'logo.png');
 
@@ -924,11 +714,11 @@ describe('ImapService', () => {
     });
 
     it('should refuse an attachment a byte over the size limit', async () => {
-      fetchOneByUid({
+      fetchOneByUid(client, {
         uid: 9,
         bodyStructure: mixedStructure(attachmentNode('2', 'big.txt', { size: 17 })),
       });
-      downloadReturnsPartName();
+      downloadReturnsPartName(client);
 
       await expect(service.downloadAttachment('test', '9', 'INBOX', 'big.txt', 16)).rejects.toThrow(
         /exceeds/,
@@ -936,11 +726,11 @@ describe('ImapService', () => {
     });
 
     it('should download an attachment exactly at the size limit', async () => {
-      fetchOneByUid({
+      fetchOneByUid(client, {
         uid: 9,
         bodyStructure: mixedStructure(attachmentNode('2', 'edge.txt', { size: 16 })),
       });
-      downloadReturnsPartName();
+      downloadReturnsPartName(client);
 
       const result = await service.downloadAttachment('test', '9', 'INBOX', 'edge.txt', 16);
 
@@ -949,8 +739,8 @@ describe('ImapService', () => {
 
     // An empty part number downloads BODY[], the whole message, as the attachment.
     it('should refuse a single-part attachment that has no MIME part number', async () => {
-      fetchOneByUid({ uid: 9, bodyStructure: singlePartAttachment });
-      downloadReturnsPartName();
+      fetchOneByUid(client, { uid: 9, bodyStructure: singlePartAttachment });
+      downloadReturnsPartName(client);
 
       await expect(service.downloadAttachment('test', '9', 'INBOX', 'a.pdf')).rejects.toThrow(
         'Could not locate MIME part for "a.pdf"',
@@ -959,8 +749,8 @@ describe('ImapService', () => {
 
     // A lock left held makes every later call on the account wait out the lock timeout.
     it('should release the mailbox lock once after downloading', async () => {
-      fetchOneByUid({ uid: 9, bodyStructure: twinAttachmentStructure('a.txt', 'b.txt') });
-      downloadReturnsPartName();
+      fetchOneByUid(client, { uid: 9, bodyStructure: twinAttachmentStructure('a.txt', 'b.txt') });
+      downloadReturnsPartName(client);
 
       await service.downloadAttachment('test', '9', 'INBOX', 'b.txt');
 
@@ -980,11 +770,11 @@ describe('ImapService', () => {
     });
 
     it('should write each same-named attachment to its own file', async () => {
-      fetchOneByUid({
+      fetchOneByUid(client, {
         uid: 9,
         bodyStructure: twinAttachmentStructure('a.txt'),
       });
-      downloadReturnsPartName();
+      downloadReturnsPartName(client);
       const destDir = path.join(root, 'out');
 
       const saved = await service.saveEmailAttachments('test', '9', 'INBOX', destDir);
@@ -1001,8 +791,8 @@ describe('ImapService', () => {
     ])('should keep attachment %j inside the destination as %j', async (filename, expected) => {
       const structure = twinAttachmentStructure(filename);
       structure.childNodes.pop();
-      fetchOneByUid({ uid: 9, bodyStructure: structure });
-      downloadReturnsPartName();
+      fetchOneByUid(client, { uid: 9, bodyStructure: structure });
+      downloadReturnsPartName(client);
       const destDir = path.join(root, 'a', 'b');
 
       const saved = await service.saveEmailAttachments('test', '9', 'INBOX', destDir);
@@ -1012,11 +802,11 @@ describe('ImapService', () => {
 
     // The size is what was written, not the encoded BODYSTRUCTURE size (16 here).
     it('should return the filename, MIME type, written size and file URL', async () => {
-      fetchOneByUid({
+      fetchOneByUid(client, {
         uid: 9,
         bodyStructure: mixedStructure(attachmentNode('2', 'notes.txt')),
       });
-      downloadReturnsPartName();
+      downloadReturnsPartName(client);
       const destDir = path.join(root, 'out');
       const localPath = path.join(destDir, 'notes.txt');
 
@@ -1034,14 +824,14 @@ describe('ImapService', () => {
     });
 
     it('should save an attachment at the size limit and skip one a byte over it', async () => {
-      fetchOneByUid({
+      fetchOneByUid(client, {
         uid: 9,
         bodyStructure: mixedStructure(
           attachmentNode('2', 'at-limit.txt', { size: 16 }),
           attachmentNode('3', 'over-limit.txt', { size: 17 }),
         ),
       });
-      downloadReturnsPartName();
+      downloadReturnsPartName(client);
 
       const saved = await service.saveEmailAttachments('test', '9', 'INBOX', root, 16);
 
@@ -1050,14 +840,14 @@ describe('ImapService', () => {
 
     // The calendar paths call this without a limit; docs/tools.md states the default.
     it('should skip an attachment a byte over the default limit and save one at it', async () => {
-      fetchOneByUid({
+      fetchOneByUid(client, {
         uid: 9,
         bodyStructure: mixedStructure(
           attachmentNode('2', 'at.bin', { size: SAVED_ATTACHMENT_MAX_BYTES }),
           attachmentNode('3', 'over.bin', { size: SAVED_ATTACHMENT_MAX_BYTES + 1 }),
         ),
       });
-      downloadReturnsPartName();
+      downloadReturnsPartName(client);
 
       const saved = await service.saveEmailAttachments('test', '9', 'INBOX', root);
 
@@ -1067,7 +857,7 @@ describe('ImapService', () => {
     // Calendar data goes to the calendar, not to the attachment folder. nodemailer
     // and Gmail attach invite.ics as application/ics; a text/calendar part may have any name.
     it('should not write an invite.ics or text/calendar attachment', async () => {
-      fetchOneByUid({
+      fetchOneByUid(client, {
         uid: 9,
         bodyStructure: mixedStructure(
           attachmentNode('2', 'notes.txt'),
@@ -1075,7 +865,7 @@ describe('ImapService', () => {
           attachmentNode('4', 'meeting', { type: 'text/calendar' }),
         ),
       });
-      downloadReturnsPartName();
+      downloadReturnsPartName(client);
 
       const saved = await service.saveEmailAttachments('test', '9', 'INBOX', root);
 
@@ -1083,11 +873,11 @@ describe('ImapService', () => {
     });
 
     it('should save the other attachments when one part fails to download', async () => {
-      fetchOneByUid({
+      fetchOneByUid(client, {
         uid: 9,
         bodyStructure: twinAttachmentStructure('a.txt', 'b.txt'),
       });
-      downloadReturnsPartName();
+      downloadReturnsPartName(client);
       const byPartName = client.download.getMockImplementation();
       client.download.mockImplementation(async (uid: string, part: string, options?: object) => {
         if (part === '2') throw new Error('Command failed: NO [UNAVAILABLE]');
@@ -1101,8 +891,8 @@ describe('ImapService', () => {
 
     // An empty part number downloads BODY[], the whole message, as the attachment.
     it('should neither download nor save a single-part attachment with no MIME part number', async () => {
-      fetchOneByUid({ uid: 9, bodyStructure: singlePartAttachment });
-      downloadReturnsPartName();
+      fetchOneByUid(client, { uid: 9, bodyStructure: singlePartAttachment });
+      downloadReturnsPartName(client);
 
       const saved = await service.saveEmailAttachments('test', '9', 'INBOX', root);
 
@@ -1117,8 +907,8 @@ describe('ImapService', () => {
     ])(
       'should give %s and then %s separate files though they differ only in case',
       async (first, second, expected) => {
-        fetchOneByUid({ uid: 9, bodyStructure: twinAttachmentStructure(first, second) });
-        downloadReturnsPartName();
+        fetchOneByUid(client, { uid: 9, bodyStructure: twinAttachmentStructure(first, second) });
+        downloadReturnsPartName(client);
 
         const saved = await service.saveEmailAttachments('test', '9', 'INBOX', root);
 
@@ -1129,13 +919,13 @@ describe('ImapService', () => {
     // The arrival hook saves the attachments of every invite; one with nothing
     // else attached must not leave an empty folder behind.
     it('should not create the destination when no attachment qualifies', async () => {
-      fetchOneByUid({
+      fetchOneByUid(client, {
         uid: 9,
         bodyStructure: mixedStructure(
           attachmentNode('2', 'invite.ics', { type: 'application/ics', size: 434 }),
         ),
       });
-      downloadReturnsPartName();
+      downloadReturnsPartName(client);
       const destDir = path.join(root, 'out');
 
       await service.saveEmailAttachments('test', '9', 'INBOX', destDir);
@@ -1145,8 +935,8 @@ describe('ImapService', () => {
 
     it('should issue no command while a FETCH is open', async () => {
       const message = { uid: 9, bodyStructure: twinAttachmentStructure('a.txt', 'b.txt') };
-      fetchOneByUid(message);
-      downloadReturnsPartName();
+      fetchOneByUid(client, message);
+      downloadReturnsPartName(client);
       const issuedDuringFetch = rejectCommandsDuringFetch(client, [message]);
 
       await service.saveEmailAttachments('test', '9', 'INBOX', root);
@@ -1156,11 +946,11 @@ describe('ImapService', () => {
 
     // A lock left held makes every later call on the account wait out the lock timeout.
     it('should release the mailbox lock once after saving', async () => {
-      fetchOneByUid({
+      fetchOneByUid(client, {
         uid: 9,
         bodyStructure: twinAttachmentStructure('a.txt', 'b.txt'),
       });
-      downloadReturnsPartName();
+      downloadReturnsPartName(client);
 
       await service.saveEmailAttachments('test', '9', 'INBOX', root);
 
@@ -1180,7 +970,7 @@ describe('ImapService', () => {
     // Outlook sends a meeting request as a text/calendar alternative with no
     // .ics attachment. imapflow reports the type as "text/calendar", no subtype.
     it('should return an inline text/calendar alternative', async () => {
-      fetchOneByUid({
+      fetchOneByUid(client, {
         uid: 9,
         bodyStructure: {
           childNodes: [
@@ -1198,7 +988,7 @@ describe('ImapService', () => {
           parameters: { boundary: '--_NmP-cd9bb8d05f86132d-Part_1' },
         },
       });
-      downloadReturnsPartName();
+      downloadReturnsPartName(client);
 
       const parts = await service.getCalendarParts('test', 'INBOX', '9');
 
@@ -1207,8 +997,8 @@ describe('ImapService', () => {
 
     // RFC 3501: a non-multipart message has only part 1; imapflow gives its root no part number.
     it('should read a message that is one text/calendar part as part 1', async () => {
-      fetchOneByUid({ uid: 9, bodyStructure: calendarPart });
-      downloadReturnsPartName();
+      fetchOneByUid(client, { uid: 9, bodyStructure: calendarPart });
+      downloadReturnsPartName(client);
 
       const parts = await service.getCalendarParts('test', 'INBOX', '9');
 
@@ -1217,13 +1007,13 @@ describe('ImapService', () => {
 
     // nodemailer and Gmail attach invite.ics as application/ics, not text/calendar.
     it('should return an invite.ics attachment typed application/ics', async () => {
-      fetchOneByUid({
+      fetchOneByUid(client, {
         uid: 9,
         bodyStructure: mixedStructure(
           attachmentNode('2', 'invite.ics', { type: 'application/ics', size: 434 }),
         ),
       });
-      downloadReturnsPartName();
+      downloadReturnsPartName(client);
 
       const parts = await service.getCalendarParts('test', 'INBOX', '9');
 
@@ -1231,11 +1021,11 @@ describe('ImapService', () => {
     });
 
     it('should number calendar parts by position when the structure has none', async () => {
-      fetchOneByUid({
+      fetchOneByUid(client, {
         uid: 9,
         bodyStructure: withoutPartNumbers(mixedStructure({ part: '2', ...calendarPart })),
       });
-      downloadReturnsPartName();
+      downloadReturnsPartName(client);
 
       const parts = await service.getCalendarParts('test', 'INBOX', '9');
 
@@ -1243,8 +1033,11 @@ describe('ImapService', () => {
     });
 
     it('should release the mailbox lock once after reading the parts', async () => {
-      fetchOneByUid({ uid: 9, bodyStructure: mixedStructure({ part: '2', ...calendarPart }) });
-      downloadReturnsPartName();
+      fetchOneByUid(client, {
+        uid: 9,
+        bodyStructure: mixedStructure({ part: '2', ...calendarPart }),
+      });
+      downloadReturnsPartName(client);
 
       await service.getCalendarParts('test', 'INBOX', '9');
 
@@ -1253,8 +1046,8 @@ describe('ImapService', () => {
 
     it('should issue no command while a FETCH is open', async () => {
       const message = { uid: 9, bodyStructure: { part: '2', ...calendarPart } };
-      fetchOneByUid(message);
-      downloadReturnsPartName();
+      fetchOneByUid(client, message);
+      downloadReturnsPartName(client);
       const issuedDuringFetch = rejectCommandsDuringFetch(client, [message]);
 
       await service.getCalendarParts('test', 'INBOX', '9');
@@ -1263,7 +1056,7 @@ describe('ImapService', () => {
     });
 
     it('should read a text/calendar part attached as invite.ics once', async () => {
-      fetchOneByUid({
+      fetchOneByUid(client, {
         uid: 9,
         bodyStructure: {
           childNodes: [
@@ -1286,7 +1079,7 @@ describe('ImapService', () => {
           parameters: { boundary: '--_NmP-1fc051f5709d7b72-Part_1' },
         },
       });
-      downloadReturnsPartName();
+      downloadReturnsPartName(client);
 
       const parts = await service.getCalendarParts('test', 'INBOX', '9');
 
