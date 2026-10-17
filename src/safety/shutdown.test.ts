@@ -51,6 +51,45 @@ describe('createShutdown', () => {
     expect(reports).toEqual(['shutdown: watcher did not finish within 10 s; exiting']);
   });
 
+  it('should start each step only after the one before it settled', async () => {
+    const ran: string[] = [];
+    let finishFirst: () => void = () => {};
+    const first = new Promise<void>((resolve) => {
+      finishFirst = resolve;
+    });
+    const { shutdown } = harness([
+      [
+        'writer lease',
+        async () => {
+          ran.push('writer lease started');
+          await first;
+          ran.push('writer lease done');
+        },
+      ],
+      [
+        'watcher',
+        () => {
+          ran.push('watcher');
+        },
+      ],
+      [
+        'connections',
+        () => {
+          ran.push('connections');
+        },
+      ],
+    ]);
+    const done = shutdown();
+    await vi.advanceTimersByTimeAsync(0);
+    const whileFirstRuns = [...ran];
+    finishFirst();
+    await done;
+    expect({ whileFirstRuns, ran }).toEqual({
+      whileFirstRuns: ['writer lease started'],
+      ran: ['writer lease started', 'writer lease done', 'watcher', 'connections'],
+    });
+  });
+
   it('should run the remaining steps after one throws and exit with 1', async () => {
     const ran: string[] = [];
     const { shutdown, exits, reports } = harness([
