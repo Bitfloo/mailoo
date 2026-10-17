@@ -18,6 +18,13 @@ function createMockServer(connected = true) {
   };
 }
 
+/** Resolves after pending promise callbacks and rejection reports have run. */
+async function nextTurn(): Promise<void> {
+  await new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -86,6 +93,61 @@ describe('mcpLog', () => {
     await mcpLog('info', 'test', 'still delivered');
 
     expect(received).toEqual(['still delivered']);
+  });
+
+  // Without the await, mcpLog resolved before delivery and a send that failed
+  // later escaped the catch as an unhandled rejection, which ends Node.
+  it('should not resolve before a pending send settles', async () => {
+    let finishSend: () => void = () => undefined;
+    const server = {
+      isConnected: () => true,
+      sendLoggingMessage: async () =>
+        new Promise<void>((resolve) => {
+          finishSend = resolve;
+        }),
+    };
+    bindServer(server as never);
+    markInitialized(server as never);
+    let resolved = false;
+
+    const logged = mcpLog('info', 'test', 'pending').then(() => {
+      resolved = true;
+    });
+    await nextTurn();
+    const resolvedBeforeSend = resolved;
+    finishSend();
+    await logged;
+
+    expect(resolvedBeforeSend).toBe(false);
+  });
+
+  it('should not leak a rejection when a send fails after mcpLog was called', async () => {
+    let failSend: (error: Error) => void = () => undefined;
+    const server = {
+      isConnected: () => true,
+      sendLoggingMessage: async () =>
+        new Promise<void>((_resolve, reject) => {
+          failSend = reject;
+        }),
+    };
+    bindServer(server as never);
+    markInitialized(server as never);
+    const leaked: unknown[] = [];
+    const onLeak = (reason: unknown): void => {
+      leaked.push(reason);
+    };
+    process.on('unhandledRejection', onLeak);
+    try {
+      const logged = mcpLog('info', 'test', 'fails later');
+      await nextTurn();
+      failSend(new Error('transport closed'));
+      await logged;
+      await nextTurn();
+    } finally {
+      process.off('unhandledRejection', onLeak);
+    }
+
+    expect(leaked).toEqual([]);
   });
 
   it('swallows errors from sendLoggingMessage', async () => {
