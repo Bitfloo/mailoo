@@ -172,6 +172,7 @@ describe('release job gates', () => {
   ])('should run every step of the $job publish job whenever the job runs', ({ section }) => {
     // A tag push and a manual run both publish, so a step-level if: would skip a step on one of
     // them, and a job whose publish step was skipped still reports success to the jobs after it.
+    // An if: always() would also run a step after an earlier one failed.
     expect(readKeyLines(section(), 'if').map((line) => line.search(/\S/))).toEqual([4]);
   });
 
