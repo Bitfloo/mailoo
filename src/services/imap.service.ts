@@ -199,6 +199,9 @@ async function downloadMimePart(
   }
 }
 
+/** Default per-attachment limit for saveEmailAttachments. */
+export const SAVED_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+
 /**
  * Download each part by number and write it under destDir. Two attachments may
  * share a filename, and each gets its own file instead of the first one written twice.
@@ -1607,14 +1610,14 @@ export default class ImapService {
    * Download and save all non-ICS attachments from an email to a local directory.
    * Returns metadata including the saved file paths and file:// URLs.
    *
-   * Attachments larger than maxSizeBytes (default 25 MB) are skipped.
+   * Attachments larger than maxSizeBytes are skipped.
    */
   async saveEmailAttachments(
     accountName: string,
     emailId: string,
     mailbox: string,
     destDir: string,
-    maxSizeBytes = 25 * 1024 * 1024,
+    maxSizeBytes = SAVED_ATTACHMENT_MAX_BYTES,
   ): Promise<SavedAttachment[]> {
     const uidText = parseMessageUid(emailId);
     const safeMailbox = sanitizeMailboxName(mailbox);

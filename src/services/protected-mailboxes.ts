@@ -9,7 +9,7 @@
 
 import type { ImapFlow } from 'imapflow';
 
-const PROTECTED_SPECIAL_USE = [
+export const PROTECTED_SPECIAL_USE = [
   '\\Trash',
   '\\Sent',
   '\\Drafts',
