@@ -161,9 +161,6 @@ async function applyMailAction(
 export class MailArrival {
   private readonly seen = new Set<string>();
 
-  /** The map depends only on an account's folders, which are fixed at creation. */
-  private readonly questionsByAccount = new Map<string, Questions>();
-
   private constructor(
     private readonly client: SystemOneClient,
     private readonly imap: ImapService,
@@ -267,7 +264,7 @@ export class MailArrival {
       bodyMaxChars: this.config.bodyMaxChars,
     });
 
-    const questions = await this.questionsFor(email.account, folders);
+    const questions = await buildQuestionMap(folders);
     const mapped = await classify(this.client, state, questions, this.config.model, folders);
     if (!mapped) {
       return { kind: 'noop', reason: 'api_error' };
@@ -299,13 +296,5 @@ export class MailArrival {
     });
     await applyMailAction(this.imap, email, action);
     return action;
-  }
-
-  private async questionsFor(account: string, folders: readonly FolderSpec[]): Promise<Questions> {
-    const cached = this.questionsByAccount.get(account);
-    if (cached) return cached;
-    const questions = await buildQuestionMap(folders);
-    this.questionsByAccount.set(account, questions);
-    return questions;
   }
 }

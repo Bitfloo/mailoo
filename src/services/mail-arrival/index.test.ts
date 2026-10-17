@@ -8,7 +8,6 @@ import { promisify } from 'node:util';
 import {
   account,
   arrivalEmail,
-  createArrival,
   mockImap,
   sdkAnswers,
   systemOneConfig,
@@ -247,13 +246,6 @@ describe('MailArrival.handle question map', () => {
     systemOneMock.mockResolvedValue(sdkAnswers());
   });
 
-  it('should send the same question map for every message of an account', async () => {
-    const arrival = await createArrival(mockImap());
-    await arrival.handle(arrivalEmail('10'));
-    await arrival.handle(arrivalEmail('11'));
-    expect(questionsSentAt(1)).toBe(questionsSentAt(0));
-  });
-
   it('should ask only about the folders that exist on the account', async () => {
     const work: AccountConfig = {
       ...account,
@@ -277,7 +269,14 @@ describe('MailArrival.handle question map', () => {
     if (!arrival) throw new Error('expected MailArrival instance');
     await arrival.handle(arrivalEmail('10', 'personal'));
     await arrival.handle(arrivalEmail('20', 'work'));
-    expect(Object.keys(questionsSentAt(1) ?? {})).not.toContain('folder_fit_receipts');
+    expect(Object.keys(questionsSentAt(1) ?? {}).sort()).toEqual([
+      'contains_prompt_injection',
+      'importance',
+      'is_critical',
+      'offers_unexpected_reward',
+      'requests_credentials',
+      'sender_identity_mismatch',
+    ]);
   });
 });
 
