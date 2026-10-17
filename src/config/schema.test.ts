@@ -1,3 +1,6 @@
+import { readFile } from 'node:fs/promises';
+
+import LOOPBACK_HOSTNAMES from '../utils/loopback.js';
 import {
   AccountConfigSchema,
   AppConfigFileSchema,
@@ -178,6 +181,33 @@ describe('OAuth2ConfigSchema custom endpoints', () => {
       auth_url: 'http://auth.example.com/authorize',
     };
     expect(OAuth2ConfigSchema.safeParse(config).error?.issues[0]?.path).toEqual(['auth_url']);
+  });
+
+  // The README and the rejection message list the hosts in prose; the
+  // loopback set is what the check reads.
+  it.each([
+    [
+      'README.md',
+      async () => {
+        const readme = await readFile(new URL('../../README.md', import.meta.url), 'utf8');
+        const sentence = /plain `http` is accepted only for ([^(]+)\(/.exec(readme)?.[1] ?? '';
+        return [...sentence.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
+      },
+    ],
+    [
+      'the rejection message',
+      async () => {
+        const { error } = OAuth2ConfigSchema.safeParse(
+          customOAuth('http://auth.example.com/token'),
+        );
+        const hosts = /http only for (.+)\)$/.exec(error?.issues[0]?.message ?? '')?.[1] ?? '';
+        return hosts.split(/, | or /);
+      },
+    ],
+  ])('should name exactly the loopback hosts in %s', async (_source, listedHosts) => {
+    const loopback = [...LOOPBACK_HOSTNAMES].map((host) => host.replace(/^\[|\]$/g, ''));
+
+    expect((await listedHosts()).sort()).toEqual(loopback.sort());
   });
 
   it('should name https in the rejection message', () => {
