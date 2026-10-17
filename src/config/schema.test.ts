@@ -262,6 +262,43 @@ describe('SettingsSchema', () => {
   });
 });
 
+// idle_timeout stops at 1740 s (29 min): servers may drop an IDLE that runs
+// 30 minutes, so the watcher has to re-issue it before then (RFC 2177).
+describe('SettingsSchema numeric bounds', () => {
+  const settingAt: Record<string, (value: number) => Record<string, unknown>> = {
+    'watcher.idle_timeout': (value) => ({ watcher: { idle_timeout: value } }),
+    'hooks.batch_delay': (value) => ({ hooks: { batch_delay: value } }),
+    'hooks.calendar_alarm_minutes': (value) => ({ hooks: { calendar_alarm_minutes: value } }),
+    rate_limit: (value) => ({ rate_limit: value }),
+  };
+
+  it.each([
+    ['watcher.idle_timeout', 60],
+    ['watcher.idle_timeout', 1740],
+    ['hooks.batch_delay', 1],
+    ['hooks.batch_delay', 60],
+    ['hooks.calendar_alarm_minutes', 0],
+    ['hooks.calendar_alarm_minutes', 1440],
+    ['rate_limit', 1],
+  ])('should accept %s = %d at its bound', (field, value) => {
+    expect(SettingsSchema.safeParse(settingAt[field](value)).success).toBe(true);
+  });
+
+  it.each([
+    ['watcher.idle_timeout', 59],
+    ['watcher.idle_timeout', 1741],
+    ['hooks.batch_delay', 0],
+    ['hooks.batch_delay', 61],
+    ['hooks.calendar_alarm_minutes', -1],
+    ['hooks.calendar_alarm_minutes', 1441],
+    ['rate_limit', 0],
+  ])('should refuse %s = %d one step past its bound', (field, value) => {
+    const result = SettingsSchema.safeParse(settingAt[field](value));
+
+    expect(result.error?.issues.map((issue) => issue.path.join('.'))).toEqual([field]);
+  });
+});
+
 describe('AppConfigFileSchema', () => {
   it('accepts valid config with one account', () => {
     const result = AppConfigFileSchema.parse({ accounts: [validAccount()] });
