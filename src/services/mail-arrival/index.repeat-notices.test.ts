@@ -167,6 +167,14 @@ describe('MailArrival.handle repeat notices', () => {
     expect(await arrival.handle(moved)).toEqual({ kind: 'noop', reason: 'already_seen' });
   });
 
+  it('should classify a message that reached a source folder after it was seen in an unwatched one', async () => {
+    const arrival = await createArrival(mockImap());
+    const archived = { ...arrivalEmail('7'), mailbox: 'Archive' };
+    archived.meta.messageId = '<10@example.com>';
+    const actions = [await arrival.handle(archived), await arrival.handle(arrivalEmail('10'))];
+    expect(actions).toEqual([{ kind: 'noop', reason: 'not_in_source' }, filedAsReceipt]);
+  });
+
   it('should still remember a message after 4999 newer ones', async () => {
     const arrival = await createArrival(mockImap());
     await arrival.handle(arrivalEmail('first'));
