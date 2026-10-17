@@ -65,11 +65,7 @@ describe('code scanning workflows', () => {
     const jobs = jobSections(yaml);
     const scorecardJobs = jobs.filter((job) => job.includes('ossf/scorecard-action@'));
     expect(scorecardJobs).toHaveLength(1);
-    expect(scorecardJobs[0]).toContain('id-token: write');
-    expect(scorecardJobs[0]).toContain('security-events: write');
     expect(scorecardJobs[0]).toContain('actions: read');
-    expect(scorecardJobs[0]).not.toContain('contents: write');
-    expect(scorecardJobs[0]).not.toContain('packages: write');
     expect(yaml.replace(scorecardJobs[0], '')).not.toContain('id-token: write');
     const on = onBlock(yaml);
     expect(on).toContain('schedule:');
@@ -84,15 +80,23 @@ describe('code scanning workflows', () => {
   });
 });
 
+/** Every scope the job's token may write, so a grant no test names fails the exact-set checks. */
+function writeScopes(job?: string): string[] {
+  return [...(job ?? '').matchAll(/^ +([\w-]+):\s*write\b/gm)].map((match) => match[1]).sort();
+}
+
 describe('workflow token is no wider than the job writes', () => {
   it('gives CodeQL security-events write and no other write scope', () => {
     const yaml = readFileSync(join(workflowDir, 'codeql.yml'), 'utf8');
     const analyze = jobSections(yaml).find((job) => job.includes('github/codeql-action/analyze@'));
     expect(analyze).toContain('contents: read');
-    expect(analyze).toContain('security-events: write');
-    expect(analyze).not.toContain('contents: write');
-    expect(analyze).not.toContain('packages: write');
-    expect(analyze).not.toContain('id-token:');
+    expect(writeScopes(analyze)).toEqual(['security-events']);
+  });
+
+  it('should give the Scorecard job id-token and security-events write and no other write scope', () => {
+    const yaml = readFileSync(join(workflowDir, 'scorecard.yml'), 'utf8');
+    const analysis = jobSections(yaml).find((job) => job.includes('ossf/scorecard-action@'));
+    expect(writeScopes(analysis)).toEqual(['id-token', 'security-events']);
   });
 
   it('lets GHCR push jobs write packages and not repository contents', () => {
@@ -102,31 +106,25 @@ describe('workflow token is no wider than the job writes', () => {
       const pushJobs = jobSections(yaml).filter((job) => job.includes('push: true'));
       expect(pushJobs.length).toBeGreaterThan(0);
       for (const job of pushJobs) {
-        expect(job).toContain('packages: write');
         expect(job).toContain('contents: read');
-        expect(job).not.toContain('contents: write');
-        expect(job).not.toContain('security-events:');
-        expect(job).not.toContain('id-token:');
+        expect(writeScopes(job), name).toEqual(['packages']);
       }
     }
   });
 
-  it('keeps contents write on the GoReleaser job and id-token on the publish jobs', () => {
-    const jobs = jobSections(releaseYml);
-    const npm = jobs.find((job) => job.includes('npm publish'));
-    const mcp = jobs.find((job) => job.includes('mcp-publisher publish'));
-    const docker = jobs.find((job) => job.includes('goreleaser/goreleaser-action@'));
-    expect(npm).toContain('id-token: write');
-    expect(npm).toContain('contents: read');
-    expect(npm).not.toContain('contents: write');
-    expect(npm).not.toContain('packages: write');
-    expect(mcp).toContain('id-token: write');
-    expect(mcp).not.toContain('contents: write');
-    expect(mcp).not.toContain('packages: write');
-    expect(docker).toContain('contents: write');
-    expect(docker).toContain('packages: write');
-    expect(docker).not.toContain('id-token:');
-    expect(docker).not.toContain('security-events:');
+  it.each([
+    { name: 'npm', marker: 'npm publish', scopes: ['id-token'] },
+    { name: 'mcp', marker: 'mcp-publisher publish', scopes: ['id-token'] },
+    { name: 'docker', marker: 'goreleaser/goreleaser-action@', scopes: ['contents', 'packages'] },
+  ])('should let the release $name job write $scopes and no other scope', ({ marker, scopes }) => {
+    const job = jobSections(releaseYml).find((section) => section.includes(marker));
+    expect(writeScopes(job)).toEqual(scopes);
+  });
+
+  it('should let the npm job read the checkout it publishes', () => {
+    expect(jobSections(releaseYml).find((job) => job.includes('npm publish'))).toContain(
+      'contents: read',
+    );
   });
 
   it('does not grant ci.yml any write scope', () => {
