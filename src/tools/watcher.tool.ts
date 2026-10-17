@@ -24,13 +24,29 @@ function webhookOrigin(url: string): string {
   }
 }
 
-interface ConfigureAlertsArgs {
-  desktop?: boolean;
-  sound?: boolean;
-  urgency_threshold?: AlertsConfig['urgencyThreshold'];
-  webhook_url?: string;
-  webhook_events?: AlertsConfig['webhookEvents'];
-}
+/** The configure_alerts input; its parsed type is what the handler and alertsPatch read. */
+const configureAlertsInput = {
+  desktop: z.boolean().optional().describe('Enable/disable desktop notifications'),
+  sound: z.boolean().optional().describe('Enable/disable sound alerts for urgent emails'),
+  urgency_threshold: z
+    .enum(['urgent', 'high', 'normal', 'low'])
+    .optional()
+    .describe('Minimum urgency level to trigger desktop notifications'),
+  webhook_url: z
+    .string()
+    .optional()
+    .describe('Webhook URL for external notifications (empty string to disable)'),
+  webhook_events: z
+    .array(z.enum(['urgent', 'high', 'normal', 'low']))
+    .optional()
+    .describe('Which urgency levels trigger webhook dispatch'),
+  save: z
+    .boolean()
+    .default(false)
+    .describe('Persist changes to config.toml (default: runtime only)'),
+};
+
+type ConfigureAlertsArgs = z.infer<z.ZodObject<typeof configureAlertsInput>>;
 
 /** The settings a configure_alerts call sets; an omitted field stays as it is. */
 function alertsPatch(args: ConfigureAlertsArgs): Partial<AlertsConfig> {
@@ -416,26 +432,7 @@ export function registerWatcherWriteTools(server: McpServer, hooksService: Hooks
         'Update alert/notification settings at runtime. Changes take effect immediately. ' +
         'Use save=true to persist changes to the config file. ' +
         'Omit any field to leave it unchanged.',
-      inputSchema: {
-        desktop: z.boolean().optional().describe('Enable/disable desktop notifications'),
-        sound: z.boolean().optional().describe('Enable/disable sound alerts for urgent emails'),
-        urgency_threshold: z
-          .enum(['urgent', 'high', 'normal', 'low'])
-          .optional()
-          .describe('Minimum urgency level to trigger desktop notifications'),
-        webhook_url: z
-          .string()
-          .optional()
-          .describe('Webhook URL for external notifications (empty string to disable)'),
-        webhook_events: z
-          .array(z.enum(['urgent', 'high', 'normal', 'low']))
-          .optional()
-          .describe('Which urgency levels trigger webhook dispatch'),
-        save: z
-          .boolean()
-          .default(false)
-          .describe('Persist changes to config.toml (default: runtime only)'),
-      },
+      inputSchema: configureAlertsInput,
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
