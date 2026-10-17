@@ -360,11 +360,15 @@ export default class ImapService {
     if (pending) return pending;
 
     const promise = (async () => {
-      const client = await this.connections.getImapClient(accountName);
-      const strategy = await detectLabelStrategy(client);
-      this.labelStrategies.set(accountName, strategy);
-      this.labelStrategyPending.delete(accountName);
-      return strategy;
+      try {
+        const client = await this.connections.getImapClient(accountName);
+        const strategy = await detectLabelStrategy(client);
+        this.labelStrategies.set(accountName, strategy);
+        return strategy;
+      } finally {
+        // Only a success is cached; a failed detection is retried on the next call.
+        this.labelStrategyPending.delete(accountName);
+      }
     })();
 
     this.labelStrategyPending.set(accountName, promise);

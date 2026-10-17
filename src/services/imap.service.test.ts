@@ -96,6 +96,20 @@ describe('ImapService', () => {
   });
 
   // -----------------------------------------------------------------------
+  // Label strategy detection
+  // -----------------------------------------------------------------------
+
+  describe('label strategy detection', () => {
+    // A cached rejection would fail every label tool on the account until restart.
+    it('should detect the strategy again when the previous detection failed', async () => {
+      client.list.mockRejectedValueOnce(new Error('LIST failed'));
+      await expect(service.listLabels('test')).rejects.toThrow('LIST failed');
+
+      await expect(service.listLabels('test')).resolves.toEqual([]);
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // moveEmail
   // -----------------------------------------------------------------------
 
