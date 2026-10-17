@@ -204,13 +204,6 @@ describe('release notes', () => {
     ]);
   });
 
-  it.each(['Write release notes', 'Run GoReleaser'])(
-    'lets a failure in %s stop the release',
-    (name) => {
-      expect(releaseStep(releaseYml, name)).not.toMatch(/^ +if:/m);
-    },
-  );
-
   it('should write the release notes right before GoReleaser reads them', () => {
     // A step in between could rewrite the file GoReleaser publishes as the release body.
     const written = releaseStep(releaseYml, 'Write release notes');

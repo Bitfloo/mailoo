@@ -43,6 +43,18 @@ export function releaseSteps(yaml: string): string {
     .join('\n');
 }
 
+/**
+ * Each line outside a comment that sets `key`, plain, quoted or in a flow mapping, listed once per
+ * time the key occurs. Text that only looks like the key is listed too, so a check built on this
+ * fails on a form it did not expect instead of missing it.
+ */
+export function keyLines(yaml: string, key: string): string[] {
+  const pattern = new RegExp(`(?<![\\w-])(["']?)${key}\\1[ \\t]*:`, 'g');
+  return releaseSteps(yaml)
+    .split('\n')
+    .flatMap((line) => Array.from(line.matchAll(pattern), () => line));
+}
+
 /** Isolate one step so a hash elsewhere cannot satisfy the install check. */
 export function releaseStep(yaml: string, name: string): string {
   const steps = releaseSteps(yaml);
