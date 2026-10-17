@@ -7,6 +7,7 @@ import { repoRoot } from './agents/agent-file.js';
 import { unpinnedUses } from './workflow-scan.js';
 import {
   jobSections,
+  keyLines,
   onBlock,
   refEnv,
   releaseStep,
@@ -229,9 +230,8 @@ describe('release version selection', () => {
 
   it('should run the server.json stamp step with the shell and directory the harness uses', () => {
     // shell and working-directory would run other code than the harness checks.
-    expect(releaseStep(releaseYml, 'Set version in server.json')).not.toMatch(
-      /^ {8}(?:shell|working-directory):/m,
-    );
+    const step = releaseStep(releaseYml, 'Set version in server.json');
+    expect(keyLines(step, 'shell|working-directory')).toEqual([]);
   });
 
   it('should stamp server.json before the step that publishes it to the MCP Registry', () => {

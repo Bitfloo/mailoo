@@ -7,6 +7,7 @@ import { repoRoot } from './agents/agent-file.js';
 import { changelogMd, swapOnce } from './changelog-fixture.js';
 import {
   jobSections,
+  keyLines,
   refEnv,
   releaseStep,
   releaseSteps,
@@ -214,12 +215,11 @@ describe('release notes', () => {
 
   it('should run the release-notes step with the default shell in the checkout root', () => {
     // The harness above runs it that way: `bash -e` in the directory that holds CHANGELOG.md.
-    expect(releaseStep(releaseYml, 'Write release notes')).not.toMatch(
-      /^ +(?:shell|working-directory):/m,
-    );
+    const step = releaseStep(releaseYml, 'Write release notes');
+    expect(keyLines(step, 'shell|working-directory')).toEqual([]);
   });
 
   it('should set no run defaults the release-notes harness does not model', () => {
-    expect(releaseSteps(releaseYml)).not.toMatch(/^ *defaults:/m);
+    expect(keyLines(releaseYml, 'defaults')).toEqual([]);
   });
 });
