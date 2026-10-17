@@ -97,6 +97,18 @@ describe('ImapService', () => {
       expect(client.messageMove).toHaveBeenCalledWith('99', 'INBOX.Trash', { uid: true });
     });
 
+    // imapflow gives a folder the \Trash role from its SPECIAL-USE flag or a known
+    // name such as "Deleted Items"; a mailbox with neither has no \Trash folder.
+    it('should move to Trash when no folder has the \\Trash role', async () => {
+      client.list.mockResolvedValue([
+        { name: 'INBOX', path: 'INBOX', specialUse: '\\Inbox', flags: new Set<string>() },
+      ]);
+
+      await service.deleteEmail('test', '99', 'INBOX', false);
+
+      expect(client.messageMove).toHaveBeenCalledWith('99', 'Trash', { uid: true });
+    });
+
     it.each(['[Gmail]/All Mail', '[Gmail]/Starred'])(
       'should refuse to move to Trash from the virtual folder %s',
       async (mailbox) => {
@@ -127,6 +139,16 @@ describe('ImapService', () => {
 
       expect(result).toEqual({ total: 2, succeeded: 2, failed: 0 });
       expect(client.messageMove).toHaveBeenCalledWith('3,5', '[Gmail]/Trash', { uid: true });
+    });
+
+    it('should move every id to Trash when no folder has the \\Trash role', async () => {
+      client.list.mockResolvedValue([
+        { name: 'INBOX', path: 'INBOX', specialUse: '\\Inbox', flags: new Set<string>() },
+      ]);
+
+      await service.bulkDelete('test', [3, 5], 'INBOX');
+
+      expect(client.messageMove).toHaveBeenCalledWith('3,5', 'Trash', { uid: true });
     });
 
     it('should never expunge by default', async () => {
