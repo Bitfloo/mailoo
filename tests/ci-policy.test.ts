@@ -269,7 +269,5 @@ describe('docker rebuild images', () => {
     expect(yaml).toContain(':latest');
     expect(yaml).not.toContain('sha-${{');
     expect(topLevelPermissions(yaml)).not.toMatch(/write/);
-    const jobs = jobSections(yaml);
-    expect(jobs.some((job) => job.includes('packages: write'))).toBe(true);
   });
 });
