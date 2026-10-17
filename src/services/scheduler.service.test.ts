@@ -525,6 +525,50 @@ describe('send_at calendar dates', () => {
   });
 });
 
+describe('send_at horizon', () => {
+  beforeEach(() => {
+    // Faking timers as well hangs the async queue writes.
+    // 2028 is a leap year, so 2028-01-15 plus 366 days is 2029-01-15.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function scheduleIn(queueDir: string, sendAt: string) {
+    const { service } = createService(queueDir);
+    return service.schedule('personal', {
+      to: ['user@example.com'],
+      subject: 'Hello',
+      body: 'Body',
+      sendAt,
+    });
+  }
+
+  it('accepts a send_at exactly 366 days ahead', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-horizon-'));
+    try {
+      const scheduled = await scheduleIn(queueDir, '2029-01-15T00:00:00.000Z');
+      expect(scheduled.sendAt).toBe('2029-01-15T00:00:00.000Z');
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a send_at 366 days and 1 ms ahead', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-horizon-'));
+    try {
+      await expect(scheduleIn(queueDir, '2029-01-15T00:00:00.001Z')).rejects.toThrow(
+        'send_at must be within 366 days',
+      );
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('send_at century years', () => {
   beforeEach(() => {
     // Faking timers as well hangs the async queue writes.
@@ -599,6 +643,22 @@ describe('unreadable send times', () => {
       expect(result.sent).toBe(1);
       await expect(fs.access(sentPath)).resolves.toBeUndefined();
       await expect(fs.access(pendingPath)).rejects.toThrow();
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('successful send', () => {
+  it('removes the pending queue file after SMTP accepts the email', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-sent-'));
+    const id = queueId(1);
+    const pendingPath = path.join(queueDir, `${id}.json`);
+    try {
+      await fs.writeFile(pendingPath, JSON.stringify(pendingRecord(id, '2020-01-01T00:00:00Z')));
+      const { service } = createService(queueDir);
+      await service.checkAndSend();
+      await expect(fs.access(pendingPath)).rejects.toMatchObject({ code: 'ENOENT' });
     } finally {
       await fs.rm(queueDir, { recursive: true, force: true });
     }
@@ -698,6 +758,27 @@ describe('overlapping queue checks', () => {
       expect(sent).toHaveLength(1);
       expect(sent[0]).toMatchObject({ id, status: 'sent' });
     } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not take a claim whose age is exactly the stale window', async () => {
+    // A whole-second clock keeps the claim mtime exact, so its age is STALE_LOCK_MS to the ms.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-boundary-'));
+    const id = queueId(5);
+    const lockPath = path.join(queueDir, `${id}${SCHEDULE_CLAIM_SUFFIX}`);
+    try {
+      await writeDue(queueDir, id, 'pending');
+      await fs.writeFile(lockPath, 'held', { flag: 'wx' });
+      const claimedAt = new Date(Date.now() - STALE_LOCK_MS);
+      await fs.utimes(lockPath, claimedAt, claimedAt);
+      const { service } = createService(queueDir);
+      await service.checkAndSend();
+      expect(await service.list({ status: 'sent' })).toEqual([]);
+    } finally {
+      vi.useRealTimers();
       await fs.rm(queueDir, { recursive: true, force: true });
     }
   });

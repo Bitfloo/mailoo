@@ -93,6 +93,11 @@ async function createClaim(lockPath: string, token: string): Promise<boolean> {
   }
 }
 
+/** One boundary for both reads, so the first check and the re-check after parking agree. */
+function claimIsStale(age: number): boolean {
+  return age > STALE_LOCK_MS;
+}
+
 async function claimAge(lockPath: string, now: number): Promise<number | undefined> {
   try {
     const stat = await fs.stat(lockPath);
@@ -119,7 +124,7 @@ async function stealStaleClaim(
   }
   try {
     const age = await claimAge(parked, now);
-    if (age === undefined || age <= STALE_LOCK_MS) {
+    if (age === undefined || !claimIsStale(age)) {
       try {
         // rename would replace a claim created after the park.
         await fs.link(parked, lockPath);
@@ -155,7 +160,7 @@ async function claimSchedule(
   if (age === undefined) {
     return (await createClaim(lockPath, token)) ? token : undefined;
   }
-  if (age <= STALE_LOCK_MS) return undefined;
+  if (!claimIsStale(age)) return undefined;
   return (await stealStaleClaim(dir, id, lockPath, now, token)) ? token : undefined;
 }
 
