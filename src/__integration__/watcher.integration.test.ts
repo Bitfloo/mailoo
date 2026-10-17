@@ -6,7 +6,7 @@ import { INITIAL_BACKOFF_MS, JITTER_RATIO } from '../connections/backoff.js';
 import type { NewEmailEvent } from '../services/event-bus.js';
 import { EmailEventBus } from '../services/event-bus.js';
 import WatcherService, { AUTO_IDLE_DELAY_MS } from '../services/watcher.service.js';
-import type { AccountConfig, WatcherConfig } from '../types/index.js';
+import type { AccountConfig, EmailMeta, WatcherConfig } from '../types/index.js';
 import {
   buildTestAccount,
   getGreenMailPorts,
@@ -35,7 +35,7 @@ const running: WatcherService[] = [];
 function startWatcher(
   config: WatcherConfig = inbox,
   account: AccountConfig = buildTestAccount(),
-): { watcher: WatcherService; subjects: () => string[] } {
+): { watcher: WatcherService; emails: () => EmailMeta[]; subjects: () => string[] } {
   const events = new EmailEventBus();
   const arrivals: NewEmailEvent[] = [];
   events.on('email:new', (event) => {
@@ -43,14 +43,12 @@ function startWatcher(
   });
   const watcher = new WatcherService(config, [account], events);
   running.push(watcher);
-  return {
-    watcher,
-    subjects: () => arrivals.flatMap((arrival) => arrival.emails.map((email) => email.subject)),
-  };
+  const emails = (): EmailMeta[] => arrivals.flatMap((arrival) => arrival.emails);
+  return { watcher, emails, subjects: () => emails().map((email) => email.subject) };
 }
 
-/** Deletes and expunges through a second session, so later UIDs run ahead of sequence numbers. */
-async function expungeBySubject(subject: string): Promise<number> {
+/** Works on the test mailbox the way another mail client would, beside the watcher's session. */
+async function inSecondSession<T>(work: (client: ImapFlow) => Promise<T>): Promise<T> {
   const { host, imapPort } = getGreenMailPorts();
   const client = new ImapFlow({
     host,
@@ -61,6 +59,15 @@ async function expungeBySubject(subject: string): Promise<number> {
   });
   await client.connect();
   try {
+    return await work(client);
+  } finally {
+    await client.logout();
+  }
+}
+
+/** Deletes and expunges through a second session, so later UIDs run ahead of sequence numbers. */
+async function expungeBySubject(subject: string): Promise<number> {
+  return inSecondSession(async (client) => {
     const lock = await client.getMailboxLock('INBOX');
     try {
       const uids = (await client.search({ subject }, { uid: true })) || [];
@@ -69,9 +76,33 @@ async function expungeBySubject(subject: string): Promise<number> {
     } finally {
       lock.release();
     }
-  } finally {
-    await client.logout();
-  }
+  });
+}
+
+/** A text message with a PDF attached, as a mail client sends it. */
+function invoiceSource(subject: string): string {
+  return [
+    'From: billing@example.com',
+    'To: test@localhost',
+    `Subject: ${subject}`,
+    `Message-ID: <${subject}@example.com>`,
+    'Date: Thu, 01 Oct 2026 08:00:00 +0000',
+    'MIME-Version: 1.0',
+    'Content-Type: multipart/mixed; boundary="invoice"',
+    '',
+    '--invoice',
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    'Your invoice is attached.',
+    '--invoice',
+    'Content-Type: application/pdf; name="invoice.pdf"',
+    'Content-Disposition: attachment; filename="invoice.pdf"',
+    'Content-Transfer-Encoding: base64',
+    '',
+    Buffer.from('%PDF-1.4\n%%EOF\n').toString('base64'),
+    '--invoice--',
+    '',
+  ].join('\r\n');
 }
 
 interface ConnectAttempt {
@@ -131,6 +162,29 @@ describe('WatcherService on a live IMAP server', () => {
     await vi.waitFor(
       () => {
         expect(subjects()).toContain(subject);
+      },
+      { timeout: ARRIVAL_DEADLINE_MS, interval: 50 },
+    );
+  });
+
+  // Filed with \Seen in the same APPEND, so the watcher's fetch can only see it read: a STORE
+  // after an SMTP delivery would race that fetch.
+  it('should report a message another client filed as read with its attachment flag', async () => {
+    const { watcher, emails } = startWatcher();
+    await watcher.start();
+    await waitForDelivery(IDLE_START_MS);
+
+    const subject = `watcher-read-${Date.now()}`;
+    await inSecondSession(async (client) =>
+      client.append('INBOX', invoiceSource(subject), ['\\Seen']),
+    );
+
+    await vi.waitFor(
+      () => {
+        expect(emails().find((email) => email.subject === subject)).toMatchObject({
+          seen: true,
+          hasAttachments: true,
+        });
       },
       { timeout: ARRIVAL_DEADLINE_MS, interval: 50 },
     );
