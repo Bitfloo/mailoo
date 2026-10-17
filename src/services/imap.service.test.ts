@@ -109,11 +109,13 @@ function rejectCommandsDuringFetch(
   ].forEach((name) => {
     commands[name] = guard(name, commands[name]);
   });
-  client.fetch.mockImplementation(() =>
+  // Only the rows in the requested UID set, as UID FETCH returns them.
+  client.fetch.mockImplementation((range: unknown) =>
     (async function* openFetch() {
+      const uids = new Set(String(range).split(',').map(Number));
       fetchOpen = true;
       try {
-        yield* rows;
+        yield* rows.filter((row) => uids.has(row.uid as number));
       } finally {
         fetchOpen = false;
       }
@@ -1031,17 +1033,21 @@ describe('ImapService', () => {
   });
 
   describe('getThread', () => {
-    /** A GreenMail thread message: single text/plain part, base64 body, as fetchAll returns it. */
-    function threadMessage(uid: number, references: string[]) {
+    /**
+     * A GreenMail thread message as fetchAll returns it: one text/plain part
+     * with a base64 body. A real server also reports In-Reply-To in the ENVELOPE.
+     */
+    function threadMessage(uid: number, references: string[], inReplyTo = references.at(-1)) {
       const messageId = `<thread-${uid}@example.test>`;
-      const body = `thread-body-${uid}`;
       const headers = [
         `Message-ID: ${messageId}`,
+        ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`] : []),
         ...(references.length > 0 ? [`References: ${references.join(' ')}`] : []),
-        `Subject: Re: Thread`,
+        'Subject: Re: Thread',
         'Content-Type: text/plain; charset=utf-8',
         'Content-Transfer-Encoding: base64',
       ];
+      const body = Buffer.from(`thread-body-${uid}`).toString('base64');
       return {
         seq: uid,
         uid,
@@ -1051,7 +1057,7 @@ describe('ImapService', () => {
           from: [{ name: '', address: 'alice@example.test' }],
           to: [{ name: '', address: 'bob@example.test' }],
           messageId,
-          inReplyTo: references.at(-1),
+          inReplyTo,
         },
         flags: new Set<string>(),
         bodyStructure: {
@@ -1061,10 +1067,31 @@ describe('ImapService', () => {
           size: 20,
           lineCount: 1,
         },
-        source: Buffer.from(
-          `${headers.join('\r\n')}\r\n\r\n${Buffer.from(body).toString('base64')}\r\n`,
-        ),
+        source: Buffer.from(`${headers.join('\r\n')}\r\n\r\n${body}\r\n`),
       };
+    }
+
+    /**
+     * SEARCH HEADER matches a substring of the named header; the last message
+     * is the one asked for. Returns the commands issued while a FETCH was open.
+     */
+    function serveThread(messages: ReturnType<typeof threadMessage>[]) {
+      const headerOf = (message: (typeof messages)[number], name: string) =>
+        message.source
+          .toString()
+          .split('\r\n')
+          .find((line) => line.toLowerCase().startsWith(`${name.toLowerCase()}:`))
+          ?.slice(name.length + 1) ?? '';
+      client.search.mockImplementation(async (query: { header: Record<string, string> }) => {
+        const [[name, value]] = Object.entries(query.header);
+        return messages.filter((m) => headerOf(m, name).includes(value)).map((m) => m.uid);
+      });
+      client.fetchOne.mockResolvedValue(messages.at(-1));
+      client.download.mockImplementation(async (uid: string) => ({
+        meta: { contentType: 'text/plain' },
+        content: Readable.from([Buffer.from(`thread-body-${uid}`)]),
+      }));
+      return rejectCommandsDuringFetch(client, messages);
     }
 
     const thread = [
@@ -1073,21 +1100,8 @@ describe('ImapService', () => {
       threadMessage(3, ['<thread-1@example.test>', '<thread-2@example.test>']),
     ];
 
-    beforeEach(() => {
-      client.search.mockImplementation(async (query: { header: Record<string, string> }) => {
-        const id = query.header['Message-ID'];
-        const found = thread.find((m) => m.envelope.messageId === id);
-        return found ? [found.uid] : [];
-      });
-      client.fetchOne.mockResolvedValue(thread[2]);
-      client.download.mockImplementation(async (uid: string) => ({
-        meta: { contentType: 'text/plain' },
-        content: Readable.from([Buffer.from(`thread-body-${uid}`)]),
-      }));
-    });
-
     it('should issue no command while the thread FETCH is open', async () => {
-      const issuedDuringFetch = rejectCommandsDuringFetch(client, thread);
+      const issuedDuringFetch = serveThread(thread);
 
       await service.getThread('test', '<thread-3@example.test>');
 
@@ -1096,7 +1110,7 @@ describe('ImapService', () => {
 
     // A body read inside the FETCH loop fails; the message then keeps its base64 source text.
     it('should return every thread message with its decoded body', async () => {
-      rejectCommandsDuringFetch(client, thread);
+      serveThread(thread);
 
       const result = await service.getThread('test', '<thread-3@example.test>');
 
@@ -1104,6 +1118,19 @@ describe('ImapService', () => {
         'thread-body-1',
         'thread-body-2',
         'thread-body-3',
+      ]);
+    });
+
+    // Some clients set In-Reply-To and no References header on a reply. GreenMail
+    // reports no In-Reply-To in the ENVELOPE, so only this lane reaches the case.
+    it('should include the parent a reply names only in In-Reply-To', async () => {
+      serveThread([threadMessage(1, []), threadMessage(2, [], '<thread-1@example.test>')]);
+
+      const result = await service.getThread('test', '<thread-2@example.test>');
+
+      expect(result.messages.map((m) => m.messageId)).toEqual([
+        '<thread-1@example.test>',
+        '<thread-2@example.test>',
       ]);
     });
   });
