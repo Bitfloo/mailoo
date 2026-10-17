@@ -718,7 +718,7 @@ Only new mail in `source_folders` (default `INBOX`) that no static rule handled 
 
 Not sent: To, Cc, and Bcc addresses, `Message-ID`, other raw headers, attachment contents, and the body while `include_body` is false.
 
-Mailoo remembers the last 5000 messages it classified and does not send them again. A message whose request, or whose header read, failed is not remembered, so the next notice of it tries again.
+Mailoo remembers the last 5000 messages it classified and does not send them again. A message that reaches two of your accounts is classified once in each. A message whose request, or whose header read, failed is not remembered, so the next notice of it tries again.
 
 `auto_move` and `auto_flag` are separate poles and default false. Filing destinations come from `folders[].path` (validated against IMAP LIST), not a live listing of every mailbox.
 

@@ -110,8 +110,9 @@ async function classify(
 /** Caps memory for a long-running watcher; a repeat notice of an older message is classified again. */
 export const SEEN_LIMIT = 5_000;
 
+// Per account: a message sent to two of the user's addresses is one arrival in each.
 function seenKey(email: ArrivalEmail): string {
-  if (email.meta.messageId) return `mid:${email.meta.messageId}`;
+  if (email.meta.messageId) return `mid:${email.account}:${email.meta.messageId}`;
   return `uid:${email.account}:${email.mailbox}:${email.meta.id}`;
 }
 

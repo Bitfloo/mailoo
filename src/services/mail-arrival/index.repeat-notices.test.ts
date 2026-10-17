@@ -159,6 +159,14 @@ describe('MailArrival.handle repeat notices', () => {
     expect(await arrival.handle(renumbered)).toEqual({ kind: 'noop', reason: 'already_seen' });
   });
 
+  it('should recognise a message moved to another folder of the same account by its Message-ID', async () => {
+    const arrival = await twoAccountArrival();
+    await arrival.handle(arrivalEmail('10'));
+    const moved = { ...arrivalEmail('11'), mailbox: 'Support' };
+    moved.meta.messageId = '<10@example.com>';
+    expect(await arrival.handle(moved)).toEqual({ kind: 'noop', reason: 'already_seen' });
+  });
+
   it('should still remember a message after 4999 newer ones', async () => {
     const arrival = await createArrival(mockImap());
     await arrival.handle(arrivalEmail('first'));
