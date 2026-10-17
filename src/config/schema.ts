@@ -4,6 +4,8 @@
 
 import { z } from 'zod';
 
+import LOOPBACK_HOSTNAMES from '../utils/loopback.js';
+
 export const ImapConfigSchema = z.object({
   host: z.string().min(1, 'IMAP host is required'),
   port: z.number().int().min(1).max(65535).default(993),
@@ -29,8 +31,6 @@ export const SmtpConfigSchema = z.object({
     })
     .prefault({}),
 });
-
-const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', '[::1]', 'localhost']);
 
 /** Plain http only to this machine: the token endpoint receives client_secret and refresh_token. */
 function isHttpsOrLoopback(value: string): boolean {

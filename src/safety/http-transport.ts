@@ -11,6 +11,8 @@ import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import http from 'node:http';
 
+import LOOPBACK_HOSTNAMES from '../utils/loopback.js';
+
 /** One JSON-RPC POST, including a modest base64 attachment. Larger files use a path. */
 export const DEFAULT_HTTP_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
 
@@ -29,8 +31,6 @@ export const HTTP_REQUEST_TIMEOUT_MS = 60_000;
 export const HTTP_MAX_HEADER_COUNT = 100;
 
 const LOOPBACK_BIND_HOSTS = ['127.0.0.1', '::1'] as const;
-
-const LOOPBACK_HOSTNAMES = ['127.0.0.1', 'localhost', '[::1]'] as const;
 
 const METHODS = new Set(['GET', 'POST', 'DELETE']);
 

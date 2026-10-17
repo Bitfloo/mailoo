@@ -16,6 +16,8 @@ import type {
   OAuth2Config,
   SystemOneConfig,
 } from '../types/index.js';
+import hasGroupOrOtherBits from '../utils/file-mode.js';
+import isEnoent from '../utils/fs-errors.js';
 import type { RawAccountConfig, RawAppConfig, RawAppConfigInput } from './schema.js';
 import { AppConfigFileSchema, SystemOneConfigSchema } from './schema.js';
 import { CONFIG_FILE, xdg } from './xdg.js';
@@ -156,15 +158,6 @@ function loadFromEnv(): RawAppConfigInput | null {
 // TOML file loader
 // ---------------------------------------------------------------------------
 
-function isEnoent(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === 'ENOENT'
-  );
-}
-
 function assertConfigPath(filePath: string): void {
   if (filePath.includes('\0')) {
     throw new Error('Config path is not valid');
@@ -178,12 +171,6 @@ async function lstatOrNull(filePath: string): Promise<Awaited<ReturnType<typeof 
     if (isEnoent(error)) return null;
     throw error;
   }
-}
-
-function hasGroupOrOtherBits(mode: number | bigint): boolean {
-  const bits = typeof mode === 'bigint' ? Number(mode) : mode;
-  // eslint-disable-next-line no-bitwise
-  return (bits & 0o077) !== 0;
 }
 
 function warnIfGroupOrOtherCanRead(filePath: string, mode: number | bigint): void {

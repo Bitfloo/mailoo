@@ -27,6 +27,7 @@ import {
 } from '@clack/prompts';
 
 import { writeConfigFile } from '../config/loader.js';
+import isEnoent from '../utils/fs-errors.js';
 import ensureInteractive from './guard.js';
 
 const MCP_SERVER_KEY = 'mailoo';
@@ -152,15 +153,6 @@ async function fileExists(filePath: string): Promise<boolean> {
 }
 
 class ClientConfigParseError extends Error {}
-
-function isEnoent(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === 'ENOENT'
-  );
-}
 
 /**
  * A missing or empty file has nothing to keep and reads as {}. Anything else

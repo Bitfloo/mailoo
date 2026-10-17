@@ -9,8 +9,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { xdg } from '../config/xdg.js';
-
 import type { AuditEntry } from '../types/index.js';
+import hasGroupOrOtherBits from '../utils/file-mode.js';
 
 const AUDIT_LOG_PATH = path.join(xdg.data, 'audit.log');
 
@@ -49,11 +49,6 @@ const PRIVATE_FILE_MODE = 0o600;
 
 /** Set after the first write that checked existing modes. */
 let modesChecked = false;
-
-function hasGroupOrOtherBits(mode: number): boolean {
-  // eslint-disable-next-line no-bitwise
-  return (mode & 0o077) !== 0;
-}
 
 async function appendLine(line: string): Promise<void> {
   const dir = path.dirname(AUDIT_LOG_PATH);
