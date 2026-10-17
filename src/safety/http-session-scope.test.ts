@@ -599,6 +599,30 @@ describe('HTTP session account state', () => {
     }
   });
 
+  it('should stop scheduled-send checks once the host closes', async () => {
+    const { SCHEDULER_INTERVAL_MS } = await import('../services/scheduler.service.js');
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const session = await startHost(testConfig({ readOnly: false }));
+      let checks = 0;
+      vi.spyOn(session.host.scheduler, 'checkAndSend').mockImplementation(async () => {
+        checks += 1;
+        return { sent: 0, failed: 0, deferred: 0, errors: [] };
+      });
+      await openSession(session, 1, false);
+      await session.host.ready;
+      await session.host.close();
+      const atClose = checks;
+      await vi.advanceTimersByTimeAsync(3 * SCHEDULER_INTERVAL_MS);
+      expect({ atClose, afterThreeIntervals: checks }).toEqual({
+        atClose: 1,
+        afterThreeIntervals: 1,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('should log a scheduled-send check that fails at warning', async () => {
     const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
     const logged: unknown[] = [];
