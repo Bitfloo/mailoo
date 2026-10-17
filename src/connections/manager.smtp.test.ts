@@ -103,6 +103,7 @@ describe('ConnectionManager SMTP transport options', () => {
 describe('ConnectionManager.getSmtpTransport', () => {
   beforeEach(() => {
     smtpTransports.length = 0;
+    verifyErrors.length = 0;
   });
 
   it('should build exactly one transport when 20 callers ask for the same account at once', async () => {
@@ -121,6 +122,14 @@ describe('ConnectionManager.getSmtpTransport', () => {
       manager.getSmtpTransport('second'),
     ]);
     expect(second).not.toBe(first);
+  });
+
+  it('should close the cached transport, and only that one, when its re-check fails', async () => {
+    const manager = new ConnectionManager([account]);
+    await manager.getSmtpTransport('test');
+    verifyErrors.push(new Error('421 Service not available'));
+    await manager.getSmtpTransport('test', { verify: true });
+    expect(smtpTransports.map((transport) => transport.close.mock.calls.length)).toEqual([1, 0]);
   });
 });
 
