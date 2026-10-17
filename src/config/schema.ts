@@ -27,11 +27,7 @@ export const SmtpConfigSchema = z.object({
       max_connections: z.number().int().min(1).default(1),
       max_messages: z.number().int().min(1).default(100),
     })
-    .default({
-      enabled: true,
-      max_connections: 1,
-      max_messages: 100,
-    }),
+    .prefault({}),
 });
 
 const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', '[::1]', 'localhost']);
@@ -128,14 +124,7 @@ export const HooksConfigSchema = z.object({
   custom_instructions: z.string().optional(),
   system_prompt: z.string().optional(),
   rules: z.array(HookRuleSchema).default([]),
-  alerts: AlertsConfigSchema.default({
-    desktop: false,
-    sound: false,
-    urgency_threshold: 'high',
-    webhook_url: '',
-    webhook_events: ['urgent', 'high'],
-    allow_private_webhooks: false,
-  }),
+  alerts: AlertsConfigSchema.prefault({}),
   auto_calendar: z.boolean().default(false),
   calendar_name: z.string().default(''),
   calendar_alarm_minutes: z.number().int().min(0).max(1440).default(15),
@@ -169,122 +158,23 @@ export const SystemOneConfigSchema = z.object({
       importance_min_confidence: z.number().min(0).max(1).default(0.7),
       is_critical_min: z.number().min(0).max(1).default(0.85),
     })
-    .default({
-      folder_fit_min: 0.85,
-      spam_high: 0.72,
-      spam_uncertain_low: 0.4,
-      spam_uncertain_high: 0.6,
-      injection_high: 0.75,
-      importance_flag_min: 3,
-      importance_min_confidence: 0.7,
-      is_critical_min: 0.85,
-    }),
+    .prefault({}),
 });
 
 export const SettingsSchema = z.object({
   rate_limit: z.number().int().min(1).default(10),
   read_only: z.boolean().default(false),
   save_to_sent: z.boolean().default(true),
-  watcher: WatcherConfigSchema.default({
-    enabled: false,
-    folders: ['INBOX'],
-    idle_timeout: 1740,
-  }),
-  system_one: SystemOneConfigSchema.default({
-    enabled: false,
-    model: 'jev-latest',
-    include_body: false,
-    body_max_chars: 6000,
-    auto_move: false,
-    auto_flag: false,
-    folders: [],
-    source_folders: ['INBOX'],
-    thresholds: {
-      folder_fit_min: 0.85,
-      spam_high: 0.72,
-      spam_uncertain_low: 0.4,
-      spam_uncertain_high: 0.6,
-      injection_high: 0.75,
-      importance_flag_min: 3,
-      importance_min_confidence: 0.7,
-      is_critical_min: 0.85,
-    },
-  }),
-  hooks: HooksConfigSchema.default({
-    on_new_email: 'notify',
-    preset: 'priority-focus',
-    auto_label: false,
-    auto_flag: false,
-    batch_delay: 5,
-    rules: [],
-    alerts: {
-      desktop: false,
-      sound: false,
-      urgency_threshold: 'high',
-      webhook_url: '',
-      webhook_events: ['urgent', 'high'],
-      allow_private_webhooks: false,
-    },
-    auto_calendar: false,
-    calendar_name: '',
-    calendar_alarm_minutes: 15,
-    calendar_confirm: true,
-  }),
+  watcher: WatcherConfigSchema.prefault({}),
+  system_one: SystemOneConfigSchema.prefault({}),
+  hooks: HooksConfigSchema.prefault({}),
 });
 
 export const AppConfigFileSchema = z.object({
-  settings: SettingsSchema.default({
-    rate_limit: 10,
-    read_only: false,
-    save_to_sent: true,
-    watcher: {
-      enabled: false,
-      folders: ['INBOX'],
-      idle_timeout: 1740,
-    },
-    system_one: {
-      enabled: false,
-      model: 'jev-latest',
-      include_body: false,
-      body_max_chars: 6000,
-      auto_move: false,
-      auto_flag: false,
-      folders: [],
-      source_folders: ['INBOX'],
-      thresholds: {
-        folder_fit_min: 0.85,
-        spam_high: 0.72,
-        spam_uncertain_low: 0.4,
-        spam_uncertain_high: 0.6,
-        injection_high: 0.75,
-        importance_flag_min: 3,
-        importance_min_confidence: 0.7,
-        is_critical_min: 0.85,
-      },
-    },
-    hooks: {
-      on_new_email: 'notify',
-      preset: 'priority-focus',
-      auto_label: false,
-      auto_flag: false,
-      batch_delay: 5,
-      rules: [],
-      alerts: {
-        desktop: false,
-        sound: false,
-        urgency_threshold: 'high',
-        webhook_url: '',
-        webhook_events: ['urgent', 'high'],
-        allow_private_webhooks: false,
-      },
-      auto_calendar: false,
-      calendar_name: '',
-      calendar_alarm_minutes: 15,
-      calendar_confirm: true,
-    },
-  }),
+  settings: SettingsSchema.prefault({}),
   accounts: z.array(AccountConfigSchema).min(1, 'At least one account is required'),
 });
 
 export type RawAccountConfig = z.infer<typeof AccountConfigSchema>;
 export type RawAppConfig = z.infer<typeof AppConfigFileSchema>;
+export type RawAppConfigInput = z.input<typeof AppConfigFileSchema>;

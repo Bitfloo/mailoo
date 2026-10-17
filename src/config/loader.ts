@@ -16,7 +16,7 @@ import type {
   OAuth2Config,
   SystemOneConfig,
 } from '../types/index.js';
-import type { RawAccountConfig, RawAppConfig } from './schema.js';
+import type { RawAccountConfig, RawAppConfig, RawAppConfigInput } from './schema.js';
 import { AppConfigFileSchema, SystemOneConfigSchema } from './schema.js';
 import { CONFIG_FILE, xdg } from './xdg.js';
 
@@ -24,7 +24,23 @@ import { CONFIG_FILE, xdg } from './xdg.js';
 // Environment variable loader (single-account quick setup)
 // ---------------------------------------------------------------------------
 
-function loadFromEnv(): RawAppConfig | null {
+// Callers pass `process.env.MCP_EMAIL_*` itself, not the name: the published
+// variable list (server.json) is checked against those literals.
+
+/** Unset stays undefined so the schema default applies; an empty value still reaches validation. */
+function intEnv(value: string | undefined): number | undefined {
+  return value === undefined ? undefined : parseInt(value, 10);
+}
+
+/** Only "true" and "false" are read; any other value keeps the schema default. */
+function flagEnv(value: string | undefined): boolean | undefined {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return undefined;
+}
+
+/** Leaves every unset variable undefined: defaults live in the schema only. */
+function loadFromEnv(): RawAppConfigInput | null {
   const email = process.env.MCP_EMAIL_ADDRESS;
   const password = process.env.MCP_EMAIL_PASSWORD;
   const imapHost = process.env.MCP_EMAIL_IMAP_HOST;
@@ -51,56 +67,53 @@ function loadFromEnv(): RawAppConfig | null {
 
   return {
     settings: {
-      rate_limit: parseInt(process.env.MCP_EMAIL_RATE_LIMIT ?? '10', 10),
-      read_only: process.env.MCP_EMAIL_READ_ONLY === 'true',
-      save_to_sent: process.env.MCP_EMAIL_SAVE_TO_SENT !== 'false',
+      rate_limit: intEnv(process.env.MCP_EMAIL_RATE_LIMIT),
+      read_only: flagEnv(process.env.MCP_EMAIL_READ_ONLY),
+      save_to_sent: flagEnv(process.env.MCP_EMAIL_SAVE_TO_SENT),
       watcher: {
-        enabled: process.env.MCP_EMAIL_WATCHER_ENABLED === 'true',
-        folders: (process.env.MCP_EMAIL_WATCHER_FOLDERS ?? 'INBOX')
-          .split(',')
+        enabled: flagEnv(process.env.MCP_EMAIL_WATCHER_ENABLED),
+        folders: process.env.MCP_EMAIL_WATCHER_FOLDERS?.split(',')
           .map((f) => f.trim())
           .filter(Boolean),
-        idle_timeout: parseInt(process.env.MCP_EMAIL_WATCHER_IDLE_TIMEOUT ?? '1740', 10),
+        idle_timeout: intEnv(process.env.MCP_EMAIL_WATCHER_IDLE_TIMEOUT),
       },
       hooks: {
-        on_new_email:
-          (process.env.MCP_EMAIL_HOOK_ON_NEW_EMAIL as 'triage' | 'notify' | 'none') ?? 'notify',
-        preset:
-          (process.env.MCP_EMAIL_HOOK_PRESET as
-            | 'inbox-zero'
-            | 'gtd'
-            | 'priority-focus'
-            | 'notification-only'
-            | 'custom') ?? 'priority-focus',
-        auto_label: process.env.MCP_EMAIL_HOOK_AUTO_LABEL === 'true',
-        auto_flag: process.env.MCP_EMAIL_HOOK_AUTO_FLAG === 'true',
-        batch_delay: parseInt(process.env.MCP_EMAIL_HOOK_BATCH_DELAY ?? '5', 10),
+        on_new_email: process.env.MCP_EMAIL_HOOK_ON_NEW_EMAIL as
+          | 'triage'
+          | 'notify'
+          | 'none'
+          | undefined,
+        preset: process.env.MCP_EMAIL_HOOK_PRESET as
+          | 'inbox-zero'
+          | 'gtd'
+          | 'priority-focus'
+          | 'notification-only'
+          | 'custom'
+          | undefined,
+        auto_label: flagEnv(process.env.MCP_EMAIL_HOOK_AUTO_LABEL),
+        auto_flag: flagEnv(process.env.MCP_EMAIL_HOOK_AUTO_FLAG),
+        batch_delay: intEnv(process.env.MCP_EMAIL_HOOK_BATCH_DELAY),
         custom_instructions: process.env.MCP_EMAIL_HOOK_CUSTOM_INSTRUCTIONS,
-        rules: [],
         alerts: {
-          desktop: process.env.MCP_EMAIL_ALERT_DESKTOP === 'true',
-          sound: process.env.MCP_EMAIL_ALERT_SOUND === 'true',
-          urgency_threshold:
-            (process.env.MCP_EMAIL_ALERT_URGENCY_THRESHOLD as
-              | 'urgent'
-              | 'high'
-              | 'normal'
-              | 'low') ?? 'high',
-          webhook_url: process.env.MCP_EMAIL_ALERT_WEBHOOK_URL ?? '',
-          webhook_events: ['urgent', 'high'],
-          allow_private_webhooks: process.env.MCP_EMAIL_ALERT_WEBHOOK_ALLOW_PRIVATE === 'true',
+          desktop: flagEnv(process.env.MCP_EMAIL_ALERT_DESKTOP),
+          sound: flagEnv(process.env.MCP_EMAIL_ALERT_SOUND),
+          urgency_threshold: process.env.MCP_EMAIL_ALERT_URGENCY_THRESHOLD as
+            | 'urgent'
+            | 'high'
+            | 'normal'
+            | 'low'
+            | undefined,
+          webhook_url: process.env.MCP_EMAIL_ALERT_WEBHOOK_URL,
+          allow_private_webhooks: flagEnv(process.env.MCP_EMAIL_ALERT_WEBHOOK_ALLOW_PRIVATE),
         },
-        auto_calendar: process.env.MCP_EMAIL_HOOK_AUTO_CALENDAR === 'true',
-        calendar_name: process.env.MCP_EMAIL_HOOK_CALENDAR_NAME ?? '',
-        calendar_alarm_minutes: parseInt(
-          process.env.MCP_EMAIL_HOOK_CALENDAR_ALARM_MINUTES ?? '15',
-          10,
-        ),
-        calendar_confirm: process.env.MCP_EMAIL_HOOK_CALENDAR_CONFIRM !== 'false',
+        auto_calendar: flagEnv(process.env.MCP_EMAIL_HOOK_AUTO_CALENDAR),
+        calendar_name: process.env.MCP_EMAIL_HOOK_CALENDAR_NAME,
+        calendar_alarm_minutes: intEnv(process.env.MCP_EMAIL_HOOK_CALENDAR_ALARM_MINUTES),
+        calendar_confirm: flagEnv(process.env.MCP_EMAIL_HOOK_CALENDAR_CONFIRM),
       },
-      system_one: SystemOneConfigSchema.parse({
-        enabled: process.env.MCP_EMAIL_SYSTEM_ONE_ENABLED === 'true',
-      }),
+      system_one: {
+        enabled: flagEnv(process.env.MCP_EMAIL_SYSTEM_ONE_ENABLED),
+      },
     },
     accounts: [
       {
@@ -112,11 +125,11 @@ function loadFromEnv(): RawAppConfig | null {
         oauth2,
         imap: {
           host: imapHost,
-          port: parseInt(process.env.MCP_EMAIL_IMAP_PORT ?? '993', 10),
-          tls: process.env.MCP_EMAIL_IMAP_TLS !== 'false',
-          starttls: process.env.MCP_EMAIL_IMAP_STARTTLS === 'true',
-          verify_ssl: process.env.MCP_EMAIL_IMAP_VERIFY_SSL !== 'false',
-          disable_imap4rev2: process.env.MCP_EMAIL_IMAP_DISABLE_IMAP4REV2 === 'true',
+          port: intEnv(process.env.MCP_EMAIL_IMAP_PORT),
+          tls: flagEnv(process.env.MCP_EMAIL_IMAP_TLS),
+          starttls: flagEnv(process.env.MCP_EMAIL_IMAP_STARTTLS),
+          verify_ssl: flagEnv(process.env.MCP_EMAIL_IMAP_VERIFY_SSL),
+          disable_imap4rev2: flagEnv(process.env.MCP_EMAIL_IMAP_DISABLE_IMAP4REV2),
           sieve_host: process.env.MCP_EMAIL_SIEVE_HOST,
           sieve_port: process.env.MCP_EMAIL_SIEVE_PORT
             ? parseInt(process.env.MCP_EMAIL_SIEVE_PORT, 10)
@@ -124,14 +137,14 @@ function loadFromEnv(): RawAppConfig | null {
         },
         smtp: {
           host: smtpHost,
-          port: parseInt(process.env.MCP_EMAIL_SMTP_PORT ?? '465', 10),
-          tls: process.env.MCP_EMAIL_SMTP_TLS !== 'false',
-          starttls: process.env.MCP_EMAIL_SMTP_STARTTLS === 'true',
-          verify_ssl: process.env.MCP_EMAIL_SMTP_VERIFY_SSL !== 'false',
+          port: intEnv(process.env.MCP_EMAIL_SMTP_PORT),
+          tls: flagEnv(process.env.MCP_EMAIL_SMTP_TLS),
+          starttls: flagEnv(process.env.MCP_EMAIL_SMTP_STARTTLS),
+          verify_ssl: flagEnv(process.env.MCP_EMAIL_SMTP_VERIFY_SSL),
           pool: {
-            enabled: process.env.MCP_EMAIL_SMTP_POOL_ENABLED !== 'false',
-            max_connections: parseInt(process.env.MCP_EMAIL_SMTP_POOL_MAX_CONNECTIONS ?? '1', 10),
-            max_messages: parseInt(process.env.MCP_EMAIL_SMTP_POOL_MAX_MESSAGES ?? '100', 10),
+            enabled: flagEnv(process.env.MCP_EMAIL_SMTP_POOL_ENABLED),
+            max_connections: intEnv(process.env.MCP_EMAIL_SMTP_POOL_MAX_CONNECTIONS),
+            max_messages: intEnv(process.env.MCP_EMAIL_SMTP_POOL_MAX_MESSAGES),
           },
         },
       },
@@ -337,19 +350,19 @@ function normalizeConfig(raw: RawAppConfig): AppConfig {
         batchDelay: raw.settings.hooks.batch_delay,
         customInstructions: raw.settings.hooks.custom_instructions,
         systemPrompt: raw.settings.hooks.system_prompt,
-        rules: (raw.settings.hooks.rules ?? []).map(normalizeHookRule),
+        rules: raw.settings.hooks.rules.map(normalizeHookRule),
         alerts: {
-          desktop: raw.settings.hooks.alerts?.desktop ?? false,
-          sound: raw.settings.hooks.alerts?.sound ?? false,
-          urgencyThreshold: raw.settings.hooks.alerts?.urgency_threshold ?? 'high',
-          webhookUrl: raw.settings.hooks.alerts?.webhook_url ?? '',
-          webhookEvents: raw.settings.hooks.alerts?.webhook_events ?? ['urgent', 'high'],
-          allowPrivateWebhooks: raw.settings.hooks.alerts?.allow_private_webhooks ?? false,
+          desktop: raw.settings.hooks.alerts.desktop,
+          sound: raw.settings.hooks.alerts.sound,
+          urgencyThreshold: raw.settings.hooks.alerts.urgency_threshold,
+          webhookUrl: raw.settings.hooks.alerts.webhook_url,
+          webhookEvents: raw.settings.hooks.alerts.webhook_events,
+          allowPrivateWebhooks: raw.settings.hooks.alerts.allow_private_webhooks,
         },
-        autoCalendar: raw.settings.hooks.auto_calendar ?? false,
-        calendarName: raw.settings.hooks.calendar_name ?? '',
-        calendarAlarmMinutes: raw.settings.hooks.calendar_alarm_minutes ?? 15,
-        calendarConfirm: raw.settings.hooks.calendar_confirm ?? true,
+        autoCalendar: raw.settings.hooks.auto_calendar,
+        calendarName: raw.settings.hooks.calendar_name,
+        calendarAlarmMinutes: raw.settings.hooks.calendar_alarm_minutes,
+        calendarConfirm: raw.settings.hooks.calendar_confirm,
       },
     },
     accounts: raw.accounts.map(normalizeAccount),
