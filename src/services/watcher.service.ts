@@ -6,13 +6,14 @@
  *
  * Key design decisions:
  * - Separate ImapFlow connections from ConnectionManager (an idling connection serves no tools)
- * - Auto-reconnect with exponential backoff on connection failures
+ * - Auto-reconnect with jittered exponential backoff on connection failures
  * - Tracks last-seen UID per folder to detect genuinely new messages
  */
 
 import type { MailboxLockObject } from 'imapflow';
 import { ImapFlow } from 'imapflow';
 import { buildImapAuth } from '../connections/auth.js';
+import { INITIAL_BACKOFF_MS, nextBackoff, withJitter } from '../connections/backoff.js';
 import { bindImapLifecycle, buildImapFlowOptions } from '../connections/manager.js';
 import type { AccessTokenSource } from '../connections/types.js';
 import { mcpLog } from '../logging.js';
@@ -103,9 +104,6 @@ export function buildEmailMeta(msg: WatcherFetchMessage): EmailMeta {
 // ---------------------------------------------------------------------------
 // WatcherService
 // ---------------------------------------------------------------------------
-
-const MAX_BACKOFF_MS = 60_000;
-const INITIAL_BACKOFF_MS = 1_000;
 
 /**
  * These connections only idle, so imapflow's 15 s default would just hold back the notice for
@@ -286,19 +284,17 @@ export default class WatcherService {
     if (!state || state.stopped || state.reconnectTimer) return;
 
     const { backoffMs } = state;
+    const delayMs = withJitter(backoffMs);
     mcpLog(
       'info',
       'watcher',
-      `Reconnecting ${state.account.name}/${state.folder} in ${backoffMs}ms`,
+      `Reconnecting ${state.account.name}/${state.folder} in ${delayMs}ms`,
     ).catch(() => {});
 
     const timer = setTimeout(() => {
-      this.updateState(key, {
-        reconnectTimer: null,
-        backoffMs: Math.min(backoffMs * 2, MAX_BACKOFF_MS),
-      });
+      this.updateState(key, { reconnectTimer: null, backoffMs: nextBackoff(backoffMs) });
       this.connectIdle(key).catch(() => {});
-    }, backoffMs);
+    }, delayMs);
     timer.unref();
 
     this.updateState(key, { reconnectTimer: timer });

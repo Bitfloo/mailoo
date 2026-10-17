@@ -338,6 +338,8 @@ function watch(
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+  // Reconnect jitter at zero, so every delay below is the full backoff.
+  vi.spyOn(Math, 'random').mockReturnValue(0);
   fake.folders.clear();
   fake.clients.length = 0;
   fake.connectErrors.length = 0;
@@ -348,6 +350,7 @@ beforeEach(() => {
 afterEach(async () => {
   await Promise.all(running.splice(0).map(async (watcher) => watcher.stop()));
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('WatcherService start', () => {
@@ -546,6 +549,19 @@ describe('WatcherService reconnect', () => {
     expect(fake.clients).toHaveLength(7);
     await advance(1);
     expect(fake.clients).toHaveLength(8);
+  });
+});
+
+describe('WatcherService reconnect jitter', () => {
+  it('should retry up to a quarter early so folders do not reconnect in lockstep', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.999_999);
+    fake.connectErrors.push(new Error('connect ECONNREFUSED'));
+    const { watcher } = watch();
+    await watcher.start();
+    await advance(750);
+    expect(fake.clients).toHaveLength(1);
+    await advance(1);
+    expect(fake.clients).toHaveLength(2);
   });
 });
 

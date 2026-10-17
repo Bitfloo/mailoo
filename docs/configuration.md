@@ -176,7 +176,8 @@ dial that server again for the account until a backoff window has passed:
 to a quarter so accounts do not retry in lockstep. A tool call inside the
 window fails at once with
 `Last IMAP connect for "<account>" failed: <error> (next attempt in <n>s)`
-(`SMTP` for sends). A successful connect resets the window.
+(`SMTP` for sends). A successful connect resets the window. The IDLE
+watcher retries a dropped or failed folder connection on the same schedule.
 
 ## Stdio shutdown
 
