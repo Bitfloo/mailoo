@@ -76,7 +76,8 @@ describe('addEvent script', () => {
   });
 
   it('should give the add script a 90 s budget', async () => {
-    // The confirm dialog alone may wait CONFIRM_DIALOG_WAIT_S; a shorter budget cuts off an add.
+    // The confirm dialog alone may wait CONFIRM_DIALOG_WAIT_S; a shorter budget would cut off
+    // a confirmed add.
     await addScript();
     expect(osascriptImpl.mock.calls[0]?.[2].timeout).toBe(90_000);
   });
