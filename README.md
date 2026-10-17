@@ -64,7 +64,7 @@ Policy and how to report a vulnerability: **[SECURITY.md](SECURITY.md)**.
 
 | Topic | Where |
 |-------|--------|
-| Sent APPEND, IMAP4rev2, Sieve, `read_only`, stdio EOF | [docs/configuration.md](docs/configuration.md) |
+| Sent APPEND, IMAP4rev2, Sieve, `read_only`, shutdown, one mailbox writer per machine | [docs/configuration.md](docs/configuration.md) |
 | `savePath`, search dates, `get_email_security`, sieve tools, send/draft attachments, RFC 2047 | [docs/tools.md](docs/tools.md) |
 | Performance notes | [docs/performance-roadmap.md](docs/performance-roadmap.md) |
 
@@ -529,7 +529,7 @@ npx -y @bitfloo/mailoo scheduler check
 npx -y @bitfloo/mailoo scheduler uninstall
 ```
 
-Scheduled emails are JSON files in `~/.local/state/mailoo/scheduled/`. Before sending, a check claims the entry with a lock file next to it and keeps that claim fresh while SMTP runs, so the in-process timer, `mailoo scheduler check` and other server processes do not send it twice. If the process dies after the server accepted a message but before it was recorded as sent, the entry can be sent again after the claim goes stale (at least once, not exactly once). Every attempt for one entry carries the same Message-ID, `<schedule id@account domain>`, so a receiving server or client can drop the second copy. Once SMTP has accepted a message, a failure to update the queue file is reported and never retried. Each entry tracks attempts (max 3) and the last error, so you can inspect failures with `scheduler list`. An entry the rate limit holds back stays pending for the next check and does not use an attempt.
+Scheduled emails are JSON files in `~/.local/state/mailoo/scheduled/`. Before sending, a check claims the entry with a lock file next to it and keeps that claim fresh while SMTP runs, so the in-process timer, `mailoo scheduler check` and other server processes do not send it twice. If the process dies after the server accepted a message but before it was recorded as sent, the entry can be sent again after the claim goes stale (at least once, not exactly once). Every attempt for one entry carries the same Message-ID, `<schedule id@account domain>`, so a receiving server or client can drop the second copy. Once SMTP has accepted a message, a failure to update the queue file is reported, and the entry is not sent again as long as either the sent record or the move into `sent/` succeeded. If both failed, the next check sends it again. Each entry tracks attempts (max 3) and the last error, so you can inspect failures with `scheduler list`. An entry the rate limit holds back stays pending for the next check and does not use an attempt.
 
 ### Real-time Watcher & AI Hooks
 
@@ -774,10 +774,10 @@ Paths follow the XDG defaults in `src/config/xdg.ts` unless `XDG_CONFIG_HOME`, `
 |---|---|---|
 | `$XDG_CONFIG_HOME/mailoo/config.toml` (mode `0600`) | Accounts and settings, including passwords and OAuth secrets | `src/config/loader.ts` |
 | `$XDG_DATA_HOME/mailoo/audit.log` | Append-only audit lines | `src/safety/audit.ts` |
-| `$XDG_STATE_HOME/mailoo/scheduled/` and `scheduled/sent/` (mode `0600`) | Scheduled-send JSON, replaced through a temp file and rename | `src/services/scheduler.service.ts` |
+| `$XDG_STATE_HOME/mailoo/scheduled/` and `scheduled/sent/` | Scheduled-send JSON records (mode `0600`), replaced through a temp file and rename | `src/services/scheduler.service.ts` |
 | `$XDG_DATA_HOME/mailoo/calendar-attachments/` | Attachment files saved for a calendar event | `src/services/imap.service.ts` |
 | `$XDG_STATE_HOME/mailoo/mailbox-writers.lock` | Which `stdio` server runs hooks, the watcher and the scheduler. The holder refreshes it and deletes it on shutdown; timings in [configuration](docs/configuration.md#one-mailbox-writer-per-machine) | `src/safety/writer-lease.ts` |
-| `$XDG_STATE_HOME/mailoo/calendar-processed.json` (mode `0600`) and `.lock` | Which messages already created an automatic event or reminder, replaced through a temp file and rename. A damaged file stops automatic calendar processing with an error instead of starting over | `src/utils/calendar-state.ts` |
+| `$XDG_STATE_HOME/mailoo/calendar-processed.json` (mode `0600`) and `.lock` | Which messages already created an automatic event or reminder, replaced through a temp file and rename. A damaged file stops automatic calendar processing, and makes `analyze_email_for_scheduling` report an error, instead of starting over | `src/utils/calendar-state.ts` |
 | `savePath` under the working directory | `download_attachment` or `export_email` when that argument is set | `src/tools/attachments.tool.ts`, `src/tools/export.tool.ts` |
 | OS temp directory, `mailoo-event-*.ics` | Linux calendar file passed to `xdg-open` | `src/services/local-calendar.service.ts` |
 | `~/Library/LaunchAgents/com.bitfloo.mailoo.scheduler.plist` | macOS scheduler agent. Its stdout and stderr are `/tmp/mailoo-scheduler.log` | `src/cli/scheduler.ts` |
@@ -975,7 +975,7 @@ src/
 ├── tools/                 — MCP tool definitions (57)
 ├── prompts/               — MCP prompt definitions (7)
 ├── resources/             — MCP resource definitions (6)
-├── safety/                — Audit trail, rate limiter, stdio lifecycle
+├── safety/                — Audit trail, rate limiter, stdio lifecycle, shutdown, writer lease
 │   └── http-transport.ts  — Streamable HTTP listen policy
 ├── utils/                 — RFC 2047 compose, MIME body, auth headers
 └── types/                 — Shared TypeScript types
