@@ -23,7 +23,7 @@ export type LabelClient = Record<LabelCommand, Mock> & {
   releaseFn: Mock;
 };
 
-function mockClient(gmail: boolean): LabelClient {
+export function mockClient(gmail: boolean): LabelClient {
   const releaseFn = vi.fn();
   return {
     list: vi.fn().mockResolvedValue([]),

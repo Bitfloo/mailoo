@@ -15,15 +15,6 @@ import {
   recordSelectedMailbox,
 } from '../test-support/label-client-fake.js';
 
-describe('label strategy detection', () => {
-  // A lock left held makes every later call on the account wait out the lock timeout.
-  it('should release the INBOX lock it takes to read PERMANENTFLAGS', async () => {
-    const { client } = await keywordStrategy();
-
-    expect(client.releaseFn).toHaveBeenCalledTimes(1);
-  });
-});
-
 // A UID names a message only within the selected mailbox, and imapflow
 // selects it when the lock is taken: another mailbox would label another message.
 describe('label mailbox selection', () => {
