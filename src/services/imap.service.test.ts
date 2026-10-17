@@ -6,7 +6,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 
 import type { IConnectionManager } from '../connections/types.js';
-import ImapService, { findTextMimeParts } from './imap.service.js';
+import ImapService, { findTextMimeParts, SAVED_ATTACHMENT_MAX_BYTES } from './imap.service.js';
 import { MAILBOX_LOCK_TIMEOUT_MS } from './mailbox-lock.js';
 
 // ---------------------------------------------------------------------------
@@ -997,6 +997,22 @@ describe('ImapService', () => {
       const saved = await service.saveEmailAttachments('test', '9', 'INBOX', root, 16);
 
       expect(saved.map((s) => s.filename)).toEqual(['at-limit.txt']);
+    });
+
+    // The calendar paths call this without a limit; docs/tools.md states the default.
+    it('should skip an attachment a byte over the default limit and save one at it', async () => {
+      fetchOneByUid({
+        uid: 9,
+        bodyStructure: mixedStructure(
+          attachmentNode('2', 'at.bin', { size: SAVED_ATTACHMENT_MAX_BYTES }),
+          attachmentNode('3', 'over.bin', { size: SAVED_ATTACHMENT_MAX_BYTES + 1 }),
+        ),
+      });
+      downloadReturnsPartName();
+
+      const saved = await service.saveEmailAttachments('test', '9', 'INBOX', root);
+
+      expect(saved.map((s) => s.filename)).toEqual(['at.bin']);
     });
 
     // Calendar data goes to the calendar, not to the attachment folder. nodemailer
