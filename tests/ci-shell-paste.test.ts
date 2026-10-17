@@ -22,6 +22,11 @@ describe('workflow shell input', () => {
     'run: echo "${{ fromJSON(inputs.matrix).name }}"',
     'script: core.info("${{ github.head_ref }}")',
     'script: core.info("REF: ${{ github.head_ref }}")',
+    'with:\n  script: |\n    const c = {\n      BRANCH: "${{ github.head_ref }}",\n    };',
+    'with:\n  script: |\n    core.info("${{\n      github.head_ref }}")',
+    'run: echo "${{ github.event[\'pull_request\'].title }}"',
+    'run: echo "${{ github[\'head_ref\'] }}"',
+    'run: echo "${{ inputs[\'version\'] }}"',
   ])('should flag %j as an untrusted expression pasted into code', (yaml) => {
     expect(shellPastes(yaml)).not.toEqual([]);
   });
@@ -32,6 +37,8 @@ describe('workflow shell input', () => {
     "if: ${{ github.ref == 'refs/heads/develop' }}",
     'group: ${{ github.workflow }}-${{ github.ref }}',
     'run: echo "${{ github.ref_type }}"',
+    'run: echo "${{ github.event_name }}"',
+    'run: echo "${{ github[\'ref_type\'] }}"',
     '  run: echo "$REF"\n  env:\n    REF: ${{ github.ref }}',
   ])('should pass %j as a value no shell or script parses', (yaml) => {
     expect(shellPastes(yaml)).toEqual([]);
