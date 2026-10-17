@@ -84,7 +84,7 @@
   "dependencies": {
     "@clack/prompts": "1.8.1",
     "@modelcontextprotocol/sdk": "^1.32.1",
-    "@typesafe-ai/sdk": "^0.6.0",
+    "@typesafe-ai/sdk": "^0.7.0",
     "imapflow": "^1.7.8",
     "node-ical": "^0.25.2",
     "nodemailer": "^10.1.2",
