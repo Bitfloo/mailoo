@@ -235,19 +235,28 @@ describe('overlapping queue checks', () => {
     const pending = new Promise<{ messageId: string }>((resolve) => {
       releaseSend = resolve;
     });
-    first.smtp.sendEmail.mockReturnValue(pending);
+    let markSending: () => void = () => {};
+    const sendStarted = new Promise<void>((resolve) => {
+      markSending = resolve;
+    });
+    first.smtp.sendEmail.mockImplementation(async () => {
+      markSending();
+      return pending;
+    });
     let sending: Promise<unknown> = Promise.resolve();
     try {
       await writeDue(queueDir, id, 'pending');
-      sending = first.service.checkAndSend();
-      await vi.waitFor(() => {
-        expect(first.smtp.sendEmail).toHaveBeenCalledTimes(1);
-      });
-      const before = await mtimeOf(lockPath);
-      // Short of one stale window, so a renewal slower than the window would not land.
-      await vi.advanceTimersByTimeAsync(STALE_LOCK_MS - 1);
-      await vi.waitFor(async () => {
-        expect(await mtimeOf(lockPath)).toBeGreaterThan(before);
+      // No vi.waitFor here: under fake timers each poll moves the clock, so a
+      // renewal due only at the stale window would land inside the wait.
+      let renewed = false;
+      await withTrackedUtimes(async (settled) => {
+        sending = first.service.checkAndSend();
+        await sendStarted;
+        const before = await mtimeOf(lockPath);
+        // Short of one stale window, so a renewal slower than the window would not land.
+        await vi.advanceTimersByTimeAsync(STALE_LOCK_MS - 1);
+        await settled();
+        renewed = (await mtimeOf(lockPath)) > before;
       });
       const second = createService(queueDir);
       await second.service.checkAndSend();
@@ -256,8 +265,7 @@ describe('overlapping queue checks', () => {
       const calls =
         first.smtp.sendEmail.mock.calls.length + second.smtp.sendEmail.mock.calls.length;
       const sent = await first.service.list({ status: 'sent' });
-      expect(calls).toBe(1);
-      expect(sent).toHaveLength(1);
+      expect({ renewed, calls, sent: sent.length }).toEqual({ renewed: true, calls: 1, sent: 1 });
     } finally {
       releaseSend({ messageId: '<scheduled@example.com>' });
       await sending.catch(() => undefined);
