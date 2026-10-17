@@ -956,6 +956,7 @@ src/
 │   └── loader.ts          — Config loader (TOML + env vars)
 ├── connections/
 │   ├── auth.ts            — IMAP/SMTP credentials (password or OAuth2)
+│   ├── backoff.ts         — Reconnect delays with jitter after a failed connect
 │   └── manager.ts         — Lazy persistent IMAP/SMTP with OAuth2 (experimental)
 ├── services/              — Business logic
 │   ├── imap.service.ts    — IMAP operations

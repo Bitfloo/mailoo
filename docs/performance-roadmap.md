@@ -25,7 +25,7 @@ Performance for Mailoo operates across **three distinct layers**, each with diff
 | UID-based tracking | ✅ Done | All operations use `{ uid: true }` |
 | Lazy connection creation | ✅ Done | `manager.ts` — connects on first use per account |
 | Connection health checks | ✅ Done | `manager.ts` — checks `.usable` before reuse; SMTP `verify()` |
-| Auto-reconnect (basic) | ✅ Done | `manager.ts` — drops stale connections, recreates on failure |
+| Auto-reconnect with backoff | ✅ Done | `manager.ts`, `backoff.ts` — drops stale connections; after a failed connect waits 1 s doubling to 60 s, with jitter |
 | Source preview truncation | ✅ Done | `imap.service.ts` — `maxLength: 256` for list operations |
 | Preview text capping | ✅ Done | `imap.service.ts` — 200 char preview limit |
 | Thread cap | ✅ Done | Thread reconstruction capped at 50 messages |
@@ -252,11 +252,11 @@ class ImapConnectionPool {
 
 **Note**: ImapFlow's mailbox lock already handles safety within a single instance. Pool adds multi-instance parallelism.
 
-#### P3.2 — Robust Auto-Reconnect with Backoff
+#### P3.2 — Robust Auto-Reconnect with Backoff ✅ Done
 
 **Impact**: Medium | **Effort**: Low-Medium
 
-**Current behavior**: Drops stale connection and recreates. No retry delay — immediate reconnect.
+**Current behavior**: After a failed IMAP connect or SMTP verify, the manager refuses a new attempt for that account until the window passes (1 s doubling to 60 s, up to 25 % jitter, no attempt limit), see [Reconnect backoff](configuration.md#reconnect-backoff). The plan below was the original target.
 
 **Target behavior**: Exponential backoff with jitter:
 ```typescript

@@ -8,7 +8,10 @@ vi.mock('../logging.js', () => ({
   mcpLog: vi.fn().mockResolvedValue(undefined),
 }));
 
-const { imapInstances, smtpTransports } = vi.hoisted(() => ({
+const { imapInstances, smtpTransports, connectErrors, verifyErrors } = vi.hoisted(() => ({
+  // Errors the next connect()/verify() calls reject with, in order; empty means success.
+  connectErrors: [] as Error[],
+  verifyErrors: [] as Error[],
   imapInstances: [] as {
     options: Record<string, unknown>;
     usable: boolean;
@@ -30,8 +33,9 @@ vi.mock('nodemailer', () => ({
         options,
         verify: vi.fn(
           async () =>
-            new Promise<true>((resolve) => {
-              setImmediate(() => resolve(true));
+            new Promise<true>((resolve, reject) => {
+              const error = verifyErrors.shift();
+              setImmediate(() => (error ? reject(error) : resolve(true)));
             }),
         ),
         close: vi.fn(),
@@ -51,8 +55,9 @@ vi.mock('imapflow', async () => {
       // A real connect resolves on a later tick, which is what lets concurrent callers overlap.
       connect = vi.fn(
         async () =>
-          new Promise<void>((resolve) => {
-            setImmediate(resolve);
+          new Promise<void>((resolve, reject) => {
+            const error = connectErrors.shift();
+            setImmediate(() => (error ? reject(error) : resolve()));
           }),
       );
 
@@ -306,6 +311,61 @@ describe('ConnectionManager.getSmtpTransport', () => {
     );
     expect(smtpTransports).toHaveLength(1);
     expect(new Set(transports).size).toBe(1);
+  });
+});
+
+describe('ConnectionManager reconnect backoff', () => {
+  beforeEach(() => {
+    imapInstances.length = 0;
+    smtpTransports.length = 0;
+    connectErrors.length = 0;
+    verifyErrors.length = 0;
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-01T00:00:00.000Z'));
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('should close an IMAP client whose connect failed', async () => {
+    connectErrors.push(new Error('Invalid credentials'));
+    const manager = new ConnectionManager([account]);
+    await expect(manager.getImapClient('test')).rejects.toThrow('Invalid credentials');
+    expect(imapInstances[0].close).toHaveBeenCalledOnce();
+  });
+
+  it('should refuse a new IMAP connect inside the backoff window after a failure', async () => {
+    connectErrors.push(new Error('Invalid credentials'));
+    const manager = new ConnectionManager([account]);
+    await expect(manager.getImapClient('test')).rejects.toThrow('Invalid credentials');
+    vi.setSystemTime(Date.now() + 999);
+    await expect(manager.getImapClient('test')).rejects.toThrow(
+      'Last IMAP connect for "test" failed: Invalid credentials (next attempt in 1s)',
+    );
+    expect(imapInstances).toHaveLength(1);
+  });
+
+  it('should connect again once the backoff window has passed', async () => {
+    connectErrors.push(new Error('Invalid credentials'));
+    const manager = new ConnectionManager([account]);
+    await expect(manager.getImapClient('test')).rejects.toThrow('Invalid credentials');
+    vi.setSystemTime(Date.now() + 1_000);
+    const client = await manager.getImapClient('test');
+    expect(client).toBe(imapInstances[1]);
+  });
+
+  it('should close an SMTP transport whose verify failed and back off the next attempt', async () => {
+    verifyErrors.push(new Error('535 Authentication failed'));
+    const manager = new ConnectionManager([account]);
+    await expect(manager.getSmtpTransport('test')).rejects.toThrow('535');
+    expect(smtpTransports[0].close).toHaveBeenCalledOnce();
+    await expect(manager.getSmtpTransport('test')).rejects.toThrow(
+      'Last SMTP connect for "test" failed: 535 Authentication failed',
+    );
+    expect(smtpTransports).toHaveLength(1);
   });
 });
 

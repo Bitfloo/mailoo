@@ -15,6 +15,7 @@ import { mcpLog } from '../logging.js';
 import type { AccountConfig } from '../types/index.js';
 import type { SmtpAuth } from './auth.js';
 import { buildImapAuth, buildSmtpAuth } from './auth.js';
+import { ConnectBackoff } from './backoff.js';
 import type { AccessTokenSource, IConnectionManager } from './types.js';
 
 function certificatesRequired(verifySsl: boolean | undefined): boolean {
@@ -53,6 +54,10 @@ export function buildImapFlowOptions(
   };
 }
 
+function asError(err: unknown): Error {
+  return err instanceof Error ? err : new Error(String(err));
+}
+
 export function bindImapLifecycle(
   accountName: string,
   client: ImapFlow,
@@ -86,6 +91,8 @@ export default class ConnectionManager implements IConnectionManager {
   private smtpConnecting = new Map<string, Promise<Transporter>>();
 
   private accounts = new Map<string, AccountConfig>();
+
+  private backoff = new ConnectBackoff();
 
   private oauthService?: AccessTokenSource;
 
@@ -146,19 +153,33 @@ export default class ConnectionManager implements IConnectionManager {
 
   private async connectImap(accountName: string): Promise<ImapFlow> {
     const account = this.getAccount(accountName);
-    const auth = await buildImapAuth(account, this.oauthService);
+    this.backoff.assertReady('IMAP', accountName);
 
-    const client = new ImapFlow({
-      ...buildImapFlowOptions(account),
-      auth,
-    });
-    bindImapLifecycle(accountName, client, () => {
-      if (this.imapClients.get(accountName) === client) {
-        this.imapClients.delete(accountName);
+    let client: ImapFlow | undefined;
+    try {
+      const auth = await buildImapAuth(account, this.oauthService);
+      const connecting = new ImapFlow({
+        ...buildImapFlowOptions(account),
+        auth,
+      });
+      client = connecting;
+      bindImapLifecycle(accountName, connecting, () => {
+        if (this.imapClients.get(accountName) === connecting) {
+          this.imapClients.delete(accountName);
+        }
+      });
+      await connecting.connect();
+    } catch (err) {
+      this.backoff.recordFailure('IMAP', accountName, asError(err));
+      // imapflow leaves the socket open when the server rejects LOGIN.
+      try {
+        client?.close();
+      } catch {
+        /* ignore */
       }
-    });
-
-    await client.connect();
+      throw err;
+    }
+    this.backoff.recordSuccess('IMAP', accountName);
     await mcpLog(
       'info',
       'imap',
@@ -239,13 +260,21 @@ export default class ConnectionManager implements IConnectionManager {
 
   private async connectSmtp(accountName: string): Promise<Transporter> {
     const account = this.getAccount(accountName);
-    const auth = await buildSmtpAuth(account, this.oauthService);
+    this.backoff.assertReady('SMTP', accountName);
 
-    const transport = nodemailer.createTransport(
-      ConnectionManager.buildSmtpTransportOptions(account, auth),
-    );
-
-    await transport.verify();
+    let transport: Transporter | undefined;
+    try {
+      const auth = await buildSmtpAuth(account, this.oauthService);
+      transport = nodemailer.createTransport(
+        ConnectionManager.buildSmtpTransportOptions(account, auth),
+      );
+      await transport.verify();
+    } catch (err) {
+      this.backoff.recordFailure('SMTP', accountName, asError(err));
+      transport?.close();
+      throw err;
+    }
+    this.backoff.recordSuccess('SMTP', accountName);
     await mcpLog(
       'info',
       'smtp',
