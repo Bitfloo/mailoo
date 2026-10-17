@@ -191,13 +191,34 @@ describe('mailoo account add and setup', () => {
 
     await run();
 
-    const saved = parseTOML(await fs.readFile(configFile, 'utf-8')) as {
-      settings: unknown;
-      accounts: { name: string }[];
-    };
-    expect({ settings: saved.settings, names: saved.accounts.map((a) => a.name) }).toEqual({
+    const saved = parseTOML(await fs.readFile(configFile, 'utf-8'));
+    // Certificate checks stay on in every account the wizard writes.
+    expect(saved).toEqual({
       settings: SettingsSchema.parse({}),
-      names: ['work'],
+      accounts: [
+        {
+          name: 'work',
+          email: 'user@example.com',
+          username: 'user@example.com',
+          password: 'app-password',
+          imap: {
+            host: 'imap.example.com',
+            port: 993,
+            tls: true,
+            starttls: false,
+            verify_ssl: true,
+            disable_imap4rev2: false,
+          },
+          smtp: {
+            host: 'smtp.example.com',
+            port: 465,
+            tls: true,
+            starttls: false,
+            verify_ssl: true,
+            pool: { enabled: false, max_connections: 1, max_messages: 100 },
+          },
+        },
+      ],
     });
   });
 });
