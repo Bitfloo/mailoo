@@ -129,5 +129,36 @@ actions = { move_to = "Receipts" }
       const config = await loadConfig(configPath);
       expect(config.settings.hooks.rules[0].actions.moveTo).toBe('Receipts');
     });
+
+    // A dropped key here falls back silently: the built-in prompt replaces a
+    // custom one, and a static rule skips its action without an error.
+    it('should carry system_prompt and every hook rule action through loadConfig', async () => {
+      const toml = `${MINIMAL_TOML}
+[settings.hooks]
+preset = "custom"
+system_prompt = "Flag statements from the bank and file them under Finance."
+
+[[settings.hooks.rules]]
+name = "bank-statements"
+match = { from = "*@bank.example.com" }
+actions = { labels = ["Finance"], flag = true, mark_read = true, alert = true, add_to_calendar = true, move_to = "Finance/Statements" }
+`;
+      const configPath = path.join(sandbox.dir, 'config.toml');
+      await writeOwnerOnly(configPath, toml);
+
+      const { hooks } = (await loadConfig(configPath)).settings;
+
+      expect({ systemPrompt: hooks.systemPrompt, actions: hooks.rules[0].actions }).toEqual({
+        systemPrompt: 'Flag statements from the bank and file them under Finance.',
+        actions: {
+          labels: ['Finance'],
+          flag: true,
+          markRead: true,
+          alert: true,
+          addToCalendar: true,
+          moveTo: 'Finance/Statements',
+        },
+      });
+    });
   });
 });
