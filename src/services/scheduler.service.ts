@@ -466,11 +466,8 @@ export default class SchedulerService {
     const filtered = options.account ? emails.filter((e) => e.account === options.account) : emails;
 
     // Filter by status unless "all"
-    if (status !== 'all') {
-      return filtered.filter((e) => e.status === status);
-    }
-
-    return filtered.sort((a, b) => new Date(a.sendAt).getTime() - new Date(b.sendAt).getTime());
+    const selected = status === 'all' ? filtered : filtered.filter((e) => e.status === status);
+    return selected.sort((a, b) => new Date(a.sendAt).getTime() - new Date(b.sendAt).getTime());
   }
 
   // -------------------------------------------------------------------------

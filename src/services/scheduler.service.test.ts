@@ -1129,3 +1129,27 @@ describe('scheduled replies', () => {
     }
   });
 });
+
+describe('list order', () => {
+  it('should order a filtered list by send time', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-order-'));
+    // Send times match neither the file-name order nor its reverse, so directory order cannot pass.
+    const sendDays = [2, 3, 1];
+    try {
+      await Promise.all(
+        sendDays.map(async (days, index) => {
+          const id = queueId(index);
+          await fs.writeFile(
+            path.join(queueDir, `${id}.json`),
+            JSON.stringify(pendingRecord(id, daysFromNow(days))),
+          );
+        }),
+      );
+      const { service } = createService(queueDir);
+      const listed = await service.list({ status: 'pending' });
+      expect(listed.map((email) => email.id)).toEqual([queueId(2), queueId(0), queueId(1)]);
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+});
