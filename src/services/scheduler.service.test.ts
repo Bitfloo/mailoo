@@ -1154,6 +1154,35 @@ describe('overlapping queue checks', () => {
     }
   });
 
+  /** Emails sent by one check while another holder's claim is ageMs old. */
+  async function sentPastClaimAged(ageMs: number): Promise<number> {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-window-'));
+    const id = queueId(6);
+    const lockPath = path.join(queueDir, `${id}${SCHEDULE_CLAIM_SUFFIX}`);
+    try {
+      await writeDue(queueDir, id, 'sending');
+      await fs.writeFile(lockPath, 'held', { flag: 'wx' });
+      const claimedAt = new Date(Date.now() - ageMs);
+      await fs.utimes(lockPath, claimedAt, claimedAt);
+      const { service } = createService(queueDir);
+      return (await service.checkAndSend()).sent;
+    } finally {
+      vi.useRealTimers();
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  }
+
+  // Literals, not STALE_LOCK_MS: a dead holder may hold an email back for five minutes, no longer.
+  it('should leave a claim renewed 299 s ago with its holder', async () => {
+    expect(await sentPastClaimAged(299_000)).toBe(0);
+  });
+
+  it('should take a claim unrenewed for 301 s and send the email', async () => {
+    expect(await sentPastClaimAged(301_000)).toBe(1);
+  });
+
   async function mtimeOf(lockPath: string): Promise<number> {
     const stat = await fs.stat(lockPath);
     return stat.mtimeMs;
