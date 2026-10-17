@@ -39,6 +39,19 @@ function withoutMessageId(email: ArrivalEmail): ArrivalEmail {
   return { ...email, meta: { ...email.meta, messageId: undefined } };
 }
 
+const work = { ...account, name: 'work', email: 'work@example.com', username: 'work@example.com' };
+
+async function twoAccountArrival(): Promise<MailArrival> {
+  const arrival = await MailArrival.tryCreate({
+    config: systemOneConfig({ sourceFolders: ['INBOX', 'Support'] }),
+    imap: mockImap() as unknown as ImapService,
+    apiKey: 'test-key',
+    accounts: [account, work],
+  });
+  if (!arrival) throw new Error('expected MailArrival instance');
+  return arrival;
+}
+
 function answersWith(overrides: Partial<SdkReply['answers']>): SdkReply {
   const reply = sdkAnswers();
   return { ...reply, answers: { ...reply.answers, ...overrides } as SdkReply['answers'] };
@@ -116,19 +129,7 @@ describe('MailArrival.handle repeat notices', () => {
   );
 
   it('should classify a message without a Message-ID once per account and mailbox', async () => {
-    const work = {
-      ...account,
-      name: 'work',
-      email: 'work@example.com',
-      username: 'work@example.com',
-    };
-    const arrival = await MailArrival.tryCreate({
-      config: systemOneConfig({ sourceFolders: ['INBOX', 'Support'] }),
-      imap: mockImap() as unknown as ImapService,
-      apiKey: 'test-key',
-      accounts: [account, work],
-    });
-    if (!arrival) throw new Error('expected MailArrival instance');
+    const arrival = await twoAccountArrival();
     const actions = [
       await arrival.handle(withoutMessageId(arrivalEmail('10', 'personal'))),
       await arrival.handle(withoutMessageId(arrivalEmail('10', 'work'))),
@@ -138,6 +139,16 @@ describe('MailArrival.handle repeat notices', () => {
       }),
     ];
     expect(actions).toEqual([filedAsReceipt, filedAsReceipt, filedAsReceipt]);
+  });
+
+  // Mail sent to two of the user's addresses is two arrivals, one in each account.
+  it('should classify the same Message-ID once for each account that received it', async () => {
+    const arrival = await twoAccountArrival();
+    const actions = [
+      await arrival.handle(arrivalEmail('10', 'personal')),
+      await arrival.handle(arrivalEmail('10', 'work')),
+    ];
+    expect(actions).toEqual([filedAsReceipt, filedAsReceipt]);
   });
 
   it('should recognise a message that reappears under a new UID by its Message-ID', async () => {
