@@ -5,7 +5,14 @@ import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
 import { changelogMd, swapOnce } from './changelog-fixture.js';
-import { jobSections, releaseStep, releaseSteps, releaseYml, stepEnv } from './workflow-yaml.js';
+import {
+  jobSections,
+  refEnv,
+  releaseStep,
+  releaseSteps,
+  releaseYml,
+  stepEnv,
+} from './workflow-yaml.js';
 
 /** The step's `run: |` block, dedented, as the runner would execute it. */
 function runBlock(step: string): string {
@@ -38,7 +45,7 @@ function releaseNotes(run: ReleaseRun): string {
       env: {
         PATH: process.env.PATH,
         RUNNER_TEMP: temp,
-        GITHUB_REF: run.ref,
+        ...refEnv(run.ref),
         ...stepEnv(step, { 'inputs.version': run.inputVersion ?? '' }),
       },
       stdio: 'pipe',

@@ -4,7 +4,14 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
-import { jobSections, releaseStep, releaseSteps, releaseYml, stepEnv } from './workflow-yaml.js';
+import {
+  jobSections,
+  refEnv,
+  releaseStep,
+  releaseSteps,
+  releaseYml,
+  stepEnv,
+} from './workflow-yaml.js';
 
 const ciYml = readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8');
 const dockerSha = readFileSync(join(repoRoot, '.github/workflows/docker-sha.yml'), 'utf8');
@@ -207,7 +214,7 @@ describe('release version selection', () => {
         encoding: 'utf8',
         env: {
           PATH: process.env.PATH,
-          GITHUB_REF: ref,
+          ...refEnv(ref),
           ...stepEnv(step, { 'inputs.version': inputVersion }),
         },
       });
@@ -215,6 +222,11 @@ describe('release version selection', () => {
     } finally {
       rmSync(temp, { recursive: true, force: true });
     }
+  });
+
+  it('should run the server.json stamp step on every release event', () => {
+    // A tag push and a manual run both publish, so a step-level if: would ship one of them unstamped.
+    expect(releaseStep(releaseYml, 'Set version in server.json')).not.toMatch(/^ {8}if:/m);
   });
 });
 

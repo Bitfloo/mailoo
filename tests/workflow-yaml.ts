@@ -42,6 +42,11 @@ export function stepEnv(step: string, context: Record<string, string>): Record<s
   );
 }
 
+/** The ref variables the runner sets together, so a step may read either form. */
+export function refEnv(ref: string): { GITHUB_REF: string; GITHUB_REF_NAME: string } {
+  return { GITHUB_REF: ref, GITHUB_REF_NAME: ref.replace(/^refs\/(?:heads|tags|pull)\//, '') };
+}
+
 /** One chunk per job so a token can be required on the scorecard job only. */
 export function jobSections(yaml: string): string[] {
   const parts = yaml.split(/^jobs:\n/m);
