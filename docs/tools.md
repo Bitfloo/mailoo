@@ -64,6 +64,17 @@ same rule as the single-message tools; any other id rejects the whole call
 before the server is contacted. `mailbox` and `destination` follow the
 mailbox-name rules of the other tools (no control characters or wildcards).
 
+## `delete_mailbox` / `rename_mailbox` / `delete_label`
+
+`delete_mailbox` and `rename_mailbox` refuse INBOX (any letter case) and
+every special-use folder: `\Trash`, `\Sent`, `\Drafts`, `\Junk`,
+`\Archive`, `\All`, `\Flagged` and `\Important`, whether the server
+announces the role (RFC 6154, and RFC 8457 for \Important) or imapflow
+infers it from a well-known folder name. The server and other mail
+clients file into these folders.
+On Gmail a label is a folder, so `delete_label` applies the same refusal
+(`INBOX`, `[Gmail]/Trash`, `[Gmail]/Sent Mail`, …).
+
 ## `get_email_security`
 
 Read-only. Returns SPF/DKIM/DMARC from `Authentication-Results` (and

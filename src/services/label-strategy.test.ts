@@ -17,8 +17,22 @@ function mockClient(gmail: boolean) {
     mailbox: { permanentFlags: new Set(['\\*']) },
     messageFlagsAdd: vi.fn().mockResolvedValue(true),
     messageFlagsRemove: vi.fn().mockResolvedValue(true),
+    mailboxDelete: vi.fn().mockResolvedValue({ path: 'deleted' }),
   };
 }
+
+/** Gmail LIST: system folders carry RFC 6154 roles, user labels carry none. */
+const GMAIL_LIST = [
+  { name: 'INBOX', path: 'INBOX', specialUse: '\\Inbox', flags: new Set<string>() },
+  { name: 'Trash', path: '[Gmail]/Trash', specialUse: '\\Trash', flags: new Set(['\\Trash']) },
+  {
+    name: 'Sent Mail',
+    path: '[Gmail]/Sent Mail',
+    specialUse: '\\Sent',
+    flags: new Set(['\\Sent']),
+  },
+  { name: 'Receipts', path: 'Receipts', flags: new Set<string>() },
+];
 
 async function keywordStrategy() {
   const client = mockClient(false);
@@ -112,5 +126,28 @@ describe('Gmail labels', () => {
       uid: true,
       useLabels: true,
     });
+  });
+
+  // On Gmail a label is a folder: deleting [Gmail]/Trash or INBOX through
+  // delete_label would remove a system folder, not a label.
+  it.each([
+    ['INBOX', 'INBOX cannot be deleted'],
+    ['[Gmail]/Trash', /special-use folder/],
+    ['[Gmail]/Sent Mail', /special-use folder/],
+  ])('should refuse to delete %s as a label', async (name, error) => {
+    const { client, strategy } = await gmailStrategy();
+    client.list.mockResolvedValue(GMAIL_LIST);
+
+    await expect(strategy.deleteLabel(client as unknown as ImapFlow, name)).rejects.toThrow(error);
+    expect(client.mailboxDelete).not.toHaveBeenCalled();
+  });
+
+  it('should delete a user label', async () => {
+    const { client, strategy } = await gmailStrategy();
+    client.list.mockResolvedValue(GMAIL_LIST);
+
+    await strategy.deleteLabel(client as unknown as ImapFlow, 'Receipts');
+
+    expect(client.mailboxDelete).toHaveBeenCalledWith('Receipts');
   });
 });

@@ -35,6 +35,7 @@ import compileRfc822 from '../utils/mail-compose.js';
 import type { LabelStrategy } from './label-strategy.js';
 import { detectLabelStrategy } from './label-strategy.js';
 import { resolveOutgoingAttachments } from './outgoing-attachments.js';
+import assertMailboxRemovable from './protected-mailboxes.js';
 
 // ---------------------------------------------------------------------------
 // Helpers (must be defined before ImapService)
@@ -1341,18 +1342,24 @@ export default class ImapService {
   // -------------------------------------------------------------------------
 
   async createMailbox(accountName: string, folderPath: string): Promise<void> {
+    const safePath = sanitizeMailboxName(folderPath);
     const client = await this.connections.getImapClient(accountName);
-    await client.mailboxCreate(folderPath);
+    await client.mailboxCreate(safePath);
   }
 
   async renameMailbox(accountName: string, folderPath: string, newPath: string): Promise<void> {
+    const safePath = sanitizeMailboxName(folderPath);
+    const safeNewPath = sanitizeMailboxName(newPath);
     const client = await this.connections.getImapClient(accountName);
-    await client.mailboxRename(folderPath, newPath);
+    await assertMailboxRemovable(client, safePath, 'rename');
+    await client.mailboxRename(safePath, safeNewPath);
   }
 
   async deleteMailbox(accountName: string, folderPath: string): Promise<void> {
+    const safePath = sanitizeMailboxName(folderPath);
     const client = await this.connections.getImapClient(accountName);
-    await client.mailboxDelete(folderPath);
+    await assertMailboxRemovable(client, safePath, 'delete');
+    await client.mailboxDelete(safePath);
   }
 
   // -------------------------------------------------------------------------

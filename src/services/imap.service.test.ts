@@ -27,8 +27,48 @@ function createMockImapClient() {
     append: vi.fn().mockResolvedValue({ uid: 7 }),
     download: vi.fn(),
     fetchOne: vi.fn(),
+    mailboxCreate: vi.fn().mockResolvedValue({ path: 'created', created: true }),
+    mailboxRename: vi.fn().mockResolvedValue({ path: 'old', newPath: 'new' }),
+    mailboxDelete: vi.fn().mockResolvedValue({ path: 'deleted' }),
+    namespace: undefined as { prefix: string; delimiter: string } | undefined,
     _releaseFn: releaseFn,
   };
+}
+
+/** LIST of a Gmail account as imapflow returns it (SPECIAL-USE advertised). */
+function gmailMailboxes() {
+  return [
+    { name: 'INBOX', path: 'INBOX', specialUse: '\\Inbox', flags: new Set<string>() },
+    { name: '[Gmail]', path: '[Gmail]', flags: new Set(['\\Noselect']) },
+    { name: 'All Mail', path: '[Gmail]/All Mail', specialUse: '\\All', flags: new Set(['\\All']) },
+    {
+      name: 'Drafts',
+      path: '[Gmail]/Drafts',
+      specialUse: '\\Drafts',
+      flags: new Set(['\\Drafts']),
+    },
+    {
+      name: 'Important',
+      path: '[Gmail]/Important',
+      specialUse: '\\Important',
+      flags: new Set(['\\Important']),
+    },
+    {
+      name: 'Sent Mail',
+      path: '[Gmail]/Sent Mail',
+      specialUse: '\\Sent',
+      flags: new Set(['\\Sent']),
+    },
+    { name: 'Spam', path: '[Gmail]/Spam', specialUse: '\\Junk', flags: new Set(['\\Junk']) },
+    {
+      name: 'Starred',
+      path: '[Gmail]/Starred',
+      specialUse: '\\Flagged',
+      flags: new Set(['\\Flagged']),
+    },
+    { name: 'Trash', path: '[Gmail]/Trash', specialUse: '\\Trash', flags: new Set(['\\Trash']) },
+    { name: 'Receipts', path: 'Receipts', flags: new Set<string>() },
+  ];
 }
 
 function createMockConnectionManager(mockClient: ReturnType<typeof createMockImapClient>) {
@@ -160,6 +200,94 @@ describe('ImapService', () => {
       expect(client.messageDelete).not.toHaveBeenCalled();
       expect(client.messageMove).toHaveBeenCalledWith('99', 'Trash', { uid: true });
       expect(client._releaseFn).toHaveBeenCalled();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Mailbox CRUD
+  // -----------------------------------------------------------------------
+
+  // DELETE or RENAME of INBOX or a special-use folder destroys or orphans the
+  // mail the server and every other client file there.
+  describe('deleteMailbox', () => {
+    it.each(['INBOX', 'inbox', 'Inbox'])('should refuse to delete %s', async (name) => {
+      client.list.mockResolvedValue(gmailMailboxes());
+
+      await expect(service.deleteMailbox('test', name)).rejects.toThrow('INBOX cannot be deleted');
+      expect(client.mailboxDelete).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      '[Gmail]/All Mail',
+      '[Gmail]/Drafts',
+      '[Gmail]/Important',
+      '[Gmail]/Sent Mail',
+      '[Gmail]/Spam',
+      '[Gmail]/Starred',
+      '[Gmail]/Trash',
+    ])('should refuse to delete the special-use folder %s', async (name) => {
+      client.list.mockResolvedValue(gmailMailboxes());
+
+      await expect(service.deleteMailbox('test', name)).rejects.toThrow(/special-use folder/);
+      expect(client.mailboxDelete).not.toHaveBeenCalled();
+    });
+
+    // RFC 6154 roles may arrive only as LIST flags (imapflow leaves specialUse unset then).
+    it('should refuse to delete a folder whose LIST flags carry \\Archive', async () => {
+      client.list.mockResolvedValue([
+        { name: 'Archive', path: 'Archive', flags: new Set(['\\Archive']) },
+      ]);
+
+      await expect(service.deleteMailbox('test', 'Archive')).rejects.toThrow(/special-use folder/);
+      expect(client.mailboxDelete).not.toHaveBeenCalled();
+    });
+
+    // Dovecot with a personal namespace "INBOX.": imapflow sends DELETE "INBOX.Trash" for "Trash".
+    it('should refuse a special-use folder named without its namespace prefix', async () => {
+      client.namespace = { prefix: 'INBOX.', delimiter: '.' };
+      client.list.mockResolvedValue([
+        { name: 'INBOX', path: 'INBOX', specialUse: '\\Inbox', flags: new Set<string>() },
+        { name: 'Trash', path: 'INBOX.Trash', specialUse: '\\Trash', flags: new Set(['\\Trash']) },
+      ]);
+
+      await expect(service.deleteMailbox('test', 'Trash')).rejects.toThrow(/special-use folder/);
+      expect(client.mailboxDelete).not.toHaveBeenCalled();
+    });
+
+    it('should delete an ordinary folder', async () => {
+      client.list.mockResolvedValue(gmailMailboxes());
+
+      await service.deleteMailbox('test', 'Receipts');
+
+      expect(client.mailboxDelete).toHaveBeenCalledWith('Receipts');
+    });
+  });
+
+  describe('renameMailbox', () => {
+    it('should refuse to rename INBOX', async () => {
+      client.list.mockResolvedValue(gmailMailboxes());
+
+      await expect(service.renameMailbox('test', 'inbox', 'Old Inbox')).rejects.toThrow(
+        'INBOX cannot be renamed',
+      );
+      expect(client.mailboxRename).not.toHaveBeenCalled();
+    });
+
+    it('should refuse to rename a special-use folder', async () => {
+      client.list.mockResolvedValue(gmailMailboxes());
+
+      await expect(service.renameMailbox('test', '[Gmail]/Sent Mail', 'Outbox')).rejects.toThrow(
+        /special-use folder/,
+      );
+      expect(client.mailboxRename).not.toHaveBeenCalled();
+    });
+
+    it('should rename an ordinary folder', async () => {
+      client.list.mockResolvedValue(gmailMailboxes());
+
+      await service.renameMailbox('test', 'Receipts', 'Receipts 2026');
+
+      expect(client.mailboxRename).toHaveBeenCalledWith('Receipts', 'Receipts 2026');
     });
   });
 
@@ -671,6 +799,10 @@ describe('ImapService', () => {
       ['getThread', async (svc) => svc.getThread('test', '<m@example.com>', 'INBOX\r\nSent')],
       ['extractContacts', async (svc) => svc.extractContacts('test', { mailbox: 'IN\nBOX' })],
       ['getEmailStats', async (svc) => svc.getEmailStats('test', 'INBOX\x7F', 'week')],
+      ['createMailbox', async (svc) => svc.createMailbox('test', 'Work\r\nProjects')],
+      ['renameMailbox source', async (svc) => svc.renameMailbox('test', 'Old\nBox', 'New')],
+      ['renameMailbox target', async (svc) => svc.renameMailbox('test', 'Old', 'New\x00Box')],
+      ['deleteMailbox', async (svc) => svc.deleteMailbox('test', 'Old\r\nBox')],
     ])(
       'should reject a mailbox name with a control character from %s before contacting IMAP',
       async (_name, call) => {

@@ -860,8 +860,8 @@ Single-account setup reads `MCP_EMAIL_*` (`src/config/loader.ts`). HTTP listens 
 | `mark_email` | Mark as read/unread, flag/unflag |
 | `bulk_action` | Batch operation on up to 100 emails |
 | `create_mailbox` | Create a new mailbox folder |
-| `rename_mailbox` | Rename an existing mailbox folder |
-| `delete_mailbox` | Permanently delete a mailbox and contents |
+| `rename_mailbox` | Rename an existing mailbox folder (not INBOX or a special-use folder) |
+| `delete_mailbox` | Permanently delete a mailbox and contents (not INBOX or a special-use folder) |
 
 #### Labels (5)
 
@@ -871,7 +871,7 @@ Single-account setup reads `MCP_EMAIL_*` (`src/config/loader.ts`). HTTP listens 
 | `add_label` | Add a label to an email (ProtonMail folders, Gmail X-GM-LABELS, or IMAP keywords) |
 | `remove_label` | Remove a label from an email |
 | `create_label` | Create a new label |
-| `delete_label` | Delete a label |
+| `delete_label` | Delete a label (on Gmail, not INBOX or a system folder) |
 
 #### Watcher & Alerts (6)
 

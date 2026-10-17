@@ -80,5 +80,26 @@ describe('Mailbox Management Operations', () => {
       const deleted = mailboxes.find((m) => m.path === 'ToDelete');
       expect(deleted).toBeUndefined();
     });
+
+    it('should refuse to delete INBOX', async () => {
+      await expect(services.imapService.deleteMailbox(TEST_ACCOUNT_NAME, 'inbox')).rejects.toThrow(
+        'INBOX cannot be deleted',
+      );
+    });
+
+    // GreenMail advertises no SPECIAL-USE; imapflow assigns \Trash from the name,
+    // the same path a server without RFC 6154 takes.
+    it('should refuse to delete the Trash folder and keep it', async () => {
+      const before = await services.imapService.listMailboxes(TEST_ACCOUNT_NAME);
+      if (!before.some((m) => m.path === 'Trash')) {
+        await services.imapService.createMailbox(TEST_ACCOUNT_NAME, 'Trash');
+      }
+
+      await expect(services.imapService.deleteMailbox(TEST_ACCOUNT_NAME, 'Trash')).rejects.toThrow(
+        /special-use folder \(\\Trash\)/,
+      );
+      const after = await services.imapService.listMailboxes(TEST_ACCOUNT_NAME);
+      expect(after.map((m) => m.path)).toContain('Trash');
+    });
   });
 });

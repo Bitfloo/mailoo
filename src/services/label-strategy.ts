@@ -9,6 +9,7 @@
 
 import type { ImapFlow } from 'imapflow';
 import type { LabelInfo, LabelStrategyType } from '../types/index.js';
+import assertMailboxRemovable from './protected-mailboxes.js';
 
 // ---------------------------------------------------------------------------
 // Strategy interface
@@ -186,6 +187,8 @@ function createGmailStrategy(): LabelStrategy {
     },
 
     deleteLabel: async (client, name) => {
+      // A Gmail label is a folder, so INBOX and [Gmail]/Trash are reachable by name.
+      await assertMailboxRemovable(client, name, 'delete');
       await client.mailboxDelete(name);
     },
   };
