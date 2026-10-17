@@ -20,6 +20,9 @@ const ANSWERS: Record<string, string | boolean> = {
   'Enable SMTP connection pooling?': false,
   Username: 'user@example.com',
   'Password / App Password': 'app-password',
+  'Editing "personal" — what would you like to change?': 'identity',
+  'Test connections with updated settings?': false,
+  'Delete account "personal" (me@example.com)? This cannot be undone.': true,
 };
 
 function answer({ message }: { message: string }): string | boolean {
@@ -79,21 +82,38 @@ host = "imap.example.com"
 host = "smtp.example.com"
 `;
 
+/** Real shape: a second account appended after the first. */
+const CONFIG_WITH_PERSONAL_AND_WORK = `${CONFIG_WITH_PERSONAL}
+[[accounts]]
+name = "work"
+email = "work@example.com"
+password = "secret"
+
+[accounts.imap]
+host = "imap.example.com"
+
+[accounts.smtp]
+host = "smtp.example.com"
+`;
+
 /** Parses as TOML, fails the schema: the account email is not an address. */
 const CONFIG_FAILING_SCHEMA = CONFIG_WITH_PERSONAL.replace('me@example.com', 'nope');
 
-describe('mailoo account add and setup', () => {
+describe('mailoo account and setup', () => {
   let home: string;
   let configFile: string;
   let ttyDescriptor: PropertyDescriptor | undefined;
 
   /** CONFIG_FILE is fixed when xdg.ts loads, so each test imports a fresh copy. */
-  async function entryPoint(command: 'setup' | 'account add'): Promise<() => Promise<void>> {
+  async function entryPoint(
+    command: 'setup' | 'account add' | 'account edit' | 'account delete',
+    name?: string,
+  ): Promise<() => Promise<void>> {
     vi.stubEnv('XDG_CONFIG_HOME', home);
     vi.resetModules();
     if (command === 'setup') return (await import('./setup.js')).default;
     const runAccountCommand = (await import('./account-commands.js')).default;
-    return async () => runAccountCommand('add');
+    return async () => runAccountCommand(command.slice('account '.length), name);
   }
 
   beforeEach(async () => {
@@ -220,5 +240,23 @@ describe('mailoo account add and setup', () => {
         },
       ],
     });
+  });
+
+  it('should refuse to delete the last account and leave the config byte-identical', async () => {
+    await fs.writeFile(configFile, CONFIG_WITH_PERSONAL, { mode: 0o600 });
+    const run = await entryPoint('account delete', 'personal');
+
+    await run();
+
+    expect(await fs.readFile(configFile, 'utf-8')).toBe(CONFIG_WITH_PERSONAL);
+  });
+
+  it("should refuse an edit that renames an account to another account's name", async () => {
+    await fs.writeFile(configFile, CONFIG_WITH_PERSONAL_AND_WORK, { mode: 0o600 });
+    const run = await entryPoint('account edit', 'personal');
+
+    await run();
+
+    expect(await fs.readFile(configFile, 'utf-8')).toBe(CONFIG_WITH_PERSONAL_AND_WORK);
   });
 });
