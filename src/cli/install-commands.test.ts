@@ -227,6 +227,30 @@ describe('mailoo install', () => {
     await expect(runInstallCommand('remove')).rejects.toThrow(`${cursorConfig} is not valid JSON`);
   });
 
+  it('should print "registered (npx @bitfloo/mailoo stdio)" for Cursor in status when mailoo is registered', async () => {
+    await fs.writeFile(cursorConfig, CURSOR_CONFIG_REGISTERED);
+    const stdout = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await runInstallCommand('status');
+
+    expect(stdout.mock.calls.flat().join('\n')).toContain(
+      `Cursor — registered (npx @bitfloo/mailoo stdio)\n     ${cursorConfig}`,
+    );
+    stdout.mockRestore();
+  });
+
+  it('should print "not registered" for Cursor in status when the config has only other servers', async () => {
+    await fs.writeFile(cursorConfig, CURSOR_CONFIG);
+    const stdout = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await runInstallCommand('status');
+
+    expect(stdout.mock.calls.flat().join('\n')).toContain(
+      `Cursor — not registered\n     ${cursorConfig}`,
+    );
+    stdout.mockRestore();
+  });
+
   it('should report a client config that is not valid JSON in status', async () => {
     await fs.writeFile(cursorConfig, CURSOR_CONFIG_WITH_COMMENT);
     const stdout = vi.spyOn(console, 'log').mockImplementation(() => undefined);
