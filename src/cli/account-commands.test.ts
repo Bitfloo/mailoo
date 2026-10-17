@@ -246,6 +246,17 @@ describe('mailoo account and setup', () => {
     });
   });
 
+  it('should write a new config when mailoo setup runs with no config file', async () => {
+    const run = await entryPoint('setup');
+
+    await run();
+
+    const saved = parseTOML(await fs.readFile(configFile, 'utf-8')) as {
+      accounts: { name: string }[];
+    };
+    expect(saved.accounts.map((a) => a.name)).toEqual(['work']);
+  });
+
   it.each([
     ['IMAP use TLS?', false, 'imap', { tls: false, starttls: true }],
     ['SMTP security', 'starttls', 'smtp', { tls: false, starttls: true }],
