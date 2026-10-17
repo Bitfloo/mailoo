@@ -25,8 +25,11 @@ const ANSWERS: Record<string, string | boolean> = {
   'Delete account "personal" (me@example.com)? This cannot be undone.': true,
 };
 
+/** Answers one test sets in place of the ones above; cleared after each test. */
+const OVERRIDES = new Map<string, string | boolean>();
+
 function answer({ message }: { message: string }): string | boolean {
-  const value = ANSWERS[message];
+  const value = OVERRIDES.get(message) ?? ANSWERS[message];
   if (value === undefined) throw new Error(`unexpected prompt: ${message}`);
   return value;
 }
@@ -127,6 +130,7 @@ describe('mailoo account and setup', () => {
   afterEach(async () => {
     if (ttyDescriptor) Object.defineProperty(process.stdin, 'isTTY', ttyDescriptor);
     else Reflect.deleteProperty(process.stdin, 'isTTY');
+    OVERRIDES.clear();
     vi.unstubAllEnvs();
     await fs.rm(home, { recursive: true, force: true });
   });
@@ -249,6 +253,28 @@ describe('mailoo account and setup', () => {
     await run();
 
     expect(await fs.readFile(configFile, 'utf-8')).toBe(CONFIG_WITH_PERSONAL);
+  });
+
+  it('should remove only the named account and keep the other when delete is confirmed', async () => {
+    await fs.writeFile(configFile, CONFIG_WITH_PERSONAL_AND_WORK, { mode: 0o600 });
+    const run = await entryPoint('account delete', 'personal');
+
+    await run();
+
+    const saved = parseTOML(await fs.readFile(configFile, 'utf-8')) as {
+      accounts: { name: string }[];
+    };
+    expect(saved.accounts.map((a) => a.name)).toEqual(['work']);
+  });
+
+  it('should keep both accounts byte-identical when delete is declined', async () => {
+    await fs.writeFile(configFile, CONFIG_WITH_PERSONAL_AND_WORK, { mode: 0o600 });
+    OVERRIDES.set('Delete account "personal" (me@example.com)? This cannot be undone.', false);
+    const run = await entryPoint('account delete', 'personal');
+
+    await run();
+
+    expect(await fs.readFile(configFile, 'utf-8')).toBe(CONFIG_WITH_PERSONAL_AND_WORK);
   });
 
   it("should refuse an edit that renames an account to another account's name", async () => {
