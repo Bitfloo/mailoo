@@ -5,7 +5,7 @@
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { loadRawConfig, saveConfig } from '../config/loader.js';
+import persistAlerts from '../services/alerts-config.js';
 import type HooksService from '../services/hooks.service.js';
 import NotifierService from '../services/notifier.service.js';
 import { listPresets as listAllPresets } from '../services/presets.js';
@@ -390,16 +390,7 @@ export function registerWatcherWriteTools(server: McpServer, hooksService: Hooks
         let persistMsg = '';
         if (save) {
           try {
-            const rawConfig = await loadRawConfig();
-            rawConfig.settings.hooks.alerts = {
-              ...rawConfig.settings.hooks.alerts,
-              desktop: updated.desktop,
-              sound: updated.sound,
-              urgency_threshold: updated.urgencyThreshold,
-              webhook_url: updated.webhookUrl,
-              webhook_events: updated.webhookEvents,
-            };
-            await saveConfig(rawConfig);
+            await persistAlerts(updated);
             persistMsg = '\n\n💾 Changes saved to config file.';
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
