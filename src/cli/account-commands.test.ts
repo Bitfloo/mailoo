@@ -63,7 +63,7 @@ host = "imap.example.com"
 host = "smtp.example.com"
 `;
 
-/** Real shape: a config account add wrote, with one setting changed by hand. */
+/** Real shape: one account and a [settings] table with one value set by hand. */
 const CONFIG_WITH_PERSONAL = `[settings]
 rate_limit = 3
 
