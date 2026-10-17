@@ -59,8 +59,8 @@ host = "smtp.example.com"
     expect(fromEnv).toEqual(fromFile);
   });
 
-  // The values are pinned in schema.test.ts and loader.test.ts; this checks
-  // only that the loader carries every one through under its camelCase name.
+  // The values are pinned in schema.defaults.test.ts; this checks only that
+  // the loader carries every one through under its camelCase name.
   it('should carry every schema default into the config when the TOML file has only an account', async () => {
     const configPath = path.join(sandbox.dir, 'config.toml');
     await writeOwnerOnly(configPath, TOML_ACCOUNT);
