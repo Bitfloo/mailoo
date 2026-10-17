@@ -1,3 +1,4 @@
+import { mcpLog } from '../logging.js';
 import {
   advance,
   deliver,
@@ -65,6 +66,19 @@ describe('WatcherService failed connect', () => {
     const { watcher } = watch({ ...inboxOnly, folders: ['Archive'] });
     await watcher.start();
     expect(() => fake.clients[0].emit('error', new Error('read ECONNRESET'))).not.toThrow();
+  });
+
+  it('should log why a folder could not connect', async () => {
+    // The log mock outlives each test; only this test's lines may count.
+    vi.mocked(mcpLog).mockClear();
+    fake.connectErrors.push(new Error('connect ECONNREFUSED 192.0.2.10:993'));
+    const { watcher } = watch();
+    await watcher.start();
+    expect(mcpLog).toHaveBeenCalledWith(
+      'warning',
+      'watcher',
+      expect.stringContaining('test/INBOX: connect ECONNREFUSED 192.0.2.10:993'),
+    );
   });
 
   it('should start from the mail already in a folder whose first connect failed', async () => {
