@@ -266,6 +266,18 @@ describe('release version selection', () => {
     // skip-npm skips the npm job, and a job that needs it is skipped too unless its if: says always().
     expect(jobIf(stampJob())).toMatch(/^(?=.*\balways\(\))(?=.*needs\.npm\.result == 'skipped')/s);
   });
+
+  it('should make the job that stamps server.json need npm when its if: reads the npm result', () => {
+    // Without needs, needs.npm.result is empty, so the if: never passes and nothing is published.
+    expect(stampJob()).toContain('needs: [npm]');
+  });
+
+  it('should stamp server.json before the step that publishes it to the MCP Registry', () => {
+    const steps = releaseSteps(releaseYml);
+    expect(steps.indexOf('- name: Set version in server.json\n')).toBeLessThan(
+      steps.indexOf('- name: Publish to MCP Registry\n'),
+    );
+  });
 });
 
 describe('pinned GitHub Actions', () => {
