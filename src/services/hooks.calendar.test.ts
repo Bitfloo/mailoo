@@ -2,11 +2,12 @@ import { rm } from 'node:fs/promises';
 import type { MockInstance } from 'vitest';
 import { mcpLog } from '../logging.js';
 import { hooksConfig, meta, mockImap } from '../test-support/hooks-harness.js';
-import type { Email, EmailMeta, HookRule } from '../types/index.js';
+import type { Email, EmailMeta, HookRule, HooksConfig } from '../types/index.js';
 import { isCalendarProcessed } from '../utils/calendar-state.js';
 import eventBus from './event-bus.js';
 import HooksService from './hooks.service.js';
 import type ImapService from './imap.service.js';
+import type { SavedAttachment } from './local-calendar.service.js';
 import LocalCalendarService from './local-calendar.service.js';
 
 const { stateHome, previousStateHome } = await vi.hoisted(async () => {
@@ -186,6 +187,91 @@ describe('HooksService calendar auto-add state', () => {
     await runBatch(hooks, [meta({ id: '131' })]);
 
     expect(addEvent.mock.calls[0]?.[0].icsUid).toBe(INVITE_UID);
+  });
+
+  /** Runs one static-rule batch for `email` and returns the arguments the calendar add got. */
+  async function addArgs(
+    email: Email,
+    opts: { config?: Partial<HooksConfig>; ics?: string[]; saved?: SavedAttachment[] } = {},
+  ) {
+    const imap = calendarImap(email);
+    imap.getCalendarParts.mockResolvedValue(opts.ics ?? []);
+    imap.saveEmailAttachments.mockResolvedValue(opts.saved ?? []);
+    hooks = new HooksService(
+      hooksConfig({ batchDelay: 3600, rules: [inviteRule], ...opts.config }),
+      imap as unknown as ImapService,
+    );
+    hooks.start({} as never, { sampling: false });
+
+    await runBatch(hooks, [meta({ id: email.id })]);
+
+    return addEvent.mock.calls[0];
+  }
+
+  it.each([
+    [undefined, true, '150'],
+    [true, true, '151'],
+    [false, false, '152'],
+  ] as const)(
+    'with calendar_confirm %s, should pass confirm %s to the calendar',
+    async (calendarConfirm, confirm, id) => {
+      const args = await addArgs(invitation(id), { config: { calendarConfirm } });
+      expect(args?.[2]).toEqual({ confirm });
+    },
+  );
+
+  it("should pass the invitation's start, end and location to the calendar", async () => {
+    const args = await addArgs(invitation('153'), { ics: [INVITE_ICS] });
+    expect({ start: args?.[0].start, end: args?.[0].end, location: args?.[0].location }).toEqual({
+      start: new Date('2026-10-05T08:00:00Z'),
+      end: new Date('2026-10-05T08:30:00Z'),
+      location: 'Room 4',
+    });
+  });
+
+  it('should end one hour after the mail date when there is no invitation', async () => {
+    const args = await addArgs(invitation('154'));
+    expect({ start: args?.[0].start, end: args?.[0].end }).toEqual({
+      start: new Date('2026-09-21T00:00:00.000Z'),
+      end: new Date('2026-09-21T01:00:00.000Z'),
+    });
+  });
+
+  it('should title the event with the email subject, not the invitation summary', async () => {
+    const reply = { ...invitation('155'), subject: 'Re: Q4 "budget" call' };
+    const args = await addArgs(reply, { ics: [INVITE_ICS] });
+    expect(args?.[0].title).toBe('Re: Q4 "budget" call');
+  });
+
+  it('should pass the configured calendar name and alarm minutes', async () => {
+    const args = await addArgs(invitation('156'), {
+      config: { calendarName: 'Work', calendarAlarmMinutes: 30 },
+    });
+    expect({ calendar: args?.[1], alarm: args?.[0].alarmMinutes }).toEqual({
+      calendar: 'Work',
+      alarm: 30,
+    });
+  });
+
+  it('should pass no calendar name when calendar_name is empty', async () => {
+    const args = await addArgs(invitation('157'), { config: { calendarName: '' } });
+    expect(args?.[1]).toBeUndefined();
+  });
+
+  it('should set a 15 min alarm when calendar_alarm_minutes is unset', async () => {
+    const args = await addArgs(invitation('158'));
+    expect(args?.[0].alarmMinutes).toBe(15);
+  });
+
+  it('should save the attachments and pass them on to the calendar', async () => {
+    const agenda = { filename: 'agenda.pdf', mimeType: 'application/pdf', size: 2048 };
+    const saved = {
+      ...agenda,
+      localPath: '/var/mailoo/calendar-attachments/personal-159/agenda.pdf',
+      fileUrl: 'file:///var/mailoo/calendar-attachments/personal-159/agenda.pdf',
+    };
+    const args = await addArgs({ ...invitation('159'), attachments: [agenda] }, { saved: [saved] });
+    expect(args?.[0].savedAttachments).toEqual([saved]);
   });
 
   it.each([
