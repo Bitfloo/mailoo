@@ -459,15 +459,9 @@ async function addAccount(): Promise<void> {
   ensureInteractive();
   intro('mailoo › Add Account');
 
-  let existingConfig: RawAppConfig | undefined;
-  const exists = await configExists();
-  if (exists) {
-    try {
-      existingConfig = await loadRawConfig();
-    } catch {
-      log.warning('Could not parse existing config. A new config will be created.');
-    }
-  }
+  // Only a missing file starts a new config: saving over one that failed to
+  // load would drop every account it holds.
+  const existingConfig = (await configExists()) ? await loadRawConfig() : undefined;
 
   // 1. Identity
   const identity = await promptAccountIdentity();
