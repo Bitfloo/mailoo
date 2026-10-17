@@ -567,7 +567,7 @@ export default class HooksService {
   // Calendar auto-add helper
   // -------------------------------------------------------------------------
 
-  /** Marks the email processed only after a settled outcome, so a failed add is retried. */
+  /** Marks the email processed only after a settled outcome, so a failed add leaves it eligible. */
   private async addToCalendarOnce(email: BatchEmail, skipReason: string): Promise<void> {
     const { isCalendarProcessed, markCalendarProcessed } = await import(
       '../utils/calendar-state.js'

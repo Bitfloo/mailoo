@@ -783,7 +783,7 @@ Paths follow the XDG defaults in `src/config/xdg.ts` unless `XDG_CONFIG_HOME`, `
 | `$XDG_DATA_HOME/mailoo/audit.log` | Append-only audit lines | `src/safety/audit.ts` |
 | `$XDG_STATE_HOME/mailoo/scheduled/` and `scheduled/sent/` | Scheduled-send JSON | `src/services/scheduler.service.ts` |
 | `$XDG_DATA_HOME/mailoo/calendar-attachments/` | Attachment files saved for a calendar event | `src/services/imap.service.ts` |
-| `$XDG_STATE_HOME/mailoo/calendar-processed.json` and `.lock` | Which messages already had an automatic event added, found, or declined in the dialog. A failed or timed-out add is not recorded, so it is tried again | `src/utils/calendar-state.ts` |
+| `$XDG_STATE_HOME/mailoo/calendar-processed.json` and `.lock` | Which messages already had an automatic event added, found, or declined in the dialog, with each email's subject. A failed or timed-out add is not recorded, so the email stays eligible | `src/utils/calendar-state.ts` |
 | `savePath` under the working directory | `download_attachment` or `export_email` when that argument is set | `src/tools/attachments.tool.ts`, `src/tools/export.tool.ts` |
 | OS temp directory, `mailoo-event-*.ics` | Linux calendar file passed to `xdg-open` | `src/services/local-calendar.service.ts` |
 | `~/Library/LaunchAgents/com.bitfloo.mailoo.scheduler.plist` | macOS scheduler agent. Its stdout and stderr are `/tmp/mailoo-scheduler.log` | `src/cli/scheduler.ts` |
