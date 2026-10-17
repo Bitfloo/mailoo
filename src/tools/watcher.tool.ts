@@ -11,6 +11,7 @@ import type HooksService from '../services/hooks.service.js';
 import NotifierService from '../services/notifier.service.js';
 import { listPresets as listAllPresets } from '../services/presets.js';
 import type WatcherService from '../services/watcher.service.js';
+import type { AlertsConfig } from '../types/index.js';
 
 /** Chat webhooks carry their credential in the path, so the audit log keeps the origin only. */
 function webhookOrigin(url: string): string {
@@ -21,6 +22,93 @@ function webhookOrigin(url: string): string {
   } catch {
     return '[invalid URL]';
   }
+}
+
+interface ConfigureAlertsArgs {
+  desktop?: boolean;
+  sound?: boolean;
+  urgency_threshold?: AlertsConfig['urgencyThreshold'];
+  webhook_url?: string;
+  webhook_events?: AlertsConfig['webhookEvents'];
+}
+
+/** The settings a configure_alerts call sets; an omitted field stays as it is. */
+function alertsPatch(args: ConfigureAlertsArgs): Partial<AlertsConfig> {
+  const partial: Partial<AlertsConfig> = {};
+  if (args.desktop !== undefined) partial.desktop = args.desktop;
+  if (args.sound !== undefined) partial.sound = args.sound;
+  if (args.urgency_threshold !== undefined) partial.urgencyThreshold = args.urgency_threshold;
+  if (args.webhook_url !== undefined) partial.webhookUrl = args.webhook_url;
+  if (args.webhook_events !== undefined) partial.webhookEvents = args.webhook_events;
+  return partial;
+}
+
+function currentAlertsText(current: AlertsConfig): string {
+  return (
+    `No changes specified. Current config:\n` +
+    `  Desktop:   ${current.desktop ? '✅' : '❌'}\n` +
+    `  Sound:     ${current.sound ? '✅' : '❌'}\n` +
+    `  Threshold: ${current.urgencyThreshold}\n` +
+    `  Webhook:   ${current.webhookUrl || '(none)'}\n` +
+    `  Events:    ${current.webhookEvents.join(', ')}`
+  );
+}
+
+function updatedAlertsText(updated: AlertsConfig, saveNote: string): string {
+  return [
+    '✅ Alerts configuration updated:',
+    `   Desktop:   ${updated.desktop ? '✅ enabled' : '❌ disabled'}`,
+    `   Sound:     ${updated.sound ? '✅ enabled' : '❌ disabled'}`,
+    `   Threshold: ${updated.urgencyThreshold}`,
+    `   Webhook:   ${updated.webhookUrl || '(none)'}`,
+    `   Events:    ${updated.webhookEvents.join(', ')}`,
+    saveNote,
+  ].join('\n');
+}
+
+/** A failed save leaves the new settings active for this session only. */
+async function saveAlertsToConfig(
+  updated: AlertsConfig,
+): Promise<{ note: string; error?: string }> {
+  try {
+    await persistAlerts(updated);
+    return { note: '\n\n💾 Changes saved to config file.' };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    return {
+      note: `\n\n⚠️ Could not save to config file: ${error}\n   Changes are active for this session only.`,
+      error,
+    };
+  }
+}
+
+function alertsAuditParams(partial: Partial<AlertsConfig>, save: boolean): Record<string, unknown> {
+  const params: Record<string, unknown> = { ...partial, save };
+  if (partial.webhookUrl !== undefined) params.webhookUrl = webhookOrigin(partial.webhookUrl);
+  return params;
+}
+
+async function auditAlertsChange(
+  params: Record<string, unknown>,
+  saveError: string | undefined,
+): Promise<void> {
+  await audit.log(
+    'configure_alerts',
+    'system',
+    params,
+    saveError === undefined ? 'ok' : 'error',
+    saveError === undefined ? undefined : `Not saved: ${saveError}`,
+  );
+}
+
+/** Validation errors quote the URL they refused; the entry keeps its origin only. */
+async function auditAlertsRefusal(
+  params: Record<string, unknown>,
+  errMsg: string,
+  webhookUrl: string | undefined,
+): Promise<void> {
+  const error = webhookUrl ? errMsg.replaceAll(webhookUrl, webhookOrigin(webhookUrl)) : errMsg;
+  await audit.log('configure_alerts', 'system', params, 'error', error);
 }
 
 export function registerWatcherReadTools(
@@ -355,96 +443,27 @@ export function registerWatcherWriteTools(server: McpServer, hooksService: Hooks
         openWorldHint: true,
       },
     },
-    async ({
-      desktop,
-      sound,
-      urgency_threshold: urgencyThreshold,
-      webhook_url: webhookUrl,
-      webhook_events: webhookEvents,
-      save,
-    }) => {
-      let auditParams: Record<string, unknown> | null = null;
-      try {
-        const notifier = hooksService.getNotifier();
-
-        // Build partial update from provided fields
-        const partial: Record<string, unknown> = {};
-        if (desktop !== undefined) partial.desktop = desktop;
-        if (sound !== undefined) partial.sound = sound;
-        if (urgencyThreshold !== undefined) partial.urgencyThreshold = urgencyThreshold;
-        if (webhookUrl !== undefined) partial.webhookUrl = webhookUrl;
-        if (webhookEvents !== undefined) partial.webhookEvents = webhookEvents;
-
-        if (Object.keys(partial).length === 0) {
-          const current = notifier.getConfig();
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text:
-                  `No changes specified. Current config:\n` +
-                  `  Desktop:   ${current.desktop ? '✅' : '❌'}\n` +
-                  `  Sound:     ${current.sound ? '✅' : '❌'}\n` +
-                  `  Threshold: ${current.urgencyThreshold}\n` +
-                  `  Webhook:   ${current.webhookUrl || '(none)'}\n` +
-                  `  Events:    ${current.webhookEvents.join(', ')}`,
-              },
-            ],
-          };
-        }
-
-        auditParams = { ...partial, save };
-        if (webhookUrl !== undefined) auditParams.webhookUrl = webhookOrigin(webhookUrl);
-
-        // Apply runtime update
-        const updated = notifier.updateConfig(partial);
-
-        // Also update the in-memory hooks config alerts reference
-        hooksConfig.alerts = { ...updated };
-
-        // Persist to file if requested
-        let persistMsg = '';
-        let saveError: string | undefined;
-        if (save) {
-          try {
-            await persistAlerts(updated);
-            persistMsg = '\n\n💾 Changes saved to config file.';
-          } catch (err) {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            saveError = errMsg;
-            persistMsg = `\n\n⚠️ Could not save to config file: ${errMsg}\n   Changes are active for this session only.`;
-          }
-        }
-        await audit.log(
-          'configure_alerts',
-          'system',
-          auditParams ?? {},
-          saveError === undefined ? 'ok' : 'error',
-          saveError === undefined ? undefined : `Not saved: ${saveError}`,
-        );
-
-        const lines = [
-          '✅ Alerts configuration updated:',
-          `   Desktop:   ${updated.desktop ? '✅ enabled' : '❌ disabled'}`,
-          `   Sound:     ${updated.sound ? '✅ enabled' : '❌ disabled'}`,
-          `   Threshold: ${updated.urgencyThreshold}`,
-          `   Webhook:   ${updated.webhookUrl || '(none)'}`,
-          `   Events:    ${updated.webhookEvents.join(', ')}`,
-          persistMsg,
-        ];
-
+    async (args) => {
+      const notifier = hooksService.getNotifier();
+      const partial = alertsPatch(args);
+      if (Object.keys(partial).length === 0) {
         return {
-          content: [{ type: 'text' as const, text: lines.join('\n') }],
+          content: [{ type: 'text' as const, text: currentAlertsText(notifier.getConfig()) }],
+        };
+      }
+
+      const auditParams = alertsAuditParams(partial, args.save);
+      try {
+        const updated = notifier.updateConfig(partial);
+        hooksConfig.alerts = { ...updated };
+        const saved = args.save ? await saveAlertsToConfig(updated) : { note: '' };
+        await auditAlertsChange(auditParams, saved.error);
+        return {
+          content: [{ type: 'text' as const, text: updatedAlertsText(updated, saved.note) }],
         };
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        if (auditParams) {
-          // Validation errors quote the URL they refused.
-          const auditError = webhookUrl
-            ? errMsg.replaceAll(webhookUrl, webhookOrigin(webhookUrl))
-            : errMsg;
-          await audit.log('configure_alerts', 'system', auditParams, 'error', auditError);
-        }
+        await auditAlertsRefusal(auditParams, errMsg, args.webhook_url);
         return {
           isError: true,
           content: [
