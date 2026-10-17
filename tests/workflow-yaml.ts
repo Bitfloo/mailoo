@@ -52,12 +52,10 @@ export function stepEnv(step: string, context: Record<string, string>): Record<s
     [...block.matchAll(/^ {10}(\w+): (.*)$/gm)].map(([, name, value]) => [
       name,
       value.replace(/\$\{\{ ([\w.-]+) \}\}/g, (_, expression: string) => {
-        // A dispatch input has two spellings; both are empty on a tag push.
-        const key = expression.replace(/^github\.event\.inputs\./, 'inputs.');
-        if (!(key in context)) {
+        if (!(expression in context)) {
           throw new Error(`no value for ${expression}`);
         }
-        return context[key];
+        return context[expression];
       }),
     ]),
   );
