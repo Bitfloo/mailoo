@@ -12,13 +12,10 @@ import type { SMTPPoolOptions, Transporter } from 'nodemailer';
 import nodemailer from 'nodemailer';
 import { mcpLog } from '../logging.js';
 
-import type OAuthService from '../services/oauth.service.js';
 import type { AccountConfig } from '../types/index.js';
-import type { IConnectionManager } from './types.js';
-
-type SmtpAuth =
-  | { user: string; pass?: string }
-  | { type: string; user: string; accessToken: string };
+import type { SmtpAuth } from './auth.js';
+import { buildImapAuth, buildSmtpAuth } from './auth.js';
+import type { AccessTokenSource, IConnectionManager } from './types.js';
 
 function certificatesRequired(verifySsl: boolean | undefined): boolean {
   return verifySsl !== false;
@@ -84,9 +81,9 @@ export default class ConnectionManager implements IConnectionManager {
 
   private accounts = new Map<string, AccountConfig>();
 
-  private oauthService?: OAuthService;
+  private oauthService?: AccessTokenSource;
 
-  constructor(accounts: AccountConfig[], oauthService?: OAuthService) {
+  constructor(accounts: AccountConfig[], oauthService?: AccessTokenSource) {
     accounts.forEach((account) => {
       this.accounts.set(account.name, account);
     });
@@ -132,15 +129,7 @@ export default class ConnectionManager implements IConnectionManager {
     }
 
     const account = this.getAccount(accountName);
-
-    // Build auth config based on auth type
-    let auth: { user: string; pass?: string; accessToken?: string };
-    if (account.oauth2 && this.oauthService) {
-      const accessToken = await this.oauthService.getAccessToken(account.oauth2);
-      auth = { user: account.username, accessToken };
-    } else {
-      auth = { user: account.username, pass: account.password };
-    }
+    const auth = await buildImapAuth(account, this.oauthService);
 
     const client = new ImapFlow({
       ...buildImapFlowOptions(account),
@@ -220,15 +209,7 @@ export default class ConnectionManager implements IConnectionManager {
     }
 
     const account = this.getAccount(accountName);
-
-    // Build auth config based on auth type
-    let auth: SmtpAuth;
-    if (account.oauth2 && this.oauthService) {
-      const accessToken = await this.oauthService.getAccessToken(account.oauth2);
-      auth = { type: 'OAuth2', user: account.username, accessToken };
-    } else {
-      auth = { user: account.username, pass: account.password };
-    }
+    const auth = await buildSmtpAuth(account, this.oauthService);
 
     const transport = nodemailer.createTransport(
       ConnectionManager.buildSmtpTransportOptions(account, auth),
@@ -254,7 +235,7 @@ export default class ConnectionManager implements IConnectionManager {
 
   static async testImap(
     account: AccountConfig,
-    oauthService?: OAuthService,
+    oauthService?: AccessTokenSource,
   ): Promise<{
     success: boolean;
     error?: string;
@@ -262,13 +243,7 @@ export default class ConnectionManager implements IConnectionManager {
   }> {
     let client: ImapFlow | undefined;
     try {
-      let auth: { user: string; pass?: string; accessToken?: string };
-      if (account.oauth2 && oauthService) {
-        const accessToken = await oauthService.getAccessToken(account.oauth2);
-        auth = { user: account.username, accessToken };
-      } else {
-        auth = { user: account.username, pass: account.password };
-      }
+      const auth = await buildImapAuth(account, oauthService);
 
       client = new ImapFlow({
         ...buildImapFlowOptions(account),
@@ -324,17 +299,11 @@ export default class ConnectionManager implements IConnectionManager {
 
   static async testSmtp(
     account: AccountConfig,
-    oauthService?: OAuthService,
+    oauthService?: AccessTokenSource,
   ): Promise<{ success: boolean; error?: string }> {
     let transport: Transporter | undefined;
     try {
-      let auth: SmtpAuth;
-      if (account.oauth2 && oauthService) {
-        const accessToken = await oauthService.getAccessToken(account.oauth2);
-        auth = { type: 'OAuth2', user: account.username, accessToken };
-      } else {
-        auth = { user: account.username, pass: account.password };
-      }
+      const auth = await buildSmtpAuth(account, oauthService);
 
       transport = nodemailer.createTransport(
         ConnectionManager.buildSmtpTransportOptions(account, auth),

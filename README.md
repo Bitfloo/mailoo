@@ -955,6 +955,7 @@ src/
 │   ├── schema.ts          — Zod validation schemas
 │   └── loader.ts          — Config loader (TOML + env vars)
 ├── connections/
+│   ├── auth.ts            — IMAP/SMTP credentials (password or OAuth2)
 │   └── manager.ts         — Lazy persistent IMAP/SMTP with OAuth2 (experimental)
 ├── services/              — Business logic
 │   ├── imap.service.ts    — IMAP operations
