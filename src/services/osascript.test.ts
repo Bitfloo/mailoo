@@ -16,7 +16,13 @@ vi.mock('node:child_process', () => ({
   }),
 }));
 
-import { escapeAS, JSON_HANDLERS, parseOsascriptJson, runOsascript } from './osascript.js';
+import {
+  dateToAppleScriptLines,
+  escapeAS,
+  JSON_HANDLERS,
+  parseOsascriptJson,
+  runOsascript,
+} from './osascript.js';
 
 /** Shape of the error promisified execFile rejects with (child_process docs). */
 function execFailure(fields: Record<string, unknown>): Error {
@@ -45,6 +51,40 @@ describe('escapeAS', () => {
 
   it('should turn line breaks and tabs into AppleScript escapes', () => {
     expect(escapeAS('a\r\nb\nc\rd\te')).toBe('a\\nb\\nc\\rd\\te');
+  });
+});
+
+describe('dateToAppleScriptLines', () => {
+  it('should set the day to 1, then year, month, day and time from local getters', () => {
+    expect(dateToAppleScriptLines('eventStart', new Date(2026, 1, 19, 16, 30, 45))).toEqual([
+      'set eventStart to current date',
+      'set day of eventStart to 1',
+      'set year of eventStart to 2026',
+      'set month of eventStart to 2',
+      'set day of eventStart to 19',
+      'set hours of eventStart to 16',
+      'set minutes of eventStart to 30',
+      'set seconds of eventStart to 45',
+    ]);
+  });
+
+  it('should write midnight as zero hours, minutes and seconds', () => {
+    expect(dateToAppleScriptLines('eventEnd', new Date(2025, 0, 1, 0, 0, 0)).slice(-3)).toEqual([
+      'set hours of eventEnd to 0',
+      'set minutes of eventEnd to 0',
+      'set seconds of eventEnd to 0',
+    ]);
+  });
+
+  it('should write the last second of a year as 31 December 23:59:59', () => {
+    expect(dateToAppleScriptLines('d', new Date(2024, 11, 31, 23, 59, 59)).slice(2)).toEqual([
+      'set year of d to 2024',
+      'set month of d to 12',
+      'set day of d to 31',
+      'set hours of d to 23',
+      'set minutes of d to 59',
+      'set seconds of d to 59',
+    ]);
   });
 });
 

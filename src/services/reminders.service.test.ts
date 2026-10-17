@@ -14,7 +14,7 @@ vi.mock('node:child_process', () => ({
   }),
 }));
 
-import { dialogLinesOf } from '../test-support/applescript.js';
+import { dateSetBy, dialogLinesOf } from '../test-support/applescript.js';
 import RemindersService from './reminders.service.js';
 
 /** Builds the service while it believes it is on macOS, where osascript is used. */
@@ -125,5 +125,22 @@ describe('addReminder confirm dialog', () => {
       '\u{1F4DD} Ref C:\\billing\\"Q4"',
       '\u{1F4CB} List: Home "Q4"',
     ]);
+  });
+});
+
+describe('addReminder due date', () => {
+  it('should be due on 28 February when the script runs on 31 January', async () => {
+    // Setting month 2 on 31 January lands on 3 March before the day is set.
+    osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"added"}', stderr: '' });
+    await onDarwin(async (svc) =>
+      svc.addReminder(
+        { title: 'File VAT return', dueDate: '2026-02-28T09:30:00' },
+        { confirm: false },
+      ),
+    );
+    const script = osascriptImpl.mock.calls[0]?.[1][1] ?? '';
+    expect(dateSetBy(script, 'dueD', new Date(2026, 0, 31, 12, 0, 0))).toEqual(
+      new Date(2026, 1, 28, 9, 30, 0),
+    );
   });
 });

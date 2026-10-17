@@ -20,11 +20,9 @@ vi.mock('node:child_process', () => ({
   }),
 }));
 
-import { dialogLinesOf } from '../test-support/applescript.js';
-import LocalCalendarService, {
-  dateToAppleScriptLines,
-  LIST_EVENTS_TIMEOUT_MS,
-} from './local-calendar.service.js';
+import { dateSetBy, dialogLinesOf } from '../test-support/applescript.js';
+import LocalCalendarService, { LIST_EVENTS_TIMEOUT_MS } from './local-calendar.service.js';
+import { dateToAppleScriptLines } from './osascript.js';
 
 /** Runs `fn` with the service believing it is on macOS, where osascript is used. */
 async function onDarwin<T>(fn: () => Promise<T>): Promise<T> {
@@ -39,83 +37,6 @@ async function onDarwin<T>(fn: () => Promise<T>): Promise<T> {
 beforeEach(() => {
   osascriptImpl.mockReset();
   osascriptImpl.mockResolvedValue({ stdout: '[]', stderr: '' });
-});
-
-// ---------------------------------------------------------------------------
-// dateToAppleScriptLines
-// ---------------------------------------------------------------------------
-
-describe('dateToAppleScriptLines', () => {
-  it('emits correct component-setting lines for a given date', () => {
-    // Use a specific date — 19 Feb 2026 16:30:45 local time
-    const d = new Date(2026, 1, 19, 16, 30, 45); // month is 0-indexed
-
-    const lines = dateToAppleScriptLines('eventStart', d);
-
-    expect(lines).toEqual([
-      'set eventStart to current date',
-      'set year of eventStart to 2026',
-      'set month of eventStart to 2',
-      'set day of eventStart to 19',
-      'set hours of eventStart to 16',
-      'set minutes of eventStart to 30',
-      'set seconds of eventStart to 45',
-    ]);
-  });
-
-  it('handles midnight correctly (all zeros for time)', () => {
-    const d = new Date(2025, 0, 1, 0, 0, 0); // 1 Jan 2025 00:00:00
-
-    const lines = dateToAppleScriptLines('eventEnd', d);
-
-    expect(lines).toEqual([
-      'set eventEnd to current date',
-      'set year of eventEnd to 2025',
-      'set month of eventEnd to 1',
-      'set day of eventEnd to 1',
-      'set hours of eventEnd to 0',
-      'set minutes of eventEnd to 0',
-      'set seconds of eventEnd to 0',
-    ]);
-  });
-
-  it('handles end-of-year date', () => {
-    const d = new Date(2024, 11, 31, 23, 59, 59); // 31 Dec 2024 23:59:59
-
-    const lines = dateToAppleScriptLines('d', d);
-
-    expect(lines).toEqual([
-      'set d to current date',
-      'set year of d to 2024',
-      'set month of d to 12',
-      'set day of d to 31',
-      'set hours of d to 23',
-      'set minutes of d to 59',
-      'set seconds of d to 59',
-    ]);
-  });
-
-  it('uses custom variable name', () => {
-    const d = new Date(2026, 5, 15, 9, 0, 0);
-
-    const lines = dateToAppleScriptLines('myDate', d);
-
-    expect(lines[0]).toBe('set myDate to current date');
-    expect(lines).toHaveLength(7);
-    expect(lines.every((l) => l.includes('myDate'))).toBe(true);
-  });
-
-  it('uses local time, not UTC', () => {
-    // Create a date from a UTC string — the local components should differ
-    // from UTC if the test machine is not in UTC.
-    // We just verify the function uses getFullYear/getHours (local), not
-    // getUTCFullYear/getUTCHours.
-    const d = new Date(2026, 1, 19, 16, 0, 0);
-    const lines = dateToAppleScriptLines('ev', d);
-
-    // The hour must match the local hour we set (16), regardless of UTC offset
-    expect(lines).toContain('set hours of ev to 16');
-  });
 });
 
 describe('listEvents timeout', () => {
@@ -304,5 +225,33 @@ describe('addEvent confirm dialog', () => {
   it('should show the event start and end in the dialog, not the script that reads them', async () => {
     const lines = await dialogFor(review);
     expect(lines[1]).toBe('\u{1F550} <eventStart> \u2013 <eventEnd>');
+  });
+});
+
+describe('addEvent dates', () => {
+  async function addScriptFor(start: Date): Promise<string> {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"added"}', stderr: '' });
+    await onDarwin(async () =>
+      new LocalCalendarService().addEvent(
+        { title: 'Budget review', start, end: new Date(start.getTime() + 3_600_000) },
+        'Work',
+        { confirm: false, skipDuplicateCheck: true },
+      ),
+    );
+    return osascriptImpl.mock.calls[0]?.[1][1] ?? '';
+  }
+
+  it('should start on 28 February when the script runs on 31 January', async () => {
+    // Setting month 2 on 31 January lands on 3 March before the day is set.
+    const start = new Date(2026, 1, 28, 9, 30, 0);
+    const script = await addScriptFor(start);
+    expect(dateSetBy(script, 'eventStart', new Date(2026, 0, 31, 12, 0, 0))).toEqual(start);
+  });
+
+  it('should start on 31 October when the script runs on 30 September', async () => {
+    // Setting day 31 in September lands on 1 October before the month is set.
+    const start = new Date(2026, 9, 31, 9, 30, 0);
+    const script = await addScriptFor(start);
+    expect(dateSetBy(script, 'eventStart', new Date(2026, 8, 30, 12, 0, 0))).toEqual(start);
   });
 });

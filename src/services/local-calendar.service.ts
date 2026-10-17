@@ -17,7 +17,13 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { delimitUntrusted } from '../safety/untrusted-content.js';
-import { escapeAS, JSON_HANDLERS, parseOsascriptJson, runOsascript } from './osascript.js';
+import {
+  dateToAppleScriptLines,
+  escapeAS,
+  JSON_HANDLERS,
+  parseOsascriptJson,
+  runOsascript,
+} from './osascript.js';
 
 const execFile = promisify(execFileCb);
 
@@ -132,32 +138,6 @@ interface JXAScriptOptions {
   attachCount: number;
   attendeeCount: number;
   confirm: boolean;
-}
-
-/**
- * Emit AppleScript lines that set an existing date variable to a specific
- * point in time by assigning each component (year, month, day, hours, minutes,
- * seconds) individually.
- *
- * Uses the JS Date's **local-time** getters so the resulting AppleScript date
- * matches the system timezone — the same timezone Calendar.app operates in.
- *
- * This replaces the previous approach of converting to Unix epoch via
- * `date -j … '+%s'` and coercing `(number) as date`, which fails on macOS
- * because AppleScript cannot coerce large integers to dates (error -1700).
- *
- * @internal Exported for testing.
- */
-export function dateToAppleScriptLines(varName: string, d: Date): string[] {
-  return [
-    `set ${varName} to current date`,
-    `set year of ${varName} to ${d.getFullYear()}`,
-    `set month of ${varName} to ${d.getMonth() + 1}`,
-    `set day of ${varName} to ${d.getDate()}`,
-    `set hours of ${varName} to ${d.getHours()}`,
-    `set minutes of ${varName} to ${d.getMinutes()}`,
-    `set seconds of ${varName} to ${d.getSeconds()}`,
-  ];
 }
 
 function buildAppleScript(opts: JXAScriptOptions): string {

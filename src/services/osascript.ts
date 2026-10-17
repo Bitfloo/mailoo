@@ -23,6 +23,26 @@ export function escapeAS(s: string): string {
 }
 
 /**
+ * Lines that set the AppleScript date variable `name` to `d`, from the JS Date's
+ * local-time getters (Calendar and Reminders work in the system time zone).
+ * Each component is set on its own: AppleScript cannot coerce a large epoch number
+ * to a date (error -1700). `current date` keeps today's day while the month changes,
+ * so on the 31st setting month 2 lands in March; the day goes to 1 first.
+ */
+export function dateToAppleScriptLines(name: string, d: Date): string[] {
+  return [
+    `set ${name} to current date`,
+    `set day of ${name} to 1`,
+    `set year of ${name} to ${d.getFullYear()}`,
+    `set month of ${name} to ${d.getMonth() + 1}`,
+    `set day of ${name} to ${d.getDate()}`,
+    `set hours of ${name} to ${d.getHours()}`,
+    `set minutes of ${name} to ${d.getMinutes()}`,
+    `set seconds of ${name} to ${d.getSeconds()}`,
+  ];
+}
+
+/**
  * AppleScript handlers for a script that returns JSON. `jsonString(v)` returns
  * `null` for missing value, else the text in JSON quotes with backslash and
  * quote escaped. Tabs and newlines stay raw; `parseOsascriptJson` repairs them.

@@ -8,7 +8,13 @@
  */
 
 import { delimitUntrusted } from '../safety/untrusted-content.js';
-import { escapeAS, JSON_HANDLERS, parseOsascriptJson, runOsascript } from './osascript.js';
+import {
+  dateToAppleScriptLines,
+  escapeAS,
+  JSON_HANDLERS,
+  parseOsascriptJson,
+  runOsascript,
+} from './osascript.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -176,16 +182,9 @@ function buildReminderAppleScript(input: ReminderInput, confirm: boolean): strin
   );
 
   if (dueDate) {
-    const d = new Date(dueDate);
     lines.push(
       '  try',
-      '    set dueD to current date',
-      `    set year of dueD to ${d.getFullYear()}`,
-      `    set month of dueD to ${d.getMonth() + 1}`,
-      `    set day of dueD to ${d.getDate()}`,
-      `    set hours of dueD to ${d.getHours()}`,
-      `    set minutes of dueD to ${d.getMinutes()}`,
-      `    set seconds of dueD to ${d.getSeconds()}`,
+      ...dateToAppleScriptLines('dueD', new Date(dueDate)).map((line) => `    ${line}`),
       '    set due date of newReminder to dueD',
       '  end try',
     );
