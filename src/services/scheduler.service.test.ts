@@ -717,6 +717,43 @@ describe('due boundary', () => {
   });
 });
 
+// The loop logs every failed count at warning, so a skipped file counted as failed warns each minute.
+describe('emails a check skips', () => {
+  const quiet = { sent: 0, failed: 0, deferred: 0, errors: [] };
+
+  it('should report nothing when the queue holds only a future-dated email', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-future-'));
+    try {
+      await fs.writeFile(
+        path.join(queueDir, `${queueId(1)}.json`),
+        JSON.stringify(pendingRecord(queueId(1), daysFromNow(1))),
+      );
+      const { service } = createService(queueDir);
+      expect(await service.checkAndSend()).toEqual(quiet);
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should report nothing when another check holds a live claim on the due email', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-held-'));
+    const id = queueId(1);
+    try {
+      await fs.writeFile(
+        path.join(queueDir, `${id}.json`),
+        JSON.stringify(pendingRecord(id, '2020-01-01T00:00:00.000Z')),
+      );
+      await fs.writeFile(path.join(queueDir, `${id}${SCHEDULE_CLAIM_SUFFIX}`), 'held', {
+        flag: 'wx',
+      });
+      const { service } = createService(queueDir);
+      expect(await service.checkAndSend()).toEqual(quiet);
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('successful send', () => {
   it('removes the pending queue file after SMTP accepts the email', async () => {
     const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-sent-'));
