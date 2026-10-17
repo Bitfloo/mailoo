@@ -608,8 +608,8 @@ Urgency-based multi-channel notification routing — grab attention for importan
 | `low` | ❌ | ❌ | `debug` | ❌ |
 
 The MCP log entry at the listed level names the account, folder, UID, labels
-and rule. Sender and subject appear only at `debug`: in a separate entry, or
-for `low` in the single entry.
+and rule. In alert entries, sender and subject appear only at `debug`: in a
+separate entry, or for `low` in the single entry.
 
 ```toml
 [settings.hooks.alerts]
