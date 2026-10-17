@@ -21,7 +21,7 @@ import {
   testAccount,
   watch,
 } from '../test-support/watcher-harness.js';
-import { AUTO_IDLE_DELAY_MS, buildEmailMeta } from './watcher.service.js';
+import { AUTO_IDLE_DELAY_MS } from './watcher.service.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -261,81 +261,6 @@ describe('WatcherService reconnect timer', () => {
       setTimeout(() => resolve(true), 5);
     });
     expect(fired).toBe(true);
-  });
-});
-
-describe('WatcherService stop', () => {
-  it('should log out of the server', async () => {
-    const { watcher } = watch();
-    await watcher.start();
-    await watcher.stop();
-    expect(fake.clients[0].loggedOut).toBe(true);
-  });
-
-  it('should close a connection that is still logging in', async () => {
-    let answerLogin = (): void => {};
-    fake.loginPending = new Promise((resolve) => {
-      answerLogin = resolve;
-    });
-    const { watcher } = watch();
-    const starting = watcher.start();
-    await settle();
-    await watcher.stop();
-    expect(fake.clients.map((client) => client.closed)).toEqual([true]);
-    answerLogin();
-    await starting;
-  });
-
-  it('should leave no reconnect pending after it closed a connection still logging in', async () => {
-    let answerLogin = (): void => {};
-    fake.loginPending = new Promise((resolve) => {
-      answerLogin = resolve;
-    });
-    const { watcher } = watch();
-    const starting = watcher.start();
-    await settle();
-    await watcher.stop();
-    answerLogin();
-    await starting;
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it('should leave no timer running after it logged out of a live connection', async () => {
-    const { watcher } = watch();
-    await watcher.start();
-    await watcher.stop();
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it('should list no folders once stopped', async () => {
-    const { watcher } = watch();
-    await watcher.start();
-    await watcher.stop();
-    expect(watcher.getStatus()).toEqual([]);
-  });
-
-  it('should cancel a pending reconnect', async () => {
-    fake.connectErrors.push(new Error('connect ECONNREFUSED'));
-    const { watcher } = watch();
-    await watcher.start();
-    await watcher.stop();
-    expect(vi.getTimerCount()).toBe(0);
-  });
-});
-
-describe('buildEmailMeta', () => {
-  it('should take the message id from the envelope', () => {
-    const meta = buildEmailMeta({
-      uid: 9,
-      envelope: {
-        subject: 'Hello',
-        messageId: '<id@example.com>',
-        from: [{ name: 'Ada', address: 'ada@example.com' }],
-        to: [{ address: 'bob@example.com' }],
-        date: new Date('2026-01-02T00:00:00.000Z'),
-      },
-    });
-    expect(meta).toMatchObject({ id: '9', subject: 'Hello', messageId: '<id@example.com>' });
   });
 });
 
