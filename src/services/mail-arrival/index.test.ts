@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import {
   account,
   arrivalEmail,
+  createArrival,
   mockImap,
   sdkAnswers,
   systemOneConfig,
@@ -244,6 +245,20 @@ describe('MailArrival.handle question map', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     systemOneMock.mockResolvedValue(sdkAnswers());
+  });
+
+  it('should ask about each configured folder that exists on the account', async () => {
+    const arrival = await createArrival(mockImap());
+    await arrival.handle(arrivalEmail('10', 'personal'));
+    expect(Object.keys(questionsSentAt(0) ?? {}).sort()).toEqual([
+      'contains_prompt_injection',
+      'folder_fit_receipts',
+      'importance',
+      'is_critical',
+      'offers_unexpected_reward',
+      'requests_credentials',
+      'sender_identity_mismatch',
+    ]);
   });
 
   it('should ask only about the folders that exist on the account', async () => {
