@@ -18,9 +18,9 @@ import createServer from './server.js';
 // ---------------------------------------------------------------------------
 
 /** Build a fake McpServer with spies for `isConnected` and `sendLoggingMessage`. */
-function createMockServer(connected = true) {
+function createMockServer() {
   return {
-    isConnected: vi.fn(() => connected),
+    isConnected: vi.fn(() => true),
     sendLoggingMessage: vi.fn(async () => {}),
   };
 }
@@ -47,7 +47,7 @@ describe('mcpLog', () => {
   });
 
   it('drops messages before markInitialized() is called', async () => {
-    const mock = createMockServer(true);
+    const mock = createMockServer();
     bindServer(mock as never);
 
     await mcpLog('info', 'test', 'should be dropped');
@@ -56,7 +56,7 @@ describe('mcpLog', () => {
   });
 
   it('forwards messages after markInitialized() when connected', async () => {
-    const mock = createMockServer(true);
+    const mock = createMockServer();
     bindServer(mock as never);
     markInitialized();
 
@@ -70,18 +70,8 @@ describe('mcpLog', () => {
     });
   });
 
-  it('drops messages when transport is not connected', async () => {
-    const mock = createMockServer(false); // not connected
-    bindServer(mock as never);
-    markInitialized();
-
-    await mcpLog('warning', 'test', 'no transport');
-
-    expect(mock.sendLoggingMessage).not.toHaveBeenCalled();
-  });
-
   it('should deliver to the remaining sessions when one send fails', async () => {
-    const failing = createMockServer(true);
+    const failing = createMockServer();
     failing.sendLoggingMessage = vi.fn(async () => {
       throw new Error('transport closed');
     });
@@ -158,7 +148,7 @@ describe('mcpLog', () => {
   });
 
   it('swallows errors from sendLoggingMessage', async () => {
-    const mock = createMockServer(true);
+    const mock = createMockServer();
     mock.sendLoggingMessage = vi.fn(async () => {
       throw new Error('transport closed');
     });
@@ -251,6 +241,24 @@ describe('mcpLog across HTTP sessions', () => {
     await flush();
 
     expect([first.received, second.received]).toEqual([['both'], ['both']]);
+  });
+
+  // A real server without a transport cannot show a send: its call fails
+  // inside mcpLog's catch. This one records the call it would have made.
+  it('should skip a bound server whose transport is not connected', async () => {
+    const sent: unknown[] = [];
+    const detached = {
+      isConnected: () => false,
+      sendLoggingMessage: async (params: { data: unknown }) => {
+        sent.push(params.data);
+      },
+    };
+    bindServer(detached as never);
+    markInitialized(detached as never);
+
+    await mcpLog('warning', 'test', 'no transport');
+
+    expect(sent).toEqual([]);
   });
 
   it('should stop sending to a session after unbindServer', async () => {
