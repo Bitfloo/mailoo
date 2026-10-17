@@ -2,6 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
+import { parse } from 'yaml';
+
 import { repoRoot } from './agents/agent-file.js';
 import { lockPeerRange, nextMajor, peerCeiling } from './held-majors.js';
 import { readKeyLines, releaseSteps } from './workflow-yaml.js';
@@ -238,6 +240,15 @@ describe('dependabot groups', () => {
         '@types/node': nextMajor('@types/node'),
       }).sort(byName),
     );
+  });
+
+  it('should keep a github-actions update at the root so the action SHA pins get bumps', () => {
+    // Every uses: is pinned to a commit SHA, so without this update no pin would ever move.
+    const { updates } = parse(config) as {
+      updates: { 'package-ecosystem': string; directory?: string }[];
+    };
+    const actions = updates.filter((update) => update['package-ecosystem'] === 'github-actions');
+    expect(actions.map((update) => update.directory)).toEqual(['/']);
   });
 
   it('groups only minor and patch updates', () => {
