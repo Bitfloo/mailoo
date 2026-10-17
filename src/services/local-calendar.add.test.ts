@@ -14,6 +14,7 @@ vi.mock('node:child_process', () => ({
   }),
 }));
 
+import { delimitUntrusted } from '../safety/untrusted-content.js';
 import { dateSetBy, dialogLinesOf, literalAfter } from '../test-support/applescript.js';
 import onDarwin from '../test-support/platform.js';
 import type { LocalCalendarEventInput } from './local-calendar.service.js';
@@ -192,6 +193,42 @@ describe('addEvent failures', () => {
     ).resolves.toEqual({
       status: 'no_display',
       message: 'Calendar access denied. Run check_calendar_permissions for setup instructions.',
+    });
+  });
+});
+
+describe('addEvent result', () => {
+  async function addReporting(stdout: string) {
+    osascriptImpl.mockResolvedValueOnce({ stdout, stderr: '' });
+    return onDarwin(async () =>
+      new LocalCalendarService().addEvent(
+        {
+          title: 'Budget review',
+          start: new Date(2026, 9, 5, 9, 0, 0),
+          end: new Date(2026, 9, 5, 10, 0, 0),
+        },
+        'Work',
+        { skipDuplicateCheck: true },
+      ),
+    );
+  }
+
+  it('should return the status, event id and calendar name the add script reports', async () => {
+    // The script falls back to the first calendar, so its name can differ from the one asked for.
+    await expect(
+      addReporting('{"status":"added","eventId":"E1","calendarName":"Home"}\n'),
+    ).resolves.toEqual({
+      status: 'added',
+      eventId: 'E1',
+      calendarName: 'Home',
+      message: `✅ Event added: "${delimitUntrusted('Budget review')}" → Home.`,
+    });
+  });
+
+  it('should report a timed-out dialog as timed_out with the wait in the message', async () => {
+    await expect(addReporting('{"status":"timed_out"}\n')).resolves.toEqual({
+      status: 'timed_out',
+      message: '⏱️ Dialog timed out after 60 s — event was not added. Try again.',
     });
   });
 });

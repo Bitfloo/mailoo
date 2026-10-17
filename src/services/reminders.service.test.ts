@@ -14,6 +14,7 @@ vi.mock('node:child_process', () => ({
   }),
 }));
 
+import { delimitUntrusted } from '../safety/untrusted-content.js';
 import { dateSetBy, dialogLinesOf, literalAfter } from '../test-support/applescript.js';
 import { CONFIRM_DIALOG_WAIT_S } from './osascript.js';
 import RemindersService, { ADD_REMINDER_TIMEOUT_MS } from './reminders.service.js';
@@ -80,19 +81,29 @@ describe('RemindersService osascript results', () => {
     });
   });
 
-  it('should return the id and list name the script reports for an added reminder', async () => {
+  it('should return the status, reminder id and list name the add script reports', async () => {
     osascriptImpl.mockResolvedValueOnce({
       stdout:
         '{"status":"added","reminderId":"x-apple-reminder://R2","listName":"Home \\"Q4\\""}\n',
       stderr: '',
     });
     const result = await onDarwin(async (svc) =>
-      svc.addReminder({ title: 'Call the bank' }, { confirm: false }),
+      svc.addReminder({ title: 'Call the bank', listName: 'Work' }, { confirm: false }),
     );
-    expect({ id: result.reminderId, list: result.listName, status: result.status }).toEqual({
-      id: 'x-apple-reminder://R2',
-      list: 'Home "Q4"',
+    expect(result).toEqual({
       status: 'added',
+      reminderId: 'x-apple-reminder://R2',
+      listName: 'Home "Q4"',
+      message: `✅ Reminder added: "${delimitUntrusted('Call the bank')}" → Home "Q4".`,
+    });
+  });
+
+  it('should report a timed-out dialog as timed_out with a try-again message', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"timed_out"}\n', stderr: '' });
+    const result = await onDarwin(async (svc) => svc.addReminder({ title: 'Call the bank' }));
+    expect(result).toEqual({
+      status: 'timed_out',
+      message: '⏱️ Dialog timed out — reminder was not added. Try again.',
     });
   });
 
