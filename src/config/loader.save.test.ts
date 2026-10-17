@@ -9,54 +9,37 @@ import {
 } from '../test-support/config-sandbox.js';
 import { loadConfig, saveConfig } from './loader.js';
 
+const RAW_CONFIG = {
+  accounts: [
+    {
+      name: 'saved-test',
+      email: 'saved@example.com',
+      password: 'saved-pass',
+      imap: { host: 'imap.saved.example.com' },
+      smtp: { host: 'smtp.saved.example.com' },
+    },
+  ],
+} as unknown as Parameters<typeof saveConfig>[0];
+
 describe('saveConfig', () => {
   const sandbox = useConfigSandbox();
 
   it('saves config as TOML and can be re-read', async () => {
     const configPath = path.join(sandbox.dir, 'saved.toml');
 
-    // Write minimal TOML first, load it as raw, then save and re-load
-    const srcPath = path.join(sandbox.dir, 'source.toml');
-    await writeOwnerOnly(srcPath, MINIMAL_TOML);
-    await loadConfig(srcPath);
-
-    // Build a RawAppConfig to save
-    const rawConfig = {
-      accounts: [
-        {
-          name: 'saved-test',
-          email: 'saved@example.com',
-          password: 'saved-pass',
-          imap: { host: 'imap.saved.com' },
-          smtp: { host: 'smtp.saved.com' },
-        },
-      ],
-    };
-
-    await saveConfig(rawConfig as unknown as Parameters<typeof saveConfig>[0], configPath);
+    await saveConfig(RAW_CONFIG, configPath);
 
     const reloaded = await loadConfig(configPath);
     expect(reloaded.accounts[0].name).toBe('saved-test');
     expect(reloaded.accounts[0].email).toBe('saved@example.com');
-    expect(reloaded.accounts[0].imap.host).toBe('imap.saved.com');
+    expect(reloaded.accounts[0].imap.host).toBe('imap.saved.example.com');
   });
 
   it('writes the file as owner-only and the parent directory as owner-only', async () => {
     const dir = path.join(sandbox.dir, 'cfg');
     const configPath = path.join(dir, 'config.toml');
-    const rawConfig = {
-      accounts: [
-        {
-          name: 'saved-test',
-          email: 'saved@example.com',
-          password: 'saved-pass',
-          imap: { host: 'imap.saved.com' },
-          smtp: { host: 'smtp.saved.com' },
-        },
-      ],
-    };
 
-    await saveConfig(rawConfig as unknown as Parameters<typeof saveConfig>[0], configPath);
+    await saveConfig(RAW_CONFIG, configPath);
 
     expect(permissionBits((await fs.stat(configPath)).mode)).toBe(0o600);
     expect(permissionBits((await fs.stat(dir)).mode)).toBe(0o700);
@@ -75,21 +58,10 @@ describe('saveConfig', () => {
     // The link's directory cannot hold a temp file. The write has to
     // rename inside the directory that contains the target.
     await fs.chmod(linkDir, 0o555);
-    const rawConfig = {
-      accounts: [
-        {
-          name: 'saved-test',
-          email: 'saved@example.com',
-          password: 'saved-pass',
-          imap: { host: 'imap.saved.com' },
-          smtp: { host: 'smtp.saved.com' },
-        },
-      ],
-    };
     const inodeBefore = (await fs.stat(target)).ino;
 
     try {
-      await saveConfig(rawConfig as unknown as Parameters<typeof saveConfig>[0], configPath);
+      await saveConfig(RAW_CONFIG, configPath);
 
       expect((await fs.lstat(configPath)).isSymbolicLink()).toBe(true);
       expect(await fs.readlink(configPath)).toBe(linkText);
@@ -109,22 +81,8 @@ describe('saveConfig', () => {
     await fs.chmod(realDir, 0o755);
     const link = path.join(sandbox.dir, 'linked');
     await fs.symlink('real', link);
-    const rawConfig = {
-      accounts: [
-        {
-          name: 'saved-test',
-          email: 'saved@example.com',
-          password: 'saved-pass',
-          imap: { host: 'imap.saved.com' },
-          smtp: { host: 'smtp.saved.com' },
-        },
-      ],
-    };
 
-    await saveConfig(
-      rawConfig as unknown as Parameters<typeof saveConfig>[0],
-      path.join(link, 'config.toml'),
-    );
+    await saveConfig(RAW_CONFIG, path.join(link, 'config.toml'));
 
     expect((await fs.lstat(link)).isSymbolicLink()).toBe(true);
     expect(await fs.readlink(link)).toBe('real');
@@ -138,58 +96,18 @@ describe('saveConfig', () => {
     const dir = path.join(sandbox.dir, 'cfg');
     await fs.mkdir(dir, { mode: 0o755 });
     await fs.chmod(dir, 0o755);
-    const rawConfig = {
-      accounts: [
-        {
-          name: 'saved-test',
-          email: 'saved@example.com',
-          password: 'saved-pass',
-          imap: { host: 'imap.saved.com' },
-          smtp: { host: 'smtp.saved.com' },
-        },
-      ],
-    };
 
-    await saveConfig(
-      rawConfig as unknown as Parameters<typeof saveConfig>[0],
-      path.join(dir, 'config.toml'),
-    );
+    await saveConfig(RAW_CONFIG, path.join(dir, 'config.toml'));
 
     expect(permissionBits((await fs.stat(dir)).mode)).toBe(0o755);
     expect(permissionBits((await fs.stat(path.join(dir, 'config.toml'))).mode)).toBe(0o600);
   });
 
   it('rejects a config path that contains a null byte', async () => {
-    const rawConfig = {
-      accounts: [
-        {
-          name: 'saved-test',
-          email: 'saved@example.com',
-          password: 'saved-pass',
-          imap: { host: 'imap.saved.com' },
-          smtp: { host: 'smtp.saved.com' },
-        },
-      ],
-    };
-
-    await expect(
-      saveConfig(rawConfig as unknown as Parameters<typeof saveConfig>[0], 'bad\0.toml'),
-    ).rejects.toThrow(/not valid/);
+    await expect(saveConfig(RAW_CONFIG, 'bad\0.toml')).rejects.toThrow(/not valid/);
   });
 
   describe('temp file', () => {
-    const RAW_CONFIG = {
-      accounts: [
-        {
-          name: 'saved-test',
-          email: 'saved@example.com',
-          password: 'saved-pass',
-          imap: { host: 'imap.saved.com' },
-          smtp: { host: 'smtp.saved.com' },
-        },
-      ],
-    } as unknown as Parameters<typeof saveConfig>[0];
-
     function staleTempPath(): string {
       return path.join(sandbox.dir, `.config.toml.${process.pid}.tmp`);
     }
