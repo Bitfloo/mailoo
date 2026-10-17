@@ -196,12 +196,14 @@ describe('release supply chain', () => {
 
   it('should stop MCP publish at once on any error but npm not having the version yet', () => {
     const step = releaseStep(releaseYml, 'Publish to MCP Registry');
+    const publish = step.indexOf('./mcp-publisher publish');
     const unmatched = step.indexOf(`if ! grep -F -q "${npmRetryMarker(step)}"`);
     const exitStatus = step.indexOf('exit "$status"', unmatched);
-    expect(unmatched).toBeGreaterThan(step.indexOf('./mcp-publisher publish'));
-    expect(exitStatus).toBeGreaterThan(unmatched);
+    expect(unmatched).toBeGreaterThan(publish);
+    // A later exit in the loop would also follow the check, after a retry or a wait.
+    expect(step.slice(unmatched, exitStatus)).toMatch(/; then\n\s*$/);
+    expect(step.slice(publish, exitStatus)).not.toContain('sleep');
     expect(step.indexOf('sleep "$pause"')).toBeGreaterThan(exitStatus);
-    expect(step.slice(unmatched, exitStatus)).not.toContain('sleep');
   });
 });
 
