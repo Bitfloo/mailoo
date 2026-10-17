@@ -1,13 +1,5 @@
+import seededRandom from '../test-support/seeded-random.js';
 import RateLimiter from './rate-limiter.js';
-
-/** Park–Miller generator: one seed replays the same sequence on every run. */
-function seededRandom(seed: number): () => number {
-  let state = seed;
-  return () => {
-    state = (state * 16_807) % 2_147_483_647;
-    return state / 2_147_483_647;
-  };
-}
 
 /**
  * The same token bucket in exact integers: times are kept multiplied by the
