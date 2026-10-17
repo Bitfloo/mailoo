@@ -960,7 +960,8 @@ describe('overlapping queue checks', () => {
     }
   });
 
-  it('does not cancel and send the same due email', async () => {
+  /** Cancel overlaps the moment the checker records "sending", while the queue file still says pending. */
+  async function raceCancelWithSendingWrite() {
     const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-cancel-'));
     const id = queueId(1);
     const filePath = path.join(queueDir, `${id}.json`);
@@ -970,7 +971,6 @@ describe('overlapping queue checks', () => {
     const original = fs.rename.bind(fs);
     let started = false;
     let cancelResult: unknown;
-    // Cancel overlaps the moment the checker records "sending", while the queue file still says pending.
     // The record is replaced by renaming a temp file over it, so the hook sits on that rename.
     const spy = vi.spyOn(fs, 'rename').mockImplementation(async (from, to) => {
       if (
@@ -988,16 +988,36 @@ describe('overlapping queue checks', () => {
     });
     try {
       const outcome = await checker.service.checkAndSend();
-      const sent = await checker.service.list({ status: 'sent' });
-      const cancelled = isCancelled(cancelResult);
-      expect(started).toBe(true);
-      expect(cancelled && (outcome.sent > 0 || sent.length > 0)).toBe(false);
-      expect(checker.smtp.sendEmail.mock.calls.length > 0 && cancelled).toBe(false);
-      expect(cancelled || sent.length === 1).toBe(true);
+      const sentRecords = (await checker.service.list({ status: 'sent' })).length;
+      return {
+        started,
+        cancelled: isCancelled(cancelResult),
+        reportedSent: outcome.sent,
+        sentRecords,
+        sends: checker.smtp.sendEmail.mock.calls.length,
+      };
     } finally {
       spy.mockRestore();
       await fs.rm(queueDir, { recursive: true, force: true });
     }
+  }
+
+  it('should not report a cancelled email as sent', async () => {
+    const race = await raceCancelWithSendingWrite();
+    const sentAnyway = race.reportedSent > 0 || race.sentRecords > 0 || race.sends > 0;
+    expect({ started: race.started, cancelledButSent: race.cancelled && sentAnyway }).toEqual({
+      started: true,
+      cancelledButSent: false,
+    });
+  });
+
+  it('should either cancel or send once when cancel races the sending write', async () => {
+    const { started, cancelled, sends, sentRecords } = await raceCancelWithSendingWrite();
+    expect({ started, cancelled, sends, sentRecords }).toEqual(
+      cancelled
+        ? { started: true, cancelled: true, sends: 0, sentRecords: 0 }
+        : { started: true, cancelled: false, sends: 1, sentRecords: 1 },
+    );
   });
 
   it('retries a claim older than the stale lock window and sends it once', async () => {
