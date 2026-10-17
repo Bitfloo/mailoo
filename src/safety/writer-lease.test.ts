@@ -197,6 +197,39 @@ describe('writer lease', () => {
     expect(events).toEqual(['lead', 'lose', 'stopped']);
   });
 
+  // Shutdown stops the writers right after halt(); a start still running would outlive that stop.
+  it('should wait for a lease win that is still starting writers before halt() resolves', async () => {
+    const events: string[] = [];
+    let finishStarting: () => void = () => {};
+    const starting = new Promise<void>((resolve) => {
+      finishStarting = resolve;
+    });
+    const lease = createWriterLease({
+      lockPath,
+      onLead: async () => {
+        events.push('lead');
+        await starting;
+        events.push('started');
+      },
+      onLose: () => undefined,
+      report: () => undefined,
+      now: () => clock,
+    });
+    const winning = lease.tick();
+    await vi.waitFor(() => {
+      expect(events).toEqual(['lead']);
+    });
+    const halting = lease.halt().then(() => {
+      events.push('halted');
+    });
+    await new Promise((resolve) => {
+      setImmediate(resolve);
+    });
+    finishStarting();
+    await Promise.all([winning, halting]);
+    expect(events).toEqual(['lead', 'started', 'halted']);
+  });
+
   it('should report a lock it cannot create instead of throwing', async () => {
     await fs.writeFile(path.join(root, 'state'), 'not a directory');
     const proc = startProcess();
