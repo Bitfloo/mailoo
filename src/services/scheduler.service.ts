@@ -14,6 +14,7 @@ import RateLimitError from '../safety/rate-limit-error.js';
 import { recipientEmail, validateInputLength } from '../safety/validation.js';
 import type { ScheduledEmail, SendResult } from '../types/index.js';
 import writeFileAtomic from '../utils/atomic-write.js';
+import { acquireClaim, errnoCode, releaseClaim, startClaimRenewal } from '../utils/file-claim.js';
 import type ImapService from './imap.service.js';
 import type SmtpService from './smtp.service.js';
 
@@ -79,117 +80,19 @@ function lockFile(dir: string, id: string): string {
   return path.resolve(dir, `${id}${SCHEDULE_CLAIM_SUFFIX}`);
 }
 
-function errnoCode(err: unknown): string | undefined {
-  if (typeof err !== 'object' || err === null || !('code' in err)) return undefined;
-  const { code } = err as { code?: unknown };
-  return typeof code === 'string' ? code : undefined;
-}
-
-async function createClaim(lockPath: string, token: string): Promise<boolean> {
-  try {
-    await fs.writeFile(lockPath, token, { flag: 'wx' });
-    return true;
-  } catch (err) {
-    if (errnoCode(err) === 'EEXIST') return false;
-    throw err;
-  }
-}
-
-/** One boundary for both reads, so the first check and the re-check after parking agree. */
-function claimIsStale(age: number): boolean {
-  return age > STALE_LOCK_MS;
-}
-
-async function claimAge(lockPath: string, now: number): Promise<number | undefined> {
-  try {
-    const stat = await fs.stat(lockPath);
-    return now - stat.mtimeMs;
-  } catch (err) {
-    if (errnoCode(err) === 'ENOENT') return undefined;
-    throw err;
-  }
-}
-
-async function stealStaleClaim(
-  dir: string,
-  id: string,
-  lockPath: string,
-  now: number,
-  token: string,
-): Promise<boolean> {
-  const parked = path.resolve(dir, `${id}${SCHEDULE_CLAIM_SUFFIX}.${crypto.randomUUID()}`);
-  try {
-    await fs.rename(lockPath, parked);
-  } catch (err) {
-    if (errnoCode(err) === 'ENOENT') return false;
-    throw err;
-  }
-  try {
-    const age = await claimAge(parked, now);
-    if (age === undefined || !claimIsStale(age)) {
-      try {
-        // rename would replace a claim created after the park.
-        await fs.link(parked, lockPath);
-      } catch (err) {
-        if (errnoCode(err) !== 'EEXIST') throw err;
-      }
-      return false;
-    }
-    return await createClaim(lockPath, token);
-  } finally {
-    await fs.unlink(parked).catch(() => undefined);
-  }
-}
-
 /**
  * Exclusive right to send or cancel this id.
  * The in-process timer and `mailoo scheduler` can both read a pending file;
  * only the caller that creates the claim continues. While a claimed email is
- * being sent, that holder refreshes the claim's mtime every CLAIM_RENEW_MS.
- * A claim older than STALE_LOCK_MS has not been refreshed within that window
- * and may be taken again. Release deletes the lock when its content is this
- * holder's token, and leaves the lock in place when the content is not.
+ * being sent, that holder refreshes the claim's mtime every CLAIM_RENEW_MS,
+ * so a claim older than STALE_LOCK_MS belongs to a dead holder.
  */
 async function claimSchedule(
   dir: string,
   id: string,
   now = Date.now(),
 ): Promise<string | undefined> {
-  const lockPath = lockFile(dir, id);
-  const token = crypto.randomUUID();
-  if (await createClaim(lockPath, token)) return token;
-  const age = await claimAge(lockPath, now);
-  if (age === undefined) {
-    return (await createClaim(lockPath, token)) ? token : undefined;
-  }
-  if (!claimIsStale(age)) return undefined;
-  return (await stealStaleClaim(dir, id, lockPath, now, token)) ? token : undefined;
-}
-
-function startClaimRenewal(lockPath: string): () => void {
-  const timer = setInterval(() => {
-    fs.utimes(lockPath, new Date(), new Date()).catch(() => undefined);
-  }, CLAIM_RENEW_MS);
-  timer.unref();
-  return () => {
-    clearInterval(timer);
-  };
-}
-
-async function releaseClaim(dir: string, id: string, token: string): Promise<void> {
-  const lockPath = lockFile(dir, id);
-  try {
-    const current = await fs.readFile(lockPath, 'utf8');
-    if (current !== token) return;
-  } catch (err) {
-    if (errnoCode(err) === 'ENOENT') return;
-    throw err;
-  }
-  try {
-    await fs.unlink(lockPath);
-  } catch (err) {
-    if (errnoCode(err) !== 'ENOENT') throw err;
-  }
+  return acquireClaim(lockFile(dir, id), STALE_LOCK_MS, now);
 }
 
 async function readScheduled(filePath: string): Promise<ScheduledEmail | undefined> {
@@ -516,7 +419,7 @@ export default class SchedulerService {
       }
       throw err;
     } finally {
-      if (claimToken) await releaseClaim(this.pendingDir, scheduleId, claimToken);
+      if (claimToken) await releaseClaim(lockFile(this.pendingDir, scheduleId), claimToken);
     }
   }
 
@@ -618,7 +521,7 @@ export default class SchedulerService {
       await this.writeSendFailure(id, errorMsg);
       return { outcome: 'failed', error: errorMsg };
     } finally {
-      if (claimToken) await releaseClaim(this.pendingDir, id, claimToken);
+      if (claimToken) await releaseClaim(lockFile(this.pendingDir, id), claimToken);
     }
   }
 
@@ -630,7 +533,7 @@ export default class SchedulerService {
     };
     await this.writeScheduledFile(sending);
 
-    const stopRenewal = startClaimRenewal(lockFile(this.pendingDir, id));
+    const stopRenewal = startClaimRenewal(lockFile(this.pendingDir, id), CLAIM_RENEW_MS);
     try {
       let sendResult: SendResult;
       try {
