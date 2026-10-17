@@ -1,3 +1,5 @@
+import fs from 'node:fs/promises';
+
 import queueId from '../test-support/queue-id.js';
 import type SchedulerService from './scheduler.service.js';
 import { SCHEDULER_INTERVAL_MS, startSchedulerLoop } from './scheduler.service.js';
@@ -150,5 +152,16 @@ describe('scheduler loop', () => {
     stop();
     await vi.advanceTimersByTimeAsync(5 * SCHEDULER_INTERVAL_MS);
     expect(checks).toBe(1);
+  });
+});
+
+describe('check interval in README.md', () => {
+  it('should state the interval the server checks the queue at', async () => {
+    const readme = await fs.readFile(new URL('../../README.md', import.meta.url), 'utf8');
+    const stated = readme
+      .split('\n')
+      .filter((line) => line.startsWith('1. **MCP auto-check**'))
+      .map((line) => /every (\d+) seconds/.exec(line)?.[1]);
+    expect(stated).toEqual([String(SCHEDULER_INTERVAL_MS / 1000)]);
   });
 });
