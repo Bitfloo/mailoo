@@ -17,6 +17,10 @@ import {
   runOsascript,
 } from './osascript.js';
 
+export const LIST_REMINDERS_TIMEOUT_MS = 15_000;
+/** The confirm dialog waits up to 60 s for the user; the write runs after it. */
+export const ADD_REMINDER_TIMEOUT_MS = 90_000;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -213,7 +217,7 @@ async function addReminderMacOS(
       status: AddReminderStatus;
       reminderId?: string;
       listName?: string;
-    }>(await runOsascript(script, 90_000), 'add reminder');
+    }>(await runOsascript(script, ADD_REMINDER_TIMEOUT_MS), 'add reminder');
     return {
       status: result.status,
       reminderId: result.reminderId,
@@ -300,7 +304,7 @@ return jsonResult
 `;
 
   return parseOsascriptJson<ReminderSummary[]>(
-    await runOsascript(script, 15_000),
+    await runOsascript(script, LIST_REMINDERS_TIMEOUT_MS),
     'list reminders',
   );
 }

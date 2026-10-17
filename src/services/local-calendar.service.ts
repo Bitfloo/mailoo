@@ -28,7 +28,10 @@ import {
 
 const execFile = promisify(execFileCb);
 
+export const LIST_CALENDARS_TIMEOUT_MS = 10_000;
 export const LIST_EVENTS_TIMEOUT_MS = 90_000;
+/** The confirm dialog waits up to 60 s for the user; the write runs after it. */
+export const ADD_EVENT_TIMEOUT_MS = 90_000;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -363,12 +366,15 @@ repeat with i from 1 to count of calNames
 end repeat
 return jsonResult & "]"
 `;
-  const names = parseOsascriptJson<string[]>(await runOsascript(script, 10_000), 'list calendars');
+  const names = parseOsascriptJson<string[]>(
+    await runOsascript(script, LIST_CALENDARS_TIMEOUT_MS),
+    'list calendars',
+  );
   return names.map((name) => ({ id: name, name }));
 }
 
 /** A same-titled event this close to the start is the same meeting, not the next occurrence. */
-const DUPLICATE_START_WINDOW_MS = 5 * 60_000;
+export const DUPLICATE_START_WINDOW_MS = 5 * 60_000;
 
 /** Rejects when osascript fails, so a timeout cannot pass for "no duplicate". */
 async function findExistingEventMacOS(
@@ -447,7 +453,7 @@ async function addEventMacOS(
       status: AddEventStatus;
       eventId?: string;
       calendarName?: string;
-    }>(await runOsascript(script, 90_000), 'add event');
+    }>(await runOsascript(script, ADD_EVENT_TIMEOUT_MS), 'add event');
     return {
       status: result.status,
       eventId: result.eventId,
