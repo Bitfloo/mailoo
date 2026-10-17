@@ -1,6 +1,6 @@
 /**
  * Stubs the export_email unit suites share, so both register the tool against
- * the same fake IMAP message and pin cwd, home and time zone the same way.
+ * the same fake IMAP message, with helpers that pin cwd, home and time zone.
  */
 
 import fs from 'node:fs/promises';
