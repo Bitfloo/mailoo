@@ -37,15 +37,15 @@ export default class CalendarService {
       const rrule = event.rrule as { toString: () => string } | undefined;
 
       events.push({
-        uid: (event.uid as string) ?? '',
-        summary: (event.summary as string) ?? '(No title)',
-        description: event.description as string | undefined,
+        uid: CalendarService.text(event.uid) ?? '',
+        summary: CalendarService.text(event.summary) ?? '(No title)',
+        description: CalendarService.text(event.description),
         start: start ? start.toISOString() : '',
         end: end ? end.toISOString() : '',
-        location: event.location as string | undefined,
+        location: CalendarService.text(event.location),
         organizer,
         attendees,
-        status: CalendarService.normalizeStatus(event.status as string | undefined),
+        status: CalendarService.normalizeStatus(CalendarService.text(event.status)),
         method: calendarMethod,
         recurrence: rrule?.toString(),
       });
@@ -84,6 +84,13 @@ export default class CalendarService {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  /** node-ical gives `{ val, params }` instead of a string once a property has a parameter. */
+  private static text(value: unknown): string | undefined {
+    if (typeof value === 'string') return value;
+    const val = (value as { val?: unknown } | undefined)?.val;
+    return typeof val === 'string' ? val : undefined;
+  }
 
   private static parseOrganizer(organizer: unknown): EmailAddress | undefined {
     if (!organizer) return undefined;
