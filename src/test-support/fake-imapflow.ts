@@ -6,9 +6,15 @@
 
 import { EventEmitter } from 'node:events';
 
-interface FakeMessage {
-  uid: number;
+/** A message as the server stores it: the flags it was filed with and its MIME tree. */
+interface FakeDelivery {
   subject: string;
+  flags?: string[];
+  bodyStructure?: Record<string, unknown>;
+}
+
+interface FakeMessage extends FakeDelivery {
+  uid: number;
 }
 
 interface FakeFolder {
@@ -27,9 +33,19 @@ interface FakeMailbox {
 interface FakeFetchedMessage {
   seq: number;
   uid: number;
-  flags: Set<string>;
-  envelope: { subject: string; from: { address: string }[]; date: Date };
+  flags?: Set<string>;
+  envelope?: { subject: string; from: { address: string }[]; date: Date };
+  bodyStructure?: Record<string, unknown>;
 }
+
+interface FakeFetchQuery {
+  envelope?: boolean;
+  flags?: boolean;
+  bodyStructure?: boolean;
+}
+
+// What imapflow reports for a single-part message delivered without a MIME tree of its own.
+const PLAIN_TEXT_BODY = { type: 'text/plain', encoding: '7bit', size: 42 };
 
 type FakeOptions = Record<string, unknown> & { auth: Record<string, unknown> };
 
@@ -153,7 +169,7 @@ export class FakeImapFlow extends EventEmitter {
   fetch = async function* fetchMessages(
     this: FakeImapFlow,
     range: string,
-    _query: Record<string, unknown>,
+    query: FakeFetchQuery,
     options?: { uid?: boolean },
   ): AsyncGenerator<FakeFetchedMessage> {
     this.fetchCount += 1;
@@ -172,15 +188,21 @@ export class FakeImapFlow extends EventEmitter {
     // newest message when N is past it.
     const low = Math.min(Number(range.split(':')[0]), highest);
     const matched = highest > 0 ? numbered.filter((message) => message[field] >= low) : [];
+    // Like imapflow, only the fields the query names come back.
     yield* matched.map((message) => ({
       seq: message.seq,
       uid: message.uid,
-      flags: new Set<string>(),
-      envelope: {
-        subject: message.subject,
-        from: [{ address: 'sender@example.com' }],
-        date: new Date('2026-10-01T08:00:00.000Z'),
-      },
+      ...(query.flags ? { flags: new Set(message.flags) } : {}),
+      ...(query.envelope
+        ? {
+            envelope: {
+              subject: message.subject,
+              from: [{ address: 'sender@example.com' }],
+              date: new Date('2026-10-01T08:00:00.000Z'),
+            },
+          }
+        : {}),
+      ...(query.bodyStructure ? { bodyStructure: message.bodyStructure ?? PLAIN_TEXT_BODY } : {}),
     }));
     this.armIdle();
   };
@@ -294,13 +316,16 @@ function folderAt(path: string): FakeFolder {
   return folder;
 }
 
-/** Delivers the messages together, as one server-side change. */
-export function deliver(path: string, ...subjects: string[]): number[] {
+/** Delivers the messages together, as one server-side change. A bare subject is unflagged text. */
+export function deliver(path: string, ...messages: (string | FakeDelivery)[]): number[] {
   const folder = folderAt(path);
-  const uids = subjects.map((subject) => {
+  const uids = messages.map((message) => {
     const uid = folder.uidNext;
     folder.uidNext += 1;
-    folder.messages.push({ uid, subject });
+    folder.messages.push({
+      uid,
+      ...(typeof message === 'string' ? { subject: message } : message),
+    });
     return uid;
   });
   fake.clients.forEach((client) => {

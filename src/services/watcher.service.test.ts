@@ -118,6 +118,26 @@ describe('WatcherService new mail', () => {
     await settle();
     expect(arrivedSubjects(arrivals)).toEqual(['First', 'Second']);
   });
+  it('should report a delivered message as seen with its attachment flag', async () => {
+    const { watcher, arrivals } = watch();
+    await watcher.start();
+    await advance(AUTO_IDLE_DELAY_MS);
+    // Filed as read by another client, with imapflow's bodyStructure for a PDF attachment.
+    deliver('INBOX', {
+      subject: 'Invoice 2026-10',
+      flags: ['\\Seen'],
+      bodyStructure: {
+        type: 'multipart/mixed',
+        childNodes: [
+          { part: '1', type: 'text/plain', encoding: 'quoted-printable', size: 120 },
+          { part: '2', type: 'application/pdf', disposition: 'attachment', size: 48_213 },
+        ],
+      },
+    });
+    await settle();
+    expect(arrivals[0]?.emails[0]).toMatchObject({ seen: true, hasAttachments: true });
+  });
+
   it('should not fetch when the message count went down', async () => {
     const { watcher } = watch();
     await watcher.start();
