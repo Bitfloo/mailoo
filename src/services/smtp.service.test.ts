@@ -588,6 +588,67 @@ describe('SmtpService', () => {
     });
   });
 
+  describe('sendDraft', () => {
+    /** Shape ImapService.fetchDraft returns for a plain-text draft in Drafts. */
+    function draftInDrafts() {
+      return {
+        mailbox: 'Drafts',
+        email: {
+          id: '42',
+          subject: 'Contract follow-up',
+          from: { name: 'Test User', address: 'test@example.com' },
+          to: [{ address: 'recipient@example.com' }],
+          date: '2026-10-01T08:00:00.000Z',
+          seen: true,
+          flagged: false,
+          answered: false,
+          hasAttachments: false,
+          labels: [],
+          bodyText: 'Please find the signed copy attached later today.',
+          attachments: [],
+          headers: {},
+        },
+      };
+    }
+
+    beforeEach(() => {
+      vi.mocked(imap.fetchDraft).mockResolvedValue(draftInDrafts() as never);
+    });
+
+    it('should report the mail as sent with the draft kept when removing it fails', async () => {
+      vi.mocked(imap.deleteDraft).mockRejectedValue(new Error('Drafts lock timed out'));
+
+      const result = await service.sendDraft('test', 42);
+
+      expect(result).toEqual({
+        messageId: '<test@example.com>',
+        status: 'sent',
+        savedToSent: true,
+        draftDeleted: false,
+      });
+    });
+
+    it('should log a warning with the reason when removing the draft fails', async () => {
+      vi.mocked(imap.deleteDraft).mockRejectedValue(new Error('Drafts lock timed out'));
+
+      await service.sendDraft('test', 42);
+
+      expect(mcpLog).toHaveBeenCalledWith(
+        'warning',
+        'smtp',
+        'Draft 42 was sent but not removed from Drafts: Drafts lock timed out',
+      );
+    });
+
+    it('should report the draft as removed when the delete succeeds', async () => {
+      vi.mocked(imap.deleteDraft).mockResolvedValue(undefined);
+
+      const result = await service.sendDraft('test', 42);
+
+      expect(result.draftDeleted).toBe(true);
+    });
+  });
+
   describe('forwardEmail', () => {
     it('sends HTML when html=true instead of stuffing tags into text', async () => {
       await service.forwardEmail('test', {

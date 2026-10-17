@@ -257,6 +257,8 @@ export interface SendResult {
   status: 'sent' | 'failed';
   /** False when SMTP succeeded but IMAP APPEND to Sent failed. */
   savedToSent: boolean;
+  /** send_draft only: false when the mail was sent but the draft could not be removed. */
+  draftDeleted?: boolean;
 }
 
 export interface PaginatedResult<T> {
