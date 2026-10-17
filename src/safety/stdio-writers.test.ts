@@ -2,8 +2,10 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { SHUTDOWN_DEADLINE_MS } from './shutdown.js';
 import type { StdioWriterServices } from './stdio-writers.js';
 import createStdioWriters from './stdio-writers.js';
+import { WRITER_LEASE_RENEW_MS, WRITER_LEASE_STALE_MS } from './writer-lease.js';
 
 function fakeServices(events: string[]): StdioWriterServices {
   return {
@@ -104,5 +106,31 @@ describe('stdio mailbox writers', () => {
       ['connections', ['close connections'], false],
       ['server', ['close server'], false],
     ]);
+  });
+});
+
+// README points here instead of repeating the numbers, so this one page is checked.
+describe('lease and shutdown timings in docs/configuration.md', () => {
+  async function timingsUnder(heading: string): Promise<string[]> {
+    const doc = await fs.readFile(new URL('../../docs/configuration.md', import.meta.url), 'utf8');
+    const start = doc.indexOf(`\n## ${heading}\n`);
+    if (start === -1) throw new Error(`docs/configuration.md has no "## ${heading}" section`);
+    const end = doc.indexOf('\n## ', start + 1);
+    const text = doc.slice(start, end).replace(/\s+/g, ' ');
+    return [...text.matchAll(/\d+ (?:seconds|minutes)/g)].map(([phrase]) => phrase);
+  }
+
+  it('should state the renewal, retry, takeover and stale window the writer lease uses', async () => {
+    const renew = `${WRITER_LEASE_RENEW_MS / 1000} seconds`;
+    expect(await timingsUnder('One mailbox writer per machine')).toEqual([
+      renew,
+      renew,
+      renew,
+      `${WRITER_LEASE_STALE_MS / 60_000} minutes`,
+    ]);
+  });
+
+  it('should state the shutdown deadline the code uses', async () => {
+    expect(await timingsUnder('Shutdown')).toEqual([`${SHUTDOWN_DEADLINE_MS / 1000} seconds`]);
   });
 });
