@@ -4,16 +4,36 @@ import { dirname, join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
 import { lockPeerRange, nextMajor, peerCeiling } from './held-majors.js';
+import { keyLines, releaseSteps } from './workflow-yaml.js';
 
 describe('dependabot groups', () => {
   const config = readFileSync(join(repoRoot, '.github/dependabot.yml'), 'utf8');
-  /** Each group's name and settings, read as text: the repo has no YAML parser, so lists stay inline and double-quoted. */
-  const groups = [...config.matchAll(/^ {6}([\w-]+):\n((?: {8}.*\n)+)/gm)].map(
-    (match) => [match[1], match[2]] as const,
-  );
+  /**
+   * Each group's name and settings, read as text: the repo has no YAML parser, so lists stay inline
+   * and double-quoted. A groups block or a group this reader cannot split is refused, not skipped.
+   */
+  function groupsOf(yaml: string): (readonly [string, string])[] {
+    const blocks = [...releaseSteps(yaml).matchAll(/^ {4}groups:\n((?: {6}.*\n?)+)/gm)].map(
+      ([, block]) => block,
+    );
+    const keys = keyLines(yaml, 'groups').length;
+    if (blocks.length !== keys) {
+      throw new Error(`read ${blocks.length} of ${keys} groups blocks`);
+    }
+    const groups = blocks.flatMap((block) =>
+      [...block.matchAll(/^ {6}([\w-]+):\n((?: {8}.*\n?)+)/gm)].map(
+        (match) => [match[1], match[2]] as const,
+      ),
+    );
+    const names = blocks.join('\n').match(/^ {6}\S/gm)?.length ?? 0;
+    if (groups.length !== names) {
+      throw new Error(`read ${groups.length} of ${names} groups`);
+    }
+    return groups;
+  }
 
   function group(name: string): string {
-    const found = groups.find(([key]) => key === name);
+    const found = groupsOf(config).find(([key]) => key === name);
     if (!found) {
       throw new Error(`missing group ${name}`);
     }
@@ -26,7 +46,7 @@ describe('dependabot groups', () => {
       .split(/\n {2}- package-ecosystem: /)
       .filter((entry) => /^(["']?)npm\1[ \t]*(?:#.*)?\n/.test(entry));
     // An update this reader skips holds nothing it can see, so each one must be read as npm or github-actions.
-    const all = yaml.match(/^[ \t]*- package-ecosystem:/gm)?.length ?? 0;
+    const all = keyLines(yaml, 'package-ecosystem').length;
     const actions =
       yaml.match(/^ {2}- package-ecosystem: (["']?)github-actions\1[ \t]*(?:#.*)?$/gm)?.length ?? 0;
     if (updates.length + actions !== all) {
@@ -40,12 +60,8 @@ describe('dependabot groups', () => {
   /** Every ignore entry of every npm update, read whole and sorted by name. */
   function npmHolds(yaml: string): string[][] {
     const updates = npmUpdates(yaml).join('\n');
-    const code = yaml
-      .split('\n')
-      .filter((line) => !line.trim().startsWith('#'))
-      .join('\n');
     // A list in flow style, at its key indent or outside an npm update holds packages this reader never sees.
-    const keys = code.match(/^[ \t]*(?:- )?["']?ignore["']?[ \t]*:/gm)?.length ?? 0;
+    const keys = keyLines(yaml, 'ignore').length;
     const lists = updates.match(/^ {4}ignore:\n {6}/gm)?.length ?? 0;
     if (lists !== keys) {
       throw new Error(`read ${lists} of ${keys} ignore lists`);
@@ -67,7 +83,7 @@ describe('dependabot groups', () => {
       })
       .sort(byName);
     // A name in a flow mapping or under another key is one this reader never sees, so every name must be read.
-    const names = code.match(/dependency-name["']?[ \t]*:/g)?.length ?? 0;
+    const names = keyLines(yaml, 'dependency-name').length;
     if (held.length !== names) {
       throw new Error(`read ${held.length} of ${names} ignore entries`);
     }
@@ -96,9 +112,34 @@ describe('dependabot groups', () => {
     ]);
   });
 
-  it('should refuse a config when an update sits where the reader does not look', () => {
-    const yaml = ['updates:', '    - package-ecosystem: npm', '      directory: /'].join('\n');
-    expect(() => npmUpdates(yaml)).toThrow('read 0 npm and 0 github-actions of 1 updates');
+  it.each([
+    ['at a deeper indent', '    - package-ecosystem: npm\n      directory: /'],
+    ['in flow style', '  - { package-ecosystem: npm, directory: / }'],
+  ])('should refuse a config when an update is written %s', (_form, update) => {
+    expect(() => npmUpdates(`updates:\n${update}`)).toThrow(
+      'read 0 npm and 0 github-actions of 1 updates',
+    );
+  });
+
+  it.each([
+    [
+      'a quoted group name',
+      '    groups:\n      "majors": # all\n        patterns: ["*"]',
+      /^read 0 of 1 groups$/,
+    ],
+    [
+      'a group in flow style',
+      '    groups:\n      majors: { patterns: ["*"] }',
+      /^read 0 of 1 groups$/,
+    ],
+    [
+      'groups in flow style',
+      '    groups: { majors: { patterns: ["*"] } }',
+      /^read 0 of 1 groups blocks$/,
+    ],
+  ])('should refuse a config with %s', (_form, groups, error) => {
+    const yaml = `updates:\n  - package-ecosystem: npm\n    directory: /\n${groups}\n`;
+    expect(() => groupsOf(yaml)).toThrow(error);
   });
 
   it('should refuse a config when an ignore list sits at its key indent', () => {
@@ -201,6 +242,7 @@ describe('dependabot groups', () => {
 
   it('groups only minor and patch updates', () => {
     // A major can break the API, so it gets its own pull request instead of holding back a group.
+    const groups = groupsOf(config);
     expect(groups.length).toBeGreaterThan(0);
     expect(
       groups.map(([name, block]) => [name, block.match(/^ {8}update-types: (.*)$/m)?.[1]]),
