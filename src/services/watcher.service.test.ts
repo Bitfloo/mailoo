@@ -32,6 +32,8 @@ const fake = vi.hoisted(() => ({
   clients: [] as FakeClient[],
   // Errors the next connect() calls reject with, in order; empty means success.
   connectErrors: [] as Error[],
+  // While set, connect() waits for it: a login the server has not answered yet.
+  loginPending: null as Promise<void> | null,
 }));
 
 vi.mock('../logging.js', () => ({
@@ -79,8 +81,9 @@ vi.mock('imapflow', async () => {
     }
 
     async connect(): Promise<void> {
-      await Promise.resolve();
-      if (this.closed) throw new Error('Connection closed');
+      await (fake.loginPending ?? Promise.resolve());
+      // imapflow rejects a pending connect() when close() is called.
+      if (this.closed) throw new Error('Unexpected close');
       const error = fake.connectErrors.shift();
       // Like imapflow, a rejected login leaves the socket open.
       if (error) throw error;
@@ -278,6 +281,7 @@ beforeEach(() => {
   fake.folders.clear();
   fake.clients.length = 0;
   fake.connectErrors.length = 0;
+  fake.loginPending = null;
   seedFolder('INBOX', [38, 40, 41]);
 });
 
@@ -306,6 +310,20 @@ describe('WatcherService start', () => {
     const { watcher } = watch({ ...inboxOnly, folders: ['INBOX', 'Sent'] });
     await watcher.start();
     expect(watcher.getStatus().map((status) => status.folder)).toEqual(['INBOX', 'Sent']);
+  });
+});
+
+describe('WatcherService failed connect', () => {
+  it('should close the connection when the watched folder does not exist', async () => {
+    const { watcher } = watch({ ...inboxOnly, folders: ['Archive'] });
+    await watcher.start();
+    expect(fake.clients[0].closed).toBe(true);
+  });
+
+  it('should survive a late error from a connection whose folder failed to open', async () => {
+    const { watcher } = watch({ ...inboxOnly, folders: ['Archive'] });
+    await watcher.start();
+    expect(() => fake.clients[0].emit('error', new Error('read ECONNRESET'))).not.toThrow();
   });
 });
 
@@ -353,6 +371,19 @@ describe('WatcherService stop', () => {
     await watcher.start();
     await watcher.stop();
     expect(fake.clients[0].loggedOut).toBe(true);
+  });
+
+  it('should close a connection that is still logging in', async () => {
+    let answerLogin = (): void => {};
+    fake.loginPending = new Promise((resolve) => {
+      answerLogin = resolve;
+    });
+    const { watcher } = watch();
+    const starting = watcher.start();
+    await watcher.stop();
+    expect(fake.clients.map((client) => client.closed)).toEqual([true]);
+    answerLogin();
+    await starting;
   });
 
   it('should cancel a pending reconnect', async () => {
