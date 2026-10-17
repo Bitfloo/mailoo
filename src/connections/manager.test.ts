@@ -8,17 +8,62 @@ vi.mock('../logging.js', () => ({
   mcpLog: vi.fn().mockResolvedValue(undefined),
 }));
 
+const { imapInstances, smtpTransports } = vi.hoisted(() => ({
+  imapInstances: [] as {
+    options: Record<string, unknown>;
+    usable: boolean;
+    close: ReturnType<typeof vi.fn>;
+    logout: ReturnType<typeof vi.fn>;
+    emit: (event: string, ...args: unknown[]) => boolean;
+  }[],
+  smtpTransports: [] as {
+    options: Record<string, unknown>;
+    verify: ReturnType<typeof vi.fn>;
+    close: ReturnType<typeof vi.fn>;
+  }[],
+}));
+
+vi.mock('nodemailer', () => ({
+  default: {
+    createTransport: (options: Record<string, unknown>) => {
+      const transport = {
+        options,
+        verify: vi.fn(
+          async () =>
+            new Promise<true>((resolve) => {
+              setImmediate(() => resolve(true));
+            }),
+        ),
+        close: vi.fn(),
+      };
+      smtpTransports.push(transport);
+      return transport;
+    },
+  },
+}));
+
 vi.mock('imapflow', async () => {
   const { EventEmitter: EE } = await import('node:events');
   return {
     ImapFlow: class MockImapFlow extends EE {
       usable = true;
 
-      connect = vi.fn().mockResolvedValue(undefined);
+      // A real connect resolves on a later tick, which is what lets concurrent callers overlap.
+      connect = vi.fn(
+        async () =>
+          new Promise<void>((resolve) => {
+            setImmediate(resolve);
+          }),
+      );
 
       close = vi.fn();
 
       logout = vi.fn().mockResolvedValue(undefined);
+
+      constructor(public options: Record<string, unknown>) {
+        super();
+        imapInstances.push(this);
+      }
     },
   };
 });
@@ -127,6 +172,51 @@ describe('bindImapLifecycle', () => {
     expect(process.exitCode).toBe(exitCodeBefore);
     await Promise.resolve();
     expect(process.listenerCount('uncaughtException')).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('ConnectionManager.getImapClient', () => {
+  beforeEach(() => {
+    imapInstances.length = 0;
+  });
+
+  it('should build exactly one client when 20 callers ask for the same account at once', async () => {
+    const manager = new ConnectionManager([account]);
+    const clients = await Promise.all(
+      Array.from({ length: 20 }, async () => manager.getImapClient('test')),
+    );
+    expect(imapInstances).toHaveLength(1);
+    expect(new Set(clients).size).toBe(1);
+  });
+});
+
+describe('ConnectionManager.closeAll', () => {
+  beforeEach(() => {
+    imapInstances.length = 0;
+  });
+
+  it('should log out a client whose connect was still in flight when closeAll ran', async () => {
+    const manager = new ConnectionManager([account]);
+    const pending = manager.getImapClient('test');
+    await manager.closeAll();
+    await pending;
+    expect(imapInstances).toHaveLength(1);
+    expect(imapInstances[0].logout).toHaveBeenCalledOnce();
+  });
+});
+
+describe('ConnectionManager.getSmtpTransport', () => {
+  beforeEach(() => {
+    smtpTransports.length = 0;
+  });
+
+  it('should build exactly one transport when 20 callers ask for the same account at once', async () => {
+    const manager = new ConnectionManager([account]);
+    const transports = await Promise.all(
+      Array.from({ length: 20 }, async () => manager.getSmtpTransport('test')),
+    );
+    expect(smtpTransports).toHaveLength(1);
+    expect(new Set(transports).size).toBe(1);
   });
 });
 

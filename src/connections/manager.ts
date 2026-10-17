@@ -77,7 +77,13 @@ export function bindImapLifecycle(
 export default class ConnectionManager implements IConnectionManager {
   private imapClients = new Map<string, ImapFlow>();
 
+  // Concurrent first calls (get_emails fans out 20 getEmail calls) must share one connect,
+  // or every loser stays logged in outside the map and closeAll never reaches it.
+  private imapConnecting = new Map<string, Promise<ImapFlow>>();
+
   private smtpTransports = new Map<string, Transporter>();
+
+  private smtpConnecting = new Map<string, Promise<Transporter>>();
 
   private accounts = new Map<string, AccountConfig>();
 
@@ -128,6 +134,17 @@ export default class ConnectionManager implements IConnectionManager {
       }
     }
 
+    const inFlight = this.imapConnecting.get(accountName);
+    if (inFlight) return inFlight;
+
+    const attempt = this.connectImap(accountName).finally(() => {
+      this.imapConnecting.delete(accountName);
+    });
+    this.imapConnecting.set(accountName, attempt);
+    return attempt;
+  }
+
+  private async connectImap(accountName: string): Promise<ImapFlow> {
     const account = this.getAccount(accountName);
     const auth = await buildImapAuth(account, this.oauthService);
 
@@ -199,7 +216,9 @@ export default class ConnectionManager implements IConnectionManager {
         await existing.verify();
         return existing;
       } catch {
-        this.smtpTransports.delete(accountName);
+        if (this.smtpTransports.get(accountName) === existing) {
+          this.smtpTransports.delete(accountName);
+        }
         try {
           existing.close();
         } catch {
@@ -208,6 +227,17 @@ export default class ConnectionManager implements IConnectionManager {
       }
     }
 
+    const inFlight = this.smtpConnecting.get(accountName);
+    if (inFlight) return inFlight;
+
+    const attempt = this.connectSmtp(accountName).finally(() => {
+      this.smtpConnecting.delete(accountName);
+    });
+    this.smtpConnecting.set(accountName, attempt);
+    return attempt;
+  }
+
+  private async connectSmtp(accountName: string): Promise<Transporter> {
     const account = this.getAccount(accountName);
     const auth = await buildSmtpAuth(account, this.oauthService);
 
@@ -326,6 +356,8 @@ export default class ConnectionManager implements IConnectionManager {
 
   async closeAll(): Promise<void> {
     await mcpLog('info', 'connections', 'Closing all connections');
+    // A connect still in flight lands in the maps when it settles; wait so it is closed too.
+    await Promise.allSettled([...this.imapConnecting.values(), ...this.smtpConnecting.values()]);
     const closeOps: Promise<void>[] = [];
 
     Array.from(this.imapClients.entries()).forEach(([name, client]) => {
