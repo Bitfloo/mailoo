@@ -21,6 +21,8 @@ const LAUNCHD_LABEL = 'com.bitfloo.mailoo.scheduler';
 const LAUNCHD_PLIST_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents');
 const LAUNCHD_PLIST = path.join(LAUNCHD_PLIST_DIR, `${LAUNCHD_LABEL}.plist`);
 const CRONTAB_MARKER = '# mailoo scheduler';
+// The OS daemon runs the check as often as the server does.
+const CHECK_INTERVAL_SECONDS = SCHEDULER_INTERVAL_MS / 1000;
 
 export type CommandRunner = (file: string, args: readonly string[], input?: string) => string;
 
@@ -100,6 +102,37 @@ export function removeCrontabLine(marker: string, run: CommandRunner = runComman
   const body = lines.join('\n');
   run('crontab', ['-'], body.endsWith('\n') ? body : `${body}\n`);
   return true;
+}
+
+export function buildLaunchdPlist(nodePath: string, cliPath: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${LAUNCHD_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${nodePath}</string>
+    <string>${cliPath}</string>
+    <string>scheduler</string>
+    <string>check</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>${CHECK_INTERVAL_SECONDS}</integer>
+  <key>StandardOutPath</key>
+  <string>/tmp/mailoo-scheduler.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/mailoo-scheduler.log</string>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>`;
+}
+
+/** Cron counts whole minutes, so the minute field steps by the interval in minutes. */
+export function buildCronLine(nodePath: string, cliPath: string): string {
+  return `*/${CHECK_INTERVAL_SECONDS / 60} * * * * ${quoteCronArg(nodePath)} ${quoteCronArg(cliPath)} scheduler check ${CRONTAB_MARKER}`;
 }
 
 function getExecutablePath(): string {
@@ -218,47 +251,20 @@ async function runInstall(): Promise<void> {
 
   if (platform === 'darwin') {
     // macOS: launchd plist
-    const intervalSeconds = SCHEDULER_INTERVAL_MS / 1000;
-    const plist = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>${LAUNCHD_LABEL}</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>${process.execPath}</string>
-    <string>${execPath}</string>
-    <string>scheduler</string>
-    <string>check</string>
-  </array>
-  <key>StartInterval</key>
-  <integer>${intervalSeconds}</integer>
-  <key>StandardOutPath</key>
-  <string>/tmp/mailoo-scheduler.log</string>
-  <key>StandardErrorPath</key>
-  <string>/tmp/mailoo-scheduler.log</string>
-  <key>RunAtLoad</key>
-  <true/>
-</dict>
-</plist>`;
-
-    await loadLaunchAgent(LAUNCHD_PLIST, plist);
+    await loadLaunchAgent(LAUNCHD_PLIST, buildLaunchdPlist(process.execPath, execPath));
 
     console.log('✅ Installed macOS launchd scheduler');
     console.log(`   Plist: ${LAUNCHD_PLIST}`);
-    console.log(`   Runs every ${intervalSeconds} seconds`);
+    console.log(`   Runs every ${CHECK_INTERVAL_SECONDS} seconds`);
   } else if (platform === 'linux') {
     // Linux: crontab
-    const cronLine = `* * * * * ${quoteCronArg(process.execPath)} ${quoteCronArg(execPath)} scheduler check ${CRONTAB_MARKER}`;
-
-    if (!installCrontabLine(cronLine, CRONTAB_MARKER)) {
+    if (!installCrontabLine(buildCronLine(process.execPath, execPath), CRONTAB_MARKER)) {
       console.log('⚠️  Scheduler crontab entry already exists');
       return;
     }
 
     console.log('✅ Installed Linux crontab scheduler');
-    console.log('   Runs every minute');
+    console.log(`   Runs every ${CHECK_INTERVAL_SECONDS} seconds`);
   } else {
     console.error(`❌ Unsupported platform: ${platform}`);
     console.error("   Manually run 'mailoo scheduler check' on a schedule.");

@@ -19,8 +19,8 @@ import type ImapService from './imap.service.js';
 import type SmtpService from './smtp.service.js';
 
 /**
- * Matches the OS scheduler's cadence: launchd StartInterval 60 and cron
- * `* * * * *` in src/cli/scheduler.ts.
+ * How often the server checks the queue. `scheduler install` takes the launchd
+ * StartInterval and the crontab minute step from it.
  */
 export const SCHEDULER_INTERVAL_MS = 60_000;
 
