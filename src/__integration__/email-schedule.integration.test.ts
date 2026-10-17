@@ -17,11 +17,13 @@ describe('scheduled mail on GreenMail', () => {
     stateHome = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-it-'));
     vi.stubEnv('XDG_STATE_HOME', stateHome);
     services = createTestServices(buildTestAccount());
-    try {
-      await services.imapService.createMailbox(TEST_ACCOUNT_NAME, 'Drafts');
-    } catch {
-      // GreenMail keeps the mailbox after the first test run in this container.
-    }
+    // Cancel moves the draft to Trash, so without Trash this file passed only after another file
+    // made it. A rejection means GreenMail kept the mailbox from an earlier run in this container.
+    await Promise.allSettled(
+      ['Drafts', 'Trash'].map((mailbox) =>
+        services.imapService.createMailbox(TEST_ACCOUNT_NAME, mailbox),
+      ),
+    );
   });
 
   afterAll(async () => {
