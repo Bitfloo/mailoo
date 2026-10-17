@@ -237,6 +237,15 @@ describe('WatcherService status', () => {
     expect(watcher.getStatus()[0].connected).toBe(false);
     answerLogin();
     await starting;
+  });
+
+  it('should report the folder connected once its pending login is answered', async () => {
+    const answerLogin = holdLogin();
+    const { watcher } = watch();
+    const starting = watcher.start();
+    await settle();
+    answerLogin();
+    await starting;
     expect(watcher.getStatus()[0].connected).toBe(true);
   });
 
