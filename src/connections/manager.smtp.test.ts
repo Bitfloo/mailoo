@@ -145,6 +145,14 @@ describe('ConnectionManager.getSmtpTransport', () => {
     failLate(new Error('421 Service not available'));
     await slow;
     expect(await manager.getSmtpTransport('test')).toBe(smtpTransports[1]);
+    expect(smtpTransports[1].close).not.toHaveBeenCalled();
+  });
+
+  it('should return the same transport and build no other when its re-check passes', async () => {
+    const manager = new ConnectionManager([account]);
+    await manager.getSmtpTransport('test');
+    const rechecked = await manager.getSmtpTransport('test', { verify: true });
+    expect(smtpTransports).toEqual([rechecked]);
   });
 
   it('should close the cached transport, and only that one, when its re-check fails', async () => {
