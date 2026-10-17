@@ -201,6 +201,17 @@ describe('mailoo install', () => {
     });
   });
 
+  it('should drop the empty servers key when mailoo was the only server on remove', async () => {
+    await fs.writeFile(
+      cursorConfig,
+      '{ "mcpServers": { "mailoo": { "command": "npx", "args": ["@bitfloo/mailoo", "stdio"] } } }\n',
+    );
+
+    await runInstallCommand('remove');
+
+    expect(JSON.parse(await fs.readFile(cursorConfig, 'utf-8'))).toEqual({});
+  });
+
   // Read as {}, an unparseable file looked like "nothing registered" and the
   // command ended quietly instead of saying the file needs fixing.
   it('should reject naming the client config on remove when it is not valid JSON', async () => {
