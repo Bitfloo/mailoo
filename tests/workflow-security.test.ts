@@ -47,8 +47,7 @@ describe('code scanning workflows', () => {
   });
 
   it('should run CodeQL on develop pull requests', () => {
-    expect(onBlock(codeqlYml)).toContain('pull_request:');
-    expect(onBlock(codeqlYml)).toContain('develop');
+    expect(onBlock(codeqlYml)).toMatch(/^ {2}pull_request:\n {4}branches: \[develop\]$/m);
   });
 
   it('should run CodeQL on develop pushes', () => {
@@ -62,6 +61,14 @@ describe('code scanning workflows', () => {
     expect(cron[2]).toBe('*');
     expect(cron[3]).toBe('*');
     expect(cron[4]).toMatch(/^[0-6]$/);
+  });
+
+  it.each([
+    ['codeql.yml', codeqlYml],
+    ['scorecard.yml', scorecardYml],
+  ])('should schedule %s exactly once', (_, yaml) => {
+    // The weekly checks read the first cron only, so a second one would run unchecked.
+    expect(readKeyLines(yaml, 'cron')).toHaveLength(1);
   });
 
   it('should let a maintainer start CodeQL by hand', () => {
