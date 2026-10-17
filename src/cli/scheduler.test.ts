@@ -15,6 +15,7 @@ import {
   installCrontabLine,
   loadLaunchAgent,
   removeCrontabLine,
+  runCheck,
 } from './scheduler.js';
 
 const SRC = path.resolve('src');
@@ -471,7 +472,7 @@ describe('scheduler check command', () => {
     return loadConfig(configPath);
   }
 
-  async function checkDueEmails(options: CheckOptions) {
+  async function writeDueEmails(options: CheckOptions) {
     const config = await writeConfig(options);
     const queueDir = path.join(root, 'scheduled');
     await fs.mkdir(queueDir, { recursive: true });
@@ -492,8 +493,26 @@ describe('scheduler check command', () => {
         await fs.writeFile(path.join(queueDir, `${id}.json`), JSON.stringify(due), { mode: 0o600 });
       }),
     );
+    return { config, queueDir };
+  }
+
+  async function checkDueEmails(options: CheckOptions) {
+    const { config, queueDir } = await writeDueEmails(options);
     return checkScheduledEmails(config, queueDir);
   }
+
+  it('should print the outcome of the check it runs', async () => {
+    const { config, queueDir } = await writeDueEmails({});
+    const lines: string[] = [];
+    await runCheck(
+      async () => config,
+      (line) => {
+        lines.push(line);
+      },
+      queueDir,
+    );
+    expect(lines).toEqual(['✅ Sent 1 scheduled email(s)']);
+  });
 
   it('should send with the access token from the OAuth endpoint when the account uses oauth2', async () => {
     const result = await checkDueEmails({ auth: 'oauth2' });

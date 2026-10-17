@@ -159,10 +159,15 @@ async function listScheduled(status: 'all' | 'pending'): Promise<ScheduledEmail[
 // Subcommands
 // ---------------------------------------------------------------------------
 
-async function runCheck(): Promise<void> {
-  const result = await checkScheduledEmails(await loadConfig());
+/** `mailoo scheduler check`. A test passes a temp config, a line sink and a temp queue. */
+export async function runCheck(
+  load: () => Promise<AppConfig> = loadConfig,
+  print: (line: string) => void = console.log,
+  queueDir?: string,
+): Promise<void> {
+  const result = await checkScheduledEmails(await load(), queueDir);
   formatCheckResult(result).forEach((line) => {
-    console.log(line);
+    print(line);
   });
 }
 
