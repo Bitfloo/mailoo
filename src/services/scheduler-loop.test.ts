@@ -156,12 +156,14 @@ describe('scheduler loop', () => {
 });
 
 describe('check interval in README.md', () => {
-  it('should state the interval the server checks the queue at', async () => {
+  it('should state the check interval wherever the scheduling section names an interval', async () => {
     const readme = await fs.readFile(new URL('../../README.md', import.meta.url), 'utf8');
-    const stated = readme
-      .split('\n')
-      .filter((line) => line.startsWith('1. **MCP auto-check**'))
-      .map((line) => /every (\d+) seconds/.exec(line)?.[1]);
-    expect(stated).toEqual([String(SCHEDULER_INTERVAL_MS / 1000)]);
+    const section = readme.split('\n### ').find((part) => part.startsWith('Email Scheduling\n'));
+    const unitMs = { second: 1000, minute: 60_000, hour: 3_600_000 };
+    // Every interval the section names, so a new "every N minutes" line is checked too.
+    const stated = [
+      ...(section ?? '').matchAll(/\bevery (?:(\d+) )?(second|minute|hour)s?\b/g),
+    ].map(([, count = '1', unit]) => Number(count) * unitMs[unit as keyof typeof unitMs]);
+    expect([...new Set(stated)]).toEqual([SCHEDULER_INTERVAL_MS]);
   });
 });
