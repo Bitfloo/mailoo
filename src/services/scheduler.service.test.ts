@@ -1413,6 +1413,46 @@ describe('scheduler loop', () => {
     expect(lines).toEqual([['info', 'Sent 2 scheduled email(s)']]);
   });
 
+  it('should log emails the rate limit held back at info', async () => {
+    const { lines, log } = recorder();
+    const stop = startSchedulerLoop({ checkAndSend: async () => ({ ...quiet, deferred: 2 }) }, log);
+    await vi.advanceTimersByTimeAsync(0);
+    stop();
+    expect(lines).toEqual([['info', '2 scheduled email(s) held back by the rate limit']]);
+  });
+
+  // Node 24 ends the process on an unhandled rejection, so a failing log sink would stop the server.
+  it('should keep checking without an unhandled rejection when the log sink throws', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    let checks = 0;
+    const scheduler = {
+      checkAndSend: async () => {
+        checks += 1;
+        return { ...quiet, sent: 1 };
+      },
+    };
+    const brokenLog = async () => {
+      throw new Error('write EPIPE');
+    };
+    try {
+      const stop = startSchedulerLoop(scheduler, brokenLog);
+      await vi.advanceTimersByTimeAsync(SCHEDULER_INTERVAL_MS);
+      stop();
+      // Node reports unhandled rejections after the microtask queue drains.
+      vi.useRealTimers();
+      await new Promise((resolve) => {
+        setImmediate(resolve);
+      });
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+    expect({ checks, unhandled }).toEqual({ checks: 2, unhandled: [] });
+  });
+
   it('should stop checking once stopped', async () => {
     let checks = 0;
     const scheduler = {
