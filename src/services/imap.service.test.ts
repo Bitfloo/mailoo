@@ -1107,6 +1107,33 @@ describe('ImapService', () => {
       expect(parts).toEqual(['body-of-part-1']);
     });
 
+    // nodemailer and Gmail attach invite.ics as application/ics, not text/calendar.
+    it('should return an invite.ics attachment typed application/ics', async () => {
+      fetchOneByUid({
+        uid: 9,
+        bodyStructure: mixedStructure(
+          attachmentNode('2', 'invite.ics', { type: 'application/ics', size: 434 }),
+        ),
+      });
+      downloadReturnsPartName();
+
+      const parts = await service.getCalendarParts('test', 'INBOX', '9');
+
+      expect(parts).toEqual(['body-of-part-2']);
+    });
+
+    it('should number calendar parts by position when the structure has none', async () => {
+      fetchOneByUid({
+        uid: 9,
+        bodyStructure: withoutPartNumbers(mixedStructure({ part: '2', ...calendarPart })),
+      });
+      downloadReturnsPartName();
+
+      const parts = await service.getCalendarParts('test', 'INBOX', '9');
+
+      expect(parts).toEqual(['body-of-part-2']);
+    });
+
     it('should issue no command while a FETCH is open', async () => {
       const message = { uid: 9, bodyStructure: { part: '2', ...calendarPart } };
       fetchOneByUid(message);
