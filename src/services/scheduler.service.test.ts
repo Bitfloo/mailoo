@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import withFullDisk from '../test-support/full-disk.js';
 import type { ScheduledEmail } from '../types/index.js';
 
 const stateHome = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-'));
@@ -709,16 +710,16 @@ describe('overlapping queue checks', () => {
     const checker = createService(queueDir);
     const canceller = createService(queueDir);
     await writeDue(queueDir, id, 'pending');
-    const original = fs.writeFile.bind(fs);
+    const original = fs.rename.bind(fs);
     let started = false;
     let cancelResult: unknown;
     // Cancel overlaps the moment the checker records "sending", while the queue file still says pending.
-    const spy = vi.spyOn(fs, 'writeFile').mockImplementation(async (file, data, options) => {
+    // The record is replaced by renaming a temp file over it, so the hook sits on that rename.
+    const spy = vi.spyOn(fs, 'rename').mockImplementation(async (from, to) => {
       if (
-        file === filePath &&
+        String(to) === filePath &&
         !started &&
-        typeof data === 'string' &&
-        data.includes('"status": "sending"')
+        (await fs.readFile(from, 'utf8')).includes('"status": "sending"')
       ) {
         started = true;
         cancelResult = await canceller.service.cancel(id).then(
@@ -726,12 +727,13 @@ describe('overlapping queue checks', () => {
           (err: unknown) => err,
         );
       }
-      return original(file, data, options);
+      return original(from, to);
     });
     try {
       const outcome = await checker.service.checkAndSend();
       const sent = await checker.service.list({ status: 'sent' });
       const cancelled = isCancelled(cancelResult);
+      expect(started).toBe(true);
       expect(cancelled && (outcome.sent > 0 || sent.length > 0)).toBe(false);
       expect(checker.smtp.sendEmail.mock.calls.length > 0 && cancelled).toBe(false);
       expect(cancelled || sent.length === 1).toBe(true);
@@ -885,6 +887,28 @@ describe('overlapping queue checks', () => {
       expect(result.errors).toEqual([]);
     } finally {
       spy.mockRestore();
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('full disk', () => {
+  it('keeps the queue record readable when the disk fills while recording a send attempt', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-enospc-'));
+    const id = queueId(1);
+    const pendingPath = path.join(queueDir, `${id}.json`);
+    try {
+      await fs.writeFile(pendingPath, JSON.stringify(pendingRecord(id, '2020-01-01T00:00:00Z')));
+      const { service } = createService(queueDir);
+      await withFullDisk(
+        (data) => data.includes('"status"'),
+        async () => {
+          await service.checkAndSend();
+        },
+      );
+      const saved = JSON.parse(await fs.readFile(pendingPath, 'utf8')) as ScheduledEmail;
+      expect(saved).toMatchObject({ id, status: 'pending', attempts: 0 });
+    } finally {
       await fs.rm(queueDir, { recursive: true, force: true });
     }
   });

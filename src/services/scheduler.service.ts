@@ -12,6 +12,7 @@ import path from 'node:path';
 import { SCHEDULED_DIR } from '../config/xdg.js';
 import { recipientEmail, validateInputLength } from '../safety/validation.js';
 import type { ScheduledEmail } from '../types/index.js';
+import writeFileAtomic from '../utils/atomic-write.js';
 import type ImapService from './imap.service.js';
 import type SmtpService from './smtp.service.js';
 
@@ -571,7 +572,7 @@ export default class SchedulerService {
   private async writeScheduledFile(scheduled: ScheduledEmail): Promise<void> {
     await this.ensureDirs();
     const filePath = queueFile(this.pendingDir, scheduled.id);
-    await fs.writeFile(filePath, JSON.stringify(scheduled, null, 2));
+    await writeFileAtomic(filePath, JSON.stringify(scheduled, null, 2));
   }
 
   private async processQueueFile(
@@ -637,7 +638,7 @@ export default class SchedulerService {
         sentAt: new Date().toISOString(),
         sentMessageId: sendResult.messageId,
       };
-      await fs.writeFile(queueFile(this.sentDir, id), JSON.stringify(sent, null, 2));
+      await writeFileAtomic(queueFile(this.sentDir, id), JSON.stringify(sent, null, 2));
       await fs.unlink(filePath);
 
       if (sent.draftMessageId && sent.draftMailbox) {
@@ -659,7 +660,7 @@ export default class SchedulerService {
       const scheduled = JSON.parse(content) as ScheduledEmail;
       scheduled.status = scheduled.attempts >= MAX_ATTEMPTS ? 'failed' : 'pending';
       scheduled.lastError = errorMsg;
-      await fs.writeFile(filePath, JSON.stringify(scheduled, null, 2));
+      await writeFileAtomic(filePath, JSON.stringify(scheduled, null, 2));
     } catch {
       // If we can't even update the file, skip
     }
