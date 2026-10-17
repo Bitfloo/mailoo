@@ -29,4 +29,26 @@ describe('HTTP session eviction', () => {
       await running.stop();
     }
   });
+
+  // Expired sessions are swept after every request, not only when a new
+  // session opens; otherwise a busy client keeps every idle one alive.
+  it('should answer 404 for an idle session when another session makes a request after the TTL passes', async () => {
+    const clock = { now: 1_000 };
+    const running = await startHost(clock, ttlMs);
+    try {
+      const active = await postInitialize(running.port, 1);
+      const idle = await postInitialize(running.port, 2);
+      clock.now = 1_000 + ttlMs + 1;
+
+      const fromActive = await postRpc(running.port, TOOLS_LIST, { sessionId: active.sessionId });
+      const fromIdle = await postRpc(running.port, TOOLS_LIST, { sessionId: idle.sessionId });
+
+      expect({ active: fromActive.status, idle: fromIdle.status }).toEqual({
+        active: 200,
+        idle: 404,
+      });
+    } finally {
+      await running.stop();
+    }
+  });
 });
