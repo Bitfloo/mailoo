@@ -2,9 +2,10 @@ import type { Socket } from 'node:net';
 
 import { ImapFlow } from 'imapflow';
 
+import { INITIAL_BACKOFF_MS, JITTER_RATIO } from '../connections/backoff.js';
 import type { NewEmailEvent } from '../services/event-bus.js';
 import { EmailEventBus } from '../services/event-bus.js';
-import WatcherService from '../services/watcher.service.js';
+import WatcherService, { AUTO_IDLE_DELAY_MS } from '../services/watcher.service.js';
 import type { AccountConfig, WatcherConfig } from '../types/index.js';
 import {
   buildTestAccount,
@@ -13,13 +14,15 @@ import {
   waitForDelivery,
 } from './helpers/index.js';
 
-/** The watcher enters IDLE about a second after it opens the folder. */
-const IDLE_START_MS = 1_500;
+/** Room for the IMAP round trips (login, folder select) GreenMail answers before a timed step. */
+const ROUND_TRIP_SLACK_MS = 500;
+/** The watcher enters IDLE once the opened folder has been quiet for the auto-IDLE delay. */
+const IDLE_START_MS = AUTO_IDLE_DELAY_MS + ROUND_TRIP_SLACK_MS;
 /** A real-time notice has to beat this, measured from the moment SMTP accepted the message. */
 const ARRIVAL_DEADLINE_MS = 5_000;
-/** The first retry follows a refusal by 1 s less up to a quarter; the top leaves room for logins. */
-const FIRST_RETRY_MIN_MS = 750;
-const FIRST_RETRY_MAX_MS = 1_500;
+/** The first retry follows a refusal by the first backoff, shortened by up to the jitter. */
+const FIRST_RETRY_MIN_MS = INITIAL_BACKOFF_MS * (1 - JITTER_RATIO);
+const FIRST_RETRY_MAX_MS = INITIAL_BACKOFF_MS + ROUND_TRIP_SLACK_MS;
 /** After the second failure the next attempt is 1.5 s to 2 s away, so sockets must be gone by then. */
 const SOCKET_RELEASE_DEADLINE_MS = 1_000;
 /** Long enough for a duplicate report to show up after the first one. */
