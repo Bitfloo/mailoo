@@ -80,6 +80,9 @@ export function shellPastes(yaml: string): string[] {
     String.raw`\$\{\{(?:[^}]|\}(?!\}))*\benv\s*(?:\.\s*(?:${names})\b|\[\s*['"](?:${names})['"])`,
     'i',
   );
+  // Only a script or an env value is read across lines, so an expression left open elsewhere is
+  // one this scan cannot read whole.
+  const open = /\$\{\{(?:[^}]|\}(?!\}))*$/;
   return [
     ...scripts
       .map(([start, end]) => lines.slice(start, end).join('\n'))
@@ -88,7 +91,7 @@ export function shellPastes(yaml: string): string[] {
       (line, index) =>
         !inScript(index) &&
         !allowed.test(line) &&
-        ((untrusted.test(line) && !inEnv(index)) || viaEnv.test(line)),
+        (((untrusted.test(line) || open.test(line)) && !inEnv(index)) || viaEnv.test(line)),
     ),
   ].map((text) => text.trim());
 }

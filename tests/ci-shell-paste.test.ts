@@ -39,6 +39,7 @@ describe('workflow shell input', () => {
     'env:\n  B: ${{ github.head_ref }}\nwith:\n  args: release ${{ env.B }}',
     'env:\n  B: ${{ github.head_ref }}\nrun: echo "${{ ENV.b }}"',
     'env:\n  B: >-\n    ${{ github.head_ref }}\nrun: echo "${{ env.B }}"',
+    'with:\n  args: release ${{\n    github.head_ref }}',
   ])('should flag %j as an untrusted expression pasted into code', (yaml) => {
     expect(shellPastes(yaml)).not.toEqual([]);
   });
@@ -57,6 +58,7 @@ describe('workflow shell input', () => {
     "env:\n  B: ${{ github.head_ref }}\nif: ${{ env.B == 'x' }}",
     'env:\n  B: ${{ github.head_ref }}\ngroup: ${{ env.B }}',
     'env:\n  B: >-\n    ${{ github.head_ref }}',
+    'env:\n  B: ${{\n    github.head_ref }}',
   ])('should pass %j as a value no shell or script parses', (yaml) => {
     expect(shellPastes(yaml)).toEqual([]);
   });
