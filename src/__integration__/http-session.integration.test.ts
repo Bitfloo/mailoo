@@ -87,7 +87,14 @@ function postInitialize(
   port: number,
   id: number,
 ): Promise<{ status: number; sessionId: string; body: string }> {
-  const payload = initializeBody(id);
+  return postRpc(port, initializeBody(id));
+}
+
+function postRpc(
+  port: number,
+  payload: string,
+  sessionId?: string,
+): Promise<{ status: number; sessionId: string; body: string }> {
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
@@ -100,6 +107,7 @@ function postInitialize(
           'content-type': 'application/json',
           'content-length': Buffer.byteLength(payload),
           accept: 'application/json, text/event-stream',
+          ...(sessionId ? { 'mcp-session-id': sessionId } : {}),
         },
       },
       (res) => {
@@ -242,6 +250,8 @@ describe('HTTP session isolation', () => {
   });
 });
 
+const TOOLS_LIST = JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/list', params: {} });
+
 async function startHost(clock: { now: number }, ttlMs: number) {
   const queueRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-http-host-'));
   const connections = new ConnectionManager([]);
@@ -272,6 +282,65 @@ async function startHost(clock: { now: number }, ttlMs: number) {
     },
   };
 }
+
+// Streamable HTTP (2025-06-18, Session Management): an unknown or terminated
+// session id gets 404, which tells the client to send a new initialize.
+// A 400 left an evicted client with no way back.
+describe('HTTP session ids the host does not hold', () => {
+  const ttlMs = 5_000;
+
+  it('should answer 404 with JSON-RPC error -32001 when the session id is unknown', async () => {
+    const running = await startHost({ now: 1_000 }, ttlMs);
+    try {
+      const response = await postRpc(running.port, TOOLS_LIST, 'no-such-session');
+
+      expect({ status: response.status, body: JSON.parse(response.body) }).toEqual({
+        status: 404,
+        body: { jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null },
+      });
+    } finally {
+      await running.stop();
+    }
+  });
+
+  it('should answer 404 when the session was evicted after its idle TTL', async () => {
+    const clock = { now: 1_000 };
+    const running = await startHost(clock, ttlMs);
+    try {
+      const first = await postInitialize(running.port, 1);
+      clock.now = 1_000 + ttlMs + 1;
+      await postInitialize(running.port, 2);
+
+      const response = await postRpc(running.port, TOOLS_LIST, first.sessionId);
+
+      expect(response.status).toBe(404);
+    } finally {
+      await running.stop();
+    }
+  });
+
+  it('should answer 404 when an initialize request carries an unknown session id', async () => {
+    const running = await startHost({ now: 1_000 }, ttlMs);
+    try {
+      const response = await postRpc(running.port, initializeBody(1), 'no-such-session');
+
+      expect(response.status).toBe(404);
+    } finally {
+      await running.stop();
+    }
+  });
+
+  it('should keep 400 when a non-initialize request has no session id', async () => {
+    const running = await startHost({ now: 1_000 }, ttlMs);
+    try {
+      const response = await postRpc(running.port, TOOLS_LIST);
+
+      expect(response.status).toBe(400);
+    } finally {
+      await running.stop();
+    }
+  });
+});
 
 // Each session binds its own McpServer for logging. One module-wide reference
 // kept only the session bound last, so its close silenced every other client.

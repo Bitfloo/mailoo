@@ -168,6 +168,8 @@ Inside a container, loopback is the container's own loopback. Publishing the por
 
 Server log notifications (`notifications/message`) go to every session that has finished its handshake, not only to the newest one.
 
+A request whose `mcp-session-id` the server does not hold (never issued, closed, or dropped after it sat idle) gets **404** with JSON-RPC error `-32001` `Session not found`. The client starts a new session with `initialize`. A non-initialize request with no `mcp-session-id` still gets **400**.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MCP_EMAIL_HTTP_HOST` | `127.0.0.1` and `::1` | Single listen address. The host argument wins. |

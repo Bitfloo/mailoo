@@ -239,6 +239,19 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
     let registered = false;
 
     const existing = sessionId ? sessions.get(sessionId) : undefined;
+    if (sessionId && !existing) {
+      // Streamable HTTP: 404 tells the client its session is gone and it must
+      // initialize again. A 400 left a client evicted by the idle TTL stuck.
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          error: { code: -32001, message: 'Session not found' },
+          id: null,
+        }),
+      );
+      return;
+    }
     if (existing && sessionId) {
       transport = existing;
       sessions.touch(sessionId);
