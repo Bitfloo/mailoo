@@ -84,14 +84,13 @@ Key design decisions:
 Requires [Node.js](https://nodejs.org/) ≥ 24.
 
 ```bash
-npx -y @bitfloo/mailoo setup
+npx -y @bitfloo/mailoo account add
 ```
 
 That writes the local config and prints an MCP client snippet. The same package runs the server and the other commands:
 
 ```bash
 npx -y @bitfloo/mailoo
-npx -y @bitfloo/mailoo account add
 npx -y @bitfloo/mailoo test
 ```
 
@@ -102,23 +101,23 @@ npm install -g @bitfloo/mailoo
 # or
 pnpm add -g @bitfloo/mailoo
 # or, without a global install:
-pnpm dlx @bitfloo/mailoo setup
+pnpm dlx @bitfloo/mailoo account add
 ```
 
 ### From a clone
 
-Building this repository needs [pnpm](https://pnpm.io) 9:
+Building this repository needs [pnpm](https://pnpm.io) 10 (the `packageManager` version in `package.json`):
 
 ```bash
 git clone https://github.com/Bitfloo/mailoo.git
 cd mailoo
 pnpm install && pnpm build
-node dist/main.js setup
+node dist/main.js account add
 ```
 
 ### Docker
 
-The running image needs Docker, not Node on the host. Create the config first with `npx -y @bitfloo/mailoo setup` (or write the TOML by hand), then mount that directory into the container.
+The running image needs Docker, not Node on the host. Create the config first with `npx -y @bitfloo/mailoo account add` (or write the TOML by hand), then mount that directory into the container.
 
 The image is `ghcr.io/bitfloo/mailoo`, built for linux/amd64 and linux/arm64. Tags are bare semver (no `v` prefix). The `0.2` tag follows the newest 0.2.x release. Production setups should pin the full version from the release (it matches the npm version) or the image digest.
 
@@ -133,7 +132,7 @@ docker build -t ghcr.io/bitfloo/mailoo .
 ```
 
 > **Note:** The server uses stdio transport. Config is created on the host
-> (`npx -y @bitfloo/mailoo setup`, or a hand-written TOML) and mounted into the container.
+> (`npx -y @bitfloo/mailoo account add`, or a hand-written TOML) and mounted into the container.
 
 ## Usage
 
@@ -145,7 +144,7 @@ Commands below use `npx -y @bitfloo/mailoo`. A global install accepts the same s
 # Add an email account interactively (recommended)
 npx -y @bitfloo/mailoo account add
 
-# Or use the legacy alias
+# Or use the deprecated alias (same wizard)
 npx -y @bitfloo/mailoo setup
 
 # Or create a template config manually
@@ -371,7 +370,7 @@ Commands:
   account add               Add a new email account interactively
   account edit [name]       Edit an existing account
   account delete [name]     Remove an account
-  setup                     Alias for 'account add'
+  setup                     Deprecated alias for 'account add'
   test                      Test connections for all or a specific account
   install                   Register mailoo with MCP clients interactively
   install status            Show registration status for detected clients
@@ -385,6 +384,8 @@ Commands:
   scheduler install         Install OS-level scheduler (launchd/crontab)
   scheduler uninstall       Remove OS-level scheduler
   scheduler status          Show scheduler installation status
+  notify test               Send a test desktop notification
+  notify status             Check platform notification support
   --version, -v             Print the package version
   help                      Show help
 ```
@@ -476,7 +477,7 @@ For single-account setups (overrides config file):
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MCP_EMAIL_ADDRESS` | *required* | Email address |
-| `MCP_EMAIL_PASSWORD` | *required* | Password or app password |
+| `MCP_EMAIL_PASSWORD` | *required* without OAuth2 | Password or app password. Not needed when `MCP_EMAIL_OAUTH2_PROVIDER` is set |
 | `MCP_EMAIL_IMAP_HOST` | *required* | IMAP server hostname |
 | `MCP_EMAIL_SMTP_HOST` | *required* | SMTP server hostname |
 | `MCP_EMAIL_ACCOUNT_NAME` | `default` | Account name |
@@ -1011,7 +1012,7 @@ pnpm build              # build
 pnpm start              # run
 ```
 
-`pnpm test:integration` and `pnpm test:all` need Docker. `pnpm ci:local` skips GreenMail when Docker is down. GitHub runs linux GreenMail and an image build on pull requests, not on every push. `mailoo test` / `npx -y @bitfloo/mailoo test` is a live-account connection probe, not Vitest.
+`pnpm test:integration` and `pnpm test:all` need Docker. `pnpm ci:local` skips GreenMail when Docker is down. What GitHub runs on a pull request is listed in [CONTRIBUTING.md](CONTRIBUTING.md#commands). `mailoo test` / `npx -y @bitfloo/mailoo test` is a live-account connection probe, not Vitest.
 
 ## License
 

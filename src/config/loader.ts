@@ -386,7 +386,7 @@ export async function loadConfig(configPath?: string): Promise<AppConfig> {
     `No configuration found.\n\n` +
       `Set environment variables (MCP_EMAIL_ADDRESS, MCP_EMAIL_PASSWORD, etc.)\n` +
       `or create a config file at: ${configPath ?? CONFIG_FILE}\n\n` +
-      `Run 'mailoo setup' for interactive configuration.`,
+      `Run 'mailoo account add' for interactive configuration.`,
   );
 }
 

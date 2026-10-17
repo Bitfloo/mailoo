@@ -18,6 +18,33 @@ updates:
         dependency-type: production
         update-types: [minor, patch]
         exclude-patterns: ["node-ical", "@typesafe-ai/sdk"]
+    # Held majors, each with what holds it. Drop an entry when that changes.
+    ignore:
+      # eslint-config-airbnb-extended accepts only eslint ^9.
+      - dependency-name: "eslint"
+        versions: [">=10.0.0"]
+      - dependency-name: "@eslint/js"
+        versions: [">=10.0.0"]
+      # typescript-eslint accepts only typescript <6.1.
+      - dependency-name: "typescript"
+        versions: [">=6.1.0"]
+      # Listed only so vitest resolves a patched 7.x. Vite 8 swaps the bundler
+      # under vitest's transforms, so it moves on purpose, not as a routine update.
+      - dependency-name: "vite"
+        versions: [">=8.0.0"]
+      # The runtime is Node 24 (engines, both images); newer types describe APIs it lacks.
+      - dependency-name: "@types/node"
+        versions: [">=26.0.0"]
+
+  # The release npm CLI and the image pnpm CLI, each pinned by its shrinkwrap.
+  # Kept out of the groups above: a pnpm bump also has to move packageManager
+  # and the corepack hash pins, so it fails CI on its own until it does.
+  - package-ecosystem: npm
+    directories: ["/.github/npm-cli", "/docker/pnpm-cli"]
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 2
 
   - package-ecosystem: github-actions
     directory: /
