@@ -41,6 +41,8 @@ describe('Mailbox Management Operations', () => {
       } catch {
         await services.imapService.deleteMailbox(TEST_ACCOUNT_NAME, 'Parent/Child');
       }
+      // The server created the parent folder too; it outlives its child.
+      await services.imapService.deleteMailbox(TEST_ACCOUNT_NAME, 'Parent');
     });
   });
 
@@ -91,15 +93,25 @@ describe('Mailbox Management Operations', () => {
     // the same path a server without RFC 6154 takes.
     it('should refuse to delete the Trash folder and keep it', async () => {
       const before = await services.imapService.listMailboxes(TEST_ACCOUNT_NAME);
-      if (!before.some((m) => m.path === 'Trash')) {
+      const createdHere = !before.some((m) => m.path === 'Trash');
+      if (createdHere) {
         await services.imapService.createMailbox(TEST_ACCOUNT_NAME, 'Trash');
       }
 
-      await expect(services.imapService.deleteMailbox(TEST_ACCOUNT_NAME, 'Trash')).rejects.toThrow(
-        /special-use folder \(\\Trash\)/,
-      );
-      const after = await services.imapService.listMailboxes(TEST_ACCOUNT_NAME);
-      expect(after.map((m) => m.path)).toContain('Trash');
+      try {
+        await expect(
+          services.imapService.deleteMailbox(TEST_ACCOUNT_NAME, 'Trash'),
+        ).rejects.toThrow(/special-use folder \(\\Trash\)/);
+        const after = await services.imapService.listMailboxes(TEST_ACCOUNT_NAME);
+        expect(after.map((m) => m.path)).toContain('Trash');
+      } finally {
+        // Later files share this GreenMail account. deleteMailbox refuses Trash,
+        // so the folder made here is removed on the IMAP client directly.
+        if (createdHere) {
+          const client = await services.connections.getImapClient(TEST_ACCOUNT_NAME);
+          await client.mailboxDelete('Trash');
+        }
+      }
     });
   });
 });
