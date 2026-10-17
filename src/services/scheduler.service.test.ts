@@ -823,6 +823,36 @@ describe('retried and delivered sends', () => {
     });
   });
 
+  it('should mark a record failed without sending when it already used three attempts', async () => {
+    await withDueQueue(async ({ queueDir, id, pendingPath }) => {
+      // A process that died during its third send leaves this record and a stale claim.
+      const crashed = {
+        ...pendingRecord(id, '2020-01-01T00:00:00Z'),
+        status: 'sending',
+        attempts: 3,
+      };
+      await fs.writeFile(pendingPath, JSON.stringify(crashed));
+      const lockPath = path.join(queueDir, `${id}${SCHEDULE_CLAIM_SUFFIX}`);
+      await fs.writeFile(lockPath, 'crashed', { flag: 'wx' });
+      const crashedAt = new Date(Date.now() - STALE_LOCK_MS - 1000);
+      await fs.utimes(lockPath, crashedAt, crashedAt);
+      const { service, smtp } = createService(queueDir);
+      const result = await service.checkAndSend();
+      const [record] = await service.list({ status: 'all' });
+      expect({
+        sends: smtp.sendEmail.mock.calls.length,
+        failed: result.failed,
+        status: record?.status,
+        lastError: record?.lastError,
+      }).toEqual({
+        sends: 0,
+        failed: 1,
+        status: 'failed',
+        lastError: 'Max retry attempts exceeded',
+      });
+    });
+  });
+
   // Root ignores directory permissions, so the unwritable sent/ cannot be simulated.
   it.skipIf(process.getuid?.() === 0)(
     'should not send again when the sent record cannot be written after SMTP accepted',
