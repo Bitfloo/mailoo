@@ -1245,7 +1245,7 @@ describe('ImapService', () => {
         seq: uid,
         uid,
         envelope: {
-          date: new Date(`2026-01-0${uid}T10:00:00Z`),
+          date: new Date(Date.UTC(2026, 0, uid, 10)),
           subject: 'Re: Thread',
           from: [{ name: '', address: 'alice@example.test' }],
           to: [{ name: '', address: 'bob@example.test' }],
@@ -1396,6 +1396,35 @@ describe('ImapService', () => {
         '<thread-2@example.test>',
         '<thread-3@example.test>',
       ]);
+    });
+
+    // A mailing-list thread can run to hundreds of messages, each fetched in full.
+    it('should return at most 50 messages of a longer thread', async () => {
+      const root = threadMessage(1, []);
+      const replies = Array.from({ length: 59 }, (_, i) =>
+        threadMessage(i + 2, ['<thread-1@example.test>']),
+      );
+      serveThread([root, ...replies]);
+
+      const result = await service.getThread('test', '<thread-1@example.test>');
+
+      expect(result.messages).toHaveLength(50);
+    });
+
+    it('should still find the thread when the server fails a References search', async () => {
+      const { search } = client;
+      serveThread(thread);
+      const byHeader = search.getMockImplementation();
+      search.mockImplementation(
+        async (query: { header: Record<string, string> }, options?: { uid?: boolean }) => {
+          if ('References' in query.header) throw new Error('Command failed: BAD');
+          return byHeader?.(query, options);
+        },
+      );
+
+      const result = await service.getThread('test', '<thread-3@example.test>');
+
+      expect(result.messages.map((m) => m.messageId)).toEqual(chainIds);
     });
 
     it('should release the mailbox lock once after reading the thread', async () => {
