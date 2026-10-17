@@ -1003,16 +1003,47 @@ describe('ImapService', () => {
     });
 
     // APFS and NTFS are case-insensitive by default: "A.txt" would overwrite "a.txt".
-    it('should give names that differ only in case separate files', async () => {
+    it.each([
+      ['a.txt', 'A.txt', ['a.txt', 'A-2.txt']],
+      ['A.txt', 'a.txt', ['A.txt', 'a-2.txt']],
+    ])(
+      'should give %s and then %s separate files though they differ only in case',
+      async (first, second, expected) => {
+        fetchOneByUid({ uid: 9, bodyStructure: twinAttachmentStructure(first, second) });
+        downloadReturnsPartName();
+
+        const saved = await service.saveEmailAttachments('test', '9', 'INBOX', root);
+
+        expect(saved.map((s) => path.basename(s.localPath))).toEqual(expected);
+      },
+    );
+
+    // The arrival hook saves the attachments of every invite; one with nothing
+    // else attached must not leave an empty folder behind.
+    it('should not create the destination when no attachment qualifies', async () => {
       fetchOneByUid({
         uid: 9,
-        bodyStructure: twinAttachmentStructure('a.txt', 'A.txt'),
+        bodyStructure: mixedStructure(
+          attachmentNode('2', 'invite.ics', { type: 'application/ics', size: 434 }),
+        ),
       });
       downloadReturnsPartName();
+      const destDir = path.join(root, 'out');
 
-      const saved = await service.saveEmailAttachments('test', '9', 'INBOX', root);
+      await service.saveEmailAttachments('test', '9', 'INBOX', destDir);
 
-      expect(saved.map((s) => path.basename(s.localPath))).toEqual(['a.txt', 'A-2.txt']);
+      await expect(fs.stat(destDir)).rejects.toMatchObject({ code: 'ENOENT' });
+    });
+
+    it('should issue no command while a FETCH is open', async () => {
+      const message = { uid: 9, bodyStructure: twinAttachmentStructure('a.txt', 'b.txt') };
+      fetchOneByUid(message);
+      downloadReturnsPartName();
+      const issuedDuringFetch = rejectCommandsDuringFetch(client, [message]);
+
+      await service.saveEmailAttachments('test', '9', 'INBOX', root);
+
+      expect(issuedDuringFetch).toEqual([]);
     });
 
     // A lock left held makes every later call on the account wait out the lock timeout.
