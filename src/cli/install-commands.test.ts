@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { select } from '@clack/prompts';
+import { confirm, select } from '@clack/prompts';
 
 import { permissionBits } from '../test-support/config-sandbox.js';
 import runInstallCommand from './install-commands.js';
@@ -239,6 +239,15 @@ describe('mailoo install', () => {
     expect(JSON.parse(await fs.readFile(cursorConfig, 'utf-8'))).toEqual({});
   });
 
+  it('should leave the client config byte-identical when the remove confirmation is declined', async () => {
+    await fs.writeFile(cursorConfig, CURSOR_CONFIG_REGISTERED);
+    vi.mocked(confirm).mockResolvedValueOnce(false);
+
+    await runInstallCommand('remove');
+
+    expect(await fs.readFile(cursorConfig, 'utf-8')).toBe(CURSOR_CONFIG_REGISTERED);
+  });
+
   // Read as {}, an unparseable file looked like "nothing registered" and the
   // command ended quietly instead of saying the file needs fixing.
   it('should reject naming the client config on remove when it is not valid JSON', async () => {
@@ -277,6 +286,25 @@ describe('mailoo install', () => {
     await runInstallCommand('status');
 
     expect(stdout.mock.calls.flat().join('\n')).toContain('Cursor — config not found');
+    stdout.mockRestore();
+  });
+
+  it('should print "No supported MCP clients detected" in status when no client config exists', async () => {
+    const stdout = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await runInstallCommand('status');
+
+    expect(stdout.mock.calls.flat().join('\n')).toContain('No supported MCP clients detected.');
+    stdout.mockRestore();
+  });
+
+  it('should not print "No supported MCP clients detected" in status when one client config exists', async () => {
+    await fs.writeFile(cursorConfig, CURSOR_CONFIG);
+    const stdout = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await runInstallCommand('status');
+
+    expect(stdout.mock.calls.flat().join('\n')).not.toContain('No supported MCP clients detected');
     stdout.mockRestore();
   });
 
