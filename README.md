@@ -107,7 +107,7 @@ pnpm dlx @bitfloo/mailoo setup
 
 ### From a clone
 
-Building this repository needs [pnpm](https://pnpm.io) 9:
+Building this repository needs [pnpm](https://pnpm.io) 10 (the `packageManager` version in `package.json`):
 
 ```bash
 git clone https://github.com/Bitfloo/mailoo.git
