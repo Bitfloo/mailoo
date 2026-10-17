@@ -139,6 +139,19 @@ describe('scheduler loop', () => {
     expect({ checks, unhandled }).toEqual({ checks: 2, unhandled: [] });
   });
 
+  // The check timer must not keep the server process alive once its transport has closed.
+  it('should not hold the process open with its check timer', () => {
+    const intervals = vi.spyOn(globalThis, 'setInterval');
+    const stop = startSchedulerLoop({ checkAndSend: async () => quiet }, recorder().log);
+    try {
+      const timer = intervals.mock.results[0]?.value as NodeJS.Timeout | undefined;
+      expect(timer?.hasRef()).toBe(false);
+    } finally {
+      stop();
+      intervals.mockRestore();
+    }
+  });
+
   it('should stop checking once stopped', async () => {
     let checks = 0;
     const scheduler = {
