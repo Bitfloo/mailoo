@@ -230,10 +230,16 @@ describe('WatcherService after a dropped session', () => {
     await waitForDelivery(IDLE_START_MS);
 
     dropSession(attempts[0].client);
+    // Down before SMTP takes the message, with the retry at least FIRST_RETRY_MIN_MS away, so
+    // the message lands while no session is open and only the catch-up can report it.
+    await vi.waitFor(
+      () => {
+        expect(watcher.getStatus()[0].connected).toBe(false);
+      },
+      { timeout: FIRST_RETRY_MIN_MS, interval: 10 },
+    );
     const subject = `watcher-outage-${Date.now()}`;
     await seedEmail({ subject });
-    // Still down when SMTP accepted it, so only the catch-up after the reconnect can report it.
-    expect(watcher.getStatus()[0].connected).toBe(false);
 
     await vi.waitFor(
       () => {
