@@ -63,7 +63,7 @@ export async function listEventsMacOS(opts: ListEventsOptions): Promise<Calendar
   const titleFilter = opts.title ? escapeAS(opts.title) : '';
   const calFilter = opts.calendarName ? escapeAS(opts.calendarName) : '';
 
-  // Default range: today ± 30 days
+  // Default range: 7 days back to 30 days ahead, as the list_events schema says
   const now = new Date();
   const defaultFrom = new Date(now);
   defaultFrom.setDate(defaultFrom.getDate() - 7);
