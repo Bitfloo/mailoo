@@ -693,7 +693,7 @@ actions = { flag = true, alert = true, labels = ["VIP"] }
 ```
 
 Features:
-- **Auto-reconnect** — Exponential backoff (1s → 60s) on connection failures
+- **Auto-reconnect** — Exponential backoff (1s → 60s) on connection failures; mail delivered while the connection was down is reported after the reconnect
 - **Batching** — Groups arrivals within a configurable delay to reduce AI calls
 - **Rate limiting** — Max 10 sampling calls per minute
 - **Graceful degradation** — Falls back to notify mode if client doesn't support sampling

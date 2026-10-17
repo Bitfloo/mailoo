@@ -30,6 +30,8 @@ interface IdleState {
   account: AccountConfig;
   folder: string;
   lastSeenUid: number;
+  /** UIDVALIDITY of the last select; null until the first one succeeds. */
+  uidValidity: bigint | null;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   backoffMs: number;
   stopped: boolean;
@@ -205,6 +207,7 @@ export default class WatcherService {
       account,
       folder,
       lastSeenUid: 0,
+      uidValidity: null,
       reconnectTimer: null,
       backoffMs: INITIAL_BACKOFF_MS,
       stopped: false,
@@ -244,18 +247,26 @@ export default class WatcherService {
       await current.connect();
 
       // Opened without a lock: imapflow starts IDLE only on a connection no lock is held on.
-      const { uidNext } = await current.mailboxOpen(state.folder);
+      const { uidNext, uidValidity } = await current.mailboxOpen(state.folder);
+      // A reconnect carries on after the last UID it reported, unless the server renumbered.
+      const resumeAfter = state.uidValidity === uidValidity ? state.lastSeenUid : uidNext - 1;
 
       this.updateState(key, {
-        lastSeenUid: uidNext - 1,
+        lastSeenUid: resumeAfter,
+        uidValidity,
         backoffMs: INITIAL_BACKOFF_MS,
       });
 
       await mcpLog(
         'info',
         'watcher',
-        `IDLE started: ${state.account.name}/${state.folder} (uid > ${uidNext - 1})`,
+        `IDLE started: ${state.account.name}/${state.folder} (uid > ${resumeAfter})`,
       );
+
+      // Mail delivered while the connection was down raises no EXISTS on the new one.
+      if (uidNext - 1 > resumeAfter) {
+        this.handleNewEmails(key).catch(() => {});
+      }
     } catch (err) {
       // imapflow leaves the socket open when LOGIN or SELECT is refused.
       if (client) closeQuietly(client);

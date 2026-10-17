@@ -416,6 +416,29 @@ describe('WatcherService UID range', () => {
   });
 });
 
+describe('WatcherService resume after a dropped connection', () => {
+  it('should report mail that arrived while the connection was down', async () => {
+    const { watcher, arrivals } = watch();
+    await watcher.start();
+    fake.clients[0].close();
+    deliver('INBOX', 'While away');
+    await advance(1_000);
+    expect(arrivals).toMatchObject([{ emails: [{ id: '42', subject: 'While away' }] }]);
+  });
+
+  it('should follow the new numbering after the server changed UIDVALIDITY', async () => {
+    const { watcher, arrivals } = watch();
+    await watcher.start();
+    fake.clients[0].close();
+    seedFolder('INBOX', [1, 2], 8n);
+    await advance(1_000);
+    await advance(1_000);
+    deliver('INBOX', 'Fresh');
+    await settle();
+    expect(arrivals.flatMap((arrival) => arrival.emails.map((email) => email.id))).toEqual(['3']);
+  });
+});
+
 describe('WatcherService OAuth2', () => {
   it('should log in with a token from the token source', async () => {
     const tokens: AccessTokenSource = { getAccessToken: async () => 'ya29.watcher-token' };
