@@ -14,6 +14,15 @@ import {
 } from '../test-support/export-tool-harness.js';
 import registerAttachmentTools from './attachments.tool.js';
 
+const { auditHome } = await vi.hoisted(async () => {
+  const { pinAuditHome } = await import('../test-support/audit-home.js');
+  return { auditHome: await pinAuditHome() };
+});
+
+afterAll(async () => {
+  await auditHome.restore();
+});
+
 describe('export_email default file name', () => {
   it('should save into a directory as the UTC day of INTERNALDATE and the uid', async () => {
     // At UTC+14 this instant is already 15 March; the name must not depend on the host zone.

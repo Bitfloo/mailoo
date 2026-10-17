@@ -10,6 +10,15 @@ import registerExportTools from '../tools/export.tool.js';
 import type { TestServices } from './helpers/index.js';
 import { buildTestAccount, createTestServices, TEST_ACCOUNT_NAME } from './helpers/index.js';
 
+const { auditHome } = await vi.hoisted(async () => {
+  const { pinAuditHome } = await import('../test-support/audit-home.js');
+  return { auditHome: await pinAuditHome() };
+});
+
+afterAll(async () => {
+  await auditHome.restore();
+});
+
 interface TextToolResult {
   isError?: boolean;
   content: { type: string; text?: string }[];

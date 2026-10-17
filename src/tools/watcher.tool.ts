@@ -5,11 +5,23 @@
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import audit from '../safety/audit.js';
 import persistAlerts from '../services/alerts-config.js';
 import type HooksService from '../services/hooks.service.js';
 import NotifierService from '../services/notifier.service.js';
 import { listPresets as listAllPresets } from '../services/presets.js';
 import type WatcherService from '../services/watcher.service.js';
+
+/** Chat webhooks carry their credential in the path, so the audit log keeps the origin only. */
+function webhookOrigin(url: string): string {
+  if (url === '') return '';
+  try {
+    const { origin } = new URL(url);
+    return origin === 'null' ? '[not an http(s) URL]' : origin;
+  } catch {
+    return '[invalid URL]';
+  }
+}
 
 export function registerWatcherReadTools(
   server: McpServer,
@@ -351,6 +363,7 @@ export function registerWatcherWriteTools(server: McpServer, hooksService: Hooks
       webhook_events: webhookEvents,
       save,
     }) => {
+      let auditParams: Record<string, unknown> | null = null;
       try {
         const notifier = hooksService.getNotifier();
 
@@ -380,6 +393,9 @@ export function registerWatcherWriteTools(server: McpServer, hooksService: Hooks
           };
         }
 
+        auditParams = { ...partial, save };
+        if (webhookUrl !== undefined) auditParams.webhookUrl = webhookOrigin(webhookUrl);
+
         // Apply runtime update
         const updated = notifier.updateConfig(partial);
 
@@ -388,15 +404,24 @@ export function registerWatcherWriteTools(server: McpServer, hooksService: Hooks
 
         // Persist to file if requested
         let persistMsg = '';
+        let saveError: string | undefined;
         if (save) {
           try {
             await persistAlerts(updated);
             persistMsg = '\n\n💾 Changes saved to config file.';
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
+            saveError = errMsg;
             persistMsg = `\n\n⚠️ Could not save to config file: ${errMsg}\n   Changes are active for this session only.`;
           }
         }
+        await audit.log(
+          'configure_alerts',
+          'system',
+          auditParams ?? {},
+          saveError === undefined ? 'ok' : 'error',
+          saveError === undefined ? undefined : `Not saved: ${saveError}`,
+        );
 
         const lines = [
           '✅ Alerts configuration updated:',
@@ -412,12 +437,20 @@ export function registerWatcherWriteTools(server: McpServer, hooksService: Hooks
           content: [{ type: 'text' as const, text: lines.join('\n') }],
         };
       } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (auditParams) {
+          // Validation errors quote the URL they refused.
+          const auditError = webhookUrl
+            ? errMsg.replaceAll(webhookUrl, webhookOrigin(webhookUrl))
+            : errMsg;
+          await audit.log('configure_alerts', 'system', auditParams, 'error', auditError);
+        }
         return {
           isError: true,
           content: [
             {
               type: 'text' as const,
-              text: `Failed to update alerts config: ${err instanceof Error ? err.message : String(err)}`,
+              text: `Failed to update alerts config: ${errMsg}`,
             },
           ],
         };

@@ -12,6 +12,15 @@ import { ADD_EVENT_STATUSES } from '../services/local-calendar.service.js';
 import buildCatalog from '../test-support/mcp-catalog-harness.js';
 import { registerCalendarWriteTools } from './calendar.tool.js';
 
+const { auditHome } = await vi.hoisted(async () => {
+  const { pinAuditHome } = await import('../test-support/audit-home.js');
+  return { auditHome: await pinAuditHome() };
+});
+
+afterAll(async () => {
+  await auditHome.restore();
+});
+
 interface ListedTool {
   name: string;
   description?: string;

@@ -54,7 +54,7 @@ Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, and read-onl
 Policy and how to report a vulnerability: **[SECURITY.md](SECURITY.md)**.
 
 - `tls` is implicit TLS; `starttls` fails the connection when the server offers no STARTTLS. With both false, IMAP and SMTP differ — see [Security considerations](SECURITY.md#security-considerations).
-- The audit log redacts passwords and message bodies. It records send, draft, folder, label, bulk, manage, sieve, template, and schedule writes, not every local write (`src/safety/audit.ts`) — [SECURITY.md](SECURITY.md)
+- The audit log redacts passwords and message bodies. It records send, draft, folder, label, bulk, manage, sieve, template, schedule, alert, `savePath`, calendar, and reminder writes, not every local write (`src/safety/audit.ts`) — [SECURITY.md](SECURITY.md)
 - One global `rate_limit` (default 10 per minute) sizes a separate send bucket for each account (`src/config/schema.ts`)
 - OAuth2 XOAUTH2 authentication for Gmail and Microsoft 365 _(experimental)_
 - `savePath` writes a new file only under a specific working directory — [Security considerations](SECURITY.md#security-considerations)
