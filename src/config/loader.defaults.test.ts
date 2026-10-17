@@ -267,4 +267,67 @@ host = "smtp.example.com"
       expect(securityFlags(config)).toEqual(withOneFlipped(side, key));
     },
   );
+
+  // Each pair shares a default, so a loader that reads one key for its
+  // sibling passes until one is changed while the other keeps its default.
+  const SIBLINGS = [
+    ['system_one', 'auto_move', ''],
+    ['system_one', 'auto_flag', ''],
+    ['hooks', 'auto_label', 'MCP_EMAIL_HOOK_AUTO_LABEL'],
+    ['hooks', 'auto_flag', 'MCP_EMAIL_HOOK_AUTO_FLAG'],
+    ['hooks.alerts', 'desktop', 'MCP_EMAIL_ALERT_DESKTOP'],
+    ['hooks.alerts', 'sound', 'MCP_EMAIL_ALERT_SOUND'],
+  ] as const;
+
+  function defaultsWithTrue(table: string, key: string): unknown {
+    const settings = SettingsSchema.parse({}) as Record<string, unknown>;
+    const parent = table
+      .split('.')
+      .reduce((node, name) => node[name] as Record<string, unknown>, settings);
+    parent[key] = true;
+    return camelKeys(settings);
+  }
+
+  it.each(SIBLINGS)('should change only %s.%s when the TOML file sets it', async (table, key) => {
+    const configPath = path.join(sandbox.dir, 'config.toml');
+    await writeOwnerOnly(configPath, `${TOML_ACCOUNT}\n[settings.${table}]\n${key} = true\n`);
+
+    const config = await loadConfig(configPath);
+
+    expect(config.settings).toEqual(defaultsWithTrue(table, key));
+  });
+
+  it.each(SIBLINGS.filter(([, , name]) => name !== ''))(
+    'should change only %s.%s when %s is the one variable set',
+    async (table, key, name) => {
+      stubEnv({ ...ENV_ACCOUNT, [name]: 'true' });
+
+      const config = await loadConfig(path.join(sandbox.dir, 'nonexistent.toml'));
+
+      expect(config.settings).toEqual(defaultsWithTrue(table, key));
+    },
+  );
+
+  it('should carry every system_one threshold through loadConfig when the file sets distinct values', async () => {
+    const thresholds = {
+      folder_fit_min: 0.11,
+      spam_high: 0.22,
+      spam_uncertain_low: 0.33,
+      spam_uncertain_high: 0.44,
+      injection_high: 0.55,
+      importance_flag_min: 6,
+      importance_min_confidence: 0.66,
+      is_critical_min: 0.77,
+    };
+    const lines = Object.entries(thresholds).map(([key, value]) => `${key} = ${value}`);
+    const configPath = path.join(sandbox.dir, 'config.toml');
+    await writeOwnerOnly(
+      configPath,
+      `${TOML_ACCOUNT}\n[settings.system_one.thresholds]\n${lines.join('\n')}\n`,
+    );
+
+    const config = await loadConfig(configPath);
+
+    expect(config.settings.systemOne.thresholds).toEqual(camelKeys(thresholds));
+  });
 });
