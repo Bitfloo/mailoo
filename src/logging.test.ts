@@ -196,6 +196,31 @@ describe('mcpLog across HTTP sessions', () => {
     expect(first.received).toEqual([]);
   });
 
+  it('should keep sending to a session that is bound again after its handshake', async () => {
+    const only = await connectSession();
+    bindServer(only.server);
+    markInitialized(only.server);
+    bindServer(only.server);
+
+    await mcpLog('info', 'test', 'rebound');
+    await flush();
+
+    expect(only.received).toEqual(['rebound']);
+  });
+
+  it('should send to every bound server when markInitialized has no argument', async () => {
+    const first = await connectSession();
+    const second = await connectSession();
+    bindServer(first.server);
+    bindServer(second.server);
+    markInitialized();
+
+    await mcpLog('info', 'test', 'all');
+    await flush();
+
+    expect([first.received, second.received]).toEqual([['all'], ['all']]);
+  });
+
   it('should send to the bound stdio server when markInitialized has no argument', async () => {
     const only = await connectSession();
     bindServer(only.server);
