@@ -172,9 +172,7 @@ describe('RateLimiter', () => {
     expect(limiter.remaining('acct')).toBe(1);
   });
 
-  // The examples above each pin one gap; a long mix of waits and sends must
-  // make the exact bucket's decision at every step, never hold more than the
-  // limit and never allow more than it has earned.
+  // The examples above each pin one gap.
   it('should match an exact token bucket and stay within the limit over a seeded mix of waits and sends', () => {
     vi.useFakeTimers();
     const max = 4;

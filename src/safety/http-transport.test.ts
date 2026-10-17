@@ -40,7 +40,7 @@ describe('startGuardedHttpServers', () => {
     }
   });
 
-  // The body is the JSON-RPC error a client parses; only its status was checked.
+  // The body is the JSON-RPC error a client parses.
   it.each([
     [
       'a foreign Host',
