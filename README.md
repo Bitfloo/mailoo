@@ -500,7 +500,7 @@ Sent copies, IMAP4rev2, Sieve host/port, and `read_only` env vars:
 
 The scheduler enables future email delivery with a layered architecture:
 
-1. **MCP auto-check** — Processes the queue on server startup, before the watcher connects, and every 60 seconds while the MCP server is running. A check still running when the next one is due is skipped, and failed sends are logged at `warning`
+1. **MCP auto-check** — Processes the queue on server startup, before the watcher connects, and every 60 seconds while the MCP server is running. With several `stdio` servers, only the one that runs the watcher and hooks checks. A check still running when the next one is due is skipped, and failed sends are logged at `warning`
 2. **CLI** — `npx -y @bitfloo/mailoo scheduler check` for manual or cron-based processing. It sends with the same account settings as the server, including OAuth2 and `save_to_sent`, and closes its IMAP/SMTP connections before it exits
 3. **OS-level daemon** — `npx -y @bitfloo/mailoo scheduler install` sets up launchd (macOS) or crontab (Linux) to run every minute, independently of the MCP server
 
@@ -533,7 +533,7 @@ Scheduled emails are JSON files in `~/.local/state/mailoo/scheduled/`. Before se
 
 ### Real-time Watcher & AI Hooks
 
-The IMAP IDLE watcher monitors configured mailboxes in real-time using persistent IDLE connections (separate from tool connections). When new emails arrive:
+The IMAP IDLE watcher monitors configured mailboxes in real-time using persistent IDLE connections (separate from tool connections). With several `stdio` servers on one machine (one per MCP client window), only one of them runs the watcher, hooks and scheduler; see [configuration](docs/configuration.md#one-mailbox-writer-per-machine). When new emails arrive:
 
 1. **Static rules** — Pattern-match on from/to/subject → apply labels, flag, or mark read instantly (no AI)
 2. **AI triage** — Remaining emails are analyzed via MCP sampling with a customizable preset prompt
@@ -776,6 +776,7 @@ Paths follow the XDG defaults in `src/config/xdg.ts` unless `XDG_CONFIG_HOME`, `
 | `$XDG_DATA_HOME/mailoo/audit.log` | Append-only audit lines | `src/safety/audit.ts` |
 | `$XDG_STATE_HOME/mailoo/scheduled/` and `scheduled/sent/` (mode `0600`) | Scheduled-send JSON, replaced through a temp file and rename | `src/services/scheduler.service.ts` |
 | `$XDG_DATA_HOME/mailoo/calendar-attachments/` | Attachment files saved for a calendar event | `src/services/imap.service.ts` |
+| `$XDG_STATE_HOME/mailoo/mailbox-writers.lock` | Which `stdio` server runs hooks, the watcher and the scheduler. The holder refreshes it every 30 seconds and deletes it on shutdown | `src/safety/writer-lease.ts` |
 | `$XDG_STATE_HOME/mailoo/calendar-processed.json` (mode `0600`) and `.lock` | Which messages already created an automatic event or reminder, replaced through a temp file and rename. A damaged file stops automatic calendar processing with an error instead of starting over | `src/utils/calendar-state.ts` |
 | `savePath` under the working directory | `download_attachment` or `export_email` when that argument is set | `src/tools/attachments.tool.ts`, `src/tools/export.tool.ts` |
 | OS temp directory, `mailoo-event-*.ics` | Linux calendar file passed to `xdg-open` | `src/services/local-calendar.service.ts` |
