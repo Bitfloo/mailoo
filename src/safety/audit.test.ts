@@ -38,6 +38,7 @@ describe('Audit Logger', () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     await fs.chmod(dataHome, 0o700).catch(() => undefined);
@@ -122,6 +123,24 @@ describe('Audit Logger', () => {
     expect(entry.params).toEqual({ nested: { password: '[REDACTED]', safe: 'ok' } });
   });
 
+  it('should stamp the entry with the current time in ISO 8601 when logging', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
+
+    await auditLogger.log('send_email', 'x', {}, 'ok');
+
+    const [entry] = await readEntries();
+    expect(entry.ts).toBe('2026-01-02T03:04:05.000Z');
+  });
+
+  // typeof null is 'object': recursing into it would throw and lose the whole entry.
+  it('should keep a null param as null when logging', async () => {
+    await auditLogger.log('send_email', 'x', { cc: null, to: ['a@example.com'] }, 'ok');
+
+    const [entry] = await readEntries();
+    expect(entry.params).toEqual({ cc: null, to: ['a@example.com'] });
+  });
+
   it('includes error field when provided', async () => {
     await auditLogger.log('send_email', 'x', {}, 'error', 'Connection failed');
     const [entry] = await readEntries();
@@ -168,6 +187,20 @@ describe('Audit Logger', () => {
       }).toEqual({ dir: 0o700, file: 0o600 });
     },
   );
+
+  it('should leave the mode of a symlinked data directory unchanged when logging', async () => {
+    const operatorDir = path.join(dataHome, 'operator-mailoo');
+    await fs.mkdir(operatorDir);
+    await fs.chmod(operatorDir, 0o755);
+    await fs.symlink(operatorDir, logDir);
+
+    await auditLogger.log('send_email', 'x', { subject: 'through the link' }, 'ok');
+
+    expect({
+      targetMode: permissionBits((await fs.stat(operatorDir)).mode),
+      subjects: (await readEntries()).map((entry) => entry.params.subject),
+    }).toEqual({ targetMode: 0o755, subjects: ['through the link'] });
+  });
 
   it('should recreate the directory 0700 and the file 0600 when both are removed while running', async () => {
     await auditLogger.log('send_email', 'x', { subject: 'first' }, 'ok');
