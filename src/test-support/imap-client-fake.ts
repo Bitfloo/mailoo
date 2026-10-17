@@ -11,6 +11,7 @@ type ImapCommand =
   | 'list'
   | 'status'
   | 'fetch'
+  | 'fetchAll'
   | 'search'
   | 'messageMove'
   | 'messageDelete'
@@ -40,6 +41,7 @@ export function createMockImapClient(): MockImapClient {
     list: vi.fn().mockResolvedValue([]),
     status: vi.fn().mockResolvedValue({ messages: 5, unseen: 2 }),
     fetch: vi.fn().mockReturnValue((async function* fetchMock() {})()),
+    fetchAll: vi.fn().mockResolvedValue([]),
     search: vi.fn().mockResolvedValue([]),
     messageMove: vi.fn().mockResolvedValue(true),
     messageDelete: vi.fn().mockResolvedValue(true),
