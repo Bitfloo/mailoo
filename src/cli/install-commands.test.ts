@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { select } from '@clack/prompts';
+
 import { permissionBits } from '../test-support/config-sandbox.js';
 import runInstallCommand from './install-commands.js';
 
@@ -132,9 +134,27 @@ describe('mailoo install', () => {
     expect(JSON.parse(await fs.readFile(cursorConfig, 'utf-8'))).toEqual({
       mcpServers: {
         other: { command: 'other-server', args: ['--stdio'] },
-        mailoo: { command: 'npx', args: [expect.any(String), 'stdio'] },
+        mailoo: { command: 'npx', args: ['@bitfloo/mailoo', 'stdio'] },
       },
     });
+  });
+
+  // The node entry points at the script install ran from, Vitest's own here; pinned.
+  it.each([
+    ['pnpm', { command: 'pnpm', args: ['dlx', '@bitfloo/mailoo', 'stdio'] }],
+    ['global', { command: 'mailoo', args: ['stdio'] }],
+    ['node', { command: process.execPath, args: ['/opt/mailoo/dist/main.js', 'stdio'] }],
+  ])('should write the %s launch entry', async (transport, entry) => {
+    vi.mocked(select).mockResolvedValueOnce(transport);
+    const script = process.argv[1];
+    process.argv[1] = '/opt/mailoo/dist/main.js';
+    try {
+      await runInstallCommand();
+    } finally {
+      process.argv[1] = script;
+    }
+
+    expect(JSON.parse(await fs.readFile(cursorConfig, 'utf-8')).mcpServers.mailoo).toEqual(entry);
   });
 
   it('should write the client config with mode 0600 when it was 0644', async () => {
@@ -248,6 +268,15 @@ describe('mailoo install', () => {
     expect(stdout.mock.calls.flat().join('\n')).toContain(
       `Cursor — not registered\n     ${cursorConfig}`,
     );
+    stdout.mockRestore();
+  });
+
+  it('should print "config not found" for a client whose config file is missing in status', async () => {
+    const stdout = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await runInstallCommand('status');
+
+    expect(stdout.mock.calls.flat().join('\n')).toContain('Cursor — config not found');
     stdout.mockRestore();
   });
 
