@@ -141,3 +141,76 @@ describe('calendar state lock', () => {
     }).toEqual({ stored: true, lock: 'gone' });
   });
 });
+
+// Literals, not CALENDAR_LOCK_STALE_MS: a dead holder may block calendar writes for ten seconds.
+describe('calendar state lock window', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Whether marking an email succeeds while another holder's lock is ageMs old. */
+  async function marksPastLockAged(ageMs: number): Promise<boolean> {
+    // Only Date is fake, so the lock's age stays exact while the retries wait in real time.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
+    await fs.mkdir(stateDir, { recursive: true });
+    await fs.writeFile(lockPath, 'held', { flag: 'wx' });
+    const lockedAt = new Date(Date.now() - ageMs);
+    await fs.utimes(lockPath, lockedAt, lockedAt);
+    return markCalendarProcessed('personal', '1', 'event').then(
+      () => true,
+      () => false,
+    );
+  }
+
+  it('should take a lock 11 s old', async () => {
+    expect(await marksPastLockAged(11_000)).toBe(true);
+  });
+
+  it('should refuse a lock 9 s old as busy', async () => {
+    expect(await marksPastLockAged(9_000)).toBe(false);
+  });
+
+  it('should renew the lock within 2 s while a write still holds it', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+    let markHeld: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      markHeld = resolve;
+    });
+    let finish: () => void = () => {};
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const read = fs.readFile.bind(fs);
+    const spy = vi.spyOn(fs, 'readFile').mockImplementation(async (file, options) => {
+      if (file === CALENDAR_STATE_FILE) {
+        markHeld();
+        await finished;
+      }
+      return read(file, options as { encoding: 'utf8' });
+    });
+    const mtime = async () => (await fs.stat(lockPath)).mtimeMs;
+    try {
+      const marking = markCalendarProcessed('personal', '1', 'event');
+      await held;
+      const before = await mtime();
+      await vi.advanceTimersByTimeAsync(2_000);
+      // The renewal is not awaited by its timer, so poll on the real clock until it lands.
+      const deadline = performance.now() + 1_000;
+      let after = await mtime();
+      while (after === before && performance.now() < deadline) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => {
+          setTimeout(resolve, 10);
+        });
+        after = await mtime(); // eslint-disable-line no-await-in-loop
+      }
+      finish();
+      await marking;
+      expect(after).toBeGreaterThan(before);
+    } finally {
+      finish();
+      spy.mockRestore();
+    }
+  });
+});
