@@ -73,6 +73,22 @@ describe('startGuardedHttpServers', () => {
     },
   );
 
+  // The socket is destroyed after a refusal; the header tells a keep-alive client not to reuse it.
+  it('should answer a refusal with Connection: close when the client asked for keep-alive', async () => {
+    const policy = resolveHttpListen({ port: 0, host: '127.0.0.1' });
+    const listener = await startGuardedHttpServers(policy, okHandler);
+    try {
+      const res = await send(listener.port, {
+        host: `rebind.example:${listener.port}`,
+        connection: 'keep-alive',
+      });
+
+      expect(res.headers.connection).toBe('close');
+    } finally {
+      await listener.close();
+    }
+  });
+
   it('returns 403 for a foreign Origin', async () => {
     const policy = resolveHttpListen({ port: 0, host: '127.0.0.1' });
     const listener = await startGuardedHttpServers(policy, okHandler);

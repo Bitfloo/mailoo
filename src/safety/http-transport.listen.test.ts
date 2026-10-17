@@ -138,6 +138,15 @@ describe('readHttpLaunchOptions', () => {
     expect(policy.token).toBe(TOKEN);
   });
 
+  it('rejects MCP_EMAIL_HTTP_TOKEN containing a space', () => {
+    expect(() =>
+      readHttpLaunchOptions(
+        { portArg: '8080', hostArg: '192.0.2.10' },
+        { MCP_EMAIL_HTTP_TOKEN: 'test token value' },
+      ),
+    ).toThrow('MCP_EMAIL_HTTP_TOKEN must be a single visible ASCII token');
+  });
+
   it('rejects a port that is not an integer in range', () => {
     expect(() => readHttpLaunchOptions({ portArg: '8080abc' }, {})).toThrow(/Invalid port/);
     expect(() => readHttpLaunchOptions({ portArg: '0' }, {})).toThrow(/Invalid port/);

@@ -39,6 +39,12 @@ describe('evaluateHttpAccess', () => {
     ).toBe(403);
   });
 
+  it('rejects Host 127.0.0.1:08080', () => {
+    expect(
+      deny(evaluateHttpAccess({ method: 'GET', headers: { host: '127.0.0.1:08080' } }, policy)),
+    ).toEqual({ status: 403, message: 'Invalid Host header' });
+  });
+
   it('rejects a duplicated Host header', () => {
     expect(
       deny(

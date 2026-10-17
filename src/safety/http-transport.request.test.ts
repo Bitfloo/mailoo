@@ -77,6 +77,20 @@ describe('evaluateHttpAccess', () => {
     ).toBe('Invalid Origin header');
   });
 
+  it.each(['http://127.0.0.1:8080/', 'http://127.0.0.1:8080/mcp'])(
+    'rejects Origin %s, which has a path or a trailing slash',
+    (origin) => {
+      expect(
+        deny(
+          evaluateHttpAccess(
+            { method: 'GET', headers: { host: '127.0.0.1:8080', origin } },
+            policy,
+          ),
+        ),
+      ).toEqual({ status: 403, message: 'Invalid Origin header' });
+    },
+  );
+
   it('rejects an Origin whose port is not the listen port', () => {
     expect(
       deny(
