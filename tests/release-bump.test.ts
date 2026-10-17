@@ -59,7 +59,7 @@ async function stampReadme(readme: string, version: string): Promise<string> {
   return (await runStamp(readme, version)).readme;
 }
 
-/** Run the server.json stamp in a scratch dir holding `serverJson`; rejects on a non-zero exit. */
+/** Run the server.json stamp in a scratch dir holding `serverJson`; a non-zero exit resolves with `error` set. */
 async function stampServerJson(
   serverJson: string,
   version: string,
