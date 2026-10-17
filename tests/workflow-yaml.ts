@@ -33,10 +33,12 @@ export function stepEnv(step: string, context: Record<string, string>): Record<s
     [...block.matchAll(/^ {10}(\w+): (.*)$/gm)].map(([, name, value]) => [
       name,
       value.replace(/\$\{\{ ([\w.-]+) \}\}/g, (_, expression: string) => {
-        if (!(expression in context)) {
+        // A dispatch input has two spellings; both are empty on a tag push.
+        const key = expression.replace(/^github\.event\.inputs\./, 'inputs.');
+        if (!(key in context)) {
           throw new Error(`no value for ${expression}`);
         }
-        return context[expression];
+        return context[key];
       }),
     ]),
   );
@@ -44,7 +46,7 @@ export function stepEnv(step: string, context: Record<string, string>): Record<s
 
 /** The ref variables the runner sets together, so a step may read either form. */
 export function refEnv(ref: string): { GITHUB_REF: string; GITHUB_REF_NAME: string } {
-  return { GITHUB_REF: ref, GITHUB_REF_NAME: ref.replace(/^refs\/(?:heads|tags|pull)\//, '') };
+  return { GITHUB_REF: ref, GITHUB_REF_NAME: ref.replace(/^refs\/(?:heads|tags)\//, '') };
 }
 
 /** One chunk per job so a token can be required on the scorecard job only. */
