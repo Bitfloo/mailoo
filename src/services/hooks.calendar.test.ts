@@ -1,4 +1,5 @@
-import { rm } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
+import path from 'node:path';
 import type { MockInstance } from 'vitest';
 import { mcpLog } from '../logging.js';
 import { hooksConfig, meta, mockImap } from '../test-support/hooks-harness.js';
@@ -293,5 +294,126 @@ describe('HooksService calendar auto-add state', () => {
         .mocked(mcpLog)
         .mock.calls.filter(([, , message]) => String(message).startsWith('Calendar: ')),
     ).toEqual([[level, 'hooks', `Calendar: Calendar reported ${status}`]]);
+  });
+
+  function calendarLogs() {
+    return vi
+      .mocked(mcpLog)
+      .mock.calls.filter(([, , message]) => String(message).startsWith('Calendar'));
+  }
+
+  function startStatic(email: Email): HooksService {
+    const service = new HooksService(
+      hooksConfig({ batchDelay: 3600, rules: [inviteRule] }),
+      calendarImap(email) as unknown as ImapService,
+    );
+    service.start({} as never, { sampling: false });
+    hooks = service;
+    return service;
+  }
+
+  /** Starts triage with a client whose sampling reply is `triage` for the one email. */
+  function startTriage(
+    email: Email,
+    triage: Record<string, unknown>,
+    config: Partial<HooksConfig> = {},
+  ): HooksService {
+    const createMessage = vi.fn().mockResolvedValue({
+      model: 'fast',
+      content: { type: 'text', text: JSON.stringify([triage]) },
+    });
+    const service = new HooksService(
+      hooksConfig({ batchDelay: 3600, onNewEmail: 'triage', ...config }),
+      calendarImap(email) as unknown as ImapService,
+    );
+    service.start({ createMessage } as never, { sampling: true });
+    hooks = service;
+    return service;
+  }
+
+  it('when a triage-requested add reports added, should mark it processed and skip it on a second pass', async () => {
+    const service = startTriage(invitation('160'), { add_to_calendar: true });
+
+    await runBatch(service, [meta({ id: '160' })]);
+    await runBatch(service, [meta({ id: '160' })]);
+
+    expect(addEvent.mock.calls).toHaveLength(1);
+  });
+
+  it('should not add when triage says add_to_calendar false although auto_calendar is on', async () => {
+    const service = startTriage(
+      invitation('161'),
+      { add_to_calendar: false },
+      { autoCalendar: true },
+    );
+
+    await runBatch(service, [meta({ id: '161' })]);
+
+    expect(addEvent.mock.calls).toHaveLength(0);
+  });
+
+  it('should add when auto_calendar is on and triage says nothing about the calendar', async () => {
+    const service = startTriage(invitation('162'), { priority: 'normal' }, { autoCalendar: true });
+
+    await runBatch(service, [meta({ id: '162' })]);
+
+    expect(addEvent.mock.calls).toHaveLength(1);
+  });
+
+  it('should log the reason when a static rule meets an email it already processed', async () => {
+    const service = startStatic(invitation('163'));
+    await runBatch(service, [meta({ id: '163' })]);
+    vi.mocked(mcpLog).mockClear();
+
+    await runBatch(service, [meta({ id: '163' })]);
+
+    expect(calendarLogs()).toEqual([
+      ['info', 'hooks', 'Calendar: skipping auto-add for 163 (already processed once)'],
+    ]);
+  });
+
+  it('should tell the user to ask again when triage meets an email it already processed', async () => {
+    const service = startTriage(invitation('164'), { add_to_calendar: true });
+    await runBatch(service, [meta({ id: '164' })]);
+    vi.mocked(mcpLog).mockClear();
+
+    await runBatch(service, [meta({ id: '164' })]);
+
+    expect(calendarLogs()).toEqual([
+      [
+        'info',
+        'hooks',
+        'Calendar: skipping auto-add for 164 (already processed once — instruct AI to add again)',
+      ],
+    ]);
+  });
+
+  it('should record the processed email as an event with its subject in calendar-processed.json', async () => {
+    const service = startStatic(invitation('165'));
+
+    await runBatch(service, [meta({ id: '165', subject: 'Planning sync' })]);
+
+    const state = JSON.parse(
+      await readFile(path.join(stateHome, 'mailoo', 'calendar-processed.json'), 'utf8'),
+    ) as { processedEmails: Record<string, unknown> };
+    expect(state.processedEmails.personal__165).toMatchObject({
+      action: 'event',
+      title: 'Planning sync',
+    });
+  });
+
+  it('should log a calendar add that throws at warning', async () => {
+    addEvent.mockRejectedValue(new Error('Calendar got an error: Connection is invalid.'));
+    const service = startStatic(invitation('166'));
+
+    await runBatch(service, [meta({ id: '166' })]);
+
+    expect(calendarLogs()).toEqual([
+      [
+        'warning',
+        'hooks',
+        'Calendar auto-add failed: Calendar got an error: Connection is invalid.',
+      ],
+    ]);
   });
 });
