@@ -798,6 +798,16 @@ describe('ImapService', () => {
     return childNodes ? { ...fields, childNodes: childNodes.map(withoutPartNumbers) } : fields;
   }
 
+  /** A message whose whole body is one attachment: imapflow gives its root no part number. */
+  const singlePartAttachment = {
+    type: 'application/pdf',
+    parameters: { name: 'a.pdf' },
+    encoding: 'base64',
+    size: 16,
+    disposition: 'attachment',
+    dispositionParameters: { filename: 'a.pdf' },
+  };
+
   /** client.fetchOne as imapflow answers a UID FETCH: false for a UID the mailbox does not hold. */
   function fetchOneByUid(message: { uid: number } & Record<string, unknown>) {
     client.fetchOne.mockImplementation(
@@ -906,6 +916,16 @@ describe('ImapService', () => {
       const result = await service.downloadAttachment('test', '9', 'INBOX', 'edge.txt', 16);
 
       expect(Buffer.from(result.contentBase64, 'base64').toString()).toBe('body-of-part-2');
+    });
+
+    // An empty part number downloads BODY[], the whole message, as the attachment.
+    it('should refuse a single-part attachment that has no MIME part number', async () => {
+      fetchOneByUid({ uid: 9, bodyStructure: singlePartAttachment });
+      downloadReturnsPartName();
+
+      await expect(service.downloadAttachment('test', '9', 'INBOX', 'a.pdf')).rejects.toThrow(
+        'Could not locate MIME part for "a.pdf"',
+      );
     });
 
     // A lock left held makes every later call on the account wait out the lock timeout.
@@ -1048,6 +1068,17 @@ describe('ImapService', () => {
       const saved = await service.saveEmailAttachments('test', '9', 'INBOX', root);
 
       expect(saved.map((s) => s.filename)).toEqual(['b.txt']);
+    });
+
+    // An empty part number downloads BODY[], the whole message, as the attachment.
+    it('should neither download nor save a single-part attachment with no MIME part number', async () => {
+      fetchOneByUid({ uid: 9, bodyStructure: singlePartAttachment });
+      downloadReturnsPartName();
+
+      const saved = await service.saveEmailAttachments('test', '9', 'INBOX', root);
+
+      expect(saved).toEqual([]);
+      expect(client.download).not.toHaveBeenCalled();
     });
 
     // APFS and NTFS are case-insensitive by default: "A.txt" would overwrite "a.txt".
