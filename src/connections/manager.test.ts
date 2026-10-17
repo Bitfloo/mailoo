@@ -132,7 +132,7 @@ describe('buildImapFlowOptions', () => {
 });
 
 describe('bindImapLifecycle', () => {
-  it('handles ImapFlow error without killing the process', async () => {
+  it('should keep the process alive when ImapFlow emits error', () => {
     const client = new EventEmitter() as EventEmitter & { close: ReturnType<typeof vi.fn> };
     client.close = vi.fn();
     const forget = vi.fn();
@@ -149,8 +149,6 @@ describe('bindImapLifecycle', () => {
       expect.stringContaining('socket hang up'),
     );
     expect(process.exitCode).toBe(exitCodeBefore);
-    await Promise.resolve();
-    expect(process.listenerCount('uncaughtException')).toBeGreaterThanOrEqual(0);
   });
 });
 
