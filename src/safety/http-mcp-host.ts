@@ -4,19 +4,16 @@
  * Idle sessions are closed by the session table.
  */
 
-import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 
 import { SCHEDULED_DIR } from '../config/xdg.js';
 import type ConnectionManager from '../connections/manager.js';
-import { bindServer, markInitialized, mcpLog, unbindServer } from '../logging.js';
-import registerAllPrompts from '../prompts/register.js';
-import registerAllResources from '../resources/register.js';
-import createServer, { PKG_VERSION } from '../server.js';
+import { mcpLog } from '../logging.js';
+import { PKG_VERSION } from '../server.js';
 import type CalendarService from '../services/calendar.service.js';
 import { EmailEventBus } from '../services/event-bus.js';
 import HooksService from '../services/hooks.service.js';
@@ -28,10 +25,10 @@ import SchedulerService from '../services/scheduler.service.js';
 import SmtpService from '../services/smtp.service.js';
 import type TemplateService from '../services/template.service.js';
 import WatcherService from '../services/watcher.service.js';
-import registerAllTools from '../tools/register.js';
 import type { AppConfig } from '../types/index.js';
 import type { HttpSessionScope } from './http-session-scope.js';
-import { createHttpSessionScope } from './http-session-scope.js';
+import type { OpenedSession, SessionLifecycle } from './http-session-setup.js';
+import openSession from './http-session-setup.js';
 import HttpSessionStore, {
   DEFAULT_HTTP_MAX_SESSIONS,
   DEFAULT_HTTP_SESSION_TTL_MS,
@@ -75,13 +72,6 @@ interface SamplingCandidate {
   server: Server;
   sampling: boolean;
   order: number;
-}
-
-/** A session an initialize request is opening; `id` is set once the transport registers it. */
-interface OpenedSession {
-  transport: StreamableHTTPServerTransport;
-  scope: HttpSessionScope;
-  registration: { id?: string };
 }
 
 function sendRpcError(res: ServerResponse, status: number, code: number, message: string): void {
@@ -222,83 +212,33 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
     trackDispose(scope);
   };
 
-  const openSession = async (): Promise<OpenedSession> => {
-    const sid = randomUUID();
-    // SDK binds one transport per McpServer.
-    const mcpServer = createServer();
-    const scope = createHttpSessionScope({
-      id: sid,
-      server: mcpServer.server,
-      events,
-      smtp,
-      scheduler,
-      onDispose: () => {
-        candidates.delete(sid);
-        unbindServer(mcpServer);
-        applySamplingTarget();
-      },
-    });
-    const registration: OpenedSession['registration'] = {};
-    try {
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => sid,
-        onsessioninitialized: (initializedId) => {
-          sessions.set(initializedId, transport);
-          scopes.set(initializedId, scope);
-          sessions.beginRequest(initializedId);
-          registration.id = initializedId;
-        },
+  const services = { ...options, events, smtp, scheduler, watcher, hooks };
+  const lifecycle: SessionLifecycle = {
+    registered: (id, transport, scope) => {
+      sessions.set(id, transport);
+      scopes.set(id, scope);
+      sessions.beginRequest(id);
+    },
+    closed: release,
+    disposed: (sid) => {
+      candidates.delete(sid);
+      applySamplingTarget();
+    },
+    initialized: (sid, server) => {
+      candidates.set(sid, {
+        server,
+        sampling: (server.getClientCapabilities?.()?.sampling ?? null) != null,
+        order: samplingOrder,
       });
-      transport.onclose = () => {
-        release(transport.sessionId ?? sid, scope);
-      };
-      bindServer(mcpServer);
-      registerAllTools(
-        mcpServer,
-        options.connections,
-        options.imap,
-        smtp,
-        options.config,
-        options.templateService,
-        options.calendarService,
-        options.localCalendarService,
-        options.remindersService,
-        scheduler,
-        watcher,
-        hooks,
-      );
-      registerAllResources(
-        mcpServer,
-        options.connections,
-        options.imap,
-        options.templateService,
-        scheduler,
-      );
-      registerAllPrompts(mcpServer);
-      await mcpServer.connect(transport);
-
-      const ls = mcpServer.server;
-      ls.oninitialized = () => {
-        markInitialized(mcpServer);
-        candidates.set(sid, {
-          server: ls,
-          sampling: (ls.getClientCapabilities?.()?.sampling ?? null) != null,
-          order: samplingOrder,
-        });
-        samplingOrder += 1;
-        if (!bootStarted) {
-          bootStarted = true;
-          ready = bootWriters(ls);
-        } else {
-          applySamplingTarget();
-        }
-      };
-
-      return { transport, scope, registration };
-    } catch (err) {
-      if (registration.id === undefined) trackDispose(scope);
-      throw err;
-    }
+      samplingOrder += 1;
+      if (!bootStarted) {
+        bootStarted = true;
+        ready = bootWriters(server);
+      } else {
+        applySamplingTarget();
+      }
+    },
+    abandoned: trackDispose,
   };
 
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
@@ -349,7 +289,7 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
       sessions.touch(sessionId);
       sessions.beginRequest(sessionId);
     } else if (!sessionId && req.method === 'POST' && isInitializeRequest(body)) {
-      opened = await openSession();
+      opened = await openSession(services, lifecycle);
       transport = opened.transport;
     } else {
       sendRpcError(
