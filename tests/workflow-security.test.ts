@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import {
   jobSections,
+  keyLines,
   onBlock,
   topLevelPermissions,
   triggers,
@@ -179,6 +180,17 @@ describe('workflow token is no wider than the job writes', () => {
         analysis: ['actions: read', 'contents: read', 'id-token: write', 'security-events: write'],
       },
     });
+  });
+
+  it('should read every permissions key as a workflow or job token', () => {
+    // The roster reads only a plain key at the workflow or job indent, so a quoted key would be a
+    // token it reads as none.
+    const unread = workflowFiles().flatMap((name) =>
+      keyLines(readFileSync(join(workflowDir, name), 'utf8'), 'permissions')
+        .filter((line) => !/^(?: {4})?permissions:/.test(line))
+        .map((line) => `${name}: ${line.trim()}`),
+    );
+    expect(unread).toEqual([]);
   });
 
   it('does not grant ci.yml any write scope', () => {
