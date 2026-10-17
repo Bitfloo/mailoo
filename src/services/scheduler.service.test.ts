@@ -892,15 +892,19 @@ describe('retried and delivered sends', () => {
   it.skipIf(process.getuid?.() === 0)(
     'should count a delivered email as sent when its sent record cannot be written',
     async () => {
-      await withDueQueue(async ({ queueDir, sentDir }) => {
+      await withDueQueue(async ({ queueDir, id, sentDir }) => {
         const { service } = createService(queueDir);
         await fs.mkdir(sentDir, { recursive: true });
         await fs.chmod(sentDir, 0o500);
         const result = await service.checkAndSend();
+        // The file name tells the operator which queue entry to inspect.
+        const prefix = new RegExp(
+          `^${id}\\.json: sent, but the queue record was not updated: EACCES`,
+        );
         expect({ sent: result.sent, failed: result.failed, errors: result.errors }).toEqual({
           sent: 1,
           failed: 0,
-          errors: [expect.stringMatching(/sent, but the queue record was not updated: EACCES/)],
+          errors: [expect.stringMatching(prefix)],
         });
       });
     },
@@ -1334,7 +1338,7 @@ describe('rate-limited sends', () => {
     }
   }
 
-  it('should keep a rate-limited email pending with its attempts unchanged', async () => {
+  it('should keep a rate-limited email pending, its attempts unchanged and the limit as its error', async () => {
     await withLimitedQueue(async (queueDir, service) => {
       await service.checkAndSend();
       await service.checkAndSend();
@@ -1343,9 +1347,14 @@ describe('rate-limited sends', () => {
       const record = JSON.parse(
         await fs.readFile(path.join(queueDir, left ?? 'missing.json'), 'utf8'),
       ) as ScheduledEmail;
-      expect({ status: record.status, attempts: record.attempts }).toEqual({
+      expect({
+        status: record.status,
+        attempts: record.attempts,
+        lastError: record.lastError,
+      }).toEqual({
         status: 'pending',
         attempts: 0,
+        lastError: expect.stringMatching(/^Rate limit exceeded for account "personal"/),
       });
     });
   });
