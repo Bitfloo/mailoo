@@ -1,3 +1,4 @@
+import type { FileHandle } from 'node:fs/promises';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -50,6 +51,39 @@ describe('writeFileAtomic', () => {
       await writeFileAtomic(file, '{}');
       const stat = await fs.stat(file);
       expect(stat.mode % 0o1000).toBe(0o600);
+    });
+  });
+
+  it('should flush the temp file to disk before renaming it over the target', async () => {
+    await withDir(async (dir) => {
+      const file = path.join(dir, 'state.json');
+      const order: string[] = [];
+      const probe = await fs.open(os.devNull, 'r');
+      const proto = Object.getPrototypeOf(probe) as FileHandle;
+      await probe.close();
+      const flushToDisk = proto.sync;
+      const syncSpy = vi.spyOn(proto, 'sync').mockImplementation(async function flush(
+        this: FileHandle,
+      ) {
+        order.push('sync');
+        return flushToDisk.call(this);
+      });
+      const rename = fs.rename.bind(fs);
+      const renameSpy = vi.spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+        order.push(`rename ${path.basename(String(from))} -> ${path.basename(String(to))}`);
+        return rename(from, to);
+      });
+      try {
+        await writeFileAtomic(file, '{}');
+      } finally {
+        syncSpy.mockRestore();
+        renameSpy.mockRestore();
+      }
+      // Without the flush, a crash after the rename can leave an empty file under the real name.
+      expect(order).toEqual([
+        'sync',
+        expect.stringMatching(/^rename \.state\.json\.[0-9a-f-]+\.tmp -> state\.json$/),
+      ]);
     });
   });
 });
