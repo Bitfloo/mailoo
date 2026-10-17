@@ -3,7 +3,8 @@
 import type { Mock } from 'vitest';
 
 import eventBus from '../services/event-bus.js';
-import type { EmailMeta, HooksConfig } from '../types/index.js';
+import type HooksService from '../services/hooks.service.js';
+import type { Email, EmailMeta, HooksConfig } from '../types/index.js';
 
 const alerts = {
   desktop: false,
@@ -62,4 +63,37 @@ export function mockImap(): MockImap {
 export async function flushHooks(emails: EmailMeta[], mailbox = 'INBOX'): Promise<void> {
   eventBus.emit('email:new', { account: 'personal', mailbox, emails });
   await vi.advanceTimersByTimeAsync(1000);
+}
+
+/** Same fields ImapService.getEmail returns for a plain-text invitation. */
+export function invitation(id: string): Email {
+  return {
+    ...meta({ id, subject: 'Planning sync', messageId: `<plan-${id}@example.com>` }),
+    bodyText: 'Join us Monday at 10:00. https://meet.example.com/abc-defg-hij',
+    messageId: `<plan-${id}@example.com>`,
+    attachments: [],
+    headers: {},
+  };
+}
+
+/** MockImap plus the reads the calendar auto-add makes. */
+export interface CalendarImap extends MockImap {
+  getCalendarParts: Mock;
+  saveEmailAttachments: Mock;
+}
+
+export function calendarImap(email: Email | Error): CalendarImap {
+  return {
+    ...mockImap(),
+    getEmail:
+      email instanceof Error ? vi.fn().mockRejectedValue(email) : vi.fn().mockResolvedValue(email),
+    getCalendarParts: vi.fn().mockResolvedValue([]),
+    saveEmailAttachments: vi.fn().mockResolvedValue([]),
+  };
+}
+
+/** Awaits flushBatch directly: the batch timer gives no promise to await before the state write. */
+export async function runBatch(service: HooksService, emails: EmailMeta[]): Promise<void> {
+  eventBus.emit('email:new', { account: 'personal', mailbox: 'INBOX', emails });
+  await (service as unknown as { flushBatch: () => Promise<void> }).flushBatch();
 }
