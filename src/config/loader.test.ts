@@ -263,6 +263,43 @@ host = "smtp.example.com"
       expect(config.accounts[0].sentMailbox).toBe('INBOX.Sent Messages');
     });
 
+    it('should keep the scopes and endpoints of a custom OAuth2 provider', async () => {
+      const toml = `
+[[accounts]]
+name = "custom"
+email = "test@example.com"
+
+[accounts.oauth2]
+provider = "custom"
+client_id = "fake-client-id"
+client_secret = "fake-client-secret"
+refresh_token = "fake-refresh-token"
+token_url = "https://auth.example.com/token"
+auth_url = "https://auth.example.com/authorize"
+scopes = ["https://mail.example.com/imap", "offline_access"]
+
+[accounts.imap]
+host = "imap.example.com"
+
+[accounts.smtp]
+host = "smtp.example.com"
+`;
+      const configPath = path.join(sandbox.dir, 'config.toml');
+      await writeOwnerOnly(configPath, toml);
+
+      const config = await loadConfig(configPath);
+
+      expect(config.accounts[0].oauth2).toEqual({
+        provider: 'custom',
+        clientId: 'fake-client-id',
+        clientSecret: 'fake-client-secret',
+        refreshToken: 'fake-refresh-token',
+        tokenUrl: 'https://auth.example.com/token',
+        authUrl: 'https://auth.example.com/authorize',
+        scopes: ['https://mail.example.com/imap', 'offline_access'],
+      });
+    });
+
     describe('defaults for optional fields', () => {
       let config: AppConfig;
 
@@ -401,6 +438,31 @@ actions = { move_to = "Receipts" }
       const config = await loadConfig(configPath);
 
       expect(config.accounts[0].email).toBe('test@example.com');
+    });
+
+    it('should load the env account when a config file with another account exists', async () => {
+      const configPath = path.join(sandbox.dir, 'config.toml');
+      await writeOwnerOnly(configPath, MINIMAL_TOML);
+      vi.stubEnv('MCP_EMAIL_ADDRESS', 'env@example.com');
+      vi.stubEnv('MCP_EMAIL_PASSWORD', 'env-pass');
+      vi.stubEnv('MCP_EMAIL_IMAP_HOST', 'imap.example.com');
+      vi.stubEnv('MCP_EMAIL_SMTP_HOST', 'smtp.example.com');
+
+      const config = await loadConfig(configPath);
+
+      expect(config.accounts.map((account) => account.email)).toEqual(['env@example.com']);
+    });
+
+    it('should drop empty entries from MCP_EMAIL_WATCHER_FOLDERS', async () => {
+      vi.stubEnv('MCP_EMAIL_ADDRESS', 'env@example.com');
+      vi.stubEnv('MCP_EMAIL_PASSWORD', 'env-pass');
+      vi.stubEnv('MCP_EMAIL_IMAP_HOST', 'imap.example.com');
+      vi.stubEnv('MCP_EMAIL_SMTP_HOST', 'smtp.example.com');
+      vi.stubEnv('MCP_EMAIL_WATCHER_FOLDERS', 'INBOX,,Work');
+
+      const config = await loadConfig(path.join(sandbox.dir, 'nonexistent.toml'));
+
+      expect(config.settings.watcher.folders).toEqual(['INBOX', 'Work']);
     });
 
     it('should build oauth2 from MCP_EMAIL_OAUTH2_* when no password is set', async () => {
