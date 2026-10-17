@@ -88,6 +88,16 @@ describe('OAuthService.getAccessToken', () => {
     expect(watcherCopy.accessToken).toBe('tok-1');
   });
 
+  it('should refresh each refresh token on its own when two accounts need a token at once', async () => {
+    fakeTokenEndpoint(tokenResponse('tok-A'), tokenResponse('tok-B'));
+    const service = new OAuthService();
+    const tokens = await Promise.all([
+      service.getAccessToken(googleConfig()),
+      service.getAccessToken(googleConfig()),
+    ]);
+    expect(tokens).toEqual(['tok-A', 'tok-B']);
+  });
+
   it('should try again after a failed refresh instead of replaying the failure', async () => {
     const calls = fakeTokenEndpoint(
       () => new Response('temporarily unavailable', { status: 503 }),
