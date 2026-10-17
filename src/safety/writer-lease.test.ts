@@ -162,6 +162,53 @@ describe('writer lease', () => {
     });
   });
 
+  // A second start() that replaced the timer would leave the first one running past halt().
+  it('should not touch the lock after one halt() when start() ran twice', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const holder = startProcess();
+    const follower = startProcess();
+    await holder.lease.tick();
+    await follower.lease.start();
+    await follower.lease.start();
+    await follower.lease.halt();
+    const before = await fs.stat(lockPath);
+    // From here the holder's lock is stale, so any attempt the follower makes takes it.
+    clock += 121_000;
+    vi.advanceTimersByTime(2 * WRITER_LEASE_RENEW_MS);
+    await follower.lease.halt();
+    const after = await fs.stat(lockPath).catch(() => undefined);
+    expect({ ino: after?.ino, mtimeMs: after?.mtimeMs }).toEqual({
+      ino: before.ino,
+      mtimeMs: before.mtimeMs,
+    });
+  });
+
+  // The renewal timer must not keep a CLI process alive after its work is done.
+  it('should not hold the process open with its renewal timer', async () => {
+    const intervals = vi.spyOn(globalThis, 'setInterval');
+    const proc = startProcess();
+    try {
+      await proc.lease.start();
+      const timer = intervals.mock.results[0]?.value as NodeJS.Timeout | undefined;
+      expect(timer?.hasRef()).toBe(false);
+    } finally {
+      await proc.lease.halt();
+      intervals.mockRestore();
+    }
+  });
+
+  // In production this is the Mailoo state directory, which a fresh server may create here
+  // first and which later holds queued email bodies.
+  it('should create its lock directory readable by the owner only under umask 022', async () => {
+    const previous = process.umask(0o022);
+    try {
+      await startProcess().lease.tick();
+    } finally {
+      process.umask(previous);
+    }
+    expect((await fs.stat(path.dirname(lockPath))).mode % 0o1000).toBe(0o700);
+  });
+
   it('should not start writers again while a lease loss is still stopping them', async () => {
     const events: string[] = [];
     let finishStopping: () => void = () => {};
