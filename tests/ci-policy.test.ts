@@ -604,14 +604,15 @@ describe('dependabot groups', () => {
 
   it('should hold each blocked major at the first version its holder rules out', () => {
     // A missing hold lets Dependabot open a major that breaks lint or the build. A hold at the
-    // manifest's own major blocks that major's patches too.
-    const rootNpm =
-      config
-        .split(/\n {2}- package-ecosystem: /)
-        .find((entry) => entry.startsWith('npm\n') && /^ {4}directory: \/$/m.test(entry)) ?? '';
+    // manifest's own major blocks that major's patches too. Every npm update is read: the
+    // tooling CLI update holds nothing, so a hold added there has to be derived here as well.
+    const npmUpdates = config
+      .split(/\n {2}- package-ecosystem: /)
+      .filter((entry) => entry.startsWith('npm\n'))
+      .join('\n');
     const held = Object.fromEntries(
       [
-        ...rootNpm.matchAll(
+        ...npmUpdates.matchAll(
           /^ {6}- dependency-name: "([^"]+)"\n {8}versions: \[">=(\d+\.\d+\.\d+)"\]$/gm,
         ),
       ].map(([, name, floor]) => [name, floor]),
