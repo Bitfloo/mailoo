@@ -71,7 +71,7 @@ describe('sanitizeMailboxName', () => {
     expect(sanitizeMailboxName('a"b')).toBe('a"b');
   });
 
-  it.each(['INBOX\r\nSent', 'IN\x00BOX', 'INBOX\x7F'])(
+  it.each(['INBOX\r\nSent', 'IN\x00BOX', 'IN\x1FBOX', 'INBOX\x7F'])(
     'throws when the name contains a control character (%j)',
     (name) => {
       expect(() => sanitizeMailboxName(name)).toThrow('control characters');
@@ -471,6 +471,13 @@ describe('validateLabelName', () => {
 
   it('throws on control characters', () => {
     expect(() => validateLabelName('label\x00name')).toThrow('control characters');
+  });
+
+  it.each([
+    { name: 'work\x1Flabel', char: 'U+001F' },
+    { name: 'work\x7Flabel', char: 'U+007F DEL' },
+  ])('throws on a control character at the edge of the rejected range ($char)', ({ name }) => {
+    expect(() => validateLabelName(name)).toThrow('control characters');
   });
 
   it('trims whitespace and returns valid name', () => {
