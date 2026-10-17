@@ -100,21 +100,29 @@ describe('stripHtml', () => {
     expect(text).toBe(letters);
   });
 
-  it('should strip fifty thousand style blocks within one second', () => {
+  it('should lowercase the HTML once per walk however many style blocks it drops', () => {
     // A newsletter with one <style> per table cell once lowercased the whole body per tag;
     // the walk runs on the single event loop, so every MCP session and the watcher stall with it.
-    const html = `${'<style>a{}</style>'.repeat(50_000)}<p>Hello</p>`;
-    const started = performance.now();
-    const text = stripHtml(html);
-    expect({ text, fast: performance.now() - started < 1000 }).toEqual({
-      text: 'Hello',
-      fast: true,
-    });
+    const replace = vi.spyOn(String.prototype, 'replace');
+    try {
+      stripHtml(`${'<style>a{}</style>'.repeat(1_000)}<p>Hello</p>`);
+      const lowercasings = replace.mock.calls.filter(
+        ([pattern]) => pattern instanceof RegExp && pattern.source === '[A-Z]+',
+      );
+      expect(lowercasings).toHaveLength(1);
+    } finally {
+      replace.mockRestore();
+    }
   });
 
   it('should keep text after a script when a character before it lengthens on lowercasing', () => {
     // 'İ'.toLowerCase() is two code units, so a lowercased copy no longer lines up with the source.
     expect(stripHtml('<p>İ</p><script>x</script>Hi')).toBe('İ\n\nHi');
+  });
+
+  it('should convert an HTML part of exactly MAX_HTML_INPUT_CHARS without a cut note', () => {
+    const html = `<p>${'A'.repeat(MAX_HTML_INPUT_CHARS - '<p></p>'.length)}</p>`;
+    expect(stripHtml(html).length).toBe(MAX_HTML_INPUT_CHARS - '<p></p>'.length);
   });
 
   it('should convert at most MAX_HTML_INPUT_CHARS of HTML and say the rest was cut', () => {
