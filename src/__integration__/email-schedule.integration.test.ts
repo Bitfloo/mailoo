@@ -15,21 +15,27 @@ import {
 describe('scheduled mail on GreenMail', () => {
   let services: TestServices;
   let stateHome: string;
+  let createdHere: string[] = [];
 
   beforeAll(async () => {
     stateHome = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-it-'));
     vi.stubEnv('XDG_STATE_HOME', stateHome);
     services = createTestServices(buildTestAccount());
-    // Cancel moves the draft to Trash, so without Trash this file passed only after another file
-    // made it. A rejection means GreenMail kept the mailbox from an earlier run in this container.
-    await Promise.allSettled(
-      ['Drafts', 'Trash'].map((mailbox) =>
-        services.imapService.createMailbox(TEST_ACCOUNT_NAME, mailbox),
-      ),
+    // GreenMail starts with neither folder, and cancel and delivery move the draft to Trash.
+    // Without its own Trash this file passed only after another file had created one.
+    const existing = await services.imapService.listMailboxes(TEST_ACCOUNT_NAME);
+    createdHere = ['Drafts', 'Trash'].filter(
+      (name) => !existing.some((mailbox) => mailbox.path === name),
+    );
+    await Promise.all(
+      createdHere.map((name) => services.imapService.createMailbox(TEST_ACCOUNT_NAME, name)),
     );
   });
 
   afterAll(async () => {
+    await Promise.all(
+      createdHere.map((name) => services.imapService.deleteMailbox(TEST_ACCOUNT_NAME, name)),
+    );
     await services.connections.closeAll();
     vi.unstubAllEnvs();
     await fs.rm(stateHome, { recursive: true, force: true });
