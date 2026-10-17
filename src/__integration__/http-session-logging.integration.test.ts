@@ -5,10 +5,17 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import { boundServerCount, mcpLog } from '../logging.js';
-import { openEventStream, postInitialize, startHost } from './helpers/http-host.js';
+import {
+  initializeBody,
+  openEventStream,
+  postInitialize,
+  postRpc,
+  startHost,
+} from './helpers/http-host.js';
 
 // Each session binds its own McpServer for logging. One module-wide reference
 // kept only the session bound last, so its close silenced every other client.
@@ -67,6 +74,50 @@ describe('HTTP session logging cleanup', () => {
       });
     } finally {
       await client.close().catch(() => undefined);
+      await running.stop();
+    }
+  });
+});
+
+// A session the transport never registers is never closed by it, so only the
+// host can release the server openSession bound for logging.
+describe('HTTP session logging when the session never registers', () => {
+  it('should release the session server from logging when an initialize request is refused before the session registers', async () => {
+    const running = await startHost({ now: 1_000 }, 5_000);
+    const before = boundServerCount();
+    try {
+      // The SDK answers 406 before it registers a session when Accept lacks text/event-stream.
+      const response = await postRpc(running.port, initializeBody(1), {
+        accept: 'application/json',
+      });
+
+      await vi.waitFor(() => {
+        expect({ status: response.status, bound: boundServerCount() }).toEqual({
+          status: 406,
+          bound: before,
+        });
+      });
+    } finally {
+      await running.stop();
+    }
+  });
+
+  it('should release the session server from logging when session setup fails', async () => {
+    const running = await startHost({ now: 1_000 }, 5_000);
+    const before = boundServerCount();
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    vi.spyOn(McpServer.prototype, 'connect').mockRejectedValueOnce(new Error('connect failed'));
+    try {
+      const response = await postInitialize(running.port, 1);
+
+      await vi.waitFor(() => {
+        expect({ status: response.status, bound: boundServerCount() }).toEqual({
+          status: 500,
+          bound: before,
+        });
+      });
+    } finally {
+      vi.restoreAllMocks();
       await running.stop();
     }
   });

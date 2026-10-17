@@ -89,10 +89,11 @@ export function postInitialize(port: number, id: number): Promise<RpcResponse> {
   return postRpc(port, initializeBody(id));
 }
 
+/** `accept` defaults to the two types a Streamable HTTP client must list. */
 export function postRpc(
   port: number,
   payload: string,
-  options: { sessionId?: string } = {},
+  options: { sessionId?: string; accept?: string } = {},
 ): Promise<RpcResponse> {
   return new Promise((resolve, reject) => {
     const req = http.request(
@@ -105,7 +106,7 @@ export function postRpc(
           host: `127.0.0.1:${port}`,
           'content-type': 'application/json',
           'content-length': Buffer.byteLength(payload),
-          accept: 'application/json, text/event-stream',
+          accept: options.accept ?? 'application/json, text/event-stream',
           ...(options.sessionId ? { 'mcp-session-id': options.sessionId } : {}),
         },
       },
