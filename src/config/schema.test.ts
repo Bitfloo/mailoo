@@ -72,6 +72,27 @@ describe('SmtpConfigSchema', () => {
       max_messages: 100,
     });
   });
+
+  // The default skips validation, so only an explicit value reaches the bound.
+  it('should accept pool.max_connections = 1 at its bound', () => {
+    const result = SmtpConfigSchema.safeParse({
+      host: 'smtp.example.com',
+      pool: { max_connections: 1 },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('should refuse pool.max_connections = 0 one step past its bound', () => {
+    const result = SmtpConfigSchema.safeParse({
+      host: 'smtp.example.com',
+      pool: { max_connections: 0 },
+    });
+
+    expect(result.error?.issues.map((issue) => issue.path.join('.'))).toEqual([
+      'pool.max_connections',
+    ]);
+  });
 });
 
 describe('AccountConfigSchema', () => {
@@ -270,6 +291,10 @@ describe('SettingsSchema numeric bounds', () => {
     'hooks.batch_delay': (value) => ({ hooks: { batch_delay: value } }),
     'hooks.calendar_alarm_minutes': (value) => ({ hooks: { calendar_alarm_minutes: value } }),
     rate_limit: (value) => ({ rate_limit: value }),
+    'system_one.body_max_chars': (value) => ({ system_one: { body_max_chars: value } }),
+    'system_one.thresholds.injection_high': (value) => ({
+      system_one: { thresholds: { injection_high: value } },
+    }),
   };
 
   it.each([
@@ -280,6 +305,10 @@ describe('SettingsSchema numeric bounds', () => {
     ['hooks.calendar_alarm_minutes', 0],
     ['hooks.calendar_alarm_minutes', 1440],
     ['rate_limit', 1],
+    ['system_one.body_max_chars', 256],
+    ['system_one.body_max_chars', 24_000],
+    ['system_one.thresholds.injection_high', 0],
+    ['system_one.thresholds.injection_high', 1],
   ])('should accept %s = %d at its bound', (field, value) => {
     expect(SettingsSchema.safeParse(settingAt[field](value)).success).toBe(true);
   });
@@ -292,6 +321,10 @@ describe('SettingsSchema numeric bounds', () => {
     ['hooks.calendar_alarm_minutes', -1],
     ['hooks.calendar_alarm_minutes', 1441],
     ['rate_limit', 0],
+    ['system_one.body_max_chars', 255],
+    ['system_one.body_max_chars', 24_001],
+    ['system_one.thresholds.injection_high', -0.01],
+    ['system_one.thresholds.injection_high', 1.01],
   ])('should refuse %s = %d one step past its bound', (field, value) => {
     const result = SettingsSchema.safeParse(settingAt[field](value));
 
