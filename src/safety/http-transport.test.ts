@@ -709,6 +709,39 @@ describe('startGuardedHttpServers', () => {
     }
   });
 
+  // The body is the JSON-RPC error a client parses; only its status was checked.
+  it.each([
+    [
+      'a foreign Host',
+      {},
+      (port: number) => ({ host: `rebind.example:${port}` }),
+      'Invalid Host header',
+    ],
+    [
+      'a missing bearer token',
+      { token: TOKEN },
+      (port: number) => ({ host: `127.0.0.1:${port}` }),
+      'Unauthorized',
+    ],
+  ])(
+    'should answer %s with a JSON-RPC -32000 error body',
+    async (_case, extra, headers, message) => {
+      const policy = resolveHttpListen({ port: 0, host: '127.0.0.1', ...extra });
+      const listener = await startGuardedHttpServers(policy, okHandler);
+      try {
+        const res = await send(listener.port, headers(listener.port));
+
+        expect(JSON.parse(res.body)).toEqual({
+          jsonrpc: '2.0',
+          error: { code: -32000, message },
+          id: null,
+        });
+      } finally {
+        await listener.close();
+      }
+    },
+  );
+
   it('returns 403 for a foreign Origin', async () => {
     const policy = resolveHttpListen({ port: 0, host: '127.0.0.1' });
     const listener = await startGuardedHttpServers(policy, okHandler);
