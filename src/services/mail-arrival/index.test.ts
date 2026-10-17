@@ -352,4 +352,12 @@ describe('README System One section', () => {
     const readme = await readFile(path.join(rootFromHere(), '../../../README.md'), 'utf8');
     expect(readme).toContain(`remembers the last ${SEEN_LIMIT} messages it classified`);
   });
+
+  // Held by 'should classify the same Message-ID once for each account that received it'.
+  it('should state that each account classifies its own copy of a message', async () => {
+    const readme = await readFile(path.join(rootFromHere(), '../../../README.md'), 'utf8');
+    expect(readme).toContain(
+      'A message that reaches two of your accounts is classified once in each.',
+    );
+  });
 });
