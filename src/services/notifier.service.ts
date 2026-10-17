@@ -287,6 +287,29 @@ export async function postWebhook(
   });
 }
 
+/**
+ * The MCP log entry for an alert at its urgency's level. Logs at info and above end up
+ * in shared client logs, so sender and subject go in a separate `debug` entry; a `low`
+ * alert is already at debug and logs one entry with them.
+ */
+function formatAlertLog(payload: AlertPayload): {
+  level: (typeof MCP_LOG_LEVEL_MAP)[UrgencyLevel];
+  message: string;
+  debugDetail?: string;
+} {
+  const level = MCP_LOG_LEVEL_MAP[payload.priority];
+  const icon = payload.priority === 'urgent' ? '🚨' : '📧';
+  const where = `${icon} [${payload.priority.toUpperCase()}] ${payload.account}${
+    payload.folder ? `/${payload.folder}` : ''
+  }${payload.uid ? ` uid ${payload.uid}` : ''}`;
+  const tags = `${payload.labels?.length ? ` [${payload.labels.join(', ')}]` : ''}${
+    payload.ruleName ? ` (rule: ${payload.ruleName})` : ''
+  }`;
+  const detail = ` from ${payload.sender.name ?? payload.sender.address}: "${payload.subject}"`;
+  if (level === 'debug') return { level, message: `${where}${detail}${tags}` };
+  return { level, message: `${where}${tags}`, debugDetail: `${where}${detail}` };
+}
+
 // ---------------------------------------------------------------------------
 // NotifierService
 // ---------------------------------------------------------------------------
@@ -492,22 +515,9 @@ export default class NotifierService {
       URGENCY_ORDER[payload.priority] >= URGENCY_ORDER[this.config.urgencyThreshold];
 
     // 1. MCP log — always, with appropriate level
-    const logLevel = MCP_LOG_LEVEL_MAP[payload.priority];
-    const icon = payload.priority === 'urgent' ? '🚨' : '📧';
-    const where = `${icon} [${payload.priority.toUpperCase()}] ${payload.account}${
-      payload.folder ? `/${payload.folder}` : ''
-    }${payload.uid ? ` uid ${payload.uid}` : ''}`;
-    const tags = `${payload.labels?.length ? ` [${payload.labels.join(', ')}]` : ''}${
-      payload.ruleName ? ` (rule: ${payload.ruleName})` : ''
-    }`;
-    const detail = ` from ${payload.sender.name ?? payload.sender.address}: "${payload.subject}"`;
-    // Logs at info and above end up in shared client logs: sender and subject stay at debug.
-    if (logLevel === 'debug') {
-      await mcpLog('debug', 'notifier', `${where}${detail}${tags}`);
-    } else {
-      await mcpLog(logLevel, 'notifier', `${where}${tags}`);
-      await mcpLog('debug', 'notifier', `${where}${detail}`);
-    }
+    const log = formatAlertLog(payload);
+    await mcpLog(log.level, 'notifier', log.message);
+    if (log.debugDetail !== undefined) await mcpLog('debug', 'notifier', log.debugDetail);
 
     // 2. Desktop notification — if enabled + meets threshold (or forced by rule)
     if (this.config.desktop && (meetsThreshold || forceDesktop)) {
