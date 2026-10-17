@@ -129,6 +129,12 @@ describe('RemindersService checkPermissions', () => {
     expect(result).toEqual({ granted: true, platform: 'darwin', instructions: [] });
   });
 
+  it('should report Reminders access granted when Reminders has no lists', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '0\n', stderr: '' });
+    const result = await onDarwin(async (svc) => svc.checkPermissions());
+    expect(result.granted).toBe(true);
+  });
+
   it('should report no Reminders access when osascript rejects', async () => {
     osascriptImpl.mockRejectedValueOnce(
       Object.assign(new Error('Command failed: osascript'), {
@@ -262,5 +268,85 @@ describe('addReminder failures', () => {
       message:
         'Reminders access denied. Go to System Settings → Privacy → Reminders and enable Terminal.',
     });
+  });
+});
+
+describe('addReminder priority and notes', () => {
+  /** The script for a reminder added with the confirm dialog, which the user then cancels. */
+  async function dialogScript(input: {
+    priority?: 'none' | 'low' | 'medium' | 'high';
+    notes?: string;
+  }): Promise<string> {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"cancelled"}', stderr: '' });
+    await onDarwin(async (svc) => svc.addReminder({ title: 'Call the bank', ...input }));
+    return osascriptImpl.mock.calls.at(-1)?.[1][1] ?? '';
+  }
+
+  it.each([
+    ['high', 'High', '1'],
+    ['medium', 'Medium', '5'],
+    ['low', 'Low', '9'],
+  ] as const)(
+    'should show priority %s as %s in the dialog and send priority %s',
+    async (priority, label, sent) => {
+      const script = await dialogScript({ priority });
+      expect({
+        dialog: dialogLinesOf(script).at(-1),
+        sent: /priority:(\d+)/.exec(script)?.[1],
+      }).toEqual({ dialog: `⚠️ Priority: ${label}`, sent });
+    },
+  );
+
+  it('should neither show nor send a priority for priority none', async () => {
+    const script = await dialogScript({ priority: 'none' });
+    expect({ dialog: dialogLinesOf(script), sent: script.includes('priority:') }).toEqual({
+      dialog: ['\u{1F514} Call the bank'],
+      sent: false,
+    });
+  });
+
+  it('should cut notes after 200 characters with an ellipsis in the dialog', async () => {
+    const at200 = dialogLinesOf(await dialogScript({ notes: 'a'.repeat(200) }))[1];
+    const at201 = dialogLinesOf(await dialogScript({ notes: 'b'.repeat(201) }))[1];
+    expect({ at200, at201 }).toEqual({
+      at200: `\u{1F4DD} ${'a'.repeat(200)}`,
+      at201: `\u{1F4DD} ${'b'.repeat(200)}…`,
+    });
+  });
+});
+
+describe('listReminders defaults', () => {
+  it('should list 20 incomplete reminders by default', async () => {
+    await onDarwin(async (svc) => svc.listReminders());
+    const script = osascriptImpl.mock.calls[0]?.[1][1] ?? '';
+    expect(
+      script.split('\n').filter((line) => /^set (maxResults|includeCompleted) to /.test(line)),
+    ).toEqual(['set maxResults to 20', 'set includeCompleted to false']);
+  });
+});
+
+describe('RemindersService off macOS', () => {
+  it('should refuse add, list and permission checks without running osascript', async () => {
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+    try {
+      const svc = new RemindersService();
+      expect({
+        add: await svc.addReminder({ title: 'Call the bank' }),
+        list: await svc.listReminders(),
+        permissions: await svc.checkPermissions(),
+        osascriptRuns: osascriptImpl.mock.calls.length,
+      }).toEqual({
+        add: { status: 'no_display', message: 'Reminders.app is only available on macOS.' },
+        list: [],
+        permissions: {
+          granted: false,
+          platform: 'linux',
+          instructions: ['Reminders.app is only available on macOS.'],
+        },
+        osascriptRuns: 0,
+      });
+    } finally {
+      platform.mockRestore();
+    }
   });
 });
