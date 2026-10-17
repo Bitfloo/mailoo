@@ -63,21 +63,22 @@ describe('writer lease', () => {
     expect([first.leads, second.leads]).toEqual([1, 0]);
   });
 
-  // Literals, not the constants: four missed 30 s renewals is the contract.
-  it('should not take over a lease renewed 90 s ago', async () => {
+  // Literals, not the constants: four missed 30 s renewals is the contract. Half a
+  // second either side of 120 s, so three or five missed renewals would fail one test.
+  it('should not take over a lease renewed 119 500 ms ago', async () => {
     const holder = startProcess();
     const follower = startProcess();
     await holder.lease.tick();
-    clock += 90_000;
+    clock += 119_500;
     await follower.lease.tick();
     expect(follower.lease.leading).toBe(false);
   });
 
-  it('should take over a lease unrenewed for 121 s', async () => {
+  it('should take over a lease unrenewed for 120 500 ms', async () => {
     const holder = startProcess();
     const follower = startProcess();
     await holder.lease.tick();
-    clock += 121_000;
+    clock += 120_500;
     await follower.lease.tick();
     expect(follower.lease.leading).toBe(true);
   });
