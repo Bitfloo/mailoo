@@ -46,12 +46,18 @@ describe('writeFileAtomic', () => {
   });
 
   it('should create the file readable by its owner only', async () => {
-    await withDir(async (dir) => {
-      const file = path.join(dir, 'state.json');
-      await writeFileAtomic(file, '{}');
-      const stat = await fs.stat(file);
-      expect(stat.mode % 0o1000).toBe(0o600);
-    });
+    // Under umask 077 a 0644 create also lands at 0600, so the umask is pinned to the common 022.
+    const previous = process.umask(0o022);
+    try {
+      await withDir(async (dir) => {
+        const file = path.join(dir, 'state.json');
+        await writeFileAtomic(file, '{}');
+        const stat = await fs.stat(file);
+        expect(stat.mode % 0o1000).toBe(0o600);
+      });
+    } finally {
+      process.umask(previous);
+    }
   });
 
   it('should flush the temp file to disk before renaming it over the target', async () => {
