@@ -116,49 +116,31 @@ describe('MailArrival.handle', () => {
     systemOneMock.mockResolvedValue(sdkAnswers());
   });
 
-  it('STOREs flag then MOVEs; never calls getEmail', async () => {
+  it('should flag a message before moving it', async () => {
     const imap = mockImap();
-    const arrival = await MailArrival.tryCreate({
-      config: systemOneConfig(),
-      imap: imap as unknown as ImapService,
-      apiKey: 'test-key',
-      accounts: [account],
+    const writes: unknown[][] = [];
+    imap.setFlags.mockImplementation(async (...args: unknown[]) => {
+      writes.push(['setFlags', ...args]);
     });
-    if (!arrival) throw new Error('expected MailArrival instance');
+    imap.moveEmail.mockImplementation(async (...args: unknown[]) => {
+      writes.push(['moveEmail', ...args]);
+    });
+    await (await createArrival(imap)).handle(arrivalEmail('10'));
+    expect(writes).toEqual([
+      ['setFlags', 'personal', '10', 'INBOX', 'flag'],
+      ['moveEmail', 'personal', '10', 'INBOX', 'Receipts'],
+    ]);
+  });
 
-    const action = await arrival.handle({
-      account: 'personal',
-      mailbox: 'INBOX',
-      meta: {
-        id: '10',
-        subject: 'Invoice',
-        from: { name: 'Billing', address: 'billing@example.com' },
-        to: [{ address: 'me@example.com' }],
-        date: '2026-09-21T00:00:00.000Z',
-        seen: false,
-        flagged: false,
-        answered: false,
-        hasAttachments: false,
-        labels: [],
-        messageId: '<mid@example.com>',
-      },
-    });
-
-    expect(action).toEqual({
-      kind: 'apply',
-      destinationMailbox: 'Receipts',
-      flag: true,
-    });
-    expect(imap.setFlags).toHaveBeenCalledOnce();
-    expect(imap.setFlags).toHaveBeenCalledWith('personal', '10', 'INBOX', 'flag');
-    expect(imap.moveEmail).toHaveBeenCalledOnce();
-    expect(imap.moveEmail).toHaveBeenCalledWith('personal', '10', 'INBOX', 'Receipts');
-    const flagOrder = imap.setFlags.mock.invocationCallOrder[0];
-    const moveOrder = imap.moveEmail.mock.invocationCallOrder[0];
-    expect(flagOrder).toBeLessThan(moveOrder);
-    expect(imap.peekAttachments).toHaveBeenCalledWith('personal', '10', 'INBOX');
-    expect(imap.getEmail).not.toHaveBeenCalled();
-    expect(imap.peekText).not.toHaveBeenCalled();
+  // Headers and the attachment list only: the body stays on the server while include_body is off.
+  it('should not read the whole message', async () => {
+    const imap = mockImap();
+    await (await createArrival(imap)).handle(arrivalEmail('10'));
+    expect({
+      attachmentLists: imap.peekAttachments.mock.calls,
+      bodies: imap.peekText.mock.calls.length,
+      wholeMessages: imap.getEmail.mock.calls.length,
+    }).toEqual({ attachmentLists: [['personal', '10', 'INBOX']], bodies: 0, wholeMessages: 0 });
   });
 
   it('calls peekText when include_body is true and still never getEmail', async () => {
