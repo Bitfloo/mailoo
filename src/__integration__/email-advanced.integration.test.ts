@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import type { TestServices } from './helpers/index.js';
 import {
   buildTestAccount,
@@ -138,6 +138,38 @@ describe('Advanced Email Operations', () => {
 
       const contents = await Promise.all(saved.map(async (s) => readFile(s.localPath, 'utf-8')));
       expect(contents.sort()).toEqual(['first-notes', 'second-notes']);
+    });
+
+    it('should write an attachment named ".." inside the destination directory', async () => {
+      const emailId = await seedAndFind('Dot-dot attachment save', [
+        { filename: '..', content: 'dot-dot-body', contentType: 'text/plain' },
+      ]);
+      const destDir = join(root, 'out');
+
+      const saved = await services.imapService.saveEmailAttachments(
+        TEST_ACCOUNT_NAME,
+        emailId,
+        'INBOX',
+        destDir,
+      );
+
+      expect(saved.map((s) => relative(destDir, s.localPath))).toEqual(['attachment']);
+    });
+
+    it('should strip directories from a traversal filename', async () => {
+      const emailId = await seedAndFind('Traversal attachment save', [
+        { filename: '../../evil.txt', content: 'evil-body', contentType: 'text/plain' },
+      ]);
+      const destDir = join(root, 'a', 'b');
+
+      const saved = await services.imapService.saveEmailAttachments(
+        TEST_ACCOUNT_NAME,
+        emailId,
+        'INBOX',
+        destDir,
+      );
+
+      expect(saved.map((s) => relative(destDir, s.localPath))).toEqual(['evil.txt']);
     });
   });
 

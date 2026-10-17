@@ -36,8 +36,9 @@ parts instead of returning the first one. The same refusal applies to
 
 `add_to_calendar` with `save_attachments`, and the mail-arrival hook that
 adds events to the calendar, save every attachment of the message under
-`$XDG_DATA_HOME/mailoo/calendar-attachments/`. Attachments that share a
-name are saved as `name.ext`, `name-2.ext`, and so on.
+`$XDG_DATA_HOME/mailoo/calendar-attachments/`. Each file keeps only the last
+path segment of the attachment name, without leading dots, and attachments
+that share a name are saved as `name.ext`, `name-2.ext`, and so on.
 
 ## `export_email`
 

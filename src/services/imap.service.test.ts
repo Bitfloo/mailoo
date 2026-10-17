@@ -537,6 +537,23 @@ describe('ImapService', () => {
       const contents = await Promise.all(saved.map(async (s) => fs.readFile(s.localPath, 'utf-8')));
       expect(contents.sort()).toEqual(['body-of-part-2', 'body-of-part-3']);
     });
+
+    it.each([
+      ['../../evil.txt', 'evil.txt'],
+      ['..\\..\\evil.txt', 'evil.txt'],
+      ['..', 'attachment'],
+      ['.bashrc', 'bashrc'],
+    ])('should keep attachment %j inside the destination as %j', async (filename, expected) => {
+      const structure = twinAttachmentStructure(filename);
+      structure.childNodes.pop();
+      client.fetchOne.mockResolvedValue({ uid: 9, bodyStructure: structure });
+      downloadReturnsPartName();
+      const destDir = path.join(root, 'a', 'b');
+
+      const saved = await service.saveEmailAttachments('test', '9', 'INBOX', destDir);
+
+      expect(saved.map((s) => path.relative(destDir, s.localPath))).toEqual([expected]);
+    });
   });
 
   describe('getEmail', () => {

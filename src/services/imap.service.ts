@@ -1546,7 +1546,7 @@ export default class ImapService {
       const usedNames = new Set<string>();
       // eslint-disable-next-line no-restricted-syntax
       for (const meta of parts) {
-        const name = uniqueFilename(meta.filename.replace(/[/\\?%*:|"<>]/g, '_'), usedNames);
+        const name = uniqueFilename(sanitizeAttachmentFilename(meta.filename), usedNames);
         const localPath = join(destDir, name);
         try {
           // imapflow runs one command at a time per connection.
