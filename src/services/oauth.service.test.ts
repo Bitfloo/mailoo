@@ -73,6 +73,7 @@ function googleConfig(overrides: Partial<OAuth2Config> = {}): OAuth2Config {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -117,6 +118,26 @@ describe('OAuthService.getAccessToken', () => {
       service.getAccessToken(googleConfig()),
     ]);
     expect(tokens).toEqual(['tok-A', 'tok-B']);
+  });
+
+  it('should refresh again only after the token it fetched has expired', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const issuedAt = new Date('2026-10-01T08:00:00.000Z').getTime();
+    vi.setSystemTime(issuedAt);
+    const calls = fakeTokenEndpoint(tokenResponse('tok-1'), tokenResponse('tok-2'));
+    const service = new OAuthService();
+    const oauth2 = googleConfig();
+
+    await service.getAccessToken(oauth2);
+    expect(oauth2.tokenExpiry).toBe(issuedAt + 3_600_000);
+
+    vi.setSystemTime(issuedAt + 30 * 60_000);
+    expect(await service.getAccessToken(oauth2)).toBe('tok-1');
+
+    // Past the five-minute buffer before the one-hour expiry.
+    vi.setSystemTime(issuedAt + 56 * 60_000);
+    expect(await service.getAccessToken(oauth2)).toBe('tok-2');
+    expect(calls).toHaveLength(2);
   });
 
   it('should try again after a failed refresh instead of replaying the failure', async () => {
