@@ -156,6 +156,14 @@ describe('OAuth2ConfigSchema custom endpoints', () => {
     expect(OAuth2ConfigSchema.safeParse(config).error?.issues[0]?.path).toEqual(['token_url']);
   });
 
+  it('should reject an http auth_url even when token_url is https', () => {
+    const config = {
+      ...customOAuth('https://auth.example.com/token'),
+      auth_url: 'http://auth.example.com/authorize',
+    };
+    expect(OAuth2ConfigSchema.safeParse(config).error?.issues[0]?.path).toEqual(['auth_url']);
+  });
+
   it('should name https in the rejection message', () => {
     expect(() => OAuth2ConfigSchema.parse(customOAuth('http://auth.example.com/token'))).toThrow(
       /https/,
