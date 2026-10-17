@@ -252,6 +252,16 @@ describe('WatcherService reconnect timer', () => {
     const timer = setTimeoutSpy.mock.results[reconnect]?.value as NodeJS.Timeout | undefined;
     expect(timer?.hasRef()).toBe(false);
   });
+
+  // Placed after the spy test on purpose: a teardown that left that test's fake setTimeout on
+  // globalThis would hand it back here as the real one, and this timer would never fire.
+  it('should have real timers again after a test that spied on setTimeout', async () => {
+    vi.useRealTimers();
+    const fired = await new Promise<boolean>((resolve) => {
+      setTimeout(() => resolve(true), 5);
+    });
+    expect(fired).toBe(true);
+  });
 });
 
 describe('WatcherService stop', () => {
