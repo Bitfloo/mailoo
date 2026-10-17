@@ -102,6 +102,15 @@ describe('testImap', () => {
       details: { messages: 1834, folders: 2 },
     });
   });
+
+  it('should report success with no message count when no folder answers STATUS', async () => {
+    h.missing.add('INBOX');
+    h.missing.add('[Gmail]/All Mail');
+    expect(await testImap(account)).toEqual({
+      success: true,
+      details: { messages: 0, folders: 2 },
+    });
+  });
 });
 
 describe('testSmtp', () => {
