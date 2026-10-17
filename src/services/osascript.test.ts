@@ -1,0 +1,108 @@
+import type { execFile as ExecFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const { osascriptImpl } = vi.hoisted(() => ({
+  osascriptImpl: vi.fn(
+    async (): Promise<{ stdout: string; stderr: string }> => ({
+      stdout: '',
+      stderr: '',
+    }),
+  ),
+}));
+
+vi.mock('node:child_process', () => ({
+  execFile: Object.assign(() => undefined, {
+    [Symbol.for('nodejs.util.promisify.custom')]: osascriptImpl,
+  }),
+}));
+
+import { escapeAS, JSON_HANDLERS, parseOsascriptJson, runOsascript } from './osascript.js';
+
+/** Shape of the error promisified execFile rejects with (child_process docs). */
+function execFailure(fields: Record<string, unknown>): Error {
+  return Object.assign(new Error('Command failed: osascript -e set t to "Quarterly board pack"'), {
+    stdout: '',
+    ...fields,
+  });
+}
+
+describe('escapeAS', () => {
+  it('should escape backslashes', () => {
+    expect(escapeAS('a\\b')).toBe('a\\\\b');
+  });
+
+  it('should escape double quotes', () => {
+    expect(escapeAS('say "hello"')).toBe('say \\"hello\\"');
+  });
+
+  it('should escape a backslash before a quote as two separate escapes', () => {
+    expect(escapeAS('path\\to\\"file"')).toBe('path\\\\to\\\\\\"file\\"');
+  });
+
+  it('should return an empty string unchanged', () => {
+    expect(escapeAS('')).toBe('');
+  });
+
+  it('should turn line breaks and tabs into AppleScript escapes', () => {
+    expect(escapeAS('a\r\nb\nc\rd\te')).toBe('a\\nb\\nc\\rd\\te');
+  });
+});
+
+describe('runOsascript', () => {
+  beforeEach(() => {
+    osascriptImpl.mockReset();
+  });
+
+  it('should reject with "timed out" when execFile kills the process at the timeout', async () => {
+    osascriptImpl.mockRejectedValueOnce(
+      execFailure({ killed: true, signal: 'SIGTERM', code: null, stderr: '' }),
+    );
+    await expect(runOsascript('return 1', 10_000)).rejects.toThrow(
+      'osascript timed out after 10 s',
+    );
+  });
+
+  it('should report stderr and not the script when osascript exits non-zero', async () => {
+    osascriptImpl.mockRejectedValueOnce(
+      execFailure({
+        killed: false,
+        code: 1,
+        stderr: '0:42: execution error: Not authorized to send Apple events to Calendar. (-1743)\n',
+      }),
+    );
+    await expect(runOsascript('return 1', 10_000)).rejects.toMatchObject({
+      message:
+        'osascript failed: 0:42: execution error: Not authorized to send Apple events to Calendar. (-1743)',
+    });
+  });
+
+  it('should return trimmed stdout on success', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '{"found":false}\n', stderr: '' });
+    await expect(runOsascript('return 1', 10_000)).resolves.toBe('{"found":false}');
+  });
+});
+
+describe('parseOsascriptJson', () => {
+  it('should keep a raw tab and newline that AppleScript leaves inside a string', () => {
+    expect(parseOsascriptJson('[{"title":"Plan\tQ3\nreview"}]', 'list events')).toEqual([
+      { title: 'Plan\tQ3\nreview' },
+    ]);
+  });
+
+  it('should name the operation and not echo the payload when the JSON is malformed', () => {
+    expect(() => parseOsascriptJson('[{"title":"Board pack', 'list events')).toThrow(
+      /^list events: osascript returned malformed JSON$/,
+    );
+  });
+});
+
+describe.runIf(process.platform === 'darwin')('JSON_HANDLERS under real osascript', () => {
+  it('should round-trip quotes, backslashes, a tab and a newline through jsonString', async () => {
+    // Pure AppleScript text handling: no application is addressed, so no permission prompt.
+    const { execFile } = await vi.importActual<{ execFile: typeof ExecFile }>('node:child_process');
+    const tricky = 'Say "hi" \\ C:\\path\tTab\nNext line';
+    const script = `${JSON_HANDLERS}\nreturn "[" & my jsonString("${escapeAS(tricky)}") & "," & my jsonString(missing value) & "]"`;
+    const { stdout } = await promisify(execFile)('osascript', ['-e', script], { timeout: 10_000 });
+    expect(parseOsascriptJson(stdout.trim(), 'round trip')).toEqual([tricky, null]);
+  });
+});

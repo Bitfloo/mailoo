@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { delimitUntrusted } from '../safety/untrusted-content.js';
+import { escapeAS, JSON_HANDLERS, parseOsascriptJson, runOsascript } from './osascript.js';
 
 const execFile = promisify(execFileCb);
 
@@ -133,17 +134,6 @@ interface JXAScriptOptions {
   confirm: boolean;
 }
 
-/** @internal Exported for testing. */
-export function escapeAS(s: string): string {
-  return s
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\r\n/g, '\\n')
-    .replace(/\n/g, '\\n')
-    .replace(/\r/g, '\\r')
-    .replace(/\t/g, '\\t');
-}
-
 /**
  * Emit AppleScript lines that set an existing date variable to a specific
  * point in time by assigning each component (year, month, day, hours, minutes,
@@ -184,6 +174,7 @@ function buildAppleScript(opts: JXAScriptOptions): string {
   const calName = escapeAS(calendarName);
 
   const lines: string[] = [
+    JSON_HANDLERS,
     `set eventTitle to "${title}"`,
     '',
     ...dateToAppleScriptLines('eventStart', event.start),
@@ -276,7 +267,7 @@ function buildAppleScript(opts: JXAScriptOptions): string {
     '  set finalCalName to name of theCal',
     'end tell',
     '',
-    'return "{\\"status\\":\\"added\\",\\"eventId\\":\\"" & eventId & "\\",\\"calendarName\\":\\"" & finalCalName & "\\"}"',
+    'return "{\\"status\\":\\"added\\",\\"eventId\\":" & my jsonString(eventId) & ",\\"calendarName\\":" & my jsonString(finalCalName) & "}"',
   );
 
   return lines.join('\n');
@@ -341,10 +332,7 @@ function statusMessage(status: AddEventStatus, title: string, calName: string | 
 async function checkPermissionsMacOS(): Promise<PermissionResult> {
   const script = 'tell application "Calendar" to return count of calendars';
   try {
-    const { stdout } = await execFile('osascript', ['-e', script], {
-      timeout: 10_000,
-    });
-    const count = parseInt(stdout.trim(), 10);
+    const count = parseInt(await runOsascript(script, 10_000), 10);
     if (count >= 0) return { granted: true, platform: 'darwin', instructions: [] };
   } catch {
     // fall through to denied
@@ -363,17 +351,17 @@ async function checkPermissionsMacOS(): Promise<PermissionResult> {
 }
 
 async function listCalendarsMacOS(): Promise<CalendarInfo[]> {
-  const script = 'tell application "Calendar" to return name of every calendar';
-  try {
-    const { stdout } = await execFile('osascript', ['-e', script], {
-      timeout: 10_000,
-    });
-    const raw = stdout.trim();
-    if (!raw) return [];
-    return raw.split(', ').map((name) => ({ id: name, name }));
-  } catch {
-    return [];
-  }
+  const script = `${JSON_HANDLERS}
+tell application "Calendar" to set calNames to name of every calendar
+set jsonResult to "["
+repeat with i from 1 to count of calNames
+  if i > 1 then set jsonResult to jsonResult & ","
+  set jsonResult to jsonResult & my jsonString(item i of calNames)
+end repeat
+return jsonResult & "]"
+`;
+  const names = parseOsascriptJson<string[]>(await runOsascript(script, 10_000), 'list calendars');
+  return names.map((name) => ({ id: name, name }));
 }
 
 async function findExistingEventMacOS(
@@ -383,7 +371,7 @@ async function findExistingEventMacOS(
 ): Promise<ExistingEventResult> {
   const searchTitle = escapeAS(title);
 
-  const script = `
+  const script = `${JSON_HANDLERS}
 set searchTitle to "${searchTitle}"
 tell application "Calendar"
   repeat with c in calendars
@@ -393,7 +381,7 @@ tell application "Calendar"
         set theEvent to item 1 of evList
         set eventId to uid of theEvent
         set calName to name of c
-        return "{\\"found\\":true,\\"eventId\\":\\"" & eventId & "\\",\\"calendarName\\":\\"" & calName & "\\"}"
+        return "{\\"found\\":true,\\"eventId\\":" & my jsonString(eventId) & ",\\"calendarName\\":" & my jsonString(calName) & "}"
       end if
     end try
   end repeat
@@ -402,10 +390,10 @@ return "{\\"found\\":false}"
 `;
 
   try {
-    const { stdout } = await execFile('osascript', ['-e', script], {
-      timeout: 10_000,
-    });
-    return JSON.parse(stdout.trim()) as ExistingEventResult;
+    return parseOsascriptJson<ExistingEventResult>(
+      await runOsascript(script, 10_000),
+      'find existing event',
+    );
   } catch {
     return { found: false };
   }
@@ -431,15 +419,11 @@ async function addEventMacOS(
   });
 
   try {
-    const { stdout } = await execFile('osascript', ['-e', script], {
-      timeout: 90_000,
-    });
-    const result = JSON.parse(stdout.trim()) as {
+    const result = parseOsascriptJson<{
       status: AddEventStatus;
       eventId?: string;
       calendarName?: string;
-      error?: string;
-    };
+    }>(await runOsascript(script, 90_000), 'add event');
     return {
       status: result.status,
       eventId: result.eventId,
@@ -499,7 +483,7 @@ async function listEventsMacOS(opts: ListEventsOptions): Promise<CalendarEventSu
   const fromDate = opts.from ? new Date(opts.from) : defaultFrom;
   const toDate = opts.to ? new Date(opts.to) : defaultTo;
 
-  const script = `
+  const script = `${JSON_HANDLERS}
 set fromDate to current date
 ${dateToAppleScriptLines('fromDate', fromDate).slice(1).join('\n')}
 
@@ -543,7 +527,7 @@ tell application "Calendar"
             end try
             if evLoc is missing value then set evLoc to ""
             if resultCount > 0 then set jsonResult to jsonResult & ","
-            set jsonResult to jsonResult & "{\\"id\\":\\"" & evId & "\\",\\"title\\":\\"" & evTitle & "\\",\\"start\\":\\"" & (evStart as text) & "\\",\\"end\\":\\"" & (evEnd as text) & "\\",\\"location\\":\\"" & evLoc & "\\",\\"calendar\\":\\"" & calName & "\\"}"
+            set jsonResult to jsonResult & "{\\"id\\":" & my jsonString(evId) & ",\\"title\\":" & my jsonString(evTitle) & ",\\"start\\":" & my jsonString(evStart as text) & ",\\"end\\":" & my jsonString(evEnd as text) & ",\\"location\\":" & my jsonString(evLoc) & ",\\"calendar\\":" & my jsonString(calName) & "}"
             set resultCount to resultCount + 1
           end if
         end repeat
@@ -556,16 +540,10 @@ set jsonResult to jsonResult & "]"
 return jsonResult
 `;
 
-  try {
-    const { stdout } = await execFile('osascript', ['-e', script], {
-      timeout: LIST_EVENTS_TIMEOUT_MS,
-    });
-    return JSON.parse(stdout.trim()) as CalendarEventSummary[];
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[mailoo] listEventsMacOS failed: ${msg}\n`);
-    return [];
-  }
+  return parseOsascriptJson<CalendarEventSummary[]>(
+    await runOsascript(script, LIST_EVENTS_TIMEOUT_MS),
+    'list events',
+  );
 }
 
 // ---------------------------------------------------------------------------

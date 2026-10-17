@@ -4,60 +4,40 @@
 
 import { describe, expect, it } from 'vitest';
 
-const { execFileMock } = vi.hoisted(() => {
-  const mock = vi.fn(
-    (
+const { osascriptImpl } = vi.hoisted(() => ({
+  osascriptImpl: vi.fn(
+    async (
       _file: string,
-      _args: unknown,
-      options: unknown,
-      callback?: (err: Error | null, stdout: string, stderr: string) => void,
-    ) => {
-      const cb = typeof options === 'function' ? options : callback;
-      if (typeof cb === 'function') {
-        cb(null, '[]', '');
-      }
-    },
-  );
-  const custom = Symbol.for('nodejs.util.promisify.custom');
-  Object.assign(mock, {
-    [custom]: async (file: string, args: unknown, options: unknown) => {
-      mock(file, args, options);
-      return { stdout: '[]', stderr: '' };
-    },
-  });
-  return { execFileMock: mock };
-});
+      _args: string[],
+      _options: { timeout?: number },
+    ): Promise<{ stdout: string; stderr: string }> => ({ stdout: '[]', stderr: '' }),
+  ),
+}));
 
 vi.mock('node:child_process', () => ({
-  execFile: execFileMock,
+  execFile: Object.assign(() => undefined, {
+    [Symbol.for('nodejs.util.promisify.custom')]: osascriptImpl,
+  }),
 }));
 
 import LocalCalendarService, {
   dateToAppleScriptLines,
-  escapeAS,
   LIST_EVENTS_TIMEOUT_MS,
 } from './local-calendar.service.js';
 
-// ---------------------------------------------------------------------------
-// escapeAS
-// ---------------------------------------------------------------------------
+/** Runs `fn` with the service believing it is on macOS, where osascript is used. */
+async function onDarwin<T>(fn: () => Promise<T>): Promise<T> {
+  const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+  try {
+    return await fn();
+  } finally {
+    platform.mockRestore();
+  }
+}
 
-describe('escapeAS', () => {
-  it('escapes backslashes', () => {
-    expect(escapeAS('a\\b')).toBe('a\\\\b');
-  });
-
-  it('escapes double quotes', () => {
-    expect(escapeAS('say "hello"')).toBe('say \\"hello\\"');
-  });
-
-  it('handles both together', () => {
-    expect(escapeAS('path\\to\\"file"')).toBe('path\\\\to\\\\\\"file\\"');
-  });
-
-  it('returns empty string unchanged', () => {
-    expect(escapeAS('')).toBe('');
-  });
+beforeEach(() => {
+  osascriptImpl.mockReset();
+  osascriptImpl.mockResolvedValue({ stdout: '[]', stderr: '' });
 });
 
 // ---------------------------------------------------------------------------
@@ -143,18 +123,52 @@ describe('listEvents timeout', () => {
   });
 
   it('passes timeout 90000 into execFile, not only the exported constant', async () => {
-    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
-    execFileMock.mockClear();
-    try {
-      const svc = new LocalCalendarService();
-      await svc.listEvents({ limit: 1 });
-      expect(execFileMock).toHaveBeenCalled();
-      const optionsArg = execFileMock.mock.calls[0].find(
-        (arg) => arg !== null && typeof arg === 'object' && 'timeout' in arg,
-      ) as { timeout?: number } | undefined;
-      expect(optionsArg?.timeout).toBe(90_000);
-    } finally {
-      platform.mockRestore();
-    }
+    await onDarwin(async () => new LocalCalendarService().listEvents({ limit: 1 }));
+    expect(osascriptImpl.mock.calls[0]?.[2].timeout).toBe(90_000);
+  });
+});
+
+describe('osascript results', () => {
+  it('should reject listEvents when osascript fails instead of reporting no events', async () => {
+    osascriptImpl.mockRejectedValueOnce(
+      Object.assign(new Error('Command failed: osascript'), {
+        killed: false,
+        code: 1,
+        stderr: 'execution error: Calendar got an error: Connection is invalid. (-609)\n',
+      }),
+    );
+    await expect(onDarwin(async () => new LocalCalendarService().listEvents())).rejects.toThrow(
+      'osascript failed: execution error: Calendar got an error: Connection is invalid. (-609)',
+    );
+  });
+
+  it('should return an event whose title holds a line break', async () => {
+    // jsonString escapes backslash and quote only; AppleScript emits the line break raw.
+    osascriptImpl.mockResolvedValueOnce({
+      stdout:
+        '[{"id":"E1","title":"Board \\"pack\\"\nreview","start":"Monday, 5 October 2026 at 09:00:00","end":"Monday, 5 October 2026 at 10:00:00","location":"","calendar":"Work"}]\n',
+      stderr: '',
+    });
+    const events = await onDarwin(async () => new LocalCalendarService().listEvents());
+    expect(events.map((e) => e.title)).toEqual(['Board "pack"\nreview']);
+  });
+
+  it('should keep a calendar name that contains a comma', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '["Work","Home, Family"]\n', stderr: '' });
+    const calendars = await onDarwin(async () => new LocalCalendarService().listCalendars());
+    expect(calendars).toEqual([
+      { id: 'Work', name: 'Work' },
+      { id: 'Home, Family', name: 'Home, Family' },
+    ]);
+  });
+
+  it('should pass every listed event field through jsonString', async () => {
+    await onDarwin(async () => new LocalCalendarService().listEvents());
+    const script = osascriptImpl.mock.calls[0]?.[1][1] ?? '';
+    expect(
+      ['evId', 'evTitle', 'evStart as text', 'evEnd as text', 'evLoc', 'calName'].filter(
+        (field) => !script.includes(`my jsonString(${field})`),
+      ),
+    ).toEqual([]);
   });
 });

@@ -757,7 +757,7 @@ Outbound calls, child processes, files, and environment variables below are what
 
 | Program | When | Code |
 |---|---|---|
-| `osascript` | macOS notifications, calendar events, reminders | `src/services/notifier.service.ts`, `src/services/local-calendar.service.ts`, `src/services/reminders.service.ts` |
+| `osascript` | macOS notifications, calendar events, reminders | `src/services/notifier.service.ts`, `src/services/osascript.ts` (calendar and reminders) |
 | `notify-send` | Linux desktop notifications | `src/services/notifier.service.ts` |
 | `paplay` | Linux notification sound | `src/services/notifier.service.ts` |
 | `powershell` | Windows balloon notifications | `src/services/notifier.service.ts` |

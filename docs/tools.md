@@ -55,6 +55,12 @@ An HTML part is converted (to text, or to sanitized HTML for `format="full"`)
 from its first 2,097,152 characters only. A longer part ends with a note
 that it was cut. Use `export_email` for the complete source.
 
+## Calendar and Reminders lists (macOS)
+
+`list_calendars`, `list_events` and `list_reminders` return an error when
+`osascript` fails or times out (`list_events` 90 s, `list_reminders` 15 s,
+`list_calendars` 10 s). An empty result means the app reported no items.
+
 ## `list_emails` / `search_emails` dates
 
 Both accept ISO 8601 `since` and `before`.

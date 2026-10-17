@@ -7,12 +7,8 @@
  * Linux: no-op (Reminders.app is macOS-only). Returns a clear error.
  */
 
-import { execFile as execFileCb } from 'node:child_process';
-import { promisify } from 'node:util';
-
 import { delimitUntrusted } from '../safety/untrusted-content.js';
-
-const execFile = promisify(execFileCb);
+import { escapeAS, JSON_HANDLERS, parseOsascriptJson, runOsascript } from './osascript.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -96,23 +92,10 @@ function reminderStatusMessage(
 async function checkPermissionsMacOS(): Promise<boolean> {
   const script = 'tell application "Reminders" to return count of lists';
   try {
-    const { stdout } = await execFile('osascript', ['-e', script], {
-      timeout: 10_000,
-    });
-    return parseInt(stdout.trim(), 10) >= 0;
+    return parseInt(await runOsascript(script, 10_000), 10) >= 0;
   } catch {
     return false;
   }
-}
-
-function escapeAS(s: string): string {
-  return s
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\r\n/g, '\\n')
-    .replace(/\n/g, '\\n')
-    .replace(/\r/g, '\\r')
-    .replace(/\t/g, '\\t');
 }
 
 function buildReminderAppleScript(input: ReminderInput, confirm: boolean): string {
@@ -122,7 +105,7 @@ function buildReminderAppleScript(input: ReminderInput, confirm: boolean): strin
   const dueDate = input.dueDate ?? '';
   const listName = escapeAS(input.listName ?? '');
 
-  const lines: string[] = [];
+  const lines: string[] = [JSON_HANDLERS];
 
   if (confirm) {
     const dlgParts: string[] = [`\uD83D\uDD14 ${title}`];
@@ -211,7 +194,7 @@ function buildReminderAppleScript(input: ReminderInput, confirm: boolean): strin
     '  set finalList to name of targetList',
     'end tell',
     '',
-    'return "{\\"status\\":\\"added\\",\\"reminderId\\":\\"" & remId & "\\",\\"listName\\":\\"" & finalList & "\\"}"',
+    'return "{\\"status\\":\\"added\\",\\"reminderId\\":" & my jsonString(remId) & ",\\"listName\\":" & my jsonString(finalList) & "}"',
   );
 
   return lines.join('\n');
@@ -224,14 +207,11 @@ async function addReminderMacOS(
   const script = buildReminderAppleScript(input, confirm);
 
   try {
-    const { stdout } = await execFile('osascript', ['-e', script], {
-      timeout: 90_000,
-    });
-    const result = JSON.parse(stdout.trim()) as {
+    const result = parseOsascriptJson<{
       status: AddReminderStatus;
       reminderId?: string;
       listName?: string;
-    };
+    }>(await runOsascript(script, 90_000), 'add reminder');
     return {
       status: result.status,
       reminderId: result.reminderId,
@@ -260,7 +240,7 @@ async function listRemindersMacOS(opts: ListRemindersOptions): Promise<ReminderS
   const listFilter = opts.listName ? escapeAS(opts.listName) : '';
   const includeCompleted = opts.includeCompleted === true;
 
-  const script = `
+  const script = `${JSON_HANDLERS}
 set jsonResult to "["
 set resultCount to 0
 set maxResults to ${limit}
@@ -303,7 +283,7 @@ tell application "Reminders"
               set compStr to "false"
               if isComp then set compStr to "true"
               if resultCount > 0 then set jsonResult to jsonResult & ","
-              set jsonResult to jsonResult & "{\\"id\\":\\"" & rId & "\\",\\"title\\":\\"" & rTitle & "\\",\\"dueDate\\":\\"" & rDue & "\\",\\"completed\\":" & compStr & ",\\"priority\\":\\"" & pLabel & "\\",\\"list\\":\\"" & listName & "\\"}"
+              set jsonResult to jsonResult & "{\\"id\\":" & my jsonString(rId) & ",\\"title\\":" & my jsonString(rTitle) & ",\\"dueDate\\":" & my jsonString(rDue) & ",\\"completed\\":" & compStr & ",\\"priority\\":\\"" & pLabel & "\\",\\"list\\":" & my jsonString(listName) & "}"
               set resultCount to resultCount + 1
             end if
           end if
@@ -317,12 +297,10 @@ set jsonResult to jsonResult & "]"
 return jsonResult
 `;
 
-  try {
-    const { stdout } = await execFile('osascript', ['-e', script], { timeout: 15_000 });
-    return JSON.parse(stdout.trim()) as ReminderSummary[];
-  } catch {
-    return [];
-  }
+  return parseOsascriptJson<ReminderSummary[]>(
+    await runOsascript(script, 15_000),
+    'list reminders',
+  );
 }
 
 // ---------------------------------------------------------------------------
