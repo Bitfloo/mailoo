@@ -732,6 +732,85 @@ describe('ImapService', () => {
     });
   });
 
+  describe('getCalendarParts', () => {
+    const calendarPart = {
+      type: 'text/calendar',
+      parameters: { method: 'REQUEST', charset: 'utf-8' },
+      encoding: '7bit',
+      size: 316,
+      lineCount: 13,
+    };
+
+    // Outlook sends a meeting request as a text/calendar alternative with no
+    // .ics attachment. imapflow reports the type as "text/calendar", no subtype.
+    it('should return an inline text/calendar alternative', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 9,
+        bodyStructure: {
+          childNodes: [
+            {
+              part: '1',
+              type: 'text/plain',
+              parameters: { charset: 'utf-8' },
+              encoding: '7bit',
+              size: 10,
+              lineCount: 1,
+            },
+            { part: '2', ...calendarPart },
+          ],
+          type: 'multipart/alternative',
+          parameters: { boundary: '--_NmP-cd9bb8d05f86132d-Part_1' },
+        },
+      });
+      downloadReturnsPartName();
+
+      const parts = await service.getCalendarParts('test', 'INBOX', '9');
+
+      expect(parts).toEqual(['body-of-part-2']);
+    });
+
+    // RFC 3501: a non-multipart message has only part 1; imapflow gives its root no part number.
+    it('should read a message that is one text/calendar part as part 1', async () => {
+      client.fetchOne.mockResolvedValue({ uid: 9, bodyStructure: calendarPart });
+      downloadReturnsPartName();
+
+      const parts = await service.getCalendarParts('test', 'INBOX', '9');
+
+      expect(parts).toEqual(['body-of-part-1']);
+    });
+
+    it('should read a text/calendar part attached as invite.ics once', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 9,
+        bodyStructure: {
+          childNodes: [
+            {
+              part: '1',
+              type: 'text/plain',
+              parameters: { charset: 'utf-8' },
+              encoding: '7bit',
+              size: 10,
+              lineCount: 1,
+            },
+            {
+              part: '2',
+              ...calendarPart,
+              disposition: 'attachment',
+              dispositionParameters: { filename: 'invite.ics' },
+            },
+          ],
+          type: 'multipart/mixed',
+          parameters: { boundary: '--_NmP-1fc051f5709d7b72-Part_1' },
+        },
+      });
+      downloadReturnsPartName();
+
+      const parts = await service.getCalendarParts('test', 'INBOX', '9');
+
+      expect(parts).toEqual(['body-of-part-2']);
+    });
+  });
+
   describe('getEmail', () => {
     it('downloads leaf text parts rather than hardcoded part 1, and keeps Original Message', async () => {
       client.fetchOne.mockResolvedValue({

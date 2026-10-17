@@ -33,8 +33,18 @@ const INVITE_ICS = [
   '',
 ].join('\r\n');
 
+const INLINE_CALENDAR_TYPE = 'text/calendar; charset=utf-8; method=REQUEST';
+
 describe('Calendar part extraction', () => {
   let services: TestServices;
+
+  /** Deliver one message and return its UID. */
+  async function seedAndFind(subject: string, options: Parameters<typeof seedEmail>[0]) {
+    await seedEmail({ from: 'alice@localhost', subject, ...options });
+    await waitForDelivery();
+    const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { subject });
+    return list.items[0].id;
+  }
 
   beforeAll(() => {
     services = createTestServices(buildTestAccount());
@@ -47,16 +57,50 @@ describe('Calendar part extraction', () => {
   it(
     'should return the decoded iCalendar text of an invite',
     async () => {
-      const subject = 'Calendar invite after the fetch loop';
-      await seedEmail({
-        from: 'alice@localhost',
-        subject,
+      const emailId = await seedAndFind('Calendar invite after the fetch loop', {
         text: 'Invitation',
         icalEvent: { method: 'REQUEST', content: INVITE_ICS },
       });
-      await waitForDelivery();
-      const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { subject });
-      const emailId = list.items[0].id;
+
+      const parts = await services.imapService.getCalendarParts(
+        TEST_ACCOUNT_NAME,
+        'INBOX',
+        emailId,
+      );
+
+      expect(parts.join('\n')).toContain(`UID:${EVENT_UID}`);
+    },
+    CALENDAR_PARTS_TIMEOUT_MS,
+  );
+
+  // Outlook sends a meeting request as a text/calendar alternative with no
+  // .ics attachment; imapflow reports its type as "text/calendar".
+  it(
+    'should return an inline text/calendar alternative that has no .ics attachment',
+    async () => {
+      const emailId = await seedAndFind('Inline calendar alternative', {
+        text: 'Invitation',
+        alternatives: [{ contentType: INLINE_CALENDAR_TYPE, content: INVITE_ICS }],
+      });
+
+      const parts = await services.imapService.getCalendarParts(
+        TEST_ACCOUNT_NAME,
+        'INBOX',
+        emailId,
+      );
+
+      expect(parts.join('\n')).toContain(`UID:${EVENT_UID}`);
+    },
+    CALENDAR_PARTS_TIMEOUT_MS,
+  );
+
+  it(
+    'should return the body of a message that is one text/calendar part',
+    async () => {
+      const emailId = await seedAndFind('Single-part calendar message', {
+        text: '',
+        alternatives: [{ contentType: INLINE_CALENDAR_TYPE, content: INVITE_ICS }],
+      });
 
       const parts = await services.imapService.getCalendarParts(
         TEST_ACCOUNT_NAME,

@@ -2040,26 +2040,15 @@ export default class ImapService {
     const s = structure as Record<string, unknown>;
     const parts: string[] = [];
 
-    const type = (s.type as string | undefined)?.toLowerCase() ?? '';
-    const subtype = (s.subtype as string | undefined)?.toLowerCase() ?? '';
     const disposition = (s.disposition as string | undefined)?.toLowerCase() ?? '';
+    const params = (s.dispositionParameters ?? {}) as Record<string, string>;
+    const isIcsAttachment =
+      disposition === 'attachment' && (params.filename ?? '').toLowerCase().endsWith('.ics');
 
-    // Check for text/calendar part
-    if (type === 'text' && subtype === 'calendar') {
-      const partId = s.part as string | undefined;
-      if (partId) parts.push(partId);
-      else if (prefix) parts.push(prefix);
-    }
-
-    // Check for .ics attachment
-    if (disposition === 'attachment' && typeof s.dispositionParameters === 'object') {
-      const params = s.dispositionParameters as Record<string, string>;
-      const filename = params.filename ?? '';
-      if (filename.toLowerCase().endsWith('.ics')) {
-        const partId = s.part as string | undefined;
-        if (partId) parts.push(partId);
-        else if (prefix) parts.push(prefix);
-      }
+    // imapflow reports the type as "text/calendar" with no subtype field.
+    if (mimeTypeOf(s) === 'text/calendar' || isIcsAttachment) {
+      // A single-part message has no part number from imapflow; its body is part 1.
+      parts.push((s.part as string | undefined) ?? (prefix || '1'));
     }
 
     // Recurse into child nodes

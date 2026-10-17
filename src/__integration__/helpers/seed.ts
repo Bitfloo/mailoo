@@ -18,6 +18,8 @@ interface SeedEmailOptions {
   }[];
   /** nodemailer sends this as a text/calendar alternative plus an invite.ics attachment. */
   icalEvent?: { method?: string; content: string };
+  /** Extra body alternatives, sent inline with no Content-Disposition. */
+  alternatives?: { contentType: string; content: string }[];
 }
 
 function createTransport(user = 'test') {
@@ -48,6 +50,7 @@ export async function seedEmail(options: SeedEmailOptions = {}) {
       references: options.references?.join(' '),
       attachments: options.attachments,
       icalEvent: options.icalEvent,
+      alternatives: options.alternatives,
     });
     return info.messageId;
   } finally {
