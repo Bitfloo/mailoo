@@ -20,6 +20,32 @@ describe('dependabot groups', () => {
     return found[1];
   }
 
+  /** Each npm update entry. GitHub's own examples quote the ecosystem name, so both forms count. */
+  function npmUpdates(yaml: string): string[] {
+    return yaml
+      .split(/\n {2}- package-ecosystem: /)
+      .filter((entry) => /^(["']?)npm\1\n/.test(entry));
+  }
+
+  it('should read an npm update whether its ecosystem name is quoted or not', () => {
+    const yaml = [
+      'updates:',
+      '  - package-ecosystem: npm',
+      '    directory: /',
+      '  - package-ecosystem: "npm"',
+      '    directory: /a',
+      "  - package-ecosystem: 'npm'",
+      '    directory: /b',
+      '  - package-ecosystem: github-actions',
+      '    directory: /',
+    ].join('\n');
+    expect(npmUpdates(yaml).map((entry) => entry.match(/directory: (\S+)/)?.[1])).toEqual([
+      '/',
+      '/a',
+      '/b',
+    ]);
+  });
+
   it('keeps every dependency still on 0.x out of its update group', () => {
     // Dependabot calls 0.25 → 0.27 a minor update, but on 0.x that can break the API (node-ical 0.27 did).
     const manifest = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as Record<
@@ -52,14 +78,11 @@ describe('dependabot groups', () => {
       .split('\n')
       .filter(Boolean)
       .map((file) => `/${dirname(file)}`.replace(/\/\.$/, '/'));
-    const covered = config
-      .split(/\n {2}- package-ecosystem: /)
-      .filter((entry) => entry.startsWith('npm\n'))
-      .flatMap((entry) => {
-        const list = entry.match(/^ {4}directories: \[(.*)\]$/m)?.[1];
-        const single = entry.match(/^ {4}directory: (\S+)$/m)?.[1];
-        return list ? [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1]) : [single];
-      });
+    const covered = npmUpdates(config).flatMap((entry) => {
+      const list = entry.match(/^ {4}directories: \[(.*)\]$/m)?.[1];
+      const single = entry.match(/^ {4}directory: (\S+)$/m)?.[1];
+      return list ? [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1]) : [single];
+    });
     expect(manifests.filter((dir) => !covered.includes(dir))).toEqual([]);
   });
 
@@ -67,14 +90,11 @@ describe('dependabot groups', () => {
     // A missing hold lets Dependabot open a major that breaks lint or the build. A hold at the
     // manifest's own major blocks that major's patches too. Every npm update is read: the
     // tooling CLI update holds nothing, so a hold added there has to be derived here as well.
-    const npmUpdates = config
-      .split(/\n {2}- package-ecosystem: /)
-      .filter((entry) => entry.startsWith('npm\n'))
-      .join('\n');
+    const npmText = npmUpdates(config).join('\n');
     // Dependabot applies every entry, so a duplicate with a lower floor or an extra key such as
     // update-types changes what is held. Each entry is read whole and kept, not merged by name.
     const byName = (a: string[], b: string[]) => a[0].localeCompare(b[0]);
-    const held = [...npmUpdates.matchAll(/^ {4}ignore:\n((?: {6}.*\n?)+)/gm)]
+    const held = [...npmText.matchAll(/^ {4}ignore:\n((?: {6}.*\n?)+)/gm)]
       .flatMap(([, list]) => list.split(/^(?= {6}- )/m))
       .map((entry) =>
         entry
