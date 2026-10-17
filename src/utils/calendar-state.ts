@@ -10,12 +10,20 @@
  * of this state — it only gates the automatic hook trigger.
  */
 
-import { mkdir, open, readFile, unlink, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 import { CALENDAR_STATE_FILE } from '../config/xdg.js';
+import writeFileAtomic from './atomic-write.js';
+import { acquireClaim, errnoCode, releaseClaim, startClaimRenewal } from './file-claim.js';
 
 const LOCK_FILE = `${CALENDAR_STATE_FILE}.lock`;
+
+/** A holder reads and rewrites one small file, so a lock this old has no live holder. */
+export const CALENDAR_LOCK_STALE_MS = 10_000;
+
+const LOCK_RETRY_MS = 50;
+const LOCK_RETRIES = 20;
 
 export type CalendarAction = 'event' | 'reminder' | 'both' | 'skipped';
 
@@ -34,49 +42,51 @@ function stateKey(accountName: string, emailId: string): string {
 }
 
 async function readState(): Promise<StateFile> {
+  let raw: string;
   try {
-    const raw = await readFile(CALENDAR_STATE_FILE, 'utf8');
+    raw = await fs.readFile(CALENDAR_STATE_FILE, 'utf8');
+  } catch (err) {
+    if (errnoCode(err) === 'ENOENT') return { processedEmails: {} };
+    throw err;
+  }
+  try {
     return JSON.parse(raw) as StateFile;
   } catch {
-    return { processedEmails: {} };
+    // Reading it as empty would let the hooks add every calendar event again.
+    throw new Error(
+      `${path.basename(CALENDAR_STATE_FILE)} in the Mailoo state directory is not valid JSON. ` +
+        'Fix or remove it to resume automatic calendar processing.',
+    );
   }
 }
 
 async function writeState(state: StateFile): Promise<void> {
-  await mkdir(dirname(CALENDAR_STATE_FILE), { recursive: true });
-  await writeFile(CALENDAR_STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
+  await fs.mkdir(path.dirname(CALENDAR_STATE_FILE), { recursive: true });
+  await writeFileAtomic(CALENDAR_STATE_FILE, JSON.stringify(state, null, 2));
 }
 
-/**
- * Acquire a file-based lock, execute fn, then release.
- * Uses exclusive file creation (O_CREAT | O_EXCL) to prevent concurrent writes.
- */
+async function acquireStateLock(retries: number): Promise<string> {
+  const token = await acquireClaim(LOCK_FILE, CALENDAR_LOCK_STALE_MS);
+  if (token !== undefined) return token;
+  if (retries <= 0) {
+    throw new Error('Calendar state is busy in another Mailoo process. Try again shortly.');
+  }
+  await new Promise((resolve) => {
+    setTimeout(resolve, LOCK_RETRY_MS);
+  });
+  return acquireStateLock(retries - 1);
+}
+
+/** Run fn while holding the state lock, so two processes cannot drop each other's entries. */
 async function withStateLock<T>(fn: () => Promise<T>): Promise<T> {
-  await mkdir(dirname(LOCK_FILE), { recursive: true });
-
-  const acquire = async (retries: number): Promise<Awaited<ReturnType<typeof open>>> => {
-    try {
-      return await open(LOCK_FILE, 'wx');
-    } catch {
-      if (retries <= 0) {
-        // Stale lock fallback — force acquire after retries exhausted
-        return open(LOCK_FILE, 'w');
-      }
-      return new Promise<Awaited<ReturnType<typeof open>>>((resolve) => {
-        setTimeout(() => {
-          resolve(acquire(retries - 1));
-        }, 50);
-      });
-    }
-  };
-
-  const lockHandle = await acquire(20);
-
+  await fs.mkdir(path.dirname(LOCK_FILE), { recursive: true });
+  const token = await acquireStateLock(LOCK_RETRIES);
+  const stopRenewal = startClaimRenewal(LOCK_FILE, CALENDAR_LOCK_STALE_MS / 5);
   try {
     return await fn();
   } finally {
-    await lockHandle.close();
-    await unlink(LOCK_FILE).catch(() => {});
+    stopRenewal();
+    await releaseClaim(LOCK_FILE, token);
   }
 }
 
