@@ -40,7 +40,7 @@ describe('Calendar part extraction', () => {
 
   async function seedAndFind(subject: string, options: Parameters<typeof seedEmail>[0]) {
     await seedEmail({ from: 'alice@localhost', subject, ...options });
-    await waitForDelivery();
+    await waitForDelivery(subject);
     const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { subject });
     return list.items[0].id;
   }

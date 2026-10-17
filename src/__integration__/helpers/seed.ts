@@ -1,5 +1,15 @@
+import { setTimeout as sleep } from 'node:timers/promises';
+import { ImapFlow } from 'imapflow';
 import nodemailer from 'nodemailer';
 import { getGreenMailPorts } from './config.js';
+
+/**
+ * A message is readable over IMAP only once GreenMail has filed it, which the
+ * SMTP reply does not promise. Delivery takes milliseconds; 10 s turns a message
+ * that never arrives into a named failure well inside the 30 s test timeout.
+ */
+const DELIVERY_DEADLINE_MS = 10_000;
+const DELIVERY_POLL_MS = 50;
 
 interface SeedEmailOptions {
   from?: string;
@@ -109,7 +119,33 @@ export async function seedEmailWithAttachment(
   });
 }
 
-// Small delay to let GreenMail process emails
-export async function waitForDelivery(ms = 500): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/** Resolve once `count` messages with this subject are in the user's INBOX. */
+export async function waitForDelivery(
+  subject: string,
+  { user = 'test', count = 1 }: { user?: string; count?: number } = {},
+): Promise<void> {
+  const { host, imapPort } = getGreenMailPorts();
+  const client = new ImapFlow({
+    host,
+    port: imapPort,
+    secure: false,
+    auth: { user, pass: user },
+    logger: false,
+  });
+  await client.connect();
+  try {
+    await client.mailboxOpen('INBOX', { readOnly: true });
+    const deadline = Date.now() + DELIVERY_DEADLINE_MS;
+    while (Date.now() < deadline) {
+      await client.noop();
+      const uids = await client.search({ subject }, { uid: true });
+      if (Array.isArray(uids) && uids.length >= count) return;
+      await sleep(DELIVERY_POLL_MS);
+    }
+    throw new Error(
+      `${count} message(s) with subject "${subject}" did not reach ${user}'s INBOX within ${DELIVERY_DEADLINE_MS / 1000} s`,
+    );
+  } finally {
+    await client.logout();
+  }
 }

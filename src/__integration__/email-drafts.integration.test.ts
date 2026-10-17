@@ -121,7 +121,7 @@ describe('Email Draft Operations', () => {
 
       expect(result.messageId).toBeTruthy();
 
-      await waitForDelivery();
+      await waitForDelivery('Draft to send', { user: 'bob' });
     });
   });
 });

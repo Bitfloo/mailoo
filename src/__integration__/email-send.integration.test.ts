@@ -71,7 +71,7 @@ describe('Email Send Operations', () => {
         body: 'This should appear in Bob inbox',
       });
 
-      await waitForDelivery();
+      await waitForDelivery('Delivery verification test', { user: 'bob' });
 
       const result = await services.imapService.listEmails('integration-2', {
         subject: 'Delivery verification test',
@@ -94,7 +94,7 @@ describe('Email Send Operations', () => {
           attachments: [{ path: file, filename: 'note.txt', contentType: 'text/plain' }],
         });
 
-        await waitForDelivery();
+        await waitForDelivery(`Attachment delivery ${marker}`, { user: 'bob' });
 
         const list = await services.imapService.listEmails('integration-2', {
           subject: `Attachment delivery ${marker}`,
@@ -175,7 +175,7 @@ describe('Email Send Operations', () => {
         body: 'Please reply to this.',
       });
 
-      await waitForDelivery();
+      await waitForDelivery('Reply test original');
 
       // Find the email in test's inbox
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
@@ -208,7 +208,7 @@ describe('Email Send Operations', () => {
         body: 'Please forward this.',
       });
 
-      await waitForDelivery();
+      await waitForDelivery('Forward test original');
 
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Forward test original',

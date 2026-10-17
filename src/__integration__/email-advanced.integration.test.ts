@@ -19,7 +19,7 @@ describe('Advanced Email Operations', () => {
     attachments: { filename: string; content: string; contentType: string }[],
   ): Promise<string> {
     await seedEmail({ subject, attachments });
-    await waitForDelivery();
+    await waitForDelivery(subject);
     const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { subject });
     expect(list.items).toHaveLength(1);
     return list.items[0].id;
@@ -40,7 +40,7 @@ describe('Advanced Email Operations', () => {
   describe('downloadAttachment', () => {
     it('should download a text attachment', async () => {
       await seedEmailWithAttachment('readme.txt', 'Hello attachment world');
-      await waitForDelivery();
+      await waitForDelivery('Email with attachment');
 
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Email with attachment',
@@ -71,7 +71,7 @@ describe('Advanced Email Operations', () => {
       await seedEmailWithAttachment('image.png', binaryContent.toString('base64'), {
         subject: 'Binary attachment email',
       });
-      await waitForDelivery();
+      await waitForDelivery('Binary attachment email');
 
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Binary attachment email',
@@ -214,7 +214,7 @@ describe('Advanced Email Operations', () => {
           ].join('\r\n'),
         },
       });
-      await waitForDelivery();
+      await waitForDelivery(subject, { count: 2 });
       const inbox = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { subject });
       const byUid = (a: string, b: string) => Number(a) - Number(b);
       const ids = inbox.items.map((m) => m.id).sort(byUid);

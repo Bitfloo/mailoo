@@ -61,7 +61,11 @@ describe('Email Read Operations', () => {
     await seedEmail({ from: 'alice@localhost', subject: 'From Alice' });
     await seedEmail({ from: 'bob@localhost', subject: 'Flagged email' });
     await seedThread(3, { subject: 'Discussion Topic' });
-    await waitForDelivery();
+    await waitForDelivery('Test Email', { count: 5 });
+    await waitForDelivery('From Alice');
+    await waitForDelivery('Flagged email');
+    // seedThread alternates the recipient, so test receives messages 1 and 3.
+    await waitForDelivery('Discussion Topic', { count: 2 });
   });
 
   afterAll(async () => {
@@ -202,7 +206,7 @@ describe('Email Read Operations', () => {
           inReplyTo: second,
           references: [first, second],
         });
-        await waitForDelivery();
+        await waitForDelivery(subject, { count: 3 });
 
         const thread = await services.imapService.getThread(TEST_ACCOUNT_NAME, third);
 
@@ -230,7 +234,7 @@ describe('Email Read Operations', () => {
           text: 'chain-body-3',
           inReplyTo: second,
         });
-        await waitForDelivery();
+        await waitForDelivery(subject, { count: 3 });
 
         const thread = await services.imapService.getThread(TEST_ACCOUNT_NAME, first);
 
@@ -272,7 +276,7 @@ describe('Email Read Operations', () => {
     it('should leave \\Seen unset when read_only get_email is called with markRead', async () => {
       const subject = 'Read-only markRead leaves unseen';
       await seedEmail({ subject });
-      await waitForDelivery();
+      await waitForDelivery(subject);
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { subject });
       expect(list.items.length).toBeGreaterThanOrEqual(1);
       const emailId = list.items[0].id;

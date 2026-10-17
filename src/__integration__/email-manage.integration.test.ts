@@ -32,7 +32,7 @@ describe('Email Management Operations', () => {
   describe('setFlags', () => {
     it('should mark an email as read', async () => {
       await seedEmail({ subject: 'Mark read test' });
-      await waitForDelivery();
+      await waitForDelivery('Mark read test');
 
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Mark read test',
@@ -47,7 +47,7 @@ describe('Email Management Operations', () => {
 
     it('should mark an email as unread', async () => {
       await seedEmail({ subject: 'Mark unread test' });
-      await waitForDelivery();
+      await waitForDelivery('Mark unread test');
 
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Mark unread test',
@@ -64,7 +64,7 @@ describe('Email Management Operations', () => {
 
     it('should flag an email', async () => {
       await seedEmail({ subject: 'Flag test' });
-      await waitForDelivery();
+      await waitForDelivery('Flag test');
 
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Flag test',
@@ -79,7 +79,7 @@ describe('Email Management Operations', () => {
 
     it('should unflag an email', async () => {
       await seedEmail({ subject: 'Unflag test' });
-      await waitForDelivery();
+      await waitForDelivery('Unflag test');
 
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Unflag test',
@@ -104,7 +104,7 @@ describe('Email Management Operations', () => {
       await services.imapService.createMailbox(TEST_ACCOUNT_NAME, 'TestArchive');
 
       await seedEmail({ subject: 'Move test email' });
-      await waitForDelivery();
+      await waitForDelivery('Move test email');
 
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Move test email',
@@ -128,7 +128,7 @@ describe('Email Management Operations', () => {
       await services.imapService.createMailbox(TEST_ACCOUNT_NAME, mailbox);
       try {
         await seedEmail({ subject: 'Paren mailbox email' });
-        await waitForDelivery();
+        await waitForDelivery('Paren mailbox email');
 
         const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
           subject: 'Paren mailbox email',
@@ -162,7 +162,7 @@ describe('Email Management Operations', () => {
   describe('deleteEmail', () => {
     it('should delete an email (move to Trash)', async () => {
       await seedEmail({ subject: 'Delete test email' });
-      await waitForDelivery();
+      await waitForDelivery('Delete test email');
 
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Delete test email',
@@ -181,7 +181,7 @@ describe('Email Management Operations', () => {
 
     it('should permanently delete an email', async () => {
       await seedEmail({ subject: 'Permanent delete test' });
-      await waitForDelivery();
+      await waitForDelivery('Permanent delete test');
 
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Permanent delete test',
@@ -199,7 +199,7 @@ describe('Email Management Operations', () => {
   describe('findEmailFolder', () => {
     it('should find which folder an email belongs to', async () => {
       await seedEmail({ subject: 'Find folder test' });
-      await waitForDelivery();
+      await waitForDelivery('Find folder test');
 
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Find folder test',
@@ -225,7 +225,7 @@ describe('Email Management Operations', () => {
   describe('bulkSetFlags', () => {
     it('should mark multiple emails as read in bulk', async () => {
       await seedEmails(3, { subject: 'Bulk read test' });
-      await waitForDelivery();
+      await waitForDelivery('Bulk read test', { count: 3 });
 
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Bulk read test',
@@ -249,7 +249,7 @@ describe('Email Management Operations', () => {
       await services.imapService.createMailbox(TEST_ACCOUNT_NAME, 'BulkDest');
 
       await seedEmails(2, { subject: 'Bulk move test' });
-      await waitForDelivery();
+      await waitForDelivery('Bulk move test', { count: 2 });
 
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Bulk move test',
@@ -273,7 +273,7 @@ describe('Email Management Operations', () => {
   describe('bulkDelete', () => {
     it('should delete multiple emails in bulk', async () => {
       await seedEmails(2, { subject: 'Bulk delete test' });
-      await waitForDelivery();
+      await waitForDelivery('Bulk delete test', { count: 2 });
 
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Bulk delete test',
@@ -291,7 +291,7 @@ describe('Email Management Operations', () => {
     it('should leave both messages when deleteEmail is given a sequence set', async () => {
       await seedEmail({ subject: 'Keep one sequence check' });
       await seedEmail({ subject: 'Keep two sequence check' });
-      await waitForDelivery();
+      await waitForDelivery('sequence check', { count: 2 });
 
       await expect(
         services.imapService.deleteEmail(TEST_ACCOUNT_NAME, '1:*', 'INBOX', true),
@@ -309,7 +309,7 @@ describe('Email Management Operations', () => {
 
     it('should leave the message unread when the mailbox name contains a line break', async () => {
       await seedEmail({ subject: 'Mailbox line break check' });
-      await waitForDelivery();
+      await waitForDelivery('Mailbox line break check');
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Mailbox line break check',
       });
