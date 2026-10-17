@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
@@ -122,7 +123,7 @@ function jobKey(job: string): string | undefined {
   return job.match(/^ {2}(["']?)([\w-]+)\1:/)?.[2];
 }
 
-describe('workflow job reader', () => {
+describe('workflow file and job reader', () => {
   it('should read a job key with an underscore, a comment or quotes as its own job', () => {
     // The first key needs no split, so each form under test follows another job.
     const yaml =
@@ -135,6 +136,18 @@ describe('workflow job reader', () => {
     expect(() => jobSections('jobs:\n  a:\n    runs-on: x\n  b: { runs-on: x }\n')).toThrow(
       'read 1 of 2 jobs',
     );
+  });
+
+  it('should list .yml and .yaml workflows and skip other files', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mailoo-workflows-'));
+    try {
+      ['c.txt', 'b.yaml', 'a.yml'].forEach((name) => {
+        writeFileSync(join(dir, name), '');
+      });
+      expect(workflowFiles(dir)).toEqual(['a.yml', 'b.yaml']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

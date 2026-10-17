@@ -6,8 +6,8 @@ import { repoRoot } from './agents/agent-file.js';
 export const workflowDir = join(repoRoot, '.github/workflows');
 
 /** Every workflow file name. GitHub runs .yaml files too, so a check over all workflows reads both. */
-export function workflowFiles(): string[] {
-  const files = readdirSync(workflowDir)
+export function workflowFiles(dir = workflowDir): string[] {
+  const files = readdirSync(dir)
     .filter((name) => /\.ya?ml$/.test(name))
     .sort();
   if (files.length === 0) {
