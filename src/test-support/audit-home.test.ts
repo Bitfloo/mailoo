@@ -115,6 +115,17 @@ describe('pinAuditHome', () => {
       exists: false,
     });
   });
+
+  it('should delete XDG_DATA_HOME on restore when it was unset', async () => {
+    vi.stubEnv('XDG_DATA_HOME', undefined);
+    try {
+      const home = await pinAuditHome();
+      await home.restore();
+      expect('XDG_DATA_HOME' in process.env).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 describe('audit home roster', () => {
