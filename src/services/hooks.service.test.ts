@@ -323,6 +323,76 @@ describe('HooksService batch queue', () => {
     );
   });
 
+  it('should keep processing later batches after one flush fails', async () => {
+    const handled: string[] = [];
+    vi.spyOn(NotifierService.prototype, 'alert')
+      .mockRejectedValueOnce(new Error('alert down'))
+      .mockResolvedValue(undefined);
+    hooks = new HooksService(hooksConfig(), mockImap() as unknown as ImapService, {
+      mailArrival: {
+        handle: async (email: { meta: EmailMeta }) => {
+          handled.push(email.meta.id);
+          return { kind: 'noop' };
+        },
+      } as unknown as MailArrival,
+    });
+    hooks.start({} as never, { sampling: false });
+
+    await flushHooks([meta({ id: '1' })]);
+    await flushHooks([meta({ id: '2' })]);
+
+    expect(handled).toEqual(['1', '2']);
+  });
+
+  it('should count a second burst against the 500 already queued', async () => {
+    const handled: string[] = [];
+    hooks = new HooksService(
+      hooksConfig({ batchDelay: 3600 }),
+      mockImap() as unknown as ImapService,
+      {
+        mailArrival: {
+          handle: async (email: { meta: EmailMeta }) => {
+            handled.push(email.meta.id);
+            return { kind: 'noop' };
+          },
+        } as unknown as MailArrival,
+      },
+    );
+    hooks.start({} as never, { sampling: false });
+    const ids = Array.from({ length: 600 }, (_, i) => String(i + 1));
+
+    eventBus.emit('email:new', {
+      account: 'personal',
+      mailbox: 'INBOX',
+      emails: ids.slice(0, 300).map((id) => meta({ id })),
+    });
+    eventBus.emit('email:new', {
+      account: 'personal',
+      mailbox: 'INBOX',
+      emails: ids.slice(300).map((id) => meta({ id })),
+    });
+    await vi.advanceTimersByTimeAsync(3_600_000);
+
+    expect(handled).toEqual(ids.slice(0, 500));
+  });
+
+  it('should not warn when the burst fits the queue', () => {
+    hooks = new HooksService(
+      hooksConfig({ batchDelay: 3600 }),
+      mockImap() as unknown as ImapService,
+    );
+    hooks.start({} as never, { sampling: false });
+    const burst = Array.from({ length: 500 }, (_, i) => meta({ id: String(i + 1) }));
+
+    eventBus.emit('email:new', { account: 'personal', mailbox: 'INBOX', emails: burst });
+
+    expect(
+      vi
+        .mocked(mcpLog)
+        .mock.calls.filter(([, , message]) => String(message).startsWith('Hook queue full')),
+    ).toEqual([]);
+  });
+
   it('should not keep the process alive with the rate-limit reset interval', () => {
     vi.useRealTimers();
     hooks = new HooksService(hooksConfig(), mockImap() as unknown as ImapService);
@@ -368,10 +438,9 @@ describe('HooksService calendar auto-add state', () => {
     };
   }
 
-  /** flushBatch is the batch timer's callback; awaiting it is the completion point. */
+  /** Awaits flushBatch directly: the batch timer gives no promise to await before the state write. */
   async function runBatch(service: HooksService, emails: EmailMeta[]): Promise<void> {
     eventBus.emit('email:new', { account: 'personal', mailbox: 'INBOX', emails });
-    // Private on purpose; the timer path gives no promise to await before the state write.
     await (service as unknown as { flushBatch: () => Promise<void> }).flushBatch();
   }
 
