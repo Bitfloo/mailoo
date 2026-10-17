@@ -55,7 +55,7 @@ Policy and how to report a vulnerability: **[SECURITY.md](SECURITY.md)**.
 
 - `tls` is implicit TLS; `starttls` fails the connection when the server offers no STARTTLS. With both false, IMAP and SMTP differ — see [Security considerations](SECURITY.md#security-considerations).
 - The audit log redacts passwords and message bodies. It records send, draft, folder, label, bulk, manage, sieve, template, and schedule writes, not every local write (`src/safety/audit.ts`) — [SECURITY.md](SECURITY.md)
-- One global `rate_limit` (default 10 per minute) sizes a separate send bucket for each account (`src/config/schema.ts`)
+- One global `rate_limit` (default 10 per minute) sizes a separate send bucket for each account (`src/config/schema.ts`). Buckets live in memory, so each server process and each `mailoo scheduler check` run counts on its own
 - OAuth2 XOAUTH2 authentication for Gmail and Microsoft 365 _(experimental)_
 - `savePath` writes a new file only under a specific working directory — [Security considerations](SECURITY.md#security-considerations)
 - Outgoing attachment paths must be regular files under the working directory or home — [Security considerations](SECURITY.md#security-considerations)
@@ -529,7 +529,7 @@ npx -y @bitfloo/mailoo scheduler check
 npx -y @bitfloo/mailoo scheduler uninstall
 ```
 
-Scheduled emails are JSON files in `~/.local/state/mailoo/scheduled/`. Before sending, a check claims the entry with a lock file next to it and keeps that claim fresh while SMTP runs, so the in-process timer, `mailoo scheduler check` and other server processes do not send it twice. If the process dies after the server accepted a message but before it was recorded as sent, the entry can be sent again after the claim goes stale (at least once, not exactly once). Every attempt for one entry carries the same Message-ID, `<schedule id@account domain>`, so a receiving server or client can drop the second copy. Once SMTP has accepted a message, a failure to update the queue file is reported and never retried. Each entry tracks attempts (max 3) and the last error, so you can inspect failures with `scheduler list`.
+Scheduled emails are JSON files in `~/.local/state/mailoo/scheduled/`. Before sending, a check claims the entry with a lock file next to it and keeps that claim fresh while SMTP runs, so the in-process timer, `mailoo scheduler check` and other server processes do not send it twice. If the process dies after the server accepted a message but before it was recorded as sent, the entry can be sent again after the claim goes stale (at least once, not exactly once). Every attempt for one entry carries the same Message-ID, `<schedule id@account domain>`, so a receiving server or client can drop the second copy. Once SMTP has accepted a message, a failure to update the queue file is reported and never retried. Each entry tracks attempts (max 3) and the last error, so you can inspect failures with `scheduler list`. An entry the rate limit holds back stays pending for the next check and does not use an attempt.
 
 ### Real-time Watcher & AI Hooks
 

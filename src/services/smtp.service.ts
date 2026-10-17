@@ -7,6 +7,7 @@
 import type { SendMailOptions } from 'nodemailer';
 import type { IConnectionManager } from '../connections/types.js';
 import { mcpLog } from '../logging.js';
+import RateLimitError from '../safety/rate-limit-error.js';
 import type RateLimiter from '../safety/rate-limiter.js';
 import type { OutgoingAttachment, SendResult } from '../types/index.js';
 import compileRfc822 from '../utils/mail-compose.js';
@@ -215,10 +216,7 @@ export default class SmtpService {
 
   private checkRateLimit(accountName: string): void {
     if (!this.rateLimiter.tryConsume(accountName)) {
-      throw new Error(
-        `Rate limit exceeded for account "${accountName}". ` +
-          `Please wait before sending more emails.`,
-      );
+      throw new RateLimitError(accountName);
     }
   }
 

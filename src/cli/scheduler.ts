@@ -131,9 +131,12 @@ async function runCheck(): Promise<void> {
   if (result.failed > 0) {
     console.log(`❌ Failed: ${result.failed}`);
   }
+  if (result.deferred > 0) {
+    console.log(`⏳ Held back by the rate limit: ${result.deferred} (retried on the next check)`);
+  }
   // A delivered email can carry an error too, when its queue record was not updated.
   for (const err of result.errors) console.log(`   ${err}`); // eslint-disable-line no-restricted-syntax
-  if (result.sent === 0 && result.failed === 0) {
+  if (result.sent === 0 && result.failed === 0 && result.deferred === 0) {
     console.log('No overdue scheduled emails.');
   }
 }

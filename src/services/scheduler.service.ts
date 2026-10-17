@@ -10,8 +10,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { SCHEDULED_DIR } from '../config/xdg.js';
+import RateLimitError from '../safety/rate-limit-error.js';
 import { recipientEmail, validateInputLength } from '../safety/validation.js';
-import type { ScheduledEmail } from '../types/index.js';
+import type { ScheduledEmail, SendResult } from '../types/index.js';
 import writeFileAtomic from '../utils/atomic-write.js';
 import type ImapService from './imap.service.js';
 import type SmtpService from './smtp.service.js';
@@ -213,7 +214,7 @@ function isDue(scheduled: ScheduledEmail, id: string, now: number): boolean {
 }
 
 interface Delivery {
-  outcome: 'sent' | 'failed' | 'skipped';
+  outcome: 'sent' | 'failed' | 'deferred' | 'skipped';
   error?: string;
 }
 
@@ -530,9 +531,11 @@ export default class SchedulerService {
   async checkAndSend(): Promise<{
     sent: number;
     failed: number;
+    /** Held back by the rate limit; retried on a later check without using an attempt. */
+    deferred: number;
     errors: string[];
   }> {
-    const result = { sent: 0, failed: 0, errors: [] as string[] };
+    const result = { sent: 0, failed: 0, deferred: 0, errors: [] as string[] };
     await this.ensureDirs();
 
     let files: string[];
@@ -550,6 +553,7 @@ export default class SchedulerService {
       const delivery = await this.processQueueFile(file, now);
       if (delivery.outcome === 'skipped') continue;
       if (delivery.outcome === 'sent') result.sent += 1;
+      else if (delivery.outcome === 'deferred') result.deferred += 1;
       else result.failed += 1;
       if (delivery.error !== undefined) result.errors.push(`${file}: ${delivery.error}`);
     }
@@ -631,15 +635,23 @@ export default class SchedulerService {
 
     const stopRenewal = startClaimRenewal(lockFile(this.pendingDir, id));
     try {
-      const sendResult = await this.smtpService.sendEmail(sending.account, {
-        to: sending.to,
-        subject: sending.subject,
-        body: sending.body,
-        cc: sending.cc,
-        bcc: sending.bcc,
-        html: sending.html,
-        messageId: this.smtpService.messageIdFor(sending.account, id),
-      });
+      let sendResult: SendResult;
+      try {
+        sendResult = await this.smtpService.sendEmail(sending.account, {
+          to: sending.to,
+          subject: sending.subject,
+          body: sending.body,
+          cc: sending.cc,
+          bcc: sending.bcc,
+          html: sending.html,
+          messageId: this.smtpService.messageIdFor(sending.account, id),
+        });
+      } catch (err) {
+        if (!(err instanceof RateLimitError)) throw err;
+        // Nothing reached SMTP, so this check is not an attempt. Restore the record as it was queued.
+        await this.writeScheduledFile({ ...queued, lastError: err.message });
+        return { outcome: 'deferred' };
+      }
 
       // SMTP accepted the message. Nothing below may send it back into the retry path.
       const recordError = await this.recordSent({

@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import RateLimiter from '../safety/rate-limiter.js';
 import withFullDisk from '../test-support/full-disk.js';
 import type { ScheduledEmail } from '../types/index.js';
 
@@ -13,6 +14,7 @@ const {
   SCHEDULE_CLAIM_SUFFIX,
   STALE_LOCK_MS,
 } = await import('./scheduler.service.js');
+const { default: SmtpService } = await import('./smtp.service.js');
 
 const scheduledDir = path.join(stateHome, 'mailoo', 'scheduled');
 
@@ -1021,5 +1023,74 @@ describe('full disk', () => {
     } finally {
       await fs.rm(queueDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('rate-limited sends', () => {
+  beforeEach(() => {
+    // A pinned clock keeps the one-per-minute bucket from refilling between checks.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** The real SmtpService and RateLimiter; only the SMTP socket is fake. */
+  async function withLimitedQueue(
+    body: (queueDir: string, service: InstanceType<typeof SchedulerService>) => Promise<void>,
+  ): Promise<void> {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-limit-'));
+    const connections = {
+      getAccount: () => ({
+        name: 'personal',
+        email: 'user@example.com',
+        username: 'user@example.com',
+        imap: { host: 'imap.example.com', port: 993, tls: true, starttls: false, verifySsl: true },
+        smtp: { host: 'smtp.example.com', port: 465, tls: true, starttls: false, verifySsl: true },
+      }),
+      getSmtpTransport: async () => ({
+        sendMail: async () => ({ messageId: '<accepted@example.com>' }),
+      }),
+    };
+    const smtp = new SmtpService(connections as never, new RateLimiter(1), {} as never, false);
+    const imap = { deleteEmail: vi.fn() };
+    try {
+      await Promise.all(
+        [queueId(0), queueId(1)].map(async (id) =>
+          fs.writeFile(
+            path.join(queueDir, `${id}.json`),
+            JSON.stringify(pendingRecord(id, '2020-01-01T00:00:00.000Z')),
+          ),
+        ),
+      );
+      await body(queueDir, new SchedulerService(smtp, imap as never, queueDir));
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  }
+
+  it('should keep a rate-limited email pending with its attempts unchanged', async () => {
+    await withLimitedQueue(async (queueDir, service) => {
+      await service.checkAndSend();
+      await service.checkAndSend();
+      await service.checkAndSend();
+      const [left] = await jsonNames(queueDir);
+      const record = JSON.parse(
+        await fs.readFile(path.join(queueDir, left ?? 'missing.json'), 'utf8'),
+      ) as ScheduledEmail;
+      expect({ status: record.status, attempts: record.attempts }).toEqual({
+        status: 'pending',
+        attempts: 0,
+      });
+    });
+  });
+
+  it('should count a rate-limited email as deferred rather than failed', async () => {
+    await withLimitedQueue(async (_queueDir, service) => {
+      const result = await service.checkAndSend();
+      expect(result).toEqual({ sent: 1, failed: 0, deferred: 1, errors: [] });
+    });
   });
 });
