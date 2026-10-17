@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import withFullDisk from '../test-support/full-disk.js';
-import writeFileAtomic from './atomic-write.js';
+import writeFileAtomic, { PRIVATE_FILE_MODE } from './atomic-write.js';
 
 async function withDir(body: (dir: string) => Promise<void>): Promise<void> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-atomic-'));
@@ -91,5 +91,19 @@ describe('writeFileAtomic', () => {
         expect.stringMatching(/^rename \.state\.json\.[0-9a-f-]+\.tmp -> state\.json$/),
       ]);
     });
+  });
+});
+
+// The README Files rows name the caller, not this module, so their mode is checked here.
+describe('file mode in README.md', () => {
+  it('should state the mode atomic writes give queue records and calendar state', async () => {
+    const readme = await fs.readFile(new URL('../../README.md', import.meta.url), 'utf8');
+    const callers = ['`src/services/scheduler.service.ts` |', '`src/utils/calendar-state.ts` |'];
+    const modes = readme
+      .split('\n')
+      .filter((line) => line.startsWith('|') && callers.some((caller) => line.endsWith(caller)))
+      .map((line) => /\(mode `(\d+)`\)/.exec(line)?.[1]);
+    const mode = `0${PRIVATE_FILE_MODE.toString(8)}`;
+    expect(modes).toEqual([mode, mode]);
   });
 });

@@ -10,7 +10,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 /** Owner-only: the files written here hold message bodies and mailbox state. */
-const PRIVATE_FILE_MODE = 0o600;
+export const PRIVATE_FILE_MODE = 0o600;
 
 export default async function writeFileAtomic(filePath: string, data: string): Promise<void> {
   // A dot prefix and a .tmp suffix keep the temp file out of directory scans by name.
