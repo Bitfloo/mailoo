@@ -11,6 +11,7 @@ vi.stubEnv('XDG_STATE_HOME', stateHome);
 const { CALENDAR_STATE_FILE } = await import('../config/xdg.js');
 const {
   CALENDAR_LOCK_FILE: lockPath,
+  CALENDAR_LOCK_RENEW_MS,
   CALENDAR_LOCK_STALE_MS,
   isCalendarProcessed,
   markCalendarProcessed,
@@ -228,8 +229,7 @@ describe('calendar state lock window', () => {
       const takenAt = new Date(Date.now() - 1_000);
       await fs.utimes(lockPath, takenAt, takenAt);
       const before = (await fs.stat(lockPath)).mtimeMs;
-      // Four 2 s renewal intervals.
-      await vi.advanceTimersByTimeAsync(4 * 2_000);
+      await vi.advanceTimersByTimeAsync(CALENDAR_LOCK_RENEW_MS * 4);
       await settled();
       expect((await fs.stat(lockPath)).mtimeMs).toBe(before);
     });

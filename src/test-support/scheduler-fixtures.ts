@@ -18,6 +18,7 @@ vi.stubEnv('XDG_STATE_HOME', stateHome);
 
 export const {
   default: SchedulerService,
+  CLAIM_RENEW_MS,
   MAX_ATTEMPTS,
   SCHEDULE_CLAIM_SUFFIX,
   STALE_LOCK_MS,

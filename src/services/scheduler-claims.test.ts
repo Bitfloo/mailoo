@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import queueId from '../test-support/queue-id.js';
 import {
+  CLAIM_RENEW_MS,
   createService,
   pendingRecord,
   SCHEDULE_CLAIM_SUFFIX,
@@ -347,8 +348,7 @@ describe('overlapping queue checks', () => {
         const takenAt = new Date(Date.now() - 1_000);
         await fs.utimes(lockPath, takenAt, takenAt);
         const before = await mtimeOf(lockPath);
-        // Two 60 s renewal intervals.
-        await vi.advanceTimersByTimeAsync(2 * 60_000);
+        await vi.advanceTimersByTimeAsync(CLAIM_RENEW_MS * 2);
         await settled();
         expect(await mtimeOf(lockPath)).toBe(before);
       });

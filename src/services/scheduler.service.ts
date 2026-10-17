@@ -28,7 +28,7 @@ export const SCHEDULER_INTERVAL_MS = 60_000;
 export const STALE_LOCK_MS = 5 * 60 * 1000;
 
 // Renew well inside the stale window so only a dead holder's claim goes stale.
-const CLAIM_RENEW_MS = STALE_LOCK_MS / 5;
+export const CLAIM_RENEW_MS = STALE_LOCK_MS / 5;
 
 /** Beside `<id>.json`. Exclusive create (`wx`) is the only claim. */
 export const SCHEDULE_CLAIM_SUFFIX = '.lock';

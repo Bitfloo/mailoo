@@ -21,6 +21,7 @@ export const CALENDAR_LOCK_FILE = `${CALENDAR_STATE_FILE}.lock`;
 
 /** A holder reads and rewrites one small file, so a lock this old has no live holder. */
 export const CALENDAR_LOCK_STALE_MS = 10_000;
+export const CALENDAR_LOCK_RENEW_MS = CALENDAR_LOCK_STALE_MS / 5;
 
 const LOCK_RETRY_MS = 50;
 const LOCK_RETRIES = 20;
@@ -81,7 +82,7 @@ async function acquireStateLock(retries: number): Promise<string> {
 async function withStateLock<T>(fn: () => Promise<T>): Promise<T> {
   await fs.mkdir(path.dirname(CALENDAR_LOCK_FILE), { recursive: true });
   const token = await acquireStateLock(LOCK_RETRIES);
-  const stopRenewal = startClaimRenewal(CALENDAR_LOCK_FILE, CALENDAR_LOCK_STALE_MS / 5);
+  const stopRenewal = startClaimRenewal(CALENDAR_LOCK_FILE, CALENDAR_LOCK_RENEW_MS);
   try {
     return await fn();
   } finally {
