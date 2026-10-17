@@ -48,12 +48,8 @@ function gmailMailboxes() {
       specialUse: '\\Drafts',
       flags: new Set(['\\Drafts']),
     },
-    {
-      name: 'Important',
-      path: '[Gmail]/Important',
-      specialUse: '\\Important',
-      flags: new Set(['\\Important']),
-    },
+    // imapflow derives specialUse only for the roles it knows; \Important is not one.
+    { name: 'Important', path: '[Gmail]/Important', flags: new Set(['\\Important']) },
     {
       name: 'Sent Mail',
       path: '[Gmail]/Sent Mail',
@@ -70,6 +66,16 @@ function gmailMailboxes() {
     { name: 'Trash', path: '[Gmail]/Trash', specialUse: '\\Trash', flags: new Set(['\\Trash']) },
     { name: 'Receipts', path: 'Receipts', flags: new Set<string>() },
   ];
+}
+
+/**
+ * imapflow sends a range without { uid: true } as sequence numbers, and those
+ * name another message once an earlier one is expunged.
+ */
+function requireUidRange(command: string, range: string, options?: { uid?: boolean }) {
+  if (options?.uid !== true) {
+    throw new Error(`${command}(${range}) sent a sequence number, not a UID`);
+  }
 }
 
 /**
@@ -469,6 +475,22 @@ describe('ImapService', () => {
       expect(client.mailboxDelete).not.toHaveBeenCalled();
     });
 
+    // A server without SPECIAL-USE sends no role flag; imapflow infers \Trash from the name.
+    it('should refuse to delete a folder imapflow marks \\Trash by its name alone', async () => {
+      client.list.mockResolvedValue([
+        {
+          name: 'Trash',
+          path: 'Trash',
+          flags: new Set(['\\HasNoChildren']),
+          specialUse: '\\Trash',
+          specialUseSource: 'name',
+        },
+      ]);
+
+      await expect(service.deleteMailbox('test', 'Trash')).rejects.toThrow(/special-use folder/);
+      expect(client.mailboxDelete).not.toHaveBeenCalled();
+    });
+
     // Dovecot with a personal namespace "INBOX.": imapflow sends DELETE "INBOX.Trash" for "Trash".
     it('should refuse a special-use folder named without its namespace prefix', async () => {
       client.namespace = { prefix: 'INBOX.', delimiter: '.' };
@@ -747,17 +769,32 @@ describe('ImapService', () => {
     return mixedStructure(attachmentNode('2', filename), attachmentNode('3', secondFilename));
   }
 
+  /** client.fetchOne as imapflow answers a UID FETCH: false for a UID the mailbox does not hold. */
+  function fetchOneByUid(...messages: ({ uid: number } & Record<string, unknown>)[]) {
+    client.fetchOne.mockImplementation(
+      async (range: string, _query: unknown, options?: { uid?: boolean }) => {
+        requireUidRange('fetchOne', range, options);
+        return messages.find((m) => String(m.uid) === range) ?? false;
+      },
+    );
+  }
+
   /** client.download as imapflow resolves it: decoded part content as a stream. */
   function downloadReturnsPartName() {
-    client.download.mockImplementation(async (_uid: string, part: string) => ({
-      meta: { contentType: 'text/plain' },
-      content: Readable.from([Buffer.from(`body-of-part-${part}`)]),
-    }));
+    client.download.mockImplementation(
+      async (uid: string, part: string, options?: { uid?: boolean }) => {
+        requireUidRange('download', uid, options);
+        return {
+          meta: { contentType: 'text/plain' },
+          content: Readable.from([Buffer.from(`body-of-part-${part}`)]),
+        };
+      },
+    );
   }
 
   describe('downloadAttachment', () => {
     it('should reject a filename two attachments share and list their MIME parts', async () => {
-      client.fetchOne.mockResolvedValue({
+      fetchOneByUid({
         uid: 9,
         bodyStructure: twinAttachmentStructure('a.txt'),
       });
@@ -769,7 +806,7 @@ describe('ImapService', () => {
     });
 
     it('should download the MIME part of a filename that matches once', async () => {
-      client.fetchOne.mockResolvedValue({
+      fetchOneByUid({
         uid: 9,
         bodyStructure: twinAttachmentStructure('a.txt', 'b.txt'),
       });
@@ -784,7 +821,7 @@ describe('ImapService', () => {
     // numbers must be numbered the same way, or the download reads another part.
     it('should number attachment parts by position when the structure has none', async () => {
       const structure = twinAttachmentStructure('a.txt', 'b.txt');
-      client.fetchOne.mockResolvedValue({
+      fetchOneByUid({
         uid: 9,
         bodyStructure: {
           ...structure,
@@ -813,7 +850,7 @@ describe('ImapService', () => {
     });
 
     it('should write each same-named attachment to its own file', async () => {
-      client.fetchOne.mockResolvedValue({
+      fetchOneByUid({
         uid: 9,
         bodyStructure: twinAttachmentStructure('a.txt'),
       });
@@ -834,7 +871,7 @@ describe('ImapService', () => {
     ])('should keep attachment %j inside the destination as %j', async (filename, expected) => {
       const structure = twinAttachmentStructure(filename);
       structure.childNodes.pop();
-      client.fetchOne.mockResolvedValue({ uid: 9, bodyStructure: structure });
+      fetchOneByUid({ uid: 9, bodyStructure: structure });
       downloadReturnsPartName();
       const destDir = path.join(root, 'a', 'b');
 
@@ -845,7 +882,7 @@ describe('ImapService', () => {
 
     // The size is what was written, not the encoded BODYSTRUCTURE size (16 here).
     it('should return the filename, MIME type, written size and file URL', async () => {
-      client.fetchOne.mockResolvedValue({
+      fetchOneByUid({
         uid: 9,
         bodyStructure: mixedStructure(attachmentNode('2', 'notes.txt')),
       });
@@ -867,7 +904,7 @@ describe('ImapService', () => {
     });
 
     it('should save an attachment at the size limit and skip one a byte over it', async () => {
-      client.fetchOne.mockResolvedValue({
+      fetchOneByUid({
         uid: 9,
         bodyStructure: mixedStructure(
           attachmentNode('2', 'at-limit.txt', { size: 16 }),
@@ -884,7 +921,7 @@ describe('ImapService', () => {
     // Calendar data goes to the calendar, not to the attachment folder. nodemailer
     // and Gmail attach invite.ics as application/ics; a text/calendar part may have any name.
     it('should not write an invite.ics or text/calendar attachment', async () => {
-      client.fetchOne.mockResolvedValue({
+      fetchOneByUid({
         uid: 9,
         bodyStructure: mixedStructure(
           attachmentNode('2', 'notes.txt'),
@@ -900,15 +937,15 @@ describe('ImapService', () => {
     });
 
     it('should save the other attachments when one part fails to download', async () => {
-      client.fetchOne.mockResolvedValue({
+      fetchOneByUid({
         uid: 9,
         bodyStructure: twinAttachmentStructure('a.txt', 'b.txt'),
       });
       downloadReturnsPartName();
       const byPartName = client.download.getMockImplementation();
-      client.download.mockImplementation(async (uid: string, part: string) => {
+      client.download.mockImplementation(async (uid: string, part: string, options?: object) => {
         if (part === '2') throw new Error('Command failed: NO [UNAVAILABLE]');
-        return byPartName?.(uid, part);
+        return byPartName?.(uid, part, options);
       });
 
       const saved = await service.saveEmailAttachments('test', '9', 'INBOX', root);
@@ -918,7 +955,7 @@ describe('ImapService', () => {
 
     // APFS and NTFS are case-insensitive by default: "A.txt" would overwrite "a.txt".
     it('should give names that differ only in case separate files', async () => {
-      client.fetchOne.mockResolvedValue({
+      fetchOneByUid({
         uid: 9,
         bodyStructure: twinAttachmentStructure('a.txt', 'A.txt'),
       });
@@ -931,7 +968,7 @@ describe('ImapService', () => {
 
     // A lock left held makes every later call on the account wait out the lock timeout.
     it('should release the mailbox lock once after saving', async () => {
-      client.fetchOne.mockResolvedValue({
+      fetchOneByUid({
         uid: 9,
         bodyStructure: twinAttachmentStructure('a.txt', 'b.txt'),
       });
@@ -955,7 +992,7 @@ describe('ImapService', () => {
     // Outlook sends a meeting request as a text/calendar alternative with no
     // .ics attachment. imapflow reports the type as "text/calendar", no subtype.
     it('should return an inline text/calendar alternative', async () => {
-      client.fetchOne.mockResolvedValue({
+      fetchOneByUid({
         uid: 9,
         bodyStructure: {
           childNodes: [
@@ -982,7 +1019,7 @@ describe('ImapService', () => {
 
     // RFC 3501: a non-multipart message has only part 1; imapflow gives its root no part number.
     it('should read a message that is one text/calendar part as part 1', async () => {
-      client.fetchOne.mockResolvedValue({ uid: 9, bodyStructure: calendarPart });
+      fetchOneByUid({ uid: 9, bodyStructure: calendarPart });
       downloadReturnsPartName();
 
       const parts = await service.getCalendarParts('test', 'INBOX', '9');
@@ -992,7 +1029,7 @@ describe('ImapService', () => {
 
     it('should issue no command while a FETCH is open', async () => {
       const message = { uid: 9, bodyStructure: { part: '2', ...calendarPart } };
-      client.fetchOne.mockResolvedValue(message);
+      fetchOneByUid(message);
       downloadReturnsPartName();
       const issuedDuringFetch = rejectCommandsDuringFetch(client, [message]);
 
@@ -1002,7 +1039,7 @@ describe('ImapService', () => {
     });
 
     it('should read a text/calendar part attached as invite.ics once', async () => {
-      client.fetchOne.mockResolvedValue({
+      fetchOneByUid({
         uid: 9,
         bodyStructure: {
           childNodes: [
@@ -1087,11 +1124,16 @@ describe('ImapService', () => {
         const [[name, value]] = Object.entries(query.header);
         return messages.filter((m) => headerOf(m, name).includes(value)).map((m) => m.uid);
       });
-      client.fetchOne.mockResolvedValue(messages.at(-1));
-      client.download.mockImplementation(async (uid: string) => ({
-        meta: { contentType: 'text/plain' },
-        content: Readable.from([Buffer.from(`thread-body-${uid}`)]),
-      }));
+      fetchOneByUid(...messages);
+      client.download.mockImplementation(
+        async (uid: string, _part: string, options?: { uid?: boolean }) => {
+          requireUidRange('download', uid, options);
+          return {
+            meta: { contentType: 'text/plain' },
+            content: Readable.from([Buffer.from(`thread-body-${uid}`)]),
+          };
+        },
+      );
       return rejectCommandsDuringFetch(client, messages);
     }
 
