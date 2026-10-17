@@ -162,82 +162,84 @@ interface JXAScriptOptions {
   confirm: boolean;
 }
 
-function buildAppleScript(opts: JXAScriptOptions): string {
-  const { event, calendarName, alarmMinutes, attachCount, attendeeCount, confirm } = opts;
+/** Each item is an AppleScript expression; mail text is escaped once, where it is quoted. */
+function dialogText(line: string): string {
+  return `"${escapeAS(line)}"`;
+}
 
-  const title = escapeAS(event.title);
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count > 1 ? 's' : ''}`;
+}
+
+/** Where and how to join: location, meeting link, dial-in and meeting ID. */
+function meetingDialogLines(event: LocalCalendarEventInput): string[] {
+  const lines: string[] = [];
+  if (event.location) {
+    lines.push(dialogText(`\uD83D\uDCCD ${event.location}`));
+  }
+  if (event.url) {
+    const domain = event.url.replace(/^https?:\/\//, '').split('/')[0];
+    const urlLabel = event.urlLabel ?? event.conferenceProvider ?? '';
+    lines.push(dialogText(`\uD83C\uDFA5 ${urlLabel || domain}`));
+  }
+  if (event.dialIn) {
+    lines.push(dialogText(`\uD83D\uDCDE ${event.dialIn}`));
+  }
+  if (event.meetingId) {
+    const pin = event.passcode ? ` \u00B7 PIN: ${event.passcode}` : '';
+    lines.push(dialogText(`\uD83D\uDD11 ID: ${event.meetingId}${pin}`));
+  }
+  return lines;
+}
+
+function confirmDialogLines(opts: JXAScriptOptions): string[] {
+  const { event, calendarName, alarmMinutes, attachCount, attendeeCount } = opts;
+  const lines = [
+    dialogText(`\uD83D\uDCC5 ${event.title}`),
+    `${dialogText('\uD83D\uDD50 ')} & (eventStart as text) & ${dialogText(' \u2013 ')} & (eventEnd as text)`,
+    ...meetingDialogLines(event),
+  ];
+  if (attendeeCount > 0) {
+    lines.push(dialogText(`\uD83D\uDC65 ${plural(attendeeCount, 'attendee')}`));
+  }
+  if (attachCount > 0) {
+    lines.push(dialogText(`\uD83D\uDCCE ${plural(attachCount, 'attachment')} saved locally`));
+  }
+  lines.push(
+    dialogText(
+      `\uD83D\uDCC6 ${calendarName || 'Default Calendar'} \u00B7 \u23F0 ${alarmMinutes} min before`,
+    ),
+  );
+  return lines;
+}
+
+/** Shows the dialog; Cancel or a timeout returns its status before anything is written. */
+function confirmDialogScript(opts: JXAScriptOptions): string[] {
+  const [first, ...rest] = confirmDialogLines(opts);
+  return [
+    `set dialogText to ${first}`,
+    ...rest.map((line) => `set dialogText to dialogText & return & ${line}`),
+    'try',
+    `  display dialog dialogText with title "mailoo \u2014 Add Calendar Event?" buttons {"Cancel", "Add to Calendar"} default button "Add to Calendar" cancel button "Cancel" giving up after ${CONFIRM_DIALOG_WAIT_S}`,
+    '  set dlgResult to button returned of result',
+    '  if dlgResult is not "Add to Calendar" then',
+    '    return "{\\"status\\":\\"timed_out\\"}"',
+    '  end if',
+    'on error',
+    '  return "{\\"status\\":\\"cancelled\\"}"',
+    'end try',
+    '',
+  ];
+}
+
+function makeEventScript(opts: JXAScriptOptions): string[] {
+  const { event, calendarName, alarmMinutes } = opts;
   const location = escapeAS(event.location ?? '');
   const notes = escapeAS(event.notes ?? '');
   const url = escapeAS(event.url ?? '');
   const calName = escapeAS(calendarName);
 
-  const lines: string[] = [
-    JSON_HANDLERS,
-    `set eventTitle to "${title}"`,
-    '',
-    ...dateToAppleScriptLines('eventStart', event.start),
-    '',
-    ...dateToAppleScriptLines('eventEnd', event.end),
-    '',
-  ];
-
-  if (confirm) {
-    // Each item is an AppleScript expression; mail text is escaped once, where it is quoted.
-    const text = (line: string): string => `"${escapeAS(line)}"`;
-    const dialogLines: string[] = [
-      text(`\uD83D\uDCC5 ${event.title}`),
-      `${text('\uD83D\uDD50 ')} & (eventStart as text) & ${text(' \u2013 ')} & (eventEnd as text)`,
-    ];
-    if (event.location) {
-      dialogLines.push(text(`\uD83D\uDCCD ${event.location}`));
-    }
-    if (event.url) {
-      const domain = event.url.replace(/^https?:\/\//, '').split('/')[0];
-      const urlLabel = event.urlLabel ?? event.conferenceProvider ?? '';
-      dialogLines.push(text(`\uD83C\uDFA5 ${urlLabel || domain}`));
-    }
-    if (event.dialIn) {
-      dialogLines.push(text(`\uD83D\uDCDE ${event.dialIn}`));
-    }
-    if (event.meetingId) {
-      const pin = event.passcode ? ` \u00B7 PIN: ${event.passcode}` : '';
-      dialogLines.push(text(`\uD83D\uDD11 ID: ${event.meetingId}${pin}`));
-    }
-    if (attendeeCount > 0) {
-      dialogLines.push(
-        text(`\uD83D\uDC65 ${attendeeCount} attendee${attendeeCount > 1 ? 's' : ''}`),
-      );
-    }
-    if (attachCount > 0) {
-      dialogLines.push(
-        text(`\uD83D\uDCCE ${attachCount} attachment${attachCount > 1 ? 's' : ''} saved locally`),
-      );
-    }
-    dialogLines.push(
-      text(
-        `\uD83D\uDCC6 ${calendarName || 'Default Calendar'} \u00B7 \u23F0 ${alarmMinutes} min before`,
-      ),
-    );
-
-    lines.push(`set dialogText to ${dialogLines[0]}`);
-    dialogLines.slice(1).forEach((dl) => {
-      lines.push(`set dialogText to dialogText & return & ${dl}`);
-    });
-    lines.push(
-      'try',
-      `  display dialog dialogText with title "mailoo \u2014 Add Calendar Event?" buttons {"Cancel", "Add to Calendar"} default button "Add to Calendar" cancel button "Cancel" giving up after ${CONFIRM_DIALOG_WAIT_S}`,
-      '  set dlgResult to button returned of result',
-      '  if dlgResult is not "Add to Calendar" then',
-      '    return "{\\"status\\":\\"timed_out\\"}"',
-      '  end if',
-      'on error',
-      '  return "{\\"status\\":\\"cancelled\\"}"',
-      'end try',
-      '',
-    );
-  }
-
-  lines.push('tell application "Calendar"');
+  const lines = ['tell application "Calendar"'];
   if (calName) {
     lines.push(
       '  try',
@@ -276,8 +278,22 @@ function buildAppleScript(opts: JXAScriptOptions): string {
     '',
     'return "{\\"status\\":\\"added\\",\\"eventId\\":" & my jsonString(eventId) & ",\\"calendarName\\":" & my jsonString(finalCalName) & "}"',
   );
+  return lines;
+}
 
-  return lines.join('\n');
+function buildAppleScript(opts: JXAScriptOptions): string {
+  const { event, confirm } = opts;
+  return [
+    JSON_HANDLERS,
+    `set eventTitle to "${escapeAS(event.title)}"`,
+    '',
+    ...dateToAppleScriptLines('eventStart', event.start),
+    '',
+    ...dateToAppleScriptLines('eventEnd', event.end),
+    '',
+    ...(confirm ? confirmDialogScript(opts) : []),
+    ...makeEventScript(opts),
+  ].join('\n');
 }
 
 function toICSDate(d: Date): string {
