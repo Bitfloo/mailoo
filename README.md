@@ -781,7 +781,7 @@ Paths follow the XDG defaults in `src/config/xdg.ts` unless `XDG_CONFIG_HOME`, `
 | OS temp directory, `mailoo-event-*.ics` | Linux calendar file passed to `xdg-open` | `src/services/local-calendar.service.ts` |
 | `~/Library/LaunchAgents/com.bitfloo.mailoo.scheduler.plist` | macOS scheduler agent. Its stdout and stderr are `/tmp/mailoo-scheduler.log` | `src/cli/scheduler.ts` |
 | User crontab | One Mailoo line on Linux | `src/cli/scheduler.ts` |
-| MCP client config (Claude, Cursor, Windsurf) | `mailoo install` merges the launch entry | `src/cli/install-commands.ts` |
+| MCP client config (Claude, Cursor, Windsurf) | `mailoo install` merges the launch entry and replaces the file through a temp file and rename (mode `0600`). A file that is not a JSON object (for example JSON with comments) is left unchanged and the command stops | `src/cli/install-commands.ts` |
 
 Templates under `$XDG_CONFIG_HOME/mailoo/templates/` are read, not written by the server.
 

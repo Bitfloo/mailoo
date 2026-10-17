@@ -26,6 +26,7 @@ import {
   select,
 } from '@clack/prompts';
 
+import { writeConfigFile } from '../config/loader.js';
 import ensureInteractive from './guard.js';
 
 const MCP_SERVER_KEY = 'mailoo';
@@ -150,19 +151,49 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
-async function readJsonFile(filePath: string): Promise<Record<string, unknown>> {
-  try {
-    const raw = await fs.readFile(filePath, 'utf-8');
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
+class ClientConfigParseError extends Error {}
+
+function isEnoent(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'ENOENT'
+  );
 }
 
+/**
+ * A missing or empty file has nothing to keep and reads as {}. Anything else
+ * that is not a JSON object throws: writing {} plus the mailoo entry back would
+ * replace the user's other servers.
+ */
+async function readJsonFile(filePath: string): Promise<Record<string, unknown>> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(filePath, 'utf-8');
+  } catch (error) {
+    if (isEnoent(error)) return {};
+    throw error;
+  }
+  if (raw.trim() === '') return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    // The parser's message quotes the file, which may hold other servers' keys.
+    throw new ClientConfigParseError(
+      `${filePath} is not valid JSON (an object is expected). It was not changed; fix it and run the command again.`,
+    );
+  }
+  return parsed as Record<string, unknown>;
+}
+
+/** Temp file plus rename (mode 0600), so an interrupted write cannot truncate the client config. */
 async function writeJsonFile(filePath: string, data: Record<string, unknown>): Promise<void> {
-  const dir = path.dirname(filePath);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf-8');
+  await writeConfigFile(filePath, `${JSON.stringify(data, null, 2)}\n`);
 }
 
 function isRegistered(config: Record<string, unknown>, serversKey: string): boolean {
@@ -368,7 +399,13 @@ async function runStatus(): Promise<void> {
         return `  ❌ ${client.name} — config not found`;
       }
 
-      const cfg = await readJsonFile(client.configPath);
+      let cfg: Record<string, unknown>;
+      try {
+        cfg = await readJsonFile(client.configPath);
+      } catch (error) {
+        if (!(error instanceof ClientConfigParseError)) throw error;
+        return `  ⚠️  ${client.name} — config is not valid JSON\n     ${client.configPath}`;
+      }
       if (isRegistered(cfg, client.serversKey)) {
         const servers = cfg[client.serversKey] as Record<string, unknown>;
         const entry = servers[MCP_SERVER_KEY] as ServerEntry | undefined;
