@@ -500,7 +500,7 @@ Sent copies, IMAP4rev2, Sieve host/port, and `read_only` env vars:
 
 The scheduler enables future email delivery with a layered architecture:
 
-1. **MCP auto-check** — Processes the queue on server startup and every 60 seconds while the MCP server is running
+1. **MCP auto-check** — Processes the queue on server startup, before the watcher connects, and every 60 seconds while the MCP server is running. A check still running when the next one is due is skipped, and failed sends are logged at `warning`
 2. **CLI** — `npx -y @bitfloo/mailoo scheduler check` for manual or cron-based processing
 3. **OS-level daemon** — `npx -y @bitfloo/mailoo scheduler install` sets up launchd (macOS) or crontab (Linux) to run every minute, independently of the MCP server
 

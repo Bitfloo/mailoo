@@ -17,7 +17,8 @@ export async function maybeStartMailboxWriters(
 ): Promise<boolean> {
   if (!canWrite) return false;
   starts.startHooks?.();
-  if (starts.startWatcher) await starts.startWatcher();
+  // The watcher can wait out a connection timeout per folder; overdue sends must not wait with it.
   if (starts.startScheduler) await starts.startScheduler();
+  if (starts.startWatcher) await starts.startWatcher();
   return true;
 }

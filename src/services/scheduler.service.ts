@@ -18,6 +18,9 @@ import { acquireClaim, errnoCode, releaseClaim, startClaimRenewal } from '../uti
 import type ImapService from './imap.service.js';
 import type SmtpService from './smtp.service.js';
 
+/** How often a running server checks the queue. */
+export const SCHEDULER_INTERVAL_MS = 60_000;
+
 /** Max age (ms) of a queue claim before another check may send that email. */
 export const STALE_LOCK_MS = 5 * 60 * 1000;
 
@@ -644,4 +647,54 @@ export default class SchedulerService {
     }
     return emails;
   }
+}
+
+export type SchedulerLog = (level: 'info' | 'warning', message: string) => Promise<void> | void;
+
+async function reportCheck(
+  check: Pick<SchedulerService, 'checkAndSend'>,
+  log: SchedulerLog,
+): Promise<void> {
+  let result: Awaited<ReturnType<SchedulerService['checkAndSend']>>;
+  try {
+    result = await check.checkAndSend();
+  } catch (err) {
+    await log('warning', `Scheduled send check failed: ${errorMessage(err)}`);
+    return;
+  }
+  if (result.sent > 0) await log('info', `Sent ${result.sent} scheduled email(s)`);
+  if (result.failed > 0) await log('warning', `${result.failed} scheduled email(s) failed`);
+  // eslint-disable-next-line no-restricted-syntax
+  for (const error of result.errors) await log('warning', `Scheduled send error: ${error}`); // eslint-disable-line no-await-in-loop
+  if (result.deferred > 0) {
+    await log('info', `${result.deferred} scheduled email(s) held back by the rate limit`);
+  }
+}
+
+/**
+ * Checks the queue now and then every SCHEDULER_INTERVAL_MS. A check that is
+ * still running when the timer fires is skipped rather than overlapped, so a
+ * slow SMTP server cannot pile checks up. Returns a function that stops it.
+ */
+export function startSchedulerLoop(
+  check: Pick<SchedulerService, 'checkAndSend'>,
+  log: SchedulerLog,
+): () => void {
+  let running = false;
+  const tick = () => {
+    if (running) return;
+    running = true;
+    reportCheck(check, log)
+      // Only the log sink can throw here; it must not stop the loop.
+      .catch(() => undefined)
+      .finally(() => {
+        running = false;
+      });
+  };
+  tick();
+  const timer = setInterval(tick, SCHEDULER_INTERVAL_MS);
+  timer.unref();
+  return () => {
+    clearInterval(timer);
+  };
 }

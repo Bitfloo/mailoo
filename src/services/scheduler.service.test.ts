@@ -14,7 +14,9 @@ vi.stubEnv('XDG_STATE_HOME', stateHome);
 const {
   default: SchedulerService,
   SCHEDULE_CLAIM_SUFFIX,
+  SCHEDULER_INTERVAL_MS,
   STALE_LOCK_MS,
+  startSchedulerLoop,
 } = await import('./scheduler.service.js');
 const { default: SmtpService } = await import('./smtp.service.js');
 
@@ -1151,5 +1153,116 @@ describe('list order', () => {
     } finally {
       await fs.rm(queueDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('scheduler loop', () => {
+  type CheckResult = Awaited<ReturnType<InstanceType<typeof SchedulerService>['checkAndSend']>>;
+
+  const quiet: CheckResult = { sent: 0, failed: 0, deferred: 0, errors: [] };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function recorder() {
+    const lines: [string, string][] = [];
+    const log = (level: 'info' | 'warning', message: string) => {
+      lines.push([level, message]);
+    };
+    return { lines, log };
+  }
+
+  it('should never run two checks at once when a check outlasts the interval', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const scheduler = {
+      checkAndSend: async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        // A slow SMTP server: each check takes two and a half intervals.
+        await new Promise((resolve) => {
+          setTimeout(resolve, 2.5 * SCHEDULER_INTERVAL_MS);
+        });
+        inFlight -= 1;
+        return quiet;
+      },
+    };
+    const stop = startSchedulerLoop(scheduler, recorder().log);
+    await vi.advanceTimersByTimeAsync(10 * SCHEDULER_INTERVAL_MS);
+    stop();
+    expect(maxInFlight).toBe(1);
+  });
+
+  it('should check again on the next interval after a check finishes', async () => {
+    let checks = 0;
+    const scheduler = {
+      checkAndSend: async () => {
+        checks += 1;
+        return quiet;
+      },
+    };
+    const stop = startSchedulerLoop(scheduler, recorder().log);
+    await vi.advanceTimersByTimeAsync(3 * SCHEDULER_INTERVAL_MS);
+    stop();
+    expect(checks).toBe(4);
+  });
+
+  it('should log a check that throws at warning', async () => {
+    const { lines, log } = recorder();
+    const scheduler = {
+      checkAndSend: async (): Promise<CheckResult> => {
+        throw new Error('EACCES: permission denied, scandir');
+      },
+    };
+    const stop = startSchedulerLoop(scheduler, log);
+    await vi.advanceTimersByTimeAsync(0);
+    stop();
+    expect(lines).toEqual([
+      ['warning', 'Scheduled send check failed: EACCES: permission denied, scandir'],
+    ]);
+  });
+
+  it('should log failed sends with their errors at warning', async () => {
+    const { lines, log } = recorder();
+    const failed: CheckResult = {
+      ...quiet,
+      failed: 1,
+      errors: [`${queueId(1)}.json: 550 mailbox unavailable`],
+    };
+    const stop = startSchedulerLoop({ checkAndSend: async () => failed }, log);
+    await vi.advanceTimersByTimeAsync(0);
+    stop();
+    expect(lines).toEqual([
+      ['warning', '1 scheduled email(s) failed'],
+      ['warning', `Scheduled send error: ${queueId(1)}.json: 550 mailbox unavailable`],
+    ]);
+  });
+
+  it('should log delivered emails at info', async () => {
+    const { lines, log } = recorder();
+    const stop = startSchedulerLoop({ checkAndSend: async () => ({ ...quiet, sent: 2 }) }, log);
+    await vi.advanceTimersByTimeAsync(0);
+    stop();
+    expect(lines).toEqual([['info', 'Sent 2 scheduled email(s)']]);
+  });
+
+  it('should stop checking once stopped', async () => {
+    let checks = 0;
+    const scheduler = {
+      checkAndSend: async () => {
+        checks += 1;
+        return quiet;
+      },
+    };
+    const stop = startSchedulerLoop(scheduler, recorder().log);
+    await vi.advanceTimersByTimeAsync(0);
+    stop();
+    await vi.advanceTimersByTimeAsync(5 * SCHEDULER_INTERVAL_MS);
+    expect(checks).toBe(1);
   });
 });

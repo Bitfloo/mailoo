@@ -35,7 +35,7 @@ import LocalCalendarService from './services/local-calendar.service.js';
 import { MailArrival } from './services/mail-arrival/index.js';
 import OAuthService from './services/oauth.service.js';
 import RemindersService from './services/reminders.service.js';
-import SchedulerService from './services/scheduler.service.js';
+import SchedulerService, { startSchedulerLoop } from './services/scheduler.service.js';
 import SmtpService from './services/smtp.service.js';
 import TemplateService from './services/template.service.js';
 import WatcherService from './services/watcher.service.js';
@@ -135,7 +135,7 @@ async function runServer(): Promise<void> {
   // the real capabilities (including `sampling` support).
   // --------------------------------------------------------------------------
 
-  let schedulerInterval: ReturnType<typeof setInterval> | undefined;
+  let stopScheduler: (() => void) | undefined;
 
   const lowLevelServer = server.server;
 
@@ -171,28 +171,11 @@ async function runServer(): Promise<void> {
             hooksService.start(lowLevelServer, { sampling: clientCaps.sampling != null });
           },
           startWatcher: async () => watcherService.start(),
-          startScheduler: async () => {
-            try {
-              const result = await schedulerService.checkAndSend();
-              if (result.sent > 0) {
-                await mcpLog(
-                  'info',
-                  'scheduler',
-                  `Sent ${result.sent} overdue email(s) on startup`,
-                );
-              }
-            } catch {
-              // Non-fatal: scheduler check failure shouldn't prevent server start
-            }
-
-            schedulerInterval = setInterval(async () => {
-              try {
-                await schedulerService.checkAndSend();
-              } catch {
-                // Silent — don't spam logs
-              }
-            }, 60_000);
-            schedulerInterval.unref();
+          startScheduler: () => {
+            const log = async (level: 'info' | 'warning', message: string) => {
+              await mcpLog(level, 'scheduler', message);
+            };
+            stopScheduler = startSchedulerLoop(schedulerService, log);
           },
         });
 
@@ -219,7 +202,7 @@ async function runServer(): Promise<void> {
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    if (schedulerInterval) clearInterval(schedulerInterval);
+    stopScheduler?.();
     hooksService.stop();
     await watcherService.stop();
     await connections.closeAll();
