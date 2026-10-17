@@ -50,9 +50,10 @@ LGPL-3.0-or-later (see [LICENSE](LICENSE) and [COPYING](COPYING)).
 
 `pnpm test:integration` needs Docker. `pnpm ci:local` skips that lane when Docker
 is down (lefthook pre-push uses the same script). On a **pull request** to
-`develop`, GitHub Actions runs lint, typecheck and unit tests, linux GreenMail, a
-Docker build, a check of the commit and pull request text, and CodeQL. Pushing a
-topic branch starts none of them; CodeQL also runs on pushes to `develop` and weekly.
+`develop`, GitHub Actions runs the `ci.yml` jobs `Check, typecheck, test`,
+`Integration tests` (linux GreenMail), `Docker build` and
+`Public commit and pull request text`, plus CodeQL. Pushing a topic branch
+starts none of them; CodeQL also runs on pushes to `develop` and weekly.
 `node dist/main.js test` / `mailoo test` is a live-account connection probe, not Vitest.
 
 ### Code Style

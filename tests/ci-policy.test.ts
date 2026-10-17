@@ -43,6 +43,23 @@ describe('CI spend policy', () => {
     expect(ciYml).toContain('include-unit');
     expect(claude).toContain('include-unit');
   });
+
+  it('should name every ci.yml job in the CONTRIBUTING pull request list', () => {
+    const contributing = readFileSync(join(repoRoot, 'CONTRIBUTING.md'), 'utf8');
+    const names = jobSections(ciYml).map((job) => job.match(/^ {4}name: (.+)$/m)?.[1]);
+    expect(names).not.toContain(undefined);
+    for (const name of names) {
+      expect(contributing).toContain(`\`${name}\``);
+    }
+  });
+
+  it('should describe CodeQL push and weekly runs only while codeql.yml has those triggers', () => {
+    const contributing = readFileSync(join(repoRoot, 'CONTRIBUTING.md'), 'utf8');
+    const codeqlOn = onBlock(readFileSync(join(repoRoot, '.github/workflows/codeql.yml'), 'utf8'));
+    expect(contributing).toContain('CodeQL also runs on pushes to `develop` and weekly');
+    expect(codeqlOn).toMatch(/^ {2}push:\n {4}branches: \[develop\]$/m);
+    expect(codeqlOn).toMatch(/^ {2}schedule:$/m);
+  });
 });
 
 /** The workflow's grep -F operand is the only copy of the npm retry sentence. */
