@@ -111,6 +111,11 @@ async function readScheduled(filePath: string): Promise<ScheduledEmail | undefin
   }
 }
 
+/** SMTP accepted it and the sent record was written; only the move into sent/ may be missing. */
+function isDelivered(scheduled: ScheduledEmail, id: string): boolean {
+  return scheduled.id === id && scheduled.status === 'sent';
+}
+
 function isDue(scheduled: ScheduledEmail, id: string, now: number): boolean {
   const sendAt = new Date(scheduled.sendAt).getTime();
   return (
@@ -501,27 +506,13 @@ export default class SchedulerService {
     try {
       const content = await fs.readFile(filePath, 'utf-8');
       const scheduled = JSON.parse(content) as ScheduledEmail;
-      const delivered = scheduled.id === id && scheduled.status === 'sent';
+      const delivered = isDelivered(scheduled, id);
       if (!delivered && !isDue(scheduled, id, now)) return { outcome: 'skipped' };
 
       claimToken = await claimSchedule(this.pendingDir, id, now);
       if (!claimToken) return { outcome: 'skipped' };
-      if (delivered) {
-        // Only the move into sent/ was lost. A failed move is tried again on the next check.
-        await this.moveToSent(id).catch(() => undefined);
-        return { outcome: 'skipped' };
-      }
-
-      const fresh = await readScheduled(filePath);
-      if (!fresh || !isDue(fresh, id, now)) return { outcome: 'skipped' };
-      if (fresh.attempts >= MAX_ATTEMPTS) {
-        fresh.status = 'failed';
-        fresh.lastError = 'Max retry attempts exceeded';
-        await this.writeScheduledFile(fresh);
-        return { outcome: 'failed' };
-      }
-
-      return await this.sendClaimedEmail(fresh, id);
+      if (delivered) return await this.settleDelivered(id);
+      return await this.sendIfStillDue(filePath, id, now);
     } catch (err) {
       const errorMsg = errorMessage(err);
       await this.writeSendFailure(id, errorMsg);
@@ -529,6 +520,25 @@ export default class SchedulerService {
     } finally {
       if (claimToken) await releaseClaim(lockFile(this.pendingDir, id), claimToken);
     }
+  }
+
+  /** Only the move into sent/ was lost. A failed move is tried again on the next check. */
+  private async settleDelivered(id: string): Promise<Delivery> {
+    await this.moveToSent(id).catch(() => undefined);
+    return { outcome: 'skipped' };
+  }
+
+  /** Under the claim: read the record again, then fail it if it is out of attempts or send it. */
+  private async sendIfStillDue(filePath: string, id: string, now: number): Promise<Delivery> {
+    const fresh = await readScheduled(filePath);
+    if (!fresh || !isDue(fresh, id, now)) return { outcome: 'skipped' };
+    if (fresh.attempts >= MAX_ATTEMPTS) {
+      fresh.status = 'failed';
+      fresh.lastError = 'Max retry attempts exceeded';
+      await this.writeScheduledFile(fresh);
+      return { outcome: 'failed' };
+    }
+    return this.sendClaimedEmail(fresh, id);
   }
 
   private async sendClaimedEmail(queued: ScheduledEmail, id: string): Promise<Delivery> {
