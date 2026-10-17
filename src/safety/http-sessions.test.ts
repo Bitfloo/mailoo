@@ -50,6 +50,21 @@ describe('HttpSessionStore', () => {
     expect(a.close).toHaveBeenCalled();
   });
 
+  it('should keep a session idle for exactly the TTL and evict it one millisecond later', () => {
+    let now = 0;
+    const store = new HttpSessionStore(32, 1_000, () => now);
+    const a = fakeTransport();
+    store.set('a', a);
+
+    now = 1_000;
+    store.evict();
+    const atTtl = store.get('a');
+    now = 1_001;
+    store.evict();
+
+    expect({ atTtl, afterTtl: store.get('a') }).toEqual({ atTtl: a, afterTtl: undefined });
+  });
+
   it('writes stderr when transport.close rejects', async () => {
     const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     let now = 1_000;
