@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { ImapFlow } from 'imapflow';
 
 import { MAX_MESSAGE_UID } from '../safety/validation.js';
+import { INLINE_MAX_BYTES, SAVE_PATH_MAX_BYTES } from '../tools/attachments.tool.js';
 import { SAVED_ATTACHMENT_MAX_BYTES } from './imap.service.js';
 import lockMailbox, { MAILBOX_LOCK_TIMEOUT_MS } from './mailbox-lock.js';
 import { PROTECTED_SPECIAL_USE } from './protected-mailboxes.js';
@@ -57,5 +58,17 @@ describe('docs/tools.md', () => {
     const text = await docSection('`download_attachment`');
 
     expect(text).toContain(`up to ${SAVED_ATTACHMENT_MAX_BYTES / 1024 / 1024} MB each`);
+  });
+
+  it('should state the size limit of an attachment returned as base64', async () => {
+    const text = await docSection('`download_attachment`');
+
+    expect(text).toContain(`capped at **${INLINE_MAX_BYTES / 1024 / 1024} MB**`);
+  });
+
+  it('should state the size limit of an attachment written to savePath', async () => {
+    const text = await docSection('`download_attachment`');
+
+    expect(text).toContain(`Cap is **${SAVE_PATH_MAX_BYTES / 1024 / 1024} MB**`);
   });
 });
