@@ -14,6 +14,7 @@ vi.mock('node:child_process', () => ({
   }),
 }));
 
+import { dialogLinesOf } from '../test-support/applescript.js';
 import RemindersService from './reminders.service.js';
 
 /** Builds the service while it believes it is on macOS, where osascript is used. */
@@ -106,5 +107,23 @@ describe('RemindersService osascript results', () => {
       ),
       add: ['remId', 'finalList'].filter((f) => !addScript.includes(`my jsonString(${f})`)),
     }).toEqual({ list: [], add: [] });
+  });
+});
+
+describe('addReminder confirm dialog', () => {
+  it('should show a quoted title, notes and list name in the dialog as written', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"cancelled"}', stderr: '' });
+    await onDarwin(async (svc) =>
+      svc.addReminder({
+        title: 'Pay "Acme" invoice',
+        notes: 'Ref C:\\billing\\"Q4"',
+        listName: 'Home "Q4"',
+      }),
+    );
+    expect(dialogLinesOf(osascriptImpl.mock.calls[0]?.[1][1] ?? '')).toEqual([
+      '\u{1F514} Pay "Acme" invoice',
+      '\u{1F4DD} Ref C:\\billing\\"Q4"',
+      '\u{1F4CB} List: Home "Q4"',
+    ]);
   });
 });

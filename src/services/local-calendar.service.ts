@@ -167,10 +167,6 @@ function buildAppleScript(opts: JXAScriptOptions): string {
   const location = escapeAS(event.location ?? '');
   const notes = escapeAS(event.notes ?? '');
   const url = escapeAS(event.url ?? '');
-  const urlLabel = escapeAS(event.urlLabel ?? event.conferenceProvider ?? '');
-  const dialIn = escapeAS(event.dialIn ?? '');
-  const meetingId = escapeAS(event.meetingId ?? '');
-  const passcode = escapeAS(event.passcode ?? '');
   const calName = escapeAS(calendarName);
 
   const lines: string[] = [
@@ -184,37 +180,46 @@ function buildAppleScript(opts: JXAScriptOptions): string {
   ];
 
   if (confirm) {
-    const dialogLines: string[] = [`\uD83D\uDCC5 ${title}`];
-    dialogLines.push('\uD83D\uDD50 " & (eventStart as text) & " \u2013 " & (eventEnd as text) & "');
-    if (location) {
-      dialogLines.push(`\uD83D\uDCCD ${location}`);
+    // Each item is an AppleScript expression; mail text is escaped once, where it is quoted.
+    const text = (line: string): string => `"${escapeAS(line)}"`;
+    const dialogLines: string[] = [
+      text(`\uD83D\uDCC5 ${event.title}`),
+      `${text('\uD83D\uDD50 ')} & (eventStart as text) & ${text(' \u2013 ')} & (eventEnd as text)`,
+    ];
+    if (event.location) {
+      dialogLines.push(text(`\uD83D\uDCCD ${event.location}`));
     }
-    if (url) {
-      const domain = url.replace(/^https?:\/\//, '').split('/')[0];
-      dialogLines.push(`\uD83C\uDFA5 ${urlLabel || domain}`);
+    if (event.url) {
+      const domain = event.url.replace(/^https?:\/\//, '').split('/')[0];
+      const urlLabel = event.urlLabel ?? event.conferenceProvider ?? '';
+      dialogLines.push(text(`\uD83C\uDFA5 ${urlLabel || domain}`));
     }
-    if (dialIn) {
-      dialogLines.push(`\uD83D\uDCDE ${dialIn}`);
+    if (event.dialIn) {
+      dialogLines.push(text(`\uD83D\uDCDE ${event.dialIn}`));
     }
-    if (meetingId) {
-      const pin = passcode ? ` \u00B7 PIN: ${passcode}` : '';
-      dialogLines.push(`\uD83D\uDD11 ID: ${meetingId}${pin}`);
+    if (event.meetingId) {
+      const pin = event.passcode ? ` \u00B7 PIN: ${event.passcode}` : '';
+      dialogLines.push(text(`\uD83D\uDD11 ID: ${event.meetingId}${pin}`));
     }
     if (attendeeCount > 0) {
-      dialogLines.push(`\uD83D\uDC65 ${attendeeCount} attendee${attendeeCount > 1 ? 's' : ''}`);
+      dialogLines.push(
+        text(`\uD83D\uDC65 ${attendeeCount} attendee${attendeeCount > 1 ? 's' : ''}`),
+      );
     }
     if (attachCount > 0) {
       dialogLines.push(
-        `\uD83D\uDCCE ${attachCount} attachment${attachCount > 1 ? 's' : ''} saved locally`,
+        text(`\uD83D\uDCCE ${attachCount} attachment${attachCount > 1 ? 's' : ''} saved locally`),
       );
     }
     dialogLines.push(
-      `\uD83D\uDCC6 ${calName || 'Default Calendar'} \u00B7 \u23F0 ${alarmMinutes} min before`,
+      text(
+        `\uD83D\uDCC6 ${calendarName || 'Default Calendar'} \u00B7 \u23F0 ${alarmMinutes} min before`,
+      ),
     );
 
-    lines.push(`set dialogText to "${escapeAS(dialogLines[0])}"`);
+    lines.push(`set dialogText to ${dialogLines[0]}`);
     dialogLines.slice(1).forEach((dl) => {
-      lines.push(`set dialogText to dialogText & return & "${escapeAS(dl)}"`);
+      lines.push(`set dialogText to dialogText & return & ${dl}`);
     });
     lines.push(
       'try',

@@ -20,6 +20,7 @@ vi.mock('node:child_process', () => ({
   }),
 }));
 
+import { dialogLinesOf } from '../test-support/applescript.js';
 import LocalCalendarService, {
   dateToAppleScriptLines,
   LIST_EVENTS_TIMEOUT_MS,
@@ -272,5 +273,36 @@ describe('addEvent duplicate check', () => {
       duplicate: { eventId: 'E1', calendarName: 'Work' },
       osascriptRuns: 1,
     });
+  });
+});
+
+describe('addEvent confirm dialog', () => {
+  /** A meeting invitation subject and room as mail carries them. */
+  const review = {
+    title: 'Q3 "board" \\ review',
+    start: new Date(2026, 9, 5, 9, 0, 0),
+    end: new Date(2026, 9, 5, 10, 0, 0),
+    location: 'Room "Oak"',
+  };
+
+  async function dialogFor(event: typeof review): Promise<string[]> {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"cancelled"}', stderr: '' });
+    await onDarwin(async () =>
+      new LocalCalendarService().addEvent(event, 'Work', { skipDuplicateCheck: true }),
+    );
+    return dialogLinesOf(osascriptImpl.mock.calls[0]?.[1][1] ?? '');
+  }
+
+  it('should show a quoted title and location in the dialog as the mail wrote them', async () => {
+    const lines = await dialogFor(review);
+    expect([lines[0], lines[2]]).toEqual([
+      '\u{1F4C5} Q3 "board" \\ review',
+      '\u{1F4CD} Room "Oak"',
+    ]);
+  });
+
+  it('should show the event start and end in the dialog, not the script that reads them', async () => {
+    const lines = await dialogFor(review);
+    expect(lines[1]).toBe('\u{1F550} <eventStart> \u2013 <eventEnd>');
   });
 });
