@@ -5,6 +5,87 @@ function fakeTransport() {
   return { close: vi.fn().mockResolvedValue(undefined) };
 }
 
+const MAX = 3;
+const TTL = 1_000;
+
+/** The store under test beside a model of each live session's open requests and idle clock. */
+interface Run {
+  clock: { now: number };
+  store: HttpSessionStore<ReturnType<typeof fakeTransport>>;
+  open: Map<string, number>;
+  lastUsed: Map<string, number>;
+}
+
+interface Step {
+  added?: string;
+  swept: boolean;
+  overCap: boolean;
+}
+
+function newRun(): Run {
+  const clock = { now: 0 };
+  const store = new HttpSessionStore<ReturnType<typeof fakeTransport>>(MAX, TTL, () => clock.now);
+  return { clock, store, open: new Map(), lastUsed: new Map() };
+}
+
+function applyRandomAction(run: Run, random: () => number): Step {
+  const roll = random();
+  const id = `s${Math.floor(random() * 8)}`;
+  const { clock, store, open, lastUsed } = run;
+  const overCap = store.size > MAX;
+  if (roll < 0.2 && !store.get(id)) {
+    const full = store.size >= MAX;
+    store.set(id, fakeTransport());
+    open.set(id, 0);
+    lastUsed.set(id, clock.now);
+    return { added: id, swept: true, overCap: full };
+  }
+  if (roll < 0.4 && store.get(id)) {
+    store.beginRequest(id);
+    open.set(id, (open.get(id) ?? 0) + 1);
+    lastUsed.set(id, clock.now);
+  } else if (roll < 0.6) {
+    store.endRequest(id);
+    if (open.has(id)) open.set(id, Math.max(0, (open.get(id) ?? 0) - 1));
+  } else if (roll < 0.7 && store.get(id)) {
+    store.touch(id);
+    lastUsed.set(id, clock.now);
+  } else if (roll < 0.85) {
+    clock.now += Math.floor(random() * 800);
+  } else {
+    store.evict();
+    return { swept: true, overCap };
+  }
+  return { swept: false, overCap };
+}
+
+/** What a session's fate after one step says about the table, if it breaks a promise. */
+function sessionBreach(present: boolean, idle: boolean, expired: boolean, step: Step) {
+  if (!present && !idle) return 'active, evicted';
+  if (!present && !expired && !step.overCap) return 'evicted early';
+  if (present && idle && expired && step.swept) return 'expired, kept';
+  return undefined;
+}
+
+function checkInvariants(run: Run, step: Step, at: number): string[] {
+  const { clock, store, open, lastUsed } = run;
+  const breaches = Array.from(open.keys()).flatMap((id) => {
+    const present = store.get(id) !== undefined;
+    const expired = clock.now - (lastUsed.get(id) ?? clock.now) > TTL;
+    const breach = sessionBreach(present, open.get(id) === 0, expired, step);
+    if (!present) {
+      open.delete(id);
+      lastUsed.delete(id);
+    }
+    return breach ? [`step ${at}: ${id} ${breach}`] : [];
+  });
+  const idleKept = Array.from(open.entries()).filter(([id, n]) => n === 0 && id !== step.added);
+  if (step.swept && store.size > MAX && idleKept.length > 0) {
+    breaches.push(`step ${at}: ${store.size} sessions over a cap of ${MAX}`);
+  }
+  return breaches;
+}
+
 describe('HttpSessionStore', () => {
   it('evicts the oldest idle session when over max', () => {
     let now = 1_000;
@@ -94,65 +175,15 @@ describe('HttpSessionStore', () => {
     expect(store.get('a')).toBe(a);
   });
 
-  // The examples above pin one step each. Over a long random mix of new
-  // sessions, requests, waits and sweeps the table must still never drop an
-  // active session, never keep an expired idle one after a sweep, never stay
-  // over the cap while an idle session could go, and never drop one early.
+  // The examples above pin one step each; a long random mix must keep the
+  // same promises.
   it('should keep the table invariants over a seeded mix of sessions, requests, waits and sweeps', () => {
-    let now = 0;
-    const max = 3;
-    const ttl = 1_000;
-    const store = new HttpSessionStore(max, ttl, () => now);
+    const run = newRun();
     const random = seededRandom(20_261_017);
-    const open = new Map<string, number>();
-    const lastUsed = new Map<string, number>();
-    const breaches: string[] = [];
 
-    Array.from({ length: 3_000 }).forEach((_, step) => {
-      const roll = random();
-      const id = `s${Math.floor(random() * 8)}`;
-      const sizeBefore = store.size;
-      let added: string | undefined;
-      if (roll < 0.2 && !store.get(id)) {
-        store.set(id, fakeTransport());
-        open.set(id, 0);
-        lastUsed.set(id, now);
-        added = id;
-      } else if (roll < 0.4 && store.get(id)) {
-        store.beginRequest(id);
-        open.set(id, (open.get(id) ?? 0) + 1);
-        lastUsed.set(id, now);
-      } else if (roll < 0.6) {
-        store.endRequest(id);
-        if (open.has(id)) open.set(id, Math.max(0, (open.get(id) ?? 0) - 1));
-      } else if (roll < 0.7 && store.get(id)) {
-        store.touch(id);
-        lastUsed.set(id, now);
-      } else if (roll < 0.85) {
-        now += Math.floor(random() * 800);
-      } else {
-        store.evict();
-      }
-      const swept = added !== undefined || roll >= 0.85;
-      const overCap = sizeBefore + (added ? 1 : 0) > max;
-
-      Array.from(open.keys()).forEach((sid) => {
-        const idle = open.get(sid) === 0;
-        const expired = now - (lastUsed.get(sid) ?? now) > ttl;
-        const present = store.get(sid) !== undefined;
-        if (!present && !idle) breaches.push(`step ${step}: active ${sid} evicted`);
-        if (!present && idle && !expired && !overCap) breaches.push(`step ${step}: ${sid} early`);
-        if (present && idle && expired && swept) breaches.push(`step ${step}: ${sid} expired`);
-        if (!present) {
-          open.delete(sid);
-          lastUsed.delete(sid);
-        }
-      });
-      const idleKept = Array.from(open.entries()).filter(([sid, n]) => n === 0 && sid !== added);
-      if (swept && store.size > max && idleKept.length > 0) {
-        breaches.push(`step ${step}: ${store.size} sessions over a cap of ${max}`);
-      }
-    });
+    const breaches = Array.from({ length: 3_000 }).flatMap((_, at) =>
+      checkInvariants(run, applyRandomAction(run, random), at),
+    );
 
     expect(breaches).toEqual([]);
   });
