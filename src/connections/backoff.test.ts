@@ -125,19 +125,33 @@ describe('ConnectBackoff', () => {
 });
 
 describe('docs/configuration.md reconnect backoff', () => {
-  it('should state the schedule the backoff uses', async () => {
+  // Whitespace folded, so a rewrapped paragraph still matches.
+  async function readGuide(): Promise<string> {
     const doc = await readFile(join(root, 'docs/configuration.md'), 'utf8');
-    expect(doc.replace(/\s+/g, ' ')).toContain(
+    return doc.replace(/\s+/g, ' ');
+  }
+
+  it('should state the schedule the backoff uses', async () => {
+    expect(await readGuide()).toContain(
       `${INITIAL_BACKOFF_MS / 1000} s after the first failure, doubling to ${MAX_BACKOFF_MS / 1000} s`,
     );
   });
 
   it('should state how much the jitter shortens each window', async () => {
-    const doc = await readFile(join(root, 'docs/configuration.md'), 'utf8');
     // The guide words the ratio, so a new ratio needs new wording there and here.
     const wording: Record<number, string> = { 0.25: 'a quarter' };
-    expect(doc.replace(/\s+/g, ' ')).toContain(
-      `each window shortened by up to ${wording[JITTER_RATIO]}`,
+    expect(await readGuide()).toContain(`each window shortened by up to ${wording[JITTER_RATIO]}`);
+  });
+
+  // Held by 'should start over at 1 s after a success' above.
+  it('should state that a successful connect resets the window', async () => {
+    expect(await readGuide()).toContain('A successful connect resets the window.');
+  });
+
+  // The watcher schedules its reconnects with nextBackoff and withJitter from this module.
+  it('should state that the watcher retries on the same schedule', async () => {
+    expect(await readGuide()).toContain(
+      'The IDLE watcher retries a dropped or failed folder connection on the same schedule.',
     );
   });
 });
