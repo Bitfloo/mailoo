@@ -46,13 +46,14 @@ describe('CI spend policy', () => {
     expect(claude).toContain('include-unit');
   });
 
-  it('should name every ci.yml job in the CONTRIBUTING pull request list', () => {
+  it('should list exactly the ci.yml jobs in the CONTRIBUTING pull request sentence', () => {
     const contributing = readFileSync(join(repoRoot, 'CONTRIBUTING.md'), 'utf8');
-    const names = jobSections(ciYml).map((job) => job.match(/^ {4}name: (.+)$/m)?.[1]);
-    expect(names).not.toContain(undefined);
-    for (const name of names) {
-      expect(contributing).toContain(`\`${name}\``);
-    }
+    const sentence = contributing.match(/runs the `ci\.yml` jobs (.+?)\.(?:\s|$)/s)?.[1] ?? '';
+    const listed = [...sentence.matchAll(/`([^`]+)`/g)].map((match) => match[1]).sort();
+    const names = jobSections(ciYml)
+      .map((job) => job.match(/^ {4}name: (.+)$/m)?.[1])
+      .sort();
+    expect(listed).toEqual(names);
   });
 
   it('should describe CodeQL push and weekly runs only while codeql.yml has those triggers', () => {
