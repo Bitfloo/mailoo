@@ -131,7 +131,8 @@ describe('release job gates', () => {
 
   it('should keep continue-on-error off every release job and step', () => {
     // needs.<job>.result reads success after a failure that continue-on-error let through, so the
-    // gates above would publish past a failed npm or MCP publish.
+    // gates above would publish past a failed npm or MCP publish. A step that continued past a
+    // refused stamp would publish server.json unstamped.
     expect(releaseSteps(releaseYml)).not.toMatch(/^\s*continue-on-error:/m);
   });
 
