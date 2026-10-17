@@ -1,3 +1,4 @@
+import type { FileHandle } from 'node:fs/promises';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -269,6 +270,61 @@ describe('overlapping queue checks', () => {
     } finally {
       releaseSend({ messageId: '<scheduled@example.com>' });
       await sending.catch(() => undefined);
+      vi.useRealTimers();
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+
+  // The sent record is the commit point. A claim that went stale while it is
+  // written would let a second check send the email again.
+  it('should keep renewing the claim while the sent record is written', async () => {
+    vi.useFakeTimers();
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-renew-record-'));
+    const id = queueId(9);
+    const lockPath = path.join(queueDir, `${id}${SCHEDULE_CLAIM_SUFFIX}`);
+    const probe = await fs.open(os.devNull, 'r');
+    const proto = Object.getPrototypeOf(probe) as FileHandle;
+    await probe.close();
+    const handleWrite = proto.writeFile;
+    let markWriting: () => void = () => {};
+    const writing = new Promise<void>((resolve) => {
+      markWriting = resolve;
+    });
+    let releaseWrite: () => void = () => {};
+    const released = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    const spy = vi.spyOn(proto, 'writeFile').mockImplementation(async function heldWrite(
+      this: FileHandle,
+      data,
+      options,
+    ) {
+      if (typeof data === 'string' && data.includes('"status": "sent"')) {
+        markWriting();
+        await released;
+      }
+      return handleWrite.call(this, data, options);
+    });
+    let checking: Promise<unknown> = Promise.resolve();
+    try {
+      await writeDue(queueDir, id, 'pending');
+      const { service } = createService(queueDir);
+      let renewed = false;
+      await withTrackedUtimes(async (settled) => {
+        checking = service.checkAndSend();
+        await writing;
+        const before = await mtimeOf(lockPath);
+        await vi.advanceTimersByTimeAsync(STALE_LOCK_MS - 1);
+        await settled();
+        renewed = (await mtimeOf(lockPath)) > before;
+      });
+      releaseWrite();
+      await checking;
+      expect(renewed).toBe(true);
+    } finally {
+      releaseWrite();
+      await checking.catch(() => undefined);
+      spy.mockRestore();
       vi.useRealTimers();
       await fs.rm(queueDir, { recursive: true, force: true });
     }
