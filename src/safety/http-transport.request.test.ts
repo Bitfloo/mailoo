@@ -90,6 +90,14 @@ describe('evaluateHttpAccess', () => {
     },
   );
 
+  it('should reject Origin ftp://127.0.0.1:8080 when its host and port match', () => {
+    const headers = { host: '127.0.0.1:8080', origin: 'ftp://127.0.0.1:8080' };
+    expect(deny(evaluateHttpAccess({ method: 'GET', headers }, policy))).toEqual({
+      status: 403,
+      message: 'Invalid Origin header',
+    });
+  });
+
   it('rejects an Origin whose port is not the listen port', () => {
     expect(
       deny(
@@ -274,6 +282,11 @@ describe('readLimitedBody', () => {
   it('returns a body that is within the limit', async () => {
     const body = await readLimitedBody(fakeRequest([Buffer.from('{"jsonrpc":"2.0"}')]), 64);
     expect(body.toString('utf8')).toBe('{"jsonrpc":"2.0"}');
+  });
+
+  it('should return a streamed body that reaches exactly the limit', async () => {
+    const body = await readLimitedBody(fakeRequest([Buffer.alloc(4), Buffer.alloc(4)]), 8);
+    expect(body.length).toBe(8);
   });
 
   it('rejects streamed bytes one past the limit', async () => {

@@ -86,11 +86,14 @@ describe('resolveHttpListen', () => {
     );
   });
 
-  it('refuses a wildcard bind when no allowed hosts are configured', () => {
-    expect(() => resolveHttpListen({ port: 8080, host: '0.0.0.0', token: TOKEN })).toThrow(
-      /MCP_EMAIL_HTTP_ALLOWED_HOSTS/,
-    );
-  });
+  it.each(['0.0.0.0', '::'])(
+    'refuses a wildcard bind on %s when no allowed hosts are configured',
+    (host) => {
+      expect(() => resolveHttpListen({ port: 8080, host, token: TOKEN })).toThrow(
+        /MCP_EMAIL_HTTP_ALLOWED_HOSTS/,
+      );
+    },
+  );
 
   it('accepts a wildcard bind when a token and allowed hosts are configured', () => {
     const policy = resolveHttpListen({
@@ -173,5 +176,13 @@ describe('resolveHttpRoute', () => {
 
   it('rejects an unknown path', () => {
     expect(resolveHttpRoute('GET', '/other')).toBe('missing');
+  });
+
+  it.each(['/mcp?x=1', '/mcp/', '/health?x'])('should route %s as missing', (url) => {
+    expect(resolveHttpRoute('GET', url)).toBe('missing');
+  });
+
+  it.each(['PUT', undefined])('should refuse method %s on /mcp', (method) => {
+    expect(resolveHttpRoute(method, '/mcp')).toBe('method');
   });
 });
