@@ -1,6 +1,8 @@
+import fs from 'node:fs/promises';
 import os from 'node:os';
+import path from 'node:path';
 
-import { getClients, isRegistered } from './client-config.js';
+import { getClients, isRegistered, writeJsonFile } from './client-config.js';
 
 const OTHER_SERVER = { command: 'other-server', args: ['--stdio'] };
 const MAILOO_SERVER = { command: 'npx', args: ['@bitfloo/mailoo', 'stdio'] };
@@ -47,5 +49,41 @@ describe('getClients', () => {
     vi.spyOn(os, 'platform').mockReturnValue(platform);
 
     expect(getClients().find((client) => client.id === id)?.configPath).toBe(expected);
+  });
+});
+
+// Users edit these files by hand; keep the layout their editors produce.
+describe('writeJsonFile', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-client-config-'));
+  });
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('should write two-space indented JSON with a trailing newline', async () => {
+    const file = path.join(dir, 'mcp.json');
+
+    await writeJsonFile(file, { mcpServers: { mailoo: MAILOO_SERVER } });
+
+    expect(await fs.readFile(file, 'utf-8')).toBe(
+      [
+        '{',
+        '  "mcpServers": {',
+        '    "mailoo": {',
+        '      "command": "npx",',
+        '      "args": [',
+        '        "@bitfloo/mailoo",',
+        '        "stdio"',
+        '      ]',
+        '    }',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+    );
   });
 });
