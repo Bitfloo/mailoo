@@ -117,3 +117,30 @@ describe('mailoo test with an OAuth2 account', () => {
     await expect(runTest()).resolves.toBeUndefined();
   });
 });
+
+describe('mailoo test with a failing login', () => {
+  beforeEach(() => {
+    // The token endpoint answers, but with a token the servers no longer accept.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ access_token: 'ya29.revoked', expires_in: 3600 })),
+    );
+  });
+
+  it('should fail the command when a login fails', async () => {
+    await expect(runTest()).rejects.toThrow('Connection tests failed');
+  });
+
+  it('should print the IMAP login failure', async () => {
+    await runTest().catch(() => {});
+    expect(h.printed).toContain(
+      'IMAP  ✗ imap.example.com:993 — Command failed: AUTHENTICATIONFAILED Invalid credentials',
+    );
+  });
+});
+
+describe('mailoo test with an account filter', () => {
+  it('should fail the command when no account has that name', async () => {
+    await expect(runTest('nope')).rejects.toThrow('No matching accounts found');
+  });
+});
