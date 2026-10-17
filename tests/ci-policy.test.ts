@@ -629,21 +629,35 @@ describe('dependabot groups', () => {
       .split(/\n {2}- package-ecosystem: /)
       .filter((entry) => entry.startsWith('npm\n'))
       .join('\n');
-    const held = Object.fromEntries(
-      [
-        ...npmUpdates.matchAll(
-          /^ {6}- dependency-name: "([^"]+)"\n {8}versions: \[">=(\d+\.\d+\.\d+)"\]$/gm,
-        ),
-      ].map(([, name, floor]) => [name, floor]),
-    );
+    // Dependabot applies every entry, so a duplicate with a lower floor or an extra key such as
+    // update-types changes what is held. Each entry is read whole and kept, not merged by name.
+    const byName = (a: string[], b: string[]) => a[0].localeCompare(b[0]);
+    const held = [...npmUpdates.matchAll(/^ {4}ignore:\n((?: {6}.*\n?)+)/gm)]
+      .flatMap(([, list]) => list.split(/^(?= {6}- )/m))
+      .map((entry) =>
+        entry
+          .split('\n')
+          .filter((line) => line.trim() && !line.trim().startsWith('#'))
+          .join('\n'),
+      )
+      .filter(Boolean)
+      .map((entry) => {
+        const plain = entry.match(
+          /^ {6}- dependency-name: "([^"]+)"\n {8}versions: \[">=(\d+\.\d+\.\d+)"\]$/,
+        );
+        return plain ? [plain[1], plain[2]] : [entry.trim(), 'not a lone >= floor'];
+      })
+      .sort(byName);
     const eslintCeiling = peerCeiling(lockPeerRange('eslint-config-airbnb-extended', 'eslint'));
-    expect(held).toEqual({
-      eslint: eslintCeiling,
-      '@eslint/js': eslintCeiling,
-      typescript: peerCeiling(lockPeerRange('typescript-eslint', 'typescript')),
-      vite: nextMajor('vite'),
-      '@types/node': nextMajor('@types/node'),
-    });
+    expect(held).toEqual(
+      Object.entries({
+        eslint: eslintCeiling,
+        '@eslint/js': eslintCeiling,
+        typescript: peerCeiling(lockPeerRange('typescript-eslint', 'typescript')),
+        vite: nextMajor('vite'),
+        '@types/node': nextMajor('@types/node'),
+      }).sort(byName),
+    );
   });
 
   it('groups only minor and patch updates', () => {
