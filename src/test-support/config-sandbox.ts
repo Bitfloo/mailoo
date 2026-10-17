@@ -1,6 +1,6 @@
 /**
- * Shared setup for the config loader suites. Kept out of the suites so each
- * file stays under the 300-line size gate.
+ * Setup the config loader suites share, so each one starts from the same
+ * cleared MCP_EMAIL_* environment and its own temp directory.
  */
 
 import fs from 'node:fs/promises';
