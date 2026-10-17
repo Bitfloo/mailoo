@@ -625,9 +625,9 @@ describe('ImapService', () => {
     });
   });
 
-  /** BODYSTRUCTURE GreenMail returns for a text body plus two attachments (parts 2 and 3). */
-  function twinAttachmentStructure(filename: string, secondFilename = filename) {
-    const attachment = (part: string, name: string) => ({
+  /** An attachment node as imapflow parses it from GreenMail BODYSTRUCTURE. */
+  function attachmentNode(part: string, name: string, overrides: object = {}) {
+    return {
       part,
       type: 'text/plain',
       parameters: { name },
@@ -636,7 +636,12 @@ describe('ImapService', () => {
       lineCount: 1,
       disposition: 'attachment',
       dispositionParameters: { filename: name },
-    });
+      ...overrides,
+    };
+  }
+
+  /** BODYSTRUCTURE GreenMail returns for a text body (part 1) followed by these attachments. */
+  function mixedStructure(...attachments: object[]) {
     return {
       childNodes: [
         {
@@ -647,12 +652,16 @@ describe('ImapService', () => {
           size: 28,
           lineCount: 1,
         },
-        attachment('2', filename),
-        attachment('3', secondFilename),
+        ...attachments,
       ],
       type: 'multipart/mixed',
       parameters: { boundary: '--_NmP-97144f485bd10a4e-Part_1' },
     };
+  }
+
+  /** BODYSTRUCTURE GreenMail returns for a text body plus two attachments (parts 2 and 3). */
+  function twinAttachmentStructure(filename: string, secondFilename = filename) {
+    return mixedStructure(attachmentNode('2', filename), attachmentNode('3', secondFilename));
   }
 
   /** client.download as imapflow resolves it: decoded part content as a stream. */
@@ -729,6 +738,105 @@ describe('ImapService', () => {
       const saved = await service.saveEmailAttachments('test', '9', 'INBOX', destDir);
 
       expect(saved.map((s) => path.relative(destDir, s.localPath))).toEqual([expected]);
+    });
+
+    // The size is what was written, not the encoded BODYSTRUCTURE size (16 here).
+    it('should return the filename, MIME type, written size and file URL', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 9,
+        bodyStructure: mixedStructure(attachmentNode('2', 'notes.txt')),
+      });
+      downloadReturnsPartName();
+      const destDir = path.join(root, 'out');
+      const localPath = path.join(destDir, 'notes.txt');
+
+      const saved = await service.saveEmailAttachments('test', '9', 'INBOX', destDir);
+
+      expect(saved).toEqual([
+        {
+          filename: 'notes.txt',
+          localPath,
+          fileUrl: `file://${localPath}`,
+          mimeType: 'text/plain',
+          size: 'body-of-part-2'.length,
+        },
+      ]);
+    });
+
+    it('should save an attachment at the size limit and skip one a byte over it', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 9,
+        bodyStructure: mixedStructure(
+          attachmentNode('2', 'at-limit.txt', { size: 16 }),
+          attachmentNode('3', 'over-limit.txt', { size: 17 }),
+        ),
+      });
+      downloadReturnsPartName();
+
+      const saved = await service.saveEmailAttachments('test', '9', 'INBOX', root, 16);
+
+      expect(saved.map((s) => s.filename)).toEqual(['at-limit.txt']);
+    });
+
+    // Calendar data goes to the calendar, not to the attachment folder. nodemailer
+    // and Gmail attach invite.ics as application/ics; a text/calendar part may have any name.
+    it('should not write an invite.ics or text/calendar attachment', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 9,
+        bodyStructure: mixedStructure(
+          attachmentNode('2', 'notes.txt'),
+          attachmentNode('3', 'invite.ics', { type: 'application/ics', size: 434 }),
+          attachmentNode('4', 'meeting', { type: 'text/calendar' }),
+        ),
+      });
+      downloadReturnsPartName();
+
+      const saved = await service.saveEmailAttachments('test', '9', 'INBOX', root);
+
+      expect(saved.map((s) => s.filename)).toEqual(['notes.txt']);
+    });
+
+    it('should save the other attachments when one part fails to download', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 9,
+        bodyStructure: twinAttachmentStructure('a.txt', 'b.txt'),
+      });
+      downloadReturnsPartName();
+      const byPartName = client.download.getMockImplementation();
+      client.download.mockImplementation(async (uid: string, part: string) => {
+        if (part === '2') throw new Error('Command failed: NO [UNAVAILABLE]');
+        return byPartName?.(uid, part);
+      });
+
+      const saved = await service.saveEmailAttachments('test', '9', 'INBOX', root);
+
+      expect(saved.map((s) => s.filename)).toEqual(['b.txt']);
+    });
+
+    // APFS and NTFS are case-insensitive by default: "A.txt" would overwrite "a.txt".
+    it('should give names that differ only in case separate files', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 9,
+        bodyStructure: twinAttachmentStructure('a.txt', 'A.txt'),
+      });
+      downloadReturnsPartName();
+
+      const saved = await service.saveEmailAttachments('test', '9', 'INBOX', root);
+
+      expect(saved.map((s) => path.basename(s.localPath))).toEqual(['a.txt', 'A-2.txt']);
+    });
+
+    // A lock left held makes every later call on the account wait out the lock timeout.
+    it('should release the mailbox lock once after saving', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 9,
+        bodyStructure: twinAttachmentStructure('a.txt', 'b.txt'),
+      });
+      downloadReturnsPartName();
+
+      await service.saveEmailAttachments('test', '9', 'INBOX', root);
+
+      expect(client._releaseFn).toHaveBeenCalledTimes(1);
     });
   });
 
