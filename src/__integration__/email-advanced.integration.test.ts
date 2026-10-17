@@ -14,7 +14,6 @@ import {
 describe('Advanced Email Operations', () => {
   let services: TestServices;
 
-  /** Seed one message with these attachments and return its UID. */
   async function seedAndFind(
     subject: string,
     attachments: { filename: string; content: string; contentType: string }[],

@@ -38,7 +38,6 @@ const INLINE_CALENDAR_TYPE = 'text/calendar; charset=utf-8; method=REQUEST';
 describe('Calendar part extraction', () => {
   let services: TestServices;
 
-  /** Deliver one message and return its UID. */
   async function seedAndFind(subject: string, options: Parameters<typeof seedEmail>[0]) {
     await seedEmail({ from: 'alice@localhost', subject, ...options });
     await waitForDelivery();
