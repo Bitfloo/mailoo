@@ -1377,6 +1377,27 @@ describe('ImapService', () => {
       expect(result.messages.map((m) => m.messageId)).toEqual(chainIds);
     });
 
+    // Mail clients fold a References header longer than 78 characters (RFC 5322 2.2.3).
+    it('should read ids from a folded References header', async () => {
+      const folded = 'References: <x@example.test>\r\n <thread-2@example.test>';
+      const reply = threadMessage(3, [], null);
+      serveThread([
+        threadMessage(2, [], null),
+        {
+          ...reply,
+          source: Buffer.concat([Buffer.from(`${folded}\r\n`), reply.source]),
+          headers: Buffer.from(`Message-ID: <thread-3@example.test>\r\n${folded}\r\n\r\n`),
+        },
+      ]);
+
+      const result = await service.getThread('test', '<thread-3@example.test>');
+
+      expect(result.messages.map((m) => m.messageId)).toEqual([
+        '<thread-2@example.test>',
+        '<thread-3@example.test>',
+      ]);
+    });
+
     it('should release the mailbox lock once after reading the thread', async () => {
       serveThread(thread);
 
