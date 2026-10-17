@@ -478,6 +478,30 @@ describe('ImapService', () => {
       expect(client.mailboxDelete).not.toHaveBeenCalled();
     });
 
+    // A name that already carries the prefix must not be prefixed twice ("INBOX.INBOX.Trash").
+    it('should refuse a special-use folder named with its namespace prefix', async () => {
+      client.namespace = { prefix: 'INBOX.', delimiter: '.' };
+      client.list.mockResolvedValue([
+        { name: 'INBOX', path: 'INBOX', specialUse: '\\Inbox', flags: new Set<string>() },
+        { name: 'Trash', path: 'INBOX.Trash', specialUse: '\\Trash', flags: new Set(['\\Trash']) },
+      ]);
+
+      await expect(service.deleteMailbox('test', 'INBOX.Trash')).rejects.toThrow(
+        /special-use folder/,
+      );
+      expect(client.mailboxDelete).not.toHaveBeenCalled();
+    });
+
+    // LIST returns "[Gmail]/Trash"; a server that matches names without case would delete it.
+    it('should refuse a special-use folder named in a different case', async () => {
+      client.list.mockResolvedValue(gmailMailboxes());
+
+      await expect(service.deleteMailbox('test', '[gmail]/trash')).rejects.toThrow(
+        /special-use folder/,
+      );
+      expect(client.mailboxDelete).not.toHaveBeenCalled();
+    });
+
     it('should delete an ordinary folder', async () => {
       client.list.mockResolvedValue(gmailMailboxes());
 
