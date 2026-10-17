@@ -1,4 +1,5 @@
-import { rm } from 'node:fs/promises';
+import { access, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 
 import runAccountCommand from './account-commands.js';
 
@@ -17,12 +18,13 @@ const answers: Record<string, string | boolean> = {
   'Enable SMTP connection pooling?': false,
   Username: 'me@example.com',
   'Password / App Password': 'app-password',
-  'Some connections failed. Save config anyway?': false,
 };
+const SAVE_ANYWAY = 'Some connections failed. Save config anyway?';
 
 const h = vi.hoisted(() => ({
   // What the connection check's spinner settles on, in order.
   checked: [] as string[],
+  imapRefusal: null as Error | null,
   smtpRefusal: null as Error | null,
 }));
 
@@ -72,7 +74,9 @@ vi.mock('imapflow', () => ({
     }
 
     // eslint-disable-next-line class-methods-use-this
-    async connect(): Promise<void> {}
+    async connect(): Promise<void> {
+      if (h.imapRefusal) throw h.imapRefusal;
+    }
 
     // eslint-disable-next-line class-methods-use-this
     async list(): Promise<{ path: string }[]> {
@@ -101,9 +105,22 @@ vi.mock('nodemailer', () => ({
   },
 }));
 
-beforeEach(() => {
+const configFile = join(configHome, 'mailoo', 'config.toml');
+
+// Node's message for a refused TCP connect; 192.0.2.0/24 is reserved for documentation.
+function refused(port: number): Error {
+  return Object.assign(new Error(`connect ECONNREFUSED 192.0.2.10:${port}`), {
+    code: 'ECONNREFUSED',
+  });
+}
+
+beforeEach(async () => {
   h.checked.length = 0;
+  h.imapRefusal = null;
   h.smtpRefusal = null;
+  answers[SAVE_ANYWAY] = false;
+  // A saved account would make the next run stop at its duplicate name.
+  await rm(join(configHome, 'mailoo'), { recursive: true, force: true });
 });
 
 afterAll(async () => {
@@ -114,14 +131,32 @@ afterAll(async () => {
 describe('mailoo account add connection check', () => {
   // An IMAP success and an SMTP refusal: neither line can come from a probe that did not run.
   it('should report the IMAP probe result and then the SMTP probe result', async () => {
-    // Node's message for a refused TCP connect; 192.0.2.0/24 is reserved for documentation.
-    h.smtpRefusal = Object.assign(new Error('connect ECONNREFUSED 192.0.2.10:465'), {
-      code: 'ECONNREFUSED',
-    });
+    h.smtpRefusal = refused(465);
     await runAccountCommand('add');
     expect(h.checked).toEqual([
       'IMAP ✓ imap.example.com:993 — 3 messages, 2 folders',
       'SMTP ✗ connect ECONNREFUSED 192.0.2.10:465',
     ]);
+  });
+
+  it('should report a refused IMAP login with its error', async () => {
+    h.imapRefusal = refused(993);
+    await runAccountCommand('add');
+    expect(h.checked).toContain('IMAP ✗ connect ECONNREFUSED 192.0.2.10:993');
+  });
+});
+
+describe('mailoo account add after a refused probe', () => {
+  it('should not save the account when the user declines', async () => {
+    h.smtpRefusal = refused(465);
+    await runAccountCommand('add');
+    await expect(access(configFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('should save the account when the user accepts', async () => {
+    h.smtpRefusal = refused(465);
+    answers[SAVE_ANYWAY] = true;
+    await runAccountCommand('add');
+    await expect(access(configFile)).resolves.toBeUndefined();
   });
 });
