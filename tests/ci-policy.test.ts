@@ -239,10 +239,13 @@ describe('release version selection', () => {
   });
 
   it('should stamp server.json before the step that publishes it to the MCP Registry', () => {
-    const steps = releaseSteps(releaseYml);
-    expect(steps.indexOf('- name: Set version in server.json\n')).toBeLessThan(
-      steps.indexOf('- name: Publish to MCP Registry\n'),
-    );
+    // Both steps are listed in file order, so a missing step fails too, not only a swapped one.
+    const order = [
+      ...releaseSteps(releaseYml).matchAll(
+        /^ {6}- name: (Set version in server\.json|Publish to MCP Registry)$/gm,
+      ),
+    ].map((match) => match[1]);
+    expect(order).toEqual(['Set version in server.json', 'Publish to MCP Registry']);
   });
 });
 
