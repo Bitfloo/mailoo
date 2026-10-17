@@ -164,6 +164,69 @@ describe('HooksService batch queue', () => {
     ).toEqual([]);
   });
 
+  it('should warn once per burst however many emails are skipped', () => {
+    hooks = new HooksService(
+      hooksConfig({ batchDelay: 3600 }),
+      mockImap() as unknown as ImapService,
+    );
+    hooks.start({} as never, { sampling: false });
+    const burst = Array.from({ length: 503 }, (_, i) => meta({ id: String(i + 1) }));
+
+    eventBus.emit('email:new', { account: 'personal', mailbox: 'INBOX', emails: burst });
+
+    expect(
+      vi
+        .mocked(mcpLog)
+        .mock.calls.filter(([, , message]) => String(message).startsWith('Hook queue full')),
+    ).toHaveLength(1);
+  });
+
+  it('should leave no timer pending after stop', () => {
+    hooks = new HooksService(
+      hooksConfig({ batchDelay: 3600 }),
+      mockImap() as unknown as ImapService,
+    );
+    hooks.start({} as never, { sampling: false });
+    eventBus.emit('email:new', { account: 'personal', mailbox: 'INBOX', emails: [meta()] });
+
+    hooks.stop();
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('should not handle mail queued before stop once the service starts again', async () => {
+    const handled: string[] = [];
+    hooks = new HooksService(
+      hooksConfig({ batchDelay: 3600 }),
+      mockImap() as unknown as ImapService,
+      {
+        mailArrival: {
+          handle: async (email: { meta: EmailMeta }) => {
+            handled.push(email.meta.id);
+            return { kind: 'noop' };
+          },
+        } as unknown as MailArrival,
+      },
+    );
+    hooks.start({} as never, { sampling: false });
+    eventBus.emit('email:new', {
+      account: 'personal',
+      mailbox: 'INBOX',
+      emails: [meta({ id: '1' })],
+    });
+
+    hooks.stop();
+    hooks.start({} as never, { sampling: false });
+    eventBus.emit('email:new', {
+      account: 'personal',
+      mailbox: 'INBOX',
+      emails: [meta({ id: '2' })],
+    });
+    await vi.advanceTimersByTimeAsync(3_600_000);
+
+    expect(handled).toEqual(['2']);
+  });
+
   it('should not keep the process alive with the rate-limit reset interval', () => {
     vi.useRealTimers();
     hooks = new HooksService(hooksConfig(), mockImap() as unknown as ImapService);
