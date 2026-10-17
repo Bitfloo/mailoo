@@ -75,6 +75,8 @@ export default class SmtpService {
       html?: boolean;
       attachments?: OutgoingAttachment[];
       messageId?: string;
+      inReplyTo?: string;
+      references?: string[];
     },
   ): Promise<SendResult> {
     this.checkRateLimit(accountName);
@@ -88,6 +90,8 @@ export default class SmtpService {
       bcc: options.bcc?.join(', '),
       subject: options.subject,
       messageId: options.messageId,
+      inReplyTo: options.inReplyTo,
+      references: options.references?.join(' '),
       attachments,
       ...(options.html ? { html: options.body } : { text: options.body }),
     };

@@ -107,4 +107,18 @@ describe('scheduled mail on GreenMail', () => {
     const { id, email } = await deliverDue(path.join(stateHome, 'queue-message-id'), { subject });
     expect(email.messageId).toBe(`<${id}@localhost>`);
   });
+
+  it('should deliver a scheduled reply with its In-Reply-To and References headers', async () => {
+    const subject = `Re: thread-${Date.now()}`;
+    const { email } = await deliverDue(path.join(stateHome, 'queue-reply'), {
+      subject,
+      inReplyTo: '<parent@localhost>',
+      references: ['<root@localhost>', '<parent@localhost>'],
+    });
+    // Raw headers: GreenMail leaves In-Reply-To out of ENVELOPE, so email.inReplyTo stays empty here.
+    expect([email.headers['in-reply-to'], email.headers.references]).toEqual([
+      '<parent@localhost>',
+      '<root@localhost> <parent@localhost>',
+    ]);
+  });
 });

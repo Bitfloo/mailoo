@@ -645,6 +645,8 @@ export default class SchedulerService {
           bcc: sending.bcc,
           html: sending.html,
           messageId: this.smtpService.messageIdFor(sending.account, id),
+          inReplyTo: sending.inReplyTo,
+          references: sending.references,
         });
       } catch (err) {
         if (!(err instanceof RateLimitError)) throw err;

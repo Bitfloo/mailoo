@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import type { SendMailOptions } from 'nodemailer';
+
 import RateLimiter from '../safety/rate-limiter.js';
 import withFullDisk from '../test-support/full-disk.js';
 import type { ScheduledEmail } from '../types/index.js';
@@ -1026,6 +1028,31 @@ describe('full disk', () => {
   });
 });
 
+/** The real SmtpService and RateLimiter; only the SMTP socket is fake. */
+function smtpBackedScheduler(
+  queueDir: string,
+  options: { perMinute?: number; sent?: SendMailOptions[] } = {},
+): InstanceType<typeof SchedulerService> {
+  const connections = {
+    getAccount: () => ({
+      name: 'personal',
+      email: 'user@example.com',
+      username: 'user@example.com',
+      imap: { host: 'imap.example.com', port: 993, tls: true, starttls: false, verifySsl: true },
+      smtp: { host: 'smtp.example.com', port: 465, tls: true, starttls: false, verifySsl: true },
+    }),
+    getSmtpTransport: async () => ({
+      sendMail: async (mail: SendMailOptions) => {
+        options.sent?.push(mail);
+        return { messageId: '<accepted@example.com>' };
+      },
+    }),
+  };
+  const limiter = new RateLimiter(options.perMinute ?? 10);
+  const smtp = new SmtpService(connections as never, limiter, {} as never, false);
+  return new SchedulerService(smtp, { deleteEmail: vi.fn() } as never, queueDir);
+}
+
 describe('rate-limited sends', () => {
   beforeEach(() => {
     // A pinned clock keeps the one-per-minute bucket from refilling between checks.
@@ -1037,25 +1064,10 @@ describe('rate-limited sends', () => {
     vi.useRealTimers();
   });
 
-  /** The real SmtpService and RateLimiter; only the SMTP socket is fake. */
   async function withLimitedQueue(
     body: (queueDir: string, service: InstanceType<typeof SchedulerService>) => Promise<void>,
   ): Promise<void> {
     const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-limit-'));
-    const connections = {
-      getAccount: () => ({
-        name: 'personal',
-        email: 'user@example.com',
-        username: 'user@example.com',
-        imap: { host: 'imap.example.com', port: 993, tls: true, starttls: false, verifySsl: true },
-        smtp: { host: 'smtp.example.com', port: 465, tls: true, starttls: false, verifySsl: true },
-      }),
-      getSmtpTransport: async () => ({
-        sendMail: async () => ({ messageId: '<accepted@example.com>' }),
-      }),
-    };
-    const smtp = new SmtpService(connections as never, new RateLimiter(1), {} as never, false);
-    const imap = { deleteEmail: vi.fn() };
     try {
       await Promise.all(
         [queueId(0), queueId(1)].map(async (id) =>
@@ -1065,7 +1077,7 @@ describe('rate-limited sends', () => {
           ),
         ),
       );
-      await body(queueDir, new SchedulerService(smtp, imap as never, queueDir));
+      await body(queueDir, smtpBackedScheduler(queueDir, { perMinute: 1 }));
     } finally {
       await fs.rm(queueDir, { recursive: true, force: true });
     }
@@ -1092,5 +1104,28 @@ describe('rate-limited sends', () => {
       const result = await service.checkAndSend();
       expect(result).toEqual({ sent: 1, failed: 0, deferred: 1, errors: [] });
     });
+  });
+});
+
+describe('scheduled replies', () => {
+  it('should send the stored In-Reply-To and References headers', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-reply-'));
+    const id = queueId(3);
+    const sent: SendMailOptions[] = [];
+    try {
+      const record: ScheduledEmail = {
+        ...pendingRecord(id, '2020-01-01T00:00:00.000Z'),
+        subject: 'Re: Hello',
+        inReplyTo: '<parent@example.com>',
+        references: ['<root@example.com>', '<parent@example.com>'],
+      };
+      await fs.writeFile(path.join(queueDir, `${id}.json`), JSON.stringify(record));
+      await smtpBackedScheduler(queueDir, { sent }).checkAndSend();
+      expect(sent.map((mail) => [mail.inReplyTo, mail.references])).toEqual([
+        ['<parent@example.com>', '<root@example.com> <parent@example.com>'],
+      ]);
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
   });
 });
