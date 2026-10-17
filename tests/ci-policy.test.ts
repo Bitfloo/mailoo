@@ -256,8 +256,9 @@ describe('workflow shell input', () => {
   // An expression inside run: is pasted into the script before bash parses it,
   // so a crafted value runs as code. An env: value reaches bash as data. A pushed
   // branch or tag name can hold shell syntax just like a dispatch input.
+  // The name can sit anywhere before the closing }}, even after a lone } such as format's {0}.
   const untrusted =
-    /\$\{\{[^}]*\b(?:inputs\.|github\.event\.|github\.(?:head_ref|base_ref|ref(?:_name)?)\b)/;
+    /\$\{\{(?:[^}]|\}(?!\}))*\b(?:inputs\.|github\.event\.|github\.(?:head_ref|base_ref|ref(?:_name)?)\b)/;
   // A concurrency group is a name the runner compares, never a script.
   const allowed = /^\s*(?:if|group|[A-Z][A-Z0-9_]*):\s/;
 
@@ -307,13 +308,20 @@ describe('workflow shell input', () => {
     'run: bash stamp.sh "${{ inputs.version }}"',
     'run: |\n  echo "${{\n    github.head_ref }}"',
     'run: |\n  cat <<EOF\n  REF: ${{ github.ref }}\n  EOF',
+    '- run: |\n    echo "${{\n      github.head_ref }}"',
+    '- run: |\n    cat <<EOF\n    REF: ${{ github.ref }}\n    EOF',
+    'run: |\n  echo ok\n\n  cat <<EOF\n  REF: ${{ github.ref }}\n  EOF',
+    'run: echo "${{ format(\'v{0}\', github.head_ref) }}"',
+    'run: echo "${{ fromJSON(inputs.matrix).name }}"',
     'script: core.info("${{ github.head_ref }}")',
+    'script: core.info("REF: ${{ github.head_ref }}")',
   ])('should flag %j as an untrusted expression pasted into code', (yaml) => {
     expect(shellPastes(yaml)).not.toEqual([]);
   });
 
   it.each([
     'GITHUB_REF_NAME: ${{ github.ref_name }}',
+    'K8S_NS: ${{ inputs.namespace }}',
     "if: ${{ github.ref == 'refs/heads/develop' }}",
     'group: ${{ github.workflow }}-${{ github.ref }}',
     'run: echo "${{ github.ref_type }}"',
