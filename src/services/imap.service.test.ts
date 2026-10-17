@@ -131,6 +131,7 @@ function rejectCommandsDuringFetch(
   });
   // imapflow's fetchAll drains fetch and returns the rows after the FETCH completes.
   commands.fetchAll = guard('fetchAll', async (...args: unknown[]) => {
+    requireUidRange('fetchAll', String(args[0]), args[2] as { uid?: boolean } | undefined);
     const collected: unknown[] = [];
     for await (const row of client.fetch(...args)) collected.push(row);
     return collected;
@@ -1276,10 +1277,14 @@ describe('ImapService', () => {
           .split('\r\n')
           .find((line) => line.toLowerCase().startsWith(`${name.toLowerCase()}:`))
           ?.slice(name.length + 1) ?? '';
-      client.search.mockImplementation(async (query: { header: Record<string, string> }) => {
-        const [[name, value]] = Object.entries(query.header);
-        return messages.filter((m) => headerOf(m, name).includes(value)).map((m) => m.uid);
-      });
+      client.search.mockImplementation(
+        async (query: { header: Record<string, string> }, options?: { uid?: boolean }) => {
+          // Without { uid: true } SEARCH answers with sequence numbers.
+          requireUidRange('search', JSON.stringify(query.header), options);
+          const [[name, value]] = Object.entries(query.header);
+          return messages.filter((m) => headerOf(m, name).includes(value)).map((m) => m.uid);
+        },
+      );
       client.download.mockImplementation(
         async (uid: string, _part: string, options?: { uid?: boolean }) => {
           requireUidRange('download', uid, options);
