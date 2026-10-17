@@ -364,19 +364,29 @@ return jsonResult & "]"
   return names.map((name) => ({ id: name, name }));
 }
 
+/** A same-titled event this close to the start is the same meeting, not the next occurrence. */
+const DUPLICATE_START_WINDOW_MS = 5 * 60_000;
+
+/** Rejects when osascript fails, so a timeout cannot pass for "no duplicate". */
 async function findExistingEventMacOS(
   title: string,
-  _start: Date,
-  _icsUid?: string,
+  start: Date,
+  icsUid?: string,
 ): Promise<ExistingEventResult> {
-  const searchTitle = escapeAS(title);
+  const windowStart = new Date(start.getTime() - DUPLICATE_START_WINDOW_MS);
+  const windowEnd = new Date(start.getTime() + DUPLICATE_START_WINDOW_MS);
+  const byTitle = 'summary is searchTitle and start date ≥ windowStart and start date ≤ windowEnd';
+  const whose = icsUid ? `uid is searchUid or (${byTitle})` : byTitle;
 
   const script = `${JSON_HANDLERS}
-set searchTitle to "${searchTitle}"
+set searchTitle to "${escapeAS(title)}"
+${icsUid ? `set searchUid to "${escapeAS(icsUid)}"` : ''}
+${dateToAppleScriptLines('windowStart', windowStart).join('\n')}
+${dateToAppleScriptLines('windowEnd', windowEnd).join('\n')}
 tell application "Calendar"
   repeat with c in calendars
     try
-      set evList to (every event of c whose summary is searchTitle)
+      set evList to (every event of c whose ${whose})
       if (count of evList) > 0 then
         set theEvent to item 1 of evList
         set eventId to uid of theEvent
@@ -389,14 +399,25 @@ end tell
 return "{\\"found\\":false}"
 `;
 
-  try {
-    return parseOsascriptJson<ExistingEventResult>(
-      await runOsascript(script, 10_000),
-      'find existing event',
-    );
-  } catch {
-    return { found: false };
+  // Same whose-query over every calendar as list_events, so the same budget.
+  return parseOsascriptJson<ExistingEventResult>(
+    await runOsascript(script, LIST_EVENTS_TIMEOUT_MS),
+    'find existing event',
+  );
+}
+
+function osascriptFailure(action: string, err: unknown): AddEventResult {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/user canceled|(-128)/i.test(msg)) {
+    return { status: 'cancelled', message: 'Cancelled by user.' };
   }
+  if (/not authorized|access/i.test(msg)) {
+    return {
+      status: 'no_display',
+      message: 'Calendar access denied. Run check_calendar_permissions for setup instructions.',
+    };
+  }
+  return { status: 'no_display', message: `Could not ${action}: ${msg}` };
 }
 
 async function addEventMacOS(
@@ -431,17 +452,7 @@ async function addEventMacOS(
       message: statusMessage(result.status, event.title, result.calendarName),
     };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/user canceled|(-128)/i.test(msg)) {
-      return { status: 'cancelled', message: 'Cancelled by user.' };
-    }
-    if (/not authorized|access/i.test(msg)) {
-      return {
-        status: 'no_display',
-        message: 'Calendar access denied. Run check_calendar_permissions for setup instructions.',
-      };
-    }
-    return { status: 'no_display', message: `Could not add event: ${msg}` };
+    return osascriptFailure('add event', err);
   }
 }
 
@@ -574,7 +585,12 @@ export default class LocalCalendarService {
 
     // Duplicate detection (macOS only, can opt out)
     if (this.platform === 'darwin' && opts.skipDuplicateCheck !== true) {
-      const existing = await findExistingEventMacOS(event.title, event.start, event.icsUid);
+      let existing: ExistingEventResult;
+      try {
+        existing = await findExistingEventMacOS(event.title, event.start, event.icsUid);
+      } catch (err) {
+        return osascriptFailure('check for an existing event, so it was not added', err);
+      }
       if (existing.found) {
         return {
           status: 'duplicate',
