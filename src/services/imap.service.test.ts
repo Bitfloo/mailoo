@@ -1503,6 +1503,31 @@ describe('ImapService', () => {
       expect(result.messages.map((m) => m.messageId)).toEqual(chainIds);
     });
 
+    // UIDs follow arrival in this mailbox: a message moved in later gets a
+    // higher UID than a reply written after it.
+    it('should order the thread by date, not by UID', async () => {
+      const reply = threadMessage(1, ['<thread-2@example.test>']);
+      serveThread([
+        { ...reply, envelope: { ...reply.envelope, date: new Date(Date.UTC(2026, 0, 3, 10)) } },
+        threadMessage(2, []),
+      ]);
+
+      const result = await service.getThread('test', '<thread-2@example.test>');
+
+      expect(result.messages.map((m) => m.messageId)).toEqual([
+        '<thread-2@example.test>',
+        '<thread-1@example.test>',
+      ]);
+    });
+
+    it('should count the messages it returns', async () => {
+      serveThread(thread);
+
+      const result = await service.getThread('test', '<thread-3@example.test>');
+
+      expect(result.messageCount).toBe(3);
+    });
+
     it('should release the mailbox lock once after reading the thread', async () => {
       serveThread(thread);
 
