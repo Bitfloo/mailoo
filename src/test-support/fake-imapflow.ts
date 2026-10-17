@@ -257,11 +257,14 @@ export class FakeImapFlow extends EventEmitter {
     this.usable = false;
     this.idling = false;
     clearTimeout(this.idleTimer);
-    // imapflow 1.7's close() rejects a pending connect() with this error, its code naming a TLS
-    // or plain-text socket as `secure` chose, then emits 'close'.
+    // imapflow 1.7's close() rejects a pending connect() with this error, then emits 'close'.
+    // Its code names a TLS socket when `secure` is set, or left unset on port 993; the
+    // STARTTLS upgrade imapflow also counts as TLS is not modelled here.
+    const tls =
+      this.options.secure === undefined ? Number(this.options.port) === 993 : !!this.options.secure;
     this.failLogin?.(
       Object.assign(new Error('Unexpected close'), {
-        code: `ClosedAfterConnect${this.options.secure ? 'TLS' : 'Text'}`,
+        code: `ClosedAfterConnect${tls ? 'TLS' : 'Text'}`,
       }),
     );
     this.emit('close');
