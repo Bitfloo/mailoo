@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
 import { lockPeerRange, nextMajor, peerCeiling } from './held-majors.js';
-import { keyLines, releaseSteps } from './workflow-yaml.js';
+import { readKeyLines, releaseSteps } from './workflow-yaml.js';
 
 describe('dependabot groups', () => {
   const config = readFileSync(join(repoRoot, '.github/dependabot.yml'), 'utf8');
@@ -16,7 +16,7 @@ describe('dependabot groups', () => {
     const blocks = [...releaseSteps(yaml).matchAll(/^ {4}groups:\n((?: {6}.*\n?)+)/gm)].map(
       ([, block]) => block,
     );
-    const keys = keyLines(yaml, 'groups').length;
+    const keys = readKeyLines(yaml, 'groups').length;
     if (blocks.length !== keys) {
       throw new Error(`read ${blocks.length} of ${keys} groups blocks`);
     }
@@ -46,7 +46,7 @@ describe('dependabot groups', () => {
       .split(/\n {2}- package-ecosystem: /)
       .filter((entry) => /^(["']?)npm\1[ \t]*(?:#.*)?\n/.test(entry));
     // An update this reader skips holds nothing it can see, so each one must be read as npm or github-actions.
-    const all = keyLines(yaml, 'package-ecosystem').length;
+    const all = readKeyLines(yaml, 'package-ecosystem').length;
     const actions =
       yaml.match(/^ {2}- package-ecosystem: (["']?)github-actions\1[ \t]*(?:#.*)?$/gm)?.length ?? 0;
     if (updates.length + actions !== all) {
@@ -61,7 +61,7 @@ describe('dependabot groups', () => {
   function npmHolds(yaml: string): string[][] {
     const updates = npmUpdates(yaml).join('\n');
     // A list in flow style, at its key indent or outside an npm update holds packages this reader never sees.
-    const keys = keyLines(yaml, 'ignore').length;
+    const keys = readKeyLines(yaml, 'ignore').length;
     const lists = updates.match(/^ {4}ignore:\n {6}/gm)?.length ?? 0;
     if (lists !== keys) {
       throw new Error(`read ${lists} of ${keys} ignore lists`);
@@ -83,7 +83,7 @@ describe('dependabot groups', () => {
       })
       .sort(byName);
     // A name in a flow mapping or under another key is one this reader never sees, so every name must be read.
-    const names = keyLines(yaml, 'dependency-name').length;
+    const names = readKeyLines(yaml, 'dependency-name').length;
     if (held.length !== names) {
       throw new Error(`read ${held.length} of ${names} ignore entries`);
     }

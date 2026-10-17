@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { isNode, isScalar, LineCounter, parseDocument, visit } from 'yaml';
+
 import { repoRoot } from './agents/agent-file.js';
 
 export const workflowDir = join(repoRoot, '.github/workflows');
@@ -53,11 +55,54 @@ export function releaseSteps(yaml: string): string {
  * flow mapping, listed once per time a key occurs. Text that only looks like the key is listed
  * too, so a check built on this fails on a form it did not expect instead of missing it.
  */
-export function keyLines(yaml: string, key: string): string[] {
+function keyLines(yaml: string, key: string): string[] {
   const pattern = new RegExp(`(?<![\\w-])(["']?)(?:${key})\\1[ \\t]*:`, 'g');
   return releaseSteps(yaml)
     .split('\n')
     .flatMap((line) => Array.from(line.matchAll(pattern), () => line));
+}
+
+/**
+ * Each line where the YAML parser reads a key that keyLines would not find written there: an
+ * escaped or explicit key, a key whose colon sits on another line, a key that is not a plain
+ * value, or an alias anywhere, which repeats keys the text readers see only at the anchor.
+ */
+export function unreadKeys(yaml: string): string[] {
+  const lineCounter = new LineCounter();
+  const doc = parseDocument(yaml, { lineCounter });
+  if (doc.errors.length > 0) {
+    throw doc.errors[0];
+  }
+  const unread = new Set<number>();
+  const flag = (node: unknown) => {
+    unread.add(lineCounter.linePos(isNode(node) ? (node.range?.[0] ?? 0) : 0).line);
+  };
+  visit(doc, {
+    Alias: (_, node) => flag(node),
+    Pair: (_, { key, value }) => {
+      if (!isScalar(key)) {
+        flag(isNode(key) ? key : value);
+        return;
+      }
+      const [start, end] = key.range ?? [0, 0];
+      const written = yaml.slice(start, end) + (yaml.slice(end).match(/^[ \t]*:/)?.[0] ?? '');
+      const name = String(key.value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (keyLines(written, name).length !== 1) {
+        flag(key);
+      }
+    },
+  });
+  const lines = yaml.split('\n');
+  return [...unread].sort((a, b) => a - b).map((line) => lines[line - 1].trim());
+}
+
+/** keyLines, after refusing a text that holds a key the YAML parser reads and keyLines would miss. */
+export function readKeyLines(yaml: string, key: string): string[] {
+  const unread = unreadKeys(yaml);
+  if (unread.length > 0) {
+    throw new Error(`keys the text readers cannot see: ${unread.join(' | ')}`);
+  }
+  return keyLines(yaml, key);
 }
 
 /** Isolate one step so a hash elsewhere cannot satisfy the install check. */
@@ -68,8 +113,9 @@ export function releaseStep(yaml: string, name: string): string {
   if (start < 0) {
     throw new Error(`missing step ${name}`);
   }
-  const rest = steps.slice(start);
-  const next = rest.indexOf('\n      - ', marker.length);
+  // From the line start, so the step's own indent keeps it readable as YAML.
+  const rest = steps.slice(steps.lastIndexOf('\n', start) + 1);
+  const next = rest.indexOf('\n      - ', rest.indexOf(marker) + marker.length);
   return next < 0 ? rest : rest.slice(0, next);
 }
 

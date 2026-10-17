@@ -4,10 +4,11 @@ import { join } from 'node:path';
 
 import {
   jobSections,
-  keyLines,
   onBlock,
+  readKeyLines,
   topLevelPermissions,
   triggers,
+  unreadKeys,
   workflowDir,
   workflowFiles,
 } from './workflow-yaml.js';
@@ -122,12 +123,32 @@ function jobKey(job: string): string | undefined {
   return job.match(/^ {2}(["']?)([\w-]+)\1:/)?.[2];
 }
 
-describe('workflow file and job reader', () => {
+describe('workflow file, job and key readers', () => {
+  it.each([
+    ['"continue-on\\x2Derror": true', ['"continue-on\\x2Derror": true']],
+    ['? if\n: false', ['? if']],
+    ['- { "uses"\n    : a/b@v4 }', ['- { "uses"']],
+    ['k: &n uses\n*n : a/b@v4', ['*n : a/b@v4']],
+    ['- &s { run: x }\n- *s', ['- *s']],
+    ['? [if]\n: false', ['? [if]']],
+    ['- { run: "echo if: x", "\\x69f": false }', ['- { run: "echo if: x", "\\x69f": false }']],
+  ])('should list %j as a key the text readers cannot see', (yaml, lines) => {
+    expect(unreadKeys(yaml)).toEqual(lines);
+  });
+
+  it('should refuse to list a key in a text that holds a key the readers cannot see', () => {
+    expect(() => readKeyLines('a: 1\n"\\x69f": x\n', 'a')).toThrow('"\\x69f": x');
+  });
+
+  it('should pass plain, quoted, flow and spaced keys', () => {
+    expect(unreadKeys('a:\n  - { uses: a/b, \'with\': { x: 1 } }\n  - "if" : y\n')).toEqual([]);
+  });
+
   it('should read a job key with an underscore, a comment or quotes as its own job', () => {
     // The first key needs no split, so each form under test follows another job.
     const yaml =
-      'jobs:\n  a:\n    runs-on: x\n  b_c:\n    runs-on: x\n  d: # note\n    runs-on: x\n  "e":\n    runs-on: x\n';
-    expect(jobSections(yaml).map(jobKey)).toEqual(['a', 'b_c', 'd', 'e']);
+      'jobs:\n  a:\n    runs-on: x\n  b_c:\n    runs-on: x\n  d: # note\n    runs-on: x\n  "e":\n    runs-on: x\n  \'f\':\n    runs-on: x\n';
+    expect(jobSections(yaml).map(jobKey)).toEqual(['a', 'b_c', 'd', 'e', 'f']);
   });
 
   it('should refuse a jobs block with a job key it cannot split on', () => {
@@ -184,7 +205,7 @@ describe('workflow token is no wider than the job writes', () => {
     // The roster reads only a plain key at the workflow or job indent, so a quoted key would be a
     // token it reads as none.
     const unread = workflowFiles().flatMap((name) =>
-      keyLines(readFileSync(join(workflowDir, name), 'utf8'), 'permissions')
+      readKeyLines(readFileSync(join(workflowDir, name), 'utf8'), 'permissions')
         .filter((line) => !/^(?: {4})?permissions:/.test(line))
         .map((line) => `${name}: ${line.trim()}`),
     );

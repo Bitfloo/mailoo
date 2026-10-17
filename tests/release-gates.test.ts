@@ -1,5 +1,5 @@
 import { jobGate, runsJob } from './workflow-gates.js';
-import { jobSections, keyLines, onBlock, releaseSteps, releaseYml } from './workflow-yaml.js';
+import { jobSections, onBlock, readKeyLines, releaseSteps, releaseYml } from './workflow-yaml.js';
 
 function releaseJob(marker: string): string {
   const job = jobSections(releaseYml).find((section) => section.includes(marker));
@@ -157,7 +157,7 @@ describe('release job gates', () => {
     // needs.<job>.result reads success after a failure that continue-on-error let through, so the
     // gates above would publish past a failed npm or MCP publish. A step that continued past a
     // refused stamp would publish server.json unstamped.
-    expect(keyLines(releaseYml, 'continue-on-error')).toEqual([]);
+    expect(readKeyLines(releaseYml, 'continue-on-error')).toEqual([]);
   });
 
   it('should make the job that stamps server.json need npm when its if: reads the npm result', () => {
@@ -172,7 +172,7 @@ describe('release job gates', () => {
   ])('should run every step of the $job publish job whenever the job runs', ({ section }) => {
     // A tag push and a manual run both publish, so a step-level if: would skip a step on one of
     // them, and a job whose publish step was skipped still reports success to the jobs after it.
-    expect(keyLines(section(), 'if').map((line) => line.search(/\S/))).toEqual([4]);
+    expect(readKeyLines(section(), 'if').map((line) => line.search(/\S/))).toEqual([4]);
   });
 
   it('should make the Docker job need npm and MCP when its if: reads both results', () => {
