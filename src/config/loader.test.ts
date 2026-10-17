@@ -176,6 +176,46 @@ describe('Config Loader', () => {
       await expect(loadConfig(badPath)).rejects.toThrow('No configuration found');
     });
 
+    it('should treat a directory at the config path as no config file', async () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      await fs.mkdir(configPath);
+
+      await expect(loadConfig(configPath)).rejects.toThrow('No configuration found');
+    });
+
+    // root bypasses directory permission bits
+    it.skipIf(process.getuid?.() === 0)(
+      'should reject with EACCES instead of "No configuration found" when the config directory cannot be searched',
+      async () => {
+        const locked = path.join(tmpDir, 'locked');
+        await fs.mkdir(locked);
+        await writeOwnerOnly(path.join(locked, 'config.toml'), MINIMAL_TOML);
+        await fs.chmod(locked, 0o000);
+        try {
+          await expect(loadConfig(path.join(locked, 'config.toml'))).rejects.toMatchObject({
+            code: 'EACCES',
+          });
+        } finally {
+          await fs.chmod(locked, 0o700);
+        }
+      },
+    );
+
+    it('should name the path when loadRawConfig finds no config file', async () => {
+      const badPath = path.join(tmpDir, 'nonexistent.toml');
+
+      await expect(loadRawConfig(badPath)).rejects.toThrow(`No config file found at: ${badPath}`);
+    });
+
+    it('should default username to the email when the account sets none', async () => {
+      const configPath = path.join(tmpDir, 'config.toml');
+      await writeOwnerOnly(configPath, MINIMAL_TOML);
+
+      const config = await loadConfig(configPath);
+
+      expect(config.accounts[0].username).toBe('test@example.com');
+    });
+
     // A typo used to read as "No configuration found" and point at setup,
     // which can overwrite the file the user only needed to fix.
     it('should name the file, line and column when the TOML has a syntax error', async () => {
@@ -358,6 +398,37 @@ actions = { move_to = "Receipts" }
       const config = await loadConfig(path.join(tmpDir, 'nonexistent.toml'));
 
       expect(config.settings.systemOne.thresholds.injectionHigh).toBe(0.75);
+    });
+
+    it('should read the TOML file when the env account has no SMTP host', async () => {
+      vi.stubEnv('MCP_EMAIL_ADDRESS', 'env@example.com');
+      vi.stubEnv('MCP_EMAIL_PASSWORD', 'env-pass');
+      vi.stubEnv('MCP_EMAIL_IMAP_HOST', 'imap.example.com');
+      const configPath = path.join(tmpDir, 'config.toml');
+      await writeOwnerOnly(configPath, MINIMAL_TOML);
+
+      const config = await loadConfig(configPath);
+
+      expect(config.accounts[0].email).toBe('test@example.com');
+    });
+
+    it('should build oauth2 from MCP_EMAIL_OAUTH2_* when no password is set', async () => {
+      vi.stubEnv('MCP_EMAIL_ADDRESS', 'env@example.com');
+      vi.stubEnv('MCP_EMAIL_IMAP_HOST', 'imap.example.com');
+      vi.stubEnv('MCP_EMAIL_SMTP_HOST', 'smtp.example.com');
+      vi.stubEnv('MCP_EMAIL_OAUTH2_PROVIDER', 'google');
+      vi.stubEnv('MCP_EMAIL_OAUTH2_CLIENT_ID', 'fake-client-id');
+      vi.stubEnv('MCP_EMAIL_OAUTH2_CLIENT_SECRET', 'fake-client-secret');
+      vi.stubEnv('MCP_EMAIL_OAUTH2_REFRESH_TOKEN', 'fake-refresh-token');
+
+      const config = await loadConfig(path.join(tmpDir, 'nonexistent.toml'));
+
+      expect(config.accounts[0].oauth2).toEqual({
+        provider: 'google',
+        clientId: 'fake-client-id',
+        clientSecret: 'fake-client-secret',
+        refreshToken: 'fake-refresh-token',
+      });
     });
   });
 
