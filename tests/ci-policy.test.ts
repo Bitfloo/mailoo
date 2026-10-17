@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { parse } from 'yaml';
+
 import { repoRoot } from './agents/agent-file.js';
 import { unpinnedUses } from './workflow-scan.js';
 import {
@@ -54,6 +56,19 @@ describe('CI spend policy', () => {
       .map((job) => job.match(/^ {4}name: (.+)$/m)?.[1])
       .sort();
     expect(listed).toEqual(names);
+  });
+
+  it('should run every ci.yml job on a pull request, as the CONTRIBUTING job list says', () => {
+    // Each gate below is true on pull_request; a new or changed one fails until it is shown to be.
+    const { jobs } = parse(ciYml) as { jobs: Record<string, { if?: string }> };
+    const gates = Object.entries(jobs).map(([id, job]) => [id, job.if ?? null]);
+    expect(Object.fromEntries(gates)).toEqual({
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub expression, not a JS template
+      check: "${{ github.event_name == 'pull_request' || inputs.include-unit }}",
+      docker: null,
+      integration: null,
+      'public-log': "github.event_name == 'pull_request'",
+    });
   });
 
   it('should describe CodeQL push and weekly runs only while codeql.yml has those triggers', () => {
