@@ -7,6 +7,7 @@ import type { SendMailOptions } from 'nodemailer';
 import RateLimiter from '../safety/rate-limiter.js';
 import withFullDisk from '../test-support/full-disk.js';
 import queueId from '../test-support/queue-id.js';
+import withTrackedUtimes from '../test-support/tracked-utimes.js';
 import type { ScheduledEmail } from '../types/index.js';
 
 const stateHome = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-'));
@@ -1220,6 +1221,34 @@ describe('overlapping queue checks', () => {
     } finally {
       releaseSend({ messageId: '<scheduled@example.com>' });
       await sending.catch(() => undefined);
+      vi.useRealTimers();
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+
+  // A renewal left running would keep a later holder's claim fresh after that
+  // holder died, so the email would stay held back for as long as this process lives.
+  it('should stop renewing the claim once the send finished', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+    vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-renew-stop-'));
+    const id = queueId(8);
+    const lockPath = path.join(queueDir, `${id}${SCHEDULE_CLAIM_SUFFIX}`);
+    try {
+      await writeDue(queueDir, id, 'pending');
+      const { service } = createService(queueDir);
+      await withTrackedUtimes(async (settled) => {
+        await service.checkAndSend();
+        await fs.writeFile(lockPath, 'another check', { flag: 'wx' });
+        const takenAt = new Date(Date.now() - 1_000);
+        await fs.utimes(lockPath, takenAt, takenAt);
+        const before = await mtimeOf(lockPath);
+        // Two 60 s renewal intervals.
+        await vi.advanceTimersByTimeAsync(2 * 60_000);
+        await settled();
+        expect(await mtimeOf(lockPath)).toBe(before);
+      });
+    } finally {
       vi.useRealTimers();
       await fs.rm(queueDir, { recursive: true, force: true });
     }
