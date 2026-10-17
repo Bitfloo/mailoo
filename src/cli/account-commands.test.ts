@@ -109,7 +109,7 @@ describe('mailoo account and setup', () => {
 
   /** CONFIG_FILE is fixed when xdg.ts loads, so each test imports a fresh copy. */
   async function entryPoint(
-    command: 'setup' | 'account add' | 'account edit' | 'account delete',
+    command: 'setup' | 'account add' | 'account edit' | 'account delete' | 'account list',
     name?: string,
   ): Promise<() => Promise<void>> {
     vi.stubEnv('XDG_CONFIG_HOME', home);
@@ -303,6 +303,23 @@ describe('mailoo account and setup', () => {
     await run();
 
     expect(await fs.readFile(configFile, 'utf-8')).toBe(CONFIG_WITH_PERSONAL_AND_WORK);
+  });
+
+  it('should list an account with TLS for IMAP and STARTTLS for SMTP when it is set up that way', async () => {
+    const smtp = 'host = "smtp.example.com"';
+    const config = CONFIG_WITH_PERSONAL.replace(
+      smtp,
+      `${smtp}\nport = 587\ntls = false\nstarttls = true`,
+    );
+    await fs.writeFile(configFile, config, { mode: 0o600 });
+    const stdout = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await (await entryPoint('account list'))();
+
+    expect(stdout.mock.calls.flat().join('\n')).toMatch(
+      /imap\.example\.com:993 \(TLS\) +smtp\.example\.com:587 \(STARTTLS\)/,
+    );
+    stdout.mockRestore();
   });
 
   it("should refuse an edit that renames an account to another account's name", async () => {
