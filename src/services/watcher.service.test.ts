@@ -86,6 +86,15 @@ describe('WatcherService new mail', () => {
     await settle();
     expect(arrivedSubjects(arrivals)).toEqual(['First', 'Second']);
   });
+  it('should not fetch when the message count went down', async () => {
+    const { watcher } = watch();
+    await watcher.start();
+    await advance(1_000);
+    // imapflow raises exists on any change of the count, so a shrink reaches the handler too.
+    fake.clients[0].emit('exists', { path: 'INBOX', count: 2, prevCount: 3 });
+    await settle();
+    expect(fake.clients[0].fetchCount).toBe(0);
+  });
 });
 
 describe('WatcherService UID range', () => {

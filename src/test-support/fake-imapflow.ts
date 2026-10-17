@@ -59,6 +59,8 @@ export class FakeImapFlow extends EventEmitter {
 
   loggedOut = false;
 
+  fetchCount = 0;
+
   mailbox: false | FakeMailbox = false;
 
   private locksHeld = 0;
@@ -127,6 +129,7 @@ export class FakeImapFlow extends EventEmitter {
     _query: Record<string, unknown>,
     options?: { uid?: boolean },
   ): AsyncGenerator<FakeFetchedMessage> {
+    this.fetchCount += 1;
     await this.command();
     const folder = this.mailbox ? fake.folders.get(this.mailbox.path) : undefined;
     if (!folder) throw new Error('No mailbox selected');

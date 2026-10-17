@@ -117,3 +117,94 @@ describe('WatcherService reconnect jitter', () => {
     expect(fake.clients).toHaveLength(2);
   });
 });
+
+/** Holds the next logins unanswered; the returned function answers them. */
+function holdLogin(): () => void {
+  let answer = (): void => {};
+  fake.loginPending = new Promise((resolve) => {
+    answer = resolve;
+  });
+  return () => {
+    fake.loginPending = null;
+    answer();
+  };
+}
+
+describe('WatcherService events during login', () => {
+  it('should survive an error the connection raises while the login is pending', async () => {
+    const answerLogin = holdLogin();
+    const { watcher } = watch();
+    const starting = watcher.start();
+    await settle();
+    expect(() => fake.clients[0].emit('error', new Error('read ECONNRESET'))).not.toThrow();
+    answerLogin();
+    await starting;
+  });
+
+  it('should connect again 1 s after an error raised while the login was pending', async () => {
+    const answerLogin = holdLogin();
+    const { watcher } = watch();
+    const starting = watcher.start();
+    await settle();
+    fake.clients[0].emit('error', new Error('read ECONNRESET'));
+    answerLogin();
+    await starting;
+    await advance(1_000);
+    expect(fake.clients.map((client) => client.usable)).toEqual([false, true]);
+  });
+
+  it('should make one new attempt when the connection closed while the login was pending', async () => {
+    const answerLogin = holdLogin();
+    const { watcher } = watch();
+    const starting = watcher.start();
+    await settle();
+    fake.clients[0].close();
+    answerLogin();
+    await starting;
+    await advance(60_000);
+    expect(fake.clients).toHaveLength(2);
+  });
+});
+
+describe('WatcherService after a successful reconnect', () => {
+  it('should wait 1 s again when a connection that followed failures drops', async () => {
+    fake.connectErrors.push(new Error('connect ECONNREFUSED'), new Error('connect ECONNREFUSED'));
+    const { watcher } = watch();
+    await watcher.start();
+    await advance(1_000);
+    await advance(2_000);
+    fake.clients[2].close();
+    await advance(999);
+    expect(fake.clients).toHaveLength(3);
+    await advance(1);
+    expect(fake.clients).toHaveLength(4);
+  });
+
+  it('should not reconnect when the connection it replaced reports a late close', async () => {
+    fake.connectErrors.push(new Error('Invalid credentials'));
+    const { watcher } = watch();
+    await watcher.start();
+    await advance(1_000);
+    fake.clients[0].emit('close');
+    await advance(60_000);
+    expect(fake.clients).toHaveLength(2);
+  });
+
+  it('should stay connected when the connection it replaced reports a late error', async () => {
+    fake.connectErrors.push(new Error('Invalid credentials'));
+    const { watcher } = watch();
+    await watcher.start();
+    await advance(1_000);
+    fake.clients[0].emit('error', new Error('read ECONNRESET'));
+    expect(watcher.getStatus()[0].connected).toBe(true);
+  });
+});
+
+describe('WatcherService status', () => {
+  it('should report the folder disconnected as soon as its connection drops', async () => {
+    const { watcher } = watch();
+    await watcher.start();
+    fake.clients[0].close();
+    expect(watcher.getStatus()[0].connected).toBe(false);
+  });
+});
