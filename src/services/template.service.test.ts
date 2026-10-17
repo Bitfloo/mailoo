@@ -67,6 +67,19 @@ variables = ["a", "b"]
     expect(result.body).toBe('XYX');
   });
 
+  it('should leave {{toString}} unresolved', async () => {
+    const tmpl = `name = "proto"
+subject = "{{toString}}"
+body = "{{constructor}} {{name}}"
+variables = ["name"]
+`;
+    await fs.writeFile(path.join(tempDir, 'proto.toml'), tmpl);
+
+    const result = await service.applyTemplate('proto', { name: 'Al' });
+
+    expect(result).toEqual({ subject: '{{toString}}', body: '{{constructor}} Al' });
+  });
+
   it('handles same variable used multiple times', async () => {
     const result = await service.applyTemplate('greeting', { name: 'Bob', company: 'Co' });
     expect(result.subject).toBe('Hello Bob');

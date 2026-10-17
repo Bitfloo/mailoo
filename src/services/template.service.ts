@@ -50,7 +50,7 @@ function validateTemplate(raw: Record<string, unknown>, filename: string): Email
  */
 function substituteVariables(text: string, variables: Record<string, string>): string {
   return text.replace(/\{\{(\w+)\}\}/g, (match, varName: string) => {
-    if (varName in variables) {
+    if (Object.hasOwn(variables, varName)) {
       return variables[varName];
     }
     return match; // Leave unresolved placeholders as-is
