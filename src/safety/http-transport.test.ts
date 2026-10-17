@@ -135,15 +135,13 @@ describe('resolveHttpListen', () => {
     );
   });
 
-  it.each([
-    'localhost:3000',
-    '[::1]:3000',
-    '127.0.0.2',
-    'app.localhost',
-  ])('starts without a bearer token when the allowlist is only %s', (entry) => {
-    const policy = resolveHttpListen({ port: 8080, allowedHosts: [entry] });
-    expect(policy.token).toBeUndefined();
-  });
+  it.each(['localhost:3000', '[::1]:3000', '127.0.0.2', 'app.localhost'])(
+    'starts without a bearer token when the allowlist is only %s',
+    (entry) => {
+      const policy = resolveHttpListen({ port: 8080, allowedHosts: [entry] });
+      expect(policy.token).toBeUndefined();
+    },
+  );
 
   it.each(['user@mail.example', 'mail.example/x'])('refuses allowlist entry %s', (entry) => {
     expect(() => resolveHttpListen({ port: 8080, token: TOKEN, allowedHosts: [entry] })).toThrow(

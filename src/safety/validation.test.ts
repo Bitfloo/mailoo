@@ -71,13 +71,12 @@ describe('sanitizeMailboxName', () => {
     expect(sanitizeMailboxName('a"b')).toBe('a"b');
   });
 
-  it.each([
-    'INBOX\r\nSent',
-    'IN\x00BOX',
-    'INBOX\x7F',
-  ])('throws when the name contains a control character (%j)', (name) => {
-    expect(() => sanitizeMailboxName(name)).toThrow('control characters');
-  });
+  it.each(['INBOX\r\nSent', 'IN\x00BOX', 'INBOX\x7F'])(
+    'throws when the name contains a control character (%j)',
+    (name) => {
+      expect(() => sanitizeMailboxName(name)).toThrow('control characters');
+    },
+  );
 });
 
 describe('parseMessageUid', () => {
@@ -85,24 +84,12 @@ describe('parseMessageUid', () => {
     expect(parseMessageUid(emailId)).toBe(emailId);
   });
 
-  it.each([
-    '0',
-    '-1',
-    '01',
-    '1.5',
-    '1e2',
-    ' 4',
-    '4 ',
-    '12abc',
-    '1:*',
-    '1:5',
-    '1,2',
-    '*',
-    '$',
-    '',
-  ])('throws when the id is %j', (emailId) => {
-    expect(() => parseMessageUid(emailId)).toThrow('positive integer UID');
-  });
+  it.each(['0', '-1', '01', '1.5', '1e2', ' 4', '4 ', '12abc', '1:*', '1:5', '1,2', '*', '$', ''])(
+    'throws when the id is %j',
+    (emailId) => {
+      expect(() => parseMessageUid(emailId)).toThrow('positive integer UID');
+    },
+  );
 
   it('throws when the id is above the 32-bit UID maximum', () => {
     expect(() => parseMessageUid('4294967296')).toThrow('positive integer UID');
@@ -502,14 +489,12 @@ describe('validateLabelName', () => {
     expect(validateLabelName('Receipts (2024)')).toBe('Receipts (2024)');
   });
 
-  it.each([
-    '../Secret',
-    'Work//Urgent',
-    'Work/',
-    '.',
-  ])('throws when a path segment is empty or relative (%j)', (name) => {
-    expect(() => validateLabelName(name)).toThrow('relative path');
-  });
+  it.each(['../Secret', 'Work//Urgent', 'Work/', '.'])(
+    'throws when a path segment is empty or relative (%j)',
+    (name) => {
+      expect(() => validateLabelName(name)).toThrow('relative path');
+    },
+  );
 });
 
 describe('validateInputLength', () => {

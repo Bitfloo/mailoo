@@ -98,16 +98,19 @@ describe('ManageSieve script limits', () => {
       'activate',
       async (port: number, name: string) => sieveService.activateScript(sieveAccount(port), name),
     ],
-  ] as const)('does not open a socket for %s when the script name contains a line break', async (_label, call) => {
-    const { server, connections } = countingServer();
-    const port = await listen(server);
-    try {
-      await expect(call(port, 'ok\r\nDELETESCRIPT "other')).rejects.toThrow(/script name/i);
-      expect(connections()).toBe(0);
-    } finally {
-      await closeServer(server);
-    }
-  });
+  ] as const)(
+    'does not open a socket for %s when the script name contains a line break',
+    async (_label, call) => {
+      const { server, connections } = countingServer();
+      const port = await listen(server);
+      try {
+        await expect(call(port, 'ok\r\nDELETESCRIPT "other')).rejects.toThrow(/script name/i);
+        expect(connections()).toBe(0);
+      } finally {
+        await closeServer(server);
+      }
+    },
+  );
 
   it('does not open a socket for a script name that contains U+0085', async () => {
     const { server, connections } = countingServer();
