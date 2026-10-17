@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   ConnectBackoff,
   INITIAL_BACKOFF_MS,
+  JITTER_RATIO,
   MAX_BACKOFF_MS,
   nextBackoff,
   withJitter,
@@ -129,5 +130,11 @@ describe('docs/configuration.md reconnect backoff', () => {
     expect(doc.replace(/\s+/g, ' ')).toContain(
       `${INITIAL_BACKOFF_MS / 1000} s after the first failure, doubling to ${MAX_BACKOFF_MS / 1000} s`,
     );
+  });
+
+  it('should state how much the jitter shortens each window', async () => {
+    const doc = await readFile(join(root, 'docs/configuration.md'), 'utf8');
+    const spoken = JITTER_RATIO === 0.25 ? 'a quarter' : `${JITTER_RATIO * 100}%`;
+    expect(doc.replace(/\s+/g, ' ')).toContain(`each window shortened by up to ${spoken}`);
   });
 });

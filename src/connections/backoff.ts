@@ -6,7 +6,7 @@
 
 export const INITIAL_BACKOFF_MS = 1_000;
 export const MAX_BACKOFF_MS = 60_000;
-const JITTER_RATIO = 0.25;
+export const JITTER_RATIO = 0.25;
 
 export function nextBackoff(delayMs: number): number {
   return Math.min(delayMs * 2, MAX_BACKOFF_MS);
