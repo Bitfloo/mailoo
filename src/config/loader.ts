@@ -4,6 +4,7 @@
  * Precedence: environment variables → TOML config file → defaults.
  */
 
+import type { Stats } from 'node:fs';
 import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -173,7 +174,7 @@ async function lstatOrNull(filePath: string): Promise<Awaited<ReturnType<typeof 
   }
 }
 
-function warnIfGroupOrOtherCanRead(filePath: string, mode: number | bigint): void {
+function warnIfGroupOrOtherCanRead(filePath: string, mode: number): void {
   if (!hasGroupOrOtherBits(mode)) return;
   // Config is read before the MCP handshake, so a client log would be dropped.
   process.stderr.write(
@@ -183,7 +184,7 @@ function warnIfGroupOrOtherCanRead(filePath: string, mode: number | bigint): voi
 
 async function loadFromFile(filePath: string = CONFIG_FILE): Promise<RawAppConfig | null> {
   assertConfigPath(filePath);
-  let info: Awaited<ReturnType<typeof fs.stat>>;
+  let info: Stats;
   try {
     info = await fs.stat(filePath);
   } catch (error) {

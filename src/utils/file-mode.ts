@@ -2,8 +2,7 @@
  * Permission checks for files that hold credentials or mail metadata.
  */
 
-export default function hasGroupOrOtherBits(mode: number | bigint): boolean {
-  const bits = typeof mode === 'bigint' ? Number(mode) : mode;
+export default function hasGroupOrOtherBits(mode: number): boolean {
   // eslint-disable-next-line no-bitwise
-  return (bits & 0o077) !== 0;
+  return (mode & 0o077) !== 0;
 }
