@@ -47,7 +47,10 @@ function redactParams(params: Record<string, unknown>): Record<string, unknown> 
 const PRIVATE_DIR_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 
-/** Set after the first write that checked existing modes. */
+/**
+ * Existing modes are tightened once per process. A write that fails leaves
+ * this unset, so the next write checks them again.
+ */
 let modesChecked = false;
 
 async function appendLine(line: string): Promise<void> {

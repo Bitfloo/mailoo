@@ -42,7 +42,6 @@ export function bindServer(server: McpServer): void {
   if (!servers.has(server)) servers.set(server, false);
 }
 
-/** Stop forwarding to a server whose session is gone. */
 export function unbindServer(server: McpServer): void {
   servers.delete(server);
 }
