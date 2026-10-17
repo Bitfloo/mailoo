@@ -14,7 +14,7 @@ import path from 'node:path';
 
 import { loadConfig } from '../config/loader.js';
 import { createMailServices } from '../services/mail-services.js';
-import SchedulerService from '../services/scheduler.service.js';
+import SchedulerService, { SCHEDULER_INTERVAL_MS } from '../services/scheduler.service.js';
 import type { AppConfig, ScheduledEmail } from '../types/index.js';
 
 const LAUNCHD_LABEL = 'com.bitfloo.mailoo.scheduler';
@@ -218,6 +218,7 @@ async function runInstall(): Promise<void> {
 
   if (platform === 'darwin') {
     // macOS: launchd plist
+    const intervalSeconds = SCHEDULER_INTERVAL_MS / 1000;
     const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -232,7 +233,7 @@ async function runInstall(): Promise<void> {
     <string>check</string>
   </array>
   <key>StartInterval</key>
-  <integer>60</integer>
+  <integer>${intervalSeconds}</integer>
   <key>StandardOutPath</key>
   <string>/tmp/mailoo-scheduler.log</string>
   <key>StandardErrorPath</key>
@@ -246,7 +247,7 @@ async function runInstall(): Promise<void> {
 
     console.log('✅ Installed macOS launchd scheduler');
     console.log(`   Plist: ${LAUNCHD_PLIST}`);
-    console.log('   Runs every 60 seconds');
+    console.log(`   Runs every ${intervalSeconds} seconds`);
   } else if (platform === 'linux') {
     // Linux: crontab
     const cronLine = `* * * * * ${quoteCronArg(process.execPath)} ${quoteCronArg(execPath)} scheduler check ${CRONTAB_MARKER}`;
