@@ -36,8 +36,10 @@ beforeEach(() => {
 
 afterEach(async () => {
   await stopWatchers();
-  vi.useRealTimers();
+  // Spies first: restoring a spy on a faked timer after the real timers are back would put the
+  // fake on globalThis for the rest of the file.
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('WatcherService start', () => {
@@ -192,6 +194,18 @@ describe('WatcherService OAuth2', () => {
     issueToken('ya29.late-token');
     await starting;
     expect(fake.clients).toHaveLength(0);
+  });
+});
+
+describe('WatcherService reconnect timer', () => {
+  it('should not keep the process alive for a pending reconnect', async () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    fake.connectErrors.push(new Error('connect ECONNREFUSED'));
+    const { watcher } = watch();
+    await watcher.start();
+    const reconnect = setTimeoutSpy.mock.calls.findIndex(([, delay]) => delay === 1_000);
+    const timer = setTimeoutSpy.mock.results[reconnect]?.value as NodeJS.Timeout | undefined;
+    expect(timer?.hasRef()).toBe(false);
   });
 });
 
