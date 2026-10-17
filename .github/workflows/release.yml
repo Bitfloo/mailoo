@@ -63,12 +63,9 @@ jobs:
           echo "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc  mcp-publisher_linux_amd64.tar.gz" | sha256sum -c -
           tar -xzf mcp-publisher_linux_amd64.tar.gz mcp-publisher
       - name: Set version in server.json
-        run: |
-          VERSION="${{ inputs.version || '' }}"
-          if [[ -z "$VERSION" ]]; then
-            VERSION="${GITHUB_REF#refs/tags/v}"
-          fi
-          bash scripts/bump-server-json-version.sh "$VERSION"
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: bash scripts/bump-server-json-version.sh "${INPUT_VERSION:-${GITHUB_REF#refs/tags/v}}"
       - name: Authenticate to MCP Registry
         run: ./mcp-publisher login github-oidc
       # npm can 404 a version that was just published. The registry turns that into

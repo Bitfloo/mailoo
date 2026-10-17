@@ -175,6 +175,27 @@ describe('pinned GitHub Actions', () => {
   });
 });
 
+describe('workflow shell input', () => {
+  it('should expand dispatch inputs and event fields only in if: and env: lines', () => {
+    // An expression inside run: is pasted into the script before bash parses it,
+    // so a crafted value runs as code. An env: value reaches bash as data.
+    const files = readdirSync(workflowDir).filter((name) => name.endsWith('.yml'));
+    expect(files.length).toBeGreaterThan(0);
+    const untrusted = /\$\{\{[^}]*\b(?:inputs\.|github\.event\.|github\.head_ref\b)/;
+    const allowed = /^\s*(?:if|[A-Z][A-Z0-9_]*):\s/;
+    const inline: string[] = [];
+    for (const name of files) {
+      const lines = readFileSync(join(workflowDir, name), 'utf8').split('\n');
+      for (const line of lines) {
+        if (untrusted.test(line) && !allowed.test(line)) {
+          inline.push(`${name}: ${line.trim()}`);
+        }
+      }
+    }
+    expect(inline).toEqual([]);
+  });
+});
+
 function workflowName(yaml: string): string {
   const match = yaml.match(/^name:\s*(\S+)\s*$/m);
   if (!match) {
