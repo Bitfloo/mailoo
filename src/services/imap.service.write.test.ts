@@ -51,6 +51,15 @@ describe('ImapService', () => {
         'IMAP server rejected the move from "INBOX" to "Archive".',
       );
     });
+
+    it('should refuse to move out of a virtual folder', async () => {
+      client.list.mockResolvedValue(gmailMailboxes());
+
+      await expect(service.moveEmail('test', '42', '[Gmail]/All Mail', 'Archive')).rejects.toThrow(
+        /is a virtual folder/,
+      );
+      expect(client.messageMove).not.toHaveBeenCalled();
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -157,6 +166,36 @@ describe('ImapService', () => {
         errors: ['IMAP server rejected the move to Trash.'],
       });
     });
+
+    it('should report every id failed when the server refuses the expunge', async () => {
+      client.messageDelete.mockResolvedValue(false);
+
+      const result = await service.bulkDelete('test', [3, 5], 'INBOX', true);
+
+      expect(result).toEqual({
+        total: 2,
+        succeeded: 0,
+        failed: 2,
+        errors: ['IMAP server rejected the delete operation.'],
+      });
+    });
+
+    it.each([
+      ['an expunge', true, 'messageDelete'],
+      ['a move to Trash', false, 'messageMove'],
+    ] as const)('should report the server error when %s fails', async (_, permanent, command) => {
+      client.list.mockResolvedValue(gmailMailboxes());
+      client[command].mockRejectedValue(new Error('Command failed: NO [UNAVAILABLE]'));
+
+      const result = await service.bulkDelete('test', [3, 5], 'INBOX', permanent);
+
+      expect(result).toEqual({
+        total: 2,
+        succeeded: 0,
+        failed: 2,
+        errors: ['Command failed: NO [UNAVAILABLE]'],
+      });
+    });
   });
 
   describe('bulkMove', () => {
@@ -236,6 +275,19 @@ describe('ImapService', () => {
         succeeded: 0,
         failed: 2,
         errors: ['IMAP server rejected the flag operation.'],
+      });
+    });
+
+    it('should report the server error when the flag change fails', async () => {
+      client.messageFlagsAdd.mockRejectedValue(new Error('Command failed: NO [UNAVAILABLE]'));
+
+      const result = await service.bulkSetFlags('test', [3, 5], 'INBOX', 'mark_read');
+
+      expect(result).toEqual({
+        total: 2,
+        succeeded: 0,
+        failed: 2,
+        errors: ['Command failed: NO [UNAVAILABLE]'],
       });
     });
   });
