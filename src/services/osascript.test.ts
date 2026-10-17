@@ -17,6 +17,7 @@ vi.mock('node:child_process', () => ({
 }));
 
 import {
+  classifyOsascriptFailure,
   dateToAppleScriptLines,
   escapeAS,
   JSON_HANDLERS,
@@ -119,6 +120,27 @@ describe('runOsascript', () => {
   it('should return trimmed stdout on success', async () => {
     osascriptImpl.mockResolvedValueOnce({ stdout: '{"found":false}\n', stderr: '' });
     await expect(runOsascript('return 1', 10_000)).resolves.toBe('{"found":false}');
+  });
+});
+
+describe('classifyOsascriptFailure', () => {
+  it('should read error -128 from a dismissed dialog as cancelled', () => {
+    const err = new Error('osascript failed: 0:95: execution error: User canceled. (-128)');
+    expect(classifyOsascriptFailure(err).kind).toBe('cancelled');
+  });
+
+  it('should read error -1743 from a refused Apple event as denied', () => {
+    const err = new Error(
+      'osascript failed: 0:42: execution error: Not authorized to send Apple events to Calendar. (-1743)',
+    );
+    expect(classifyOsascriptFailure(err).kind).toBe('denied');
+  });
+
+  it('should keep the message of any other failure', () => {
+    expect(classifyOsascriptFailure(new Error('osascript timed out after 90 s'))).toEqual({
+      kind: 'failed',
+      message: 'osascript timed out after 90 s',
+    });
   });
 });
 

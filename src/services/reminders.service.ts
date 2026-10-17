@@ -9,6 +9,7 @@
 
 import { delimitUntrusted } from '../safety/untrusted-content.js';
 import {
+  classifyOsascriptFailure,
   dateToAppleScriptLines,
   escapeAS,
   JSON_HANDLERS,
@@ -220,18 +221,18 @@ async function addReminderMacOS(
       message: reminderStatusMessage(result.status, input.title, result.listName),
     };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/user canceled|(-128)/i.test(msg)) {
+    const failure = classifyOsascriptFailure(err);
+    if (failure.kind === 'cancelled') {
       return { status: 'cancelled', message: 'Cancelled by user.' };
     }
-    if (/not authorized|access/i.test(msg)) {
+    if (failure.kind === 'denied') {
       return {
         status: 'no_display',
         message:
           'Reminders access denied. Go to System Settings \u2192 Privacy \u2192 Reminders and enable Terminal.',
       };
     }
-    return { status: 'no_display', message: `Could not add reminder: ${msg}` };
+    return { status: 'no_display', message: `Could not add reminder: ${failure.message}` };
   }
 }
 

@@ -90,6 +90,20 @@ export async function runOsascript(script: string, timeoutMs: number): Promise<s
 }
 
 /**
+ * Sorts an osascript rejection for a write: the user cancelled (-128), the app refused
+ * access, or anything else, with the rejection message.
+ */
+export function classifyOsascriptFailure(err: unknown): {
+  kind: 'cancelled' | 'denied' | 'failed';
+  message: string;
+} {
+  const message = err instanceof Error ? err.message : String(err);
+  if (/user canceled|(-128)/i.test(message)) return { kind: 'cancelled', message };
+  if (/not authorized|access/i.test(message)) return { kind: 'denied', message };
+  return { kind: 'failed', message };
+}
+
+/**
  * Parses JSON assembled by `jsonString`. AppleScript text keeps raw control
  * characters, which a JSON string may not hold; the script emits no whitespace
  * between tokens, so every control character here sits inside a string.

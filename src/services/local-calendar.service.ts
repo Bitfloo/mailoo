@@ -18,6 +18,7 @@ import { promisify } from 'node:util';
 
 import { delimitUntrusted } from '../safety/untrusted-content.js';
 import {
+  classifyOsascriptFailure,
   dateToAppleScriptLines,
   escapeAS,
   JSON_HANDLERS,
@@ -392,17 +393,17 @@ return "{\\"found\\":false}"
 }
 
 function osascriptFailure(action: string, err: unknown): AddEventResult {
-  const msg = err instanceof Error ? err.message : String(err);
-  if (/user canceled|(-128)/i.test(msg)) {
+  const failure = classifyOsascriptFailure(err);
+  if (failure.kind === 'cancelled') {
     return { status: 'cancelled', message: 'Cancelled by user.' };
   }
-  if (/not authorized|access/i.test(msg)) {
+  if (failure.kind === 'denied') {
     return {
       status: 'no_display',
       message: 'Calendar access denied. Run check_calendar_permissions for setup instructions.',
     };
   }
-  return { status: 'no_display', message: `Could not ${action}: ${msg}` };
+  return { status: 'no_display', message: `Could not ${action}: ${failure.message}` };
 }
 
 async function addEventMacOS(
