@@ -251,7 +251,7 @@ describe('ImapService', () => {
         acquireTimeout: MAILBOX_LOCK_TIMEOUT_MS,
       });
       expect(client.messageMove).toHaveBeenCalledWith('42', 'Archive', { uid: true });
-      expect(client._releaseFn).toHaveBeenCalled();
+      expect(client._releaseFn).toHaveBeenCalledTimes(1);
     });
 
     it('calls sanitizeMailboxName on inputs', async () => {
@@ -282,7 +282,7 @@ describe('ImapService', () => {
 
       expect(client.messageDelete).toHaveBeenCalledWith('99', { uid: true });
       expect(client.messageMove).not.toHaveBeenCalled();
-      expect(client._releaseFn).toHaveBeenCalled();
+      expect(client._releaseFn).toHaveBeenCalledTimes(1);
     });
 
     // The folder names differ from the 'Trash' fallback, so a lookup that
@@ -1702,7 +1702,7 @@ describe('ImapService', () => {
       await expect(service.getEmailSecurity('test', '99', 'INBOX')).rejects.toThrow(
         /Email 99 not found in INBOX/,
       );
-      expect(client._releaseFn).toHaveBeenCalled();
+      expect(client._releaseFn).toHaveBeenCalledTimes(1);
     });
   });
 
