@@ -124,15 +124,14 @@ describe('HooksService calendar auto-add state', () => {
   });
 
   it.each([
-    ['added', true],
-    ['duplicate', true],
-    ['cancelled', true],
-    ['timed_out', false],
-    ['no_display', false],
+    ['added', true, '110'],
+    ['duplicate', true, '111'],
+    ['cancelled', true, '112'],
+    ['timed_out', false, '113'],
+    ['no_display', false, '114'],
   ] as const)(
     'when a static-rule add reports %s, should mark it processed: %s',
-    async (status, marked) => {
-      const id = `11${['added', 'duplicate', 'cancelled', 'timed_out', 'no_display'].indexOf(status)}`;
+    async (status, marked, id) => {
       addEvent.mockResolvedValue({ status, message: status });
       hooks = new HooksService(
         hooksConfig({ batchDelay: 3600, rules: [inviteRule] }),
