@@ -246,6 +246,23 @@ describe('mailoo account and setup', () => {
     });
   });
 
+  it.each([
+    ['IMAP use TLS?', false, 'imap', { tls: false, starttls: true }],
+    ['SMTP security', 'starttls', 'smtp', { tls: false, starttls: true }],
+    ['SMTP security', 'none', 'smtp', { tls: false, starttls: false }],
+  ] as const)('should write the %s answer %s as %s %o', async (prompt, value, side, flags) => {
+    OVERRIDES.set(prompt, value);
+    const run = await entryPoint('account add');
+
+    await run();
+
+    const saved = parseTOML(await fs.readFile(configFile, 'utf-8')) as {
+      accounts: Record<'imap' | 'smtp', { tls: boolean; starttls: boolean }>[];
+    };
+    const { tls, starttls } = saved.accounts[0][side];
+    expect({ tls, starttls }).toEqual(flags);
+  });
+
   it('should refuse to delete the last account and leave the config byte-identical', async () => {
     await fs.writeFile(configFile, CONFIG_WITH_PERSONAL, { mode: 0o600 });
     const run = await entryPoint('account delete', 'personal');
