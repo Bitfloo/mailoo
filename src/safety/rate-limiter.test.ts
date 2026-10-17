@@ -1,5 +1,14 @@
 import RateLimiter from './rate-limiter.js';
 
+/** Park–Miller generator: one seed replays the same sequence on every run. */
+function seededRandom(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state = (state * 16_807) % 2_147_483_647;
+    return state / 2_147_483_647;
+  };
+}
+
 describe('RateLimiter', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -126,6 +135,33 @@ describe('RateLimiter', () => {
     vi.advanceTimersByTime(30_000);
 
     expect(limiter.remaining('acct')).toBe(1);
+  });
+
+  // The examples above each pin one gap; a long mix of waits and sends must
+  // still never hold more than the limit or allow more than it has earned.
+  it('should stay within the limit and the refill rate over a seeded mix of waits and sends', () => {
+    vi.useFakeTimers();
+    const max = 4;
+    const limiter = new RateLimiter(max);
+    const random = seededRandom(20_261_017);
+    const start = Date.now();
+    let allowed = 0;
+    const breaches: string[] = [];
+
+    Array.from({ length: 2_000 }).forEach((_, step) => {
+      if (random() < 0.5) {
+        vi.advanceTimersByTime(Math.floor(random() * 20_000));
+      } else if (limiter.tryConsume('acct')) {
+        allowed += 1;
+      }
+      const remaining = limiter.remaining('acct');
+      const earned = max + (max * (Date.now() - start)) / 60_000;
+      if (remaining < 0 || remaining > max || allowed > earned) {
+        breaches.push(`step ${step}: remaining ${remaining}, allowed ${allowed} of ${earned}`);
+      }
+    });
+
+    expect(breaches).toEqual([]);
   });
 
   it('uses default limit of 10 when no argument provided', () => {
