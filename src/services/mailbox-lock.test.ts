@@ -124,7 +124,7 @@ describe('mailbox lock call sites', () => {
     await Promise.all(
       files.map(async (file) => {
         const rel = relative(srcRoot, file).split('\\').join('/');
-        if (DIRECT_LOCK_CALLERS.has(rel) || rel.startsWith('test-support/')) return;
+        if (DIRECT_LOCK_CALLERS.has(rel)) return;
         const text = await readFile(file, 'utf-8');
         if (text.includes('.getMailboxLock(')) offenders.push(rel);
       }),
