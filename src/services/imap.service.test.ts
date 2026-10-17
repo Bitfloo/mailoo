@@ -780,11 +780,11 @@ describe('ImapService', () => {
   }
 
   /** client.fetchOne as imapflow answers a UID FETCH: false for a UID the mailbox does not hold. */
-  function fetchOneByUid(...messages: ({ uid: number } & Record<string, unknown>)[]) {
+  function fetchOneByUid(message: { uid: number } & Record<string, unknown>) {
     client.fetchOne.mockImplementation(
       async (range: string, _query: unknown, options?: { uid?: boolean }) => {
         requireUidRange('fetchOne', range, options);
-        return messages.find((m) => String(m.uid) === range) ?? false;
+        return range === String(message.uid) ? message : false;
       },
     );
   }
