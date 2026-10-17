@@ -44,10 +44,8 @@ async function exists(file: string): Promise<boolean> {
 }
 
 async function resolveSpecifier(from: string, specifier: string): Promise<string | undefined> {
-  const base = path.resolve(path.dirname(from), specifier).replace(/\.js$/, '.ts');
-  const candidates = base.endsWith('.ts') ? [base] : [`${base}.ts`, path.join(base, 'index.ts')];
-  const found = await Promise.all(candidates.map(exists));
-  return candidates[found.indexOf(true)];
+  const file = path.resolve(path.dirname(from), specifier).replace(/\.js$/, '.ts');
+  return (await exists(file)) ? file : undefined;
 }
 
 const importsOf = new Map<string, Promise<string[]>>();
