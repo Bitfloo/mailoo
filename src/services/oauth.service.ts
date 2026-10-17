@@ -40,18 +40,24 @@ const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 /** A token endpoint that stops answering would otherwise stall every IMAP or SMTP connect behind it. */
 const TOKEN_REQUEST_TIMEOUT_MS = 15_000;
 
-async function postTokenRequest(
+/** The timeout also covers the body: an endpoint can send its headers and then stall. */
+async function postTokenRequest<T>(
   tokenUrl: string,
   body: URLSearchParams,
   action: string,
-): Promise<Response> {
+): Promise<T> {
   try {
-    return await fetch(tokenUrl, {
+    const response = await fetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
       signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
     });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`OAuth2 ${action} failed (${response.status}): ${text}`);
+    }
+    return (await response.json()) as T;
   } catch (err) {
     if (err instanceof DOMException && err.name === 'TimeoutError') {
       throw new Error(`OAuth2 ${action} timed out after ${TOKEN_REQUEST_TIMEOUT_MS / 1000}s`, {
@@ -126,17 +132,11 @@ export default class OAuthService {
       refresh_token: oauth2.refreshToken,
     });
 
-    const response = await postTokenRequest(endpoints.tokenUrl, body, 'token refresh');
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`OAuth2 token refresh failed (${response.status}): ${text}`);
-    }
-
-    const data = (await response.json()) as {
-      access_token: string;
-      expires_in: number;
-    };
+    const data = await postTokenRequest<{ access_token: string; expires_in: number }>(
+      endpoints.tokenUrl,
+      body,
+      'token refresh',
+    );
 
     return {
       accessToken: data.access_token,
@@ -200,18 +200,11 @@ export default class OAuthService {
       redirect_uri: redirectUri,
     });
 
-    const response = await postTokenRequest(endpoints.tokenUrl, body, 'code exchange');
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`OAuth2 code exchange failed (${response.status}): ${text}`);
-    }
-
-    const data = (await response.json()) as {
+    const data = await postTokenRequest<{
       access_token: string;
       refresh_token: string;
       expires_in: number;
-    };
+    }>(endpoints.tokenUrl, body, 'code exchange');
 
     return {
       accessToken: data.access_token,

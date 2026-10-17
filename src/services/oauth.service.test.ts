@@ -37,6 +37,21 @@ function stalledTokenEndpoint() {
   );
 }
 
+/** Sends the status line, then the request timeout fires while the body is being read. */
+function stalledBody(status: number): () => Response {
+  return () =>
+    new Response(
+      new ReadableStream({
+        pull(controller) {
+          controller.error(
+            new DOMException('The operation was aborted due to timeout', 'TimeoutError'),
+          );
+        },
+      }),
+      { status },
+    );
+}
+
 let refreshSeq = 0;
 
 function googleConfig(overrides: Partial<OAuth2Config> = {}): OAuth2Config {
@@ -119,6 +134,20 @@ describe('OAuthService.getAccessToken', () => {
     await expect(pending).rejects.toThrow('OAuth2 token refresh timed out after 15s');
   });
 
+  it('should give up on a token endpoint that stops sending the token', async () => {
+    fakeTokenEndpoint(stalledBody(200));
+    await expect(new OAuthService().getAccessToken(googleConfig())).rejects.toThrow(
+      'OAuth2 token refresh timed out after 15s',
+    );
+  });
+
+  it('should give up on a token endpoint that stops sending its error', async () => {
+    fakeTokenEndpoint(stalledBody(503));
+    await expect(new OAuthService().getAccessToken(googleConfig())).rejects.toThrow(
+      'OAuth2 token refresh timed out after 15s',
+    );
+  });
+
   it('should arm a 15 s timeout on the refresh request', async () => {
     const timeout = vi.spyOn(AbortSignal, 'timeout');
     const calls = fakeTokenEndpoint(tokenResponse('tok-1'));
@@ -140,6 +169,13 @@ describe('OAuthService.exchangeCode', () => {
     );
     controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
     await expect(pending).rejects.toThrow('OAuth2 code exchange timed out after 15s');
+  });
+
+  it('should give up on a token endpoint that stops sending the tokens', async () => {
+    fakeTokenEndpoint(stalledBody(200));
+    await expect(
+      OAuthService.exchangeCode(googleConfig(), 'auth-code', 'http://localhost:3000/cb'),
+    ).rejects.toThrow('OAuth2 code exchange timed out after 15s');
   });
 
   it('should arm a 15 s timeout on the code exchange request', async () => {
