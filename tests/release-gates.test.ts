@@ -1,5 +1,5 @@
 import { jobGate, runsJob } from './workflow-gates.js';
-import { jobSections, keyLines, onBlock, releaseYml } from './workflow-yaml.js';
+import { jobSections, keyLines, onBlock, releaseSteps, releaseYml } from './workflow-yaml.js';
 
 function releaseJob(marker: string): string {
   const job = jobSections(releaseYml).find((section) => section.includes(marker));
@@ -91,9 +91,26 @@ describe('release job gates', () => {
     expect(runsJob(jobGate(npmJob()), {}, context)).toBe(false);
   });
 
-  it('should release on v* tags and on manual dispatch', () => {
-    expect(onBlock(releaseYml)).toMatch(
-      /^ {2}push:\n {4}tags:\n {6}- "v\*"\n {2}workflow_dispatch:\n/,
+  it('should release on v* tags and manual dispatch only, with a boolean skip-npm input', () => {
+    // Another trigger would pass the npm gate as a run that is not a manual dispatch, and a string
+    // skip-npm would make !inputs.skip-npm false on every manual run.
+    expect(releaseSteps(onBlock(releaseYml)).trimEnd()).toBe(
+      [
+        '  push:',
+        '    tags:',
+        '      - "v*"',
+        '  workflow_dispatch:',
+        '    inputs:',
+        '      version:',
+        '        description: >-',
+        '          Version to release (e.g. 1.2.3) — used when',
+        '          triggering manually without a git tag',
+        '        required: false',
+        '      skip-npm:',
+        '        description: Skip npm publish (e.g. already published)',
+        '        type: boolean',
+        '        default: false',
+      ].join('\n'),
     );
   });
 
