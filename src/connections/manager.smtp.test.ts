@@ -113,6 +113,15 @@ describe('ConnectionManager.getSmtpTransport', () => {
     expect(smtpTransports).toHaveLength(1);
     expect(new Set(transports).size).toBe(1);
   });
+
+  it('should build one transport per account when two accounts connect at once', async () => {
+    const manager = new ConnectionManager([account, { ...account, name: 'second' }]);
+    const [first, second] = await Promise.all([
+      manager.getSmtpTransport('test'),
+      manager.getSmtpTransport('second'),
+    ]);
+    expect(second).not.toBe(first);
+  });
 });
 
 describe('ConnectionManager.closeAll for SMTP', () => {
@@ -126,6 +135,14 @@ describe('ConnectionManager.closeAll for SMTP', () => {
     await manager.getSmtpTransport('second');
     await manager.closeAll();
     expect(smtpTransports.map((transport) => transport.close.mock.calls.length)).toEqual([1, 1]);
+  });
+
+  it('should close a transport whose verify was still in flight when closeAll ran', async () => {
+    const manager = new ConnectionManager([account]);
+    const pending = manager.getSmtpTransport('test');
+    await manager.closeAll();
+    await pending;
+    expect(smtpTransports[0].close).toHaveBeenCalledOnce();
   });
 });
 
@@ -152,6 +169,22 @@ describe('ConnectionManager SMTP reconnect backoff', () => {
       'Last SMTP connect for "test" failed: 535 Authentication failed',
     );
     expect(smtpTransports).toHaveLength(1);
+  });
+
+  it('should start the backoff over at 1 s after a successful verify', async () => {
+    verifyErrors.push(new Error('535 Authentication failed'));
+    const manager = new ConnectionManager([account]);
+    await expect(manager.getSmtpTransport('test')).rejects.toThrow('535');
+    vi.setSystemTime(Date.now() + 1_000);
+    await manager.getSmtpTransport('test');
+    // The cached transport fails its re-check, then the fresh one fails its login.
+    verifyErrors.push(
+      new Error('421 Service not available'),
+      new Error('535 Authentication failed'),
+    );
+    await expect(manager.getSmtpTransport('test', { verify: true })).rejects.toThrow('535');
+    vi.setSystemTime(Date.now() + 1_000);
+    expect(await manager.getSmtpTransport('test')).toBe(smtpTransports[3]);
   });
 });
 

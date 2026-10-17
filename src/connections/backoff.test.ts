@@ -11,9 +11,12 @@ describe('nextBackoff', () => {
     expect(nextBackoff(INITIAL_BACKOFF_MS)).toBe(2_000);
   });
 
-  it('should not grow past the 60 s cap', () => {
-    expect(nextBackoff(40_000)).toBe(MAX_BACKOFF_MS);
-    expect(nextBackoff(MAX_BACKOFF_MS)).toBe(MAX_BACKOFF_MS);
+  it('should cap a doubling that would pass 60 s', () => {
+    expect(nextBackoff(40_000)).toBe(60_000);
+  });
+
+  it('should stay at 60 s once the cap is reached', () => {
+    expect(nextBackoff(60_000)).toBe(60_000);
   });
 });
 
@@ -63,6 +66,14 @@ describe('ConnectBackoff', () => {
     const backoff = new ConnectBackoff();
     backoff.recordFailure('IMAP', 'work', new Error('Invalid credentials'));
     vi.advanceTimersByTime(INITIAL_BACKOFF_MS);
+    expect(() => backoff.assertReady('IMAP', 'work')).not.toThrow();
+  });
+
+  it('should open the window up to a quarter early', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.999_999);
+    const backoff = new ConnectBackoff();
+    backoff.recordFailure('IMAP', 'work', new Error('timeout'));
+    vi.advanceTimersByTime(751);
     expect(() => backoff.assertReady('IMAP', 'work')).not.toThrow();
   });
 

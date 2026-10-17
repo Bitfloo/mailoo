@@ -168,6 +168,15 @@ describe('ConnectionManager.getImapClient', () => {
     expect(new Set(clients).size).toBe(1);
   });
 
+  it('should build one client per account when two accounts connect at once', async () => {
+    const manager = new ConnectionManager([account, { ...account, name: 'second' }]);
+    const [first, second] = await Promise.all([
+      manager.getImapClient('test'),
+      manager.getImapClient('second'),
+    ]);
+    expect(second).not.toBe(first);
+  });
+
   it('should replace a cached client that is no longer usable', async () => {
     const manager = new ConnectionManager([account]);
     const first = await manager.getImapClient('test');
@@ -184,6 +193,15 @@ describe('ConnectionManager.getImapClient', () => {
     const second = await manager.getImapClient('test');
     expect(second).not.toBe(first);
     expect(imapInstances).toHaveLength(2);
+  });
+
+  it('should keep the replacement client when the replaced one reports close again', async () => {
+    const manager = new ConnectionManager([account]);
+    const first = await manager.getImapClient('test');
+    first.emit('close');
+    const second = await manager.getImapClient('test');
+    first.emit('close');
+    expect(await manager.getImapClient('test')).toBe(second);
   });
 });
 
@@ -257,6 +275,18 @@ describe('ConnectionManager IMAP reconnect backoff', () => {
     vi.setSystemTime(Date.now() + 1_000);
     const client = await manager.getImapClient('test');
     expect(client).toBe(imapInstances[1]);
+  });
+
+  it('should start the backoff over at 1 s after a successful connect', async () => {
+    connectErrors.push(new Error('Invalid credentials'));
+    const manager = new ConnectionManager([account]);
+    await expect(manager.getImapClient('test')).rejects.toThrow('Invalid credentials');
+    vi.setSystemTime(Date.now() + 1_000);
+    (await manager.getImapClient('test')).emit('close');
+    connectErrors.push(new Error('Invalid credentials'));
+    await expect(manager.getImapClient('test')).rejects.toThrow('Invalid credentials');
+    vi.setSystemTime(Date.now() + 1_000);
+    expect(await manager.getImapClient('test')).toBe(imapInstances[3]);
   });
 });
 
