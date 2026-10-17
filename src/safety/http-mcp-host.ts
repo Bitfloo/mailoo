@@ -102,7 +102,7 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
     options.now,
   );
   const scopes = new Map<string, HttpSessionScope>();
-  const disposing: Promise<void>[] = [];
+  const disposing = new Set<Promise<void>>();
   const canWrite = !options.config.settings.readOnly;
 
   // Never call a disposed session's server. The newest sampling client wins
@@ -187,10 +187,27 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
     }
   };
 
+  // Node ends the process on an unhandled rejection, so a failed dispose is
+  // reported here. A settled entry leaves the set: a long-lived host would
+  // otherwise keep one promise per closed session.
+  const trackDispose = (scope: HttpSessionScope): void => {
+    const pending: Promise<void> = scope
+      .dispose()
+      .catch((err: unknown) => {
+        process.stderr.write(
+          `[mailoo] HTTP session dispose failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      })
+      .finally(() => {
+        disposing.delete(pending);
+      });
+    disposing.add(pending);
+  };
+
   const release = (sid: string, scope: HttpSessionScope): void => {
     sessions.delete(sid);
     scopes.delete(sid);
-    disposing.push(scope.dispose());
+    trackDispose(scope);
   };
 
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
@@ -330,7 +347,7 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
 
         transport = newTransport;
       } catch (err) {
-        if (created && !registered) disposing.push(created.dispose());
+        if (created && !registered) trackDispose(created);
         throw err;
       }
     } else {
@@ -353,7 +370,7 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
       await transport.handleRequest(req, res, body);
     } finally {
       if (trackedId) sessions.endRequest(trackedId);
-      if (created && !registered) disposing.push(created.dispose());
+      if (created && !registered) trackDispose(created);
       sessions.evict();
     }
   };
@@ -376,7 +393,7 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
       }
       hooks.stop();
       await watcher.stop();
-      await Promise.allSettled(disposing);
+      await Promise.allSettled([...disposing]);
       await Promise.allSettled([...scopes.values()].map(async (scope) => scope.dispose()));
     },
   };

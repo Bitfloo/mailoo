@@ -17,6 +17,7 @@ import { mcpLog } from '../logging.js';
 import { createHttpMcpHost } from '../safety/http-mcp-host.js';
 import { resolveHttpListen, startGuardedHttpServers } from '../safety/http-transport.js';
 import CalendarService from '../services/calendar.service.js';
+import HooksService from '../services/hooks.service.js';
 import ImapService from '../services/imap.service.js';
 import LocalCalendarService from '../services/local-calendar.service.js';
 import RemindersService from '../services/reminders.service.js';
@@ -252,11 +253,11 @@ describe('HTTP session isolation', () => {
 
 const TOOLS_LIST = JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/list', params: {} });
 
-async function startHost(clock: { now: number }, ttlMs: number) {
+async function startHost(clock: { now: number }, ttlMs: number, config = testConfig()) {
   const queueRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-http-host-'));
   const connections = new ConnectionManager([]);
   const host = await createHttpMcpHost({
-    config: testConfig(),
+    config,
     connections,
     imap: new ImapService(connections),
     templateService: new TemplateService(path.join(queueRoot, 'templates')),
@@ -371,6 +372,46 @@ describe('HTTP session logging', () => {
       );
     } finally {
       await Promise.allSettled([live.close(), ended.close()]);
+      await running.stop();
+    }
+  });
+});
+
+// A session dispose that rejected had no handler until host.close(). Node ends
+// the process on an unhandled rejection, so one failed cleanup dropped every
+// session.
+describe('HTTP session dispose', () => {
+  it('should report a failed session dispose on stderr when the session terminates', async () => {
+    const writable = testConfig();
+    writable.settings.readOnly = false;
+    const running = await startHost({ now: 1_000 }, 5_000, writable);
+    const transport = new StreamableHTTPClientTransport(
+      new URL(`http://127.0.0.1:${running.port}/mcp`),
+    );
+    const client = new Client({ name: 'mailoo-dispose', version: '0.0.0' });
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      await client.connect(transport);
+      await running.host.ready;
+      // Refreshing the sampling target is the step of dispose that can throw;
+      // nothing outside the host reaches it otherwise.
+      const refresh = vi
+        .spyOn(HooksService.prototype, 'setSamplingTarget')
+        .mockImplementation(() => {
+          throw new Error('sampling target refresh failed');
+        });
+      await transport.terminateSession();
+
+      await vi.waitFor(() => {
+        expect(stderr.mock.calls.map(([chunk]) => String(chunk))).toContain(
+          '[mailoo] HTTP session dispose failed: sampling target refresh failed\n',
+        );
+      });
+      refresh.mockRestore();
+    } finally {
+      stderr.mockRestore();
+      vi.restoreAllMocks();
+      await client.close().catch(() => undefined);
       await running.stop();
     }
   });
