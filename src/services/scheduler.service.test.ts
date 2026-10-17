@@ -1405,6 +1405,55 @@ describe('list order', () => {
   });
 });
 
+describe('list filters', () => {
+  async function withQueue(
+    records: ScheduledEmail[],
+    body: (service: InstanceType<typeof SchedulerService>) => Promise<void>,
+  ): Promise<void> {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-filter-'));
+    try {
+      await fs.mkdir(path.join(queueDir, 'sent'));
+      await Promise.all(
+        records.map(async (record) => {
+          const dir = record.status === 'sent' ? path.join(queueDir, 'sent') : queueDir;
+          await fs.writeFile(path.join(dir, `${record.id}.json`), JSON.stringify(record));
+        }),
+      );
+      await body(createService(queueDir).service);
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  }
+
+  function ids(emails: ScheduledEmail[]): string[] {
+    return emails.map((email) => email.id);
+  }
+
+  it('should list only records of the requested status', async () => {
+    const statuses: ScheduledEmail['status'][] = ['pending', 'sending', 'failed', 'sent'];
+    const records = statuses.map((status, index) => ({
+      ...pendingRecord(queueId(index), daysFromNow(index + 1)),
+      status,
+    }));
+    await withQueue(records, async (service) => {
+      expect({
+        pending: ids(await service.list({ status: 'pending' })),
+        failed: ids(await service.list({ status: 'failed' })),
+      }).toEqual({ pending: [queueId(0)], failed: [queueId(2)] });
+    });
+  });
+
+  it('should list only records of the requested account', async () => {
+    const records = [
+      pendingRecord(queueId(0), daysFromNow(1)),
+      { ...pendingRecord(queueId(1), daysFromNow(2)), account: 'work' },
+    ];
+    await withQueue(records, async (service) => {
+      expect(ids(await service.list({ account: 'work' }))).toEqual([queueId(1)]);
+    });
+  });
+});
+
 describe('scheduler loop', () => {
   type CheckResult = Awaited<ReturnType<InstanceType<typeof SchedulerService>['checkAndSend']>>;
 
