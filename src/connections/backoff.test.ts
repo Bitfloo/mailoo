@@ -1,3 +1,7 @@
+import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import {
   ConnectBackoff,
   INITIAL_BACKOFF_MS,
@@ -5,6 +9,8 @@ import {
   nextBackoff,
   withJitter,
 } from './backoff.js';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
 describe('nextBackoff', () => {
   it('should double the delay', () => {
@@ -114,5 +120,14 @@ describe('ConnectBackoff', () => {
     backoff.recordFailure('IMAP', 'work', new Error('timeout'));
     expect(() => backoff.assertReady('SMTP', 'work')).not.toThrow();
     expect(() => backoff.assertReady('IMAP', 'personal')).not.toThrow();
+  });
+});
+
+describe('docs/configuration.md reconnect backoff', () => {
+  it('should state the schedule the backoff uses', async () => {
+    const doc = await readFile(join(root, 'docs/configuration.md'), 'utf8');
+    expect(doc.replace(/\s+/g, ' ')).toContain(
+      `${INITIAL_BACKOFF_MS / 1000} s after the first failure, doubling to ${MAX_BACKOFF_MS / 1000} s`,
+    );
   });
 });

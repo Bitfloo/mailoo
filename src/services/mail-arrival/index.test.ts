@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -16,7 +16,7 @@ import {
 } from '../../test-support/mail-arrival-harness.js';
 import type { AccountConfig } from '../../types/index.js';
 import type ImapService from '../imap.service.js';
-import { MailArrival } from './index.js';
+import { MailArrival, SEEN_LIMIT } from './index.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -330,4 +330,11 @@ if (hits.length > 0) {
     },
     SDK_LOAD_PROBE_TIMEOUT_MS,
   );
+});
+
+describe('README System One section', () => {
+  it('should state how many classified messages are remembered', async () => {
+    const readme = await readFile(path.join(rootFromHere(), '../../../README.md'), 'utf8');
+    expect(readme).toContain(`remembers the last ${SEEN_LIMIT} messages it classified`);
+  });
 });

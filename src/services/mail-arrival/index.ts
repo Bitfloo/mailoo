@@ -108,7 +108,7 @@ async function classify(
 }
 
 /** Caps memory for a long-running watcher; a repeat notice of an older message is classified again. */
-const SEEN_LIMIT = 5_000;
+export const SEEN_LIMIT = 5_000;
 
 function seenKey(email: ArrivalEmail): string {
   if (email.meta.messageId) return `mid:${email.meta.messageId}`;

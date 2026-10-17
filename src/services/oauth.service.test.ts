@@ -1,5 +1,11 @@
+import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import type { OAuth2Config } from '../types/index.js';
-import OAuthService from './oauth.service.js';
+import OAuthService, { TOKEN_REQUEST_TIMEOUT_MS } from './oauth.service.js';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
 /** Token endpoint stand-in: answers each POST with the next scripted response. */
 function fakeTokenEndpoint(...responses: (() => Response)[]) {
@@ -186,5 +192,15 @@ describe('OAuthService.exchangeCode', () => {
     await OAuthService.exchangeCode(googleConfig(), 'auth-code', 'http://localhost:3000/cb');
     expect(timeout.mock.calls).toEqual([[15_000]]);
     expect(calls[0].init.signal).toBe(timeout.mock.results[0].value);
+  });
+});
+
+describe('README OAuth2 section', () => {
+  it('should state the token request timeout the service applies', async () => {
+    const readme = await readFile(join(root, 'README.md'), 'utf8');
+    const seconds = TOKEN_REQUEST_TIMEOUT_MS / 1000;
+    expect(readme).toContain(
+      `give up after ${seconds} seconds, so a provider that stops answering fails the connect with \`OAuth2 token refresh timed out after ${seconds}s\``,
+    );
   });
 });

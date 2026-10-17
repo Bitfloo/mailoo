@@ -38,7 +38,7 @@ const PROVIDER_ENDPOINTS: Record<string, ProviderEndpoints> = {
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 
 /** A token endpoint that stops answering would otherwise stall every IMAP or SMTP connect behind it. */
-const TOKEN_REQUEST_TIMEOUT_MS = 15_000;
+export const TOKEN_REQUEST_TIMEOUT_MS = 15_000;
 
 /** The timeout also covers the body: an endpoint can send its headers and then stall. */
 async function postTokenRequest<T>(
