@@ -20,9 +20,8 @@ vi.mock('node:child_process', () => ({
   }),
 }));
 
-import { dateSetBy, dialogLinesOf } from '../test-support/applescript.js';
+import { dateSetBy, dialogLinesOf, literalAfter } from '../test-support/applescript.js';
 import LocalCalendarService, { LIST_EVENTS_TIMEOUT_MS } from './local-calendar.service.js';
-import { dateToAppleScriptLines } from './osascript.js';
 
 /** Runs `fn` with the service believing it is on macOS, where osascript is used. */
 async function onDarwin<T>(fn: () => Promise<T>): Promise<T> {
@@ -61,6 +60,19 @@ describe('osascript results', () => {
     );
     await expect(onDarwin(async () => new LocalCalendarService().listEvents())).rejects.toThrow(
       'osascript failed: execution error: Calendar got an error: Connection is invalid. (-609)',
+    );
+  });
+
+  it('should reject listCalendars when osascript fails instead of reporting no calendars', async () => {
+    osascriptImpl.mockRejectedValueOnce(
+      Object.assign(new Error('Command failed: osascript'), {
+        killed: false,
+        code: 1,
+        stderr: 'execution error: Not authorized to send Apple events to Calendar. (-1743)\n',
+      }),
+    );
+    await expect(onDarwin(async () => new LocalCalendarService().listCalendars())).rejects.toThrow(
+      'osascript failed: execution error: Not authorized to send Apple events',
     );
   });
 
@@ -136,30 +148,38 @@ describe('addEvent duplicate check', () => {
   });
 
   it('should give the duplicate check the same 90 s budget as list_events', async () => {
-    // Both run a whose-query over every calendar; a timeout now blocks the add.
+    // A timed-out check refuses the add.
     await onDarwin(async () =>
       new LocalCalendarService().addEvent(standup, 'Work', { confirm: false }),
     );
     expect(osascriptImpl.mock.calls[0]?.[2].timeout).toBe(LIST_EVENTS_TIMEOUT_MS);
   });
 
-  it('should match the ICS UID or the title within five minutes of the start', async () => {
+  it('should search every calendar for the ICS UID', async () => {
     await onDarwin(async () =>
       new LocalCalendarService().addEvent(standup, 'Work', { confirm: false }),
     );
-    const script = findScript();
-    expect({
-      uid: script.includes(`set searchUid to "${standup.icsUid}"`),
-      windowStart: dateToAppleScriptLines('windowStart', new Date(2026, 9, 5, 8, 55, 0)).every(
-        (line) => script.includes(line),
-      ),
-      windowEnd: dateToAppleScriptLines('windowEnd', new Date(2026, 9, 5, 9, 5, 0)).every((line) =>
-        script.includes(line),
-      ),
-      clause: script.includes(
-        'whose uid is searchUid or (summary is searchTitle and start date ≥ windowStart and start date ≤ windowEnd)',
-      ),
-    }).toEqual({ uid: true, windowStart: true, windowEnd: true, clause: true });
+    expect(literalAfter(findScript(), 'set searchUid to ')).toBe(standup.icsUid);
+  });
+
+  it('should search for the title from five minutes before to five minutes after the start', async () => {
+    await onDarwin(async () =>
+      new LocalCalendarService().addEvent(standup, 'Work', { confirm: false }),
+    );
+    const now = new Date(2026, 9, 1, 12, 0, 0);
+    expect([
+      dateSetBy(findScript(), 'windowStart', now),
+      dateSetBy(findScript(), 'windowEnd', now),
+    ]).toEqual([new Date(2026, 9, 5, 8, 55, 0), new Date(2026, 9, 5, 9, 5, 0)]);
+  });
+
+  it('should match the ICS UID or the title within the start window', async () => {
+    await onDarwin(async () =>
+      new LocalCalendarService().addEvent(standup, 'Work', { confirm: false }),
+    );
+    expect(findScript()).toContain(
+      'whose uid is searchUid or (summary is searchTitle and start date ≥ windowStart and start date ≤ windowEnd)',
+    );
   });
 
   it('should match title and start window alone when the event has no ICS UID', async () => {
@@ -168,16 +188,32 @@ describe('addEvent duplicate check', () => {
         confirm: false,
       }),
     );
-    const script = findScript();
-    expect({
-      uid: script.includes('uid is'),
-      clause: script.includes(
-        'whose summary is searchTitle and start date ≥ windowStart and start date ≤ windowEnd',
-      ),
-    }).toEqual({ uid: false, clause: true });
+    expect(findScript()).toContain(
+      'whose summary is searchTitle and start date ≥ windowStart and start date ≤ windowEnd)',
+    );
   });
 
-  it('should report the existing event and skip the add when one matches', async () => {
+  it('should keep a quoted title and ICS UID intact in the duplicate-check script', async () => {
+    const invite = { ...standup, title: 'Q3 "board" \\ sync', icsUid: 'uid-"7"\\@example.com' };
+    await onDarwin(async () =>
+      new LocalCalendarService().addEvent(invite, 'Work', { confirm: false }),
+    );
+    expect({
+      title: literalAfter(findScript(), 'set searchTitle to '),
+      uid: literalAfter(findScript(), 'set searchUid to '),
+    }).toEqual({ title: invite.title, uid: invite.icsUid });
+  });
+
+  it('should build the found event id and calendar name through jsonString', async () => {
+    await onDarwin(async () =>
+      new LocalCalendarService().addEvent(standup, 'Work', { confirm: false }),
+    );
+    expect(
+      ['eventId', 'calName'].filter((field) => !findScript().includes(`my jsonString(${field})`)),
+    ).toEqual([]);
+  });
+
+  it('should report the matching event as a duplicate', async () => {
     osascriptImpl.mockResolvedValueOnce({
       stdout: '{"found":true,"eventId":"E1","calendarName":"Work"}',
       stderr: '',
@@ -185,15 +221,65 @@ describe('addEvent duplicate check', () => {
     const result = await onDarwin(async () =>
       new LocalCalendarService().addEvent(standup, 'Work', { confirm: false }),
     );
-    expect({
-      status: result.status,
-      duplicate: result.duplicate,
-      osascriptRuns: osascriptImpl.mock.calls.length,
-    }).toEqual({
+    expect({ status: result.status, duplicate: result.duplicate }).toEqual({
       status: 'duplicate',
       duplicate: { eventId: 'E1', calendarName: 'Work' },
-      osascriptRuns: 1,
     });
+  });
+
+  it('should not run the add script when an event matches', async () => {
+    osascriptImpl.mockResolvedValueOnce({
+      stdout: '{"found":true,"eventId":"E1","calendarName":"Work"}',
+      stderr: '',
+    });
+    await onDarwin(async () =>
+      new LocalCalendarService().addEvent(standup, 'Work', { confirm: false }),
+    );
+    const scripts = osascriptImpl.mock.calls.map((call) => call[1][1] ?? '');
+    expect(scripts.filter((script) => script.includes('make new event'))).toEqual([]);
+  });
+});
+
+describe('addEvent script', () => {
+  const offsite = {
+    title: 'Q3 "board" \\ offsite',
+    start: new Date(2026, 9, 5, 9, 0, 0),
+    end: new Date(2026, 9, 5, 17, 0, 0),
+    location: 'Hall "B", C:\\maps',
+    notes: 'Agenda:\n"budget" \\ hiring',
+  };
+
+  async function addScript(): Promise<string> {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"added"}', stderr: '' });
+    await onDarwin(async () =>
+      new LocalCalendarService().addEvent(offsite, 'Work', {
+        confirm: false,
+        skipDuplicateCheck: true,
+      }),
+    );
+    return osascriptImpl.mock.calls[0]?.[1][1] ?? '';
+  }
+
+  it('should keep a quoted title, location and notes intact in the add script', async () => {
+    const script = await addScript();
+    expect({
+      title: literalAfter(script, 'set eventTitle to '),
+      location: literalAfter(script, '{location:'),
+      notes: literalAfter(script, '{description:'),
+    }).toEqual({ title: offsite.title, location: offsite.location, notes: offsite.notes });
+  });
+
+  it('should build the added event id and calendar name through jsonString', async () => {
+    const script = await addScript();
+    expect(
+      ['eventId', 'finalCalName'].filter((field) => !script.includes(`my jsonString(${field})`)),
+    ).toEqual([]);
+  });
+
+  it('should give the add script a 90 s budget', async () => {
+    // The confirm dialog alone may wait 60 s; a shorter budget would cut off a confirmed add.
+    await addScript();
+    expect(osascriptImpl.mock.calls[0]?.[2].timeout).toBe(90_000);
   });
 });
 

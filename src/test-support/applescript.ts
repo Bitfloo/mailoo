@@ -5,8 +5,18 @@
 
 const LITERAL_ESCAPES: Record<string, string> = { n: '\n', r: '\r', t: '\t' };
 
-function decodeLiteral(body: string): string {
+/** The text an AppleScript string literal holds, given the part between its quotes. */
+export function decodeLiteral(body: string): string {
   return body.replace(/\\(.)/g, (_match, ch: string) => LITERAL_ESCAPES[ch] ?? ch);
+}
+
+/** The text of the string literal right after the first `prefix` in the script. */
+export function literalAfter(script: string, prefix: string): string {
+  const at = script.indexOf(prefix);
+  if (at < 0) throw new Error(`not in script: ${prefix}`);
+  const match = /^"((?:[^"\\]|\\.)*)"/.exec(script.slice(at + prefix.length));
+  if (!match) throw new Error(`no string literal after: ${prefix}`);
+  return decodeLiteral(match[1] ?? '');
 }
 
 /** A string literal, `return`, `dialogText`, or `(name as text)`, then `&` or the end. */

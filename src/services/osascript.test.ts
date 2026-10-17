@@ -1,6 +1,8 @@
 import type { execFile as ExecFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
+import { decodeLiteral } from '../test-support/applescript.js';
+
 const { osascriptImpl } = vi.hoisted(() => ({
   osascriptImpl: vi.fn(
     async (): Promise<{ stdout: string; stderr: string }> => ({
@@ -158,13 +160,45 @@ describe('parseOsascriptJson', () => {
   });
 });
 
-describe.runIf(process.platform === 'darwin')('JSON_HANDLERS under real osascript', () => {
-  it('should round-trip quotes, backslashes, a tab and a newline through jsonString', async () => {
-    // Pure AppleScript text handling: no application is addressed, so no permission prompt.
-    const { execFile } = await vi.importActual<{ execFile: typeof ExecFile }>('node:child_process');
-    const tricky = 'Say "hi" \\ C:\\path\tTab\nNext line';
-    const script = `${JSON_HANDLERS}\nreturn "[" & my jsonString("${escapeAS(tricky)}") & "," & my jsonString(missing value) & "]"`;
-    const { stdout } = await promisify(execFile)('osascript', ['-e', script], { timeout: 10_000 });
-    expect(parseOsascriptJson(stdout.trim(), 'round trip')).toEqual([tricky, null]);
+describe('JSON_HANDLERS', () => {
+  /** Applies jsonString's replaceText calls in script order, as AppleScript runs them. */
+  function jsonStringModel(text: string): string {
+    const calls = JSON_HANDLERS.matchAll(
+      /set t to my replaceText\(t, "((?:[^"\\]|\\.)*)", "((?:[^"\\]|\\.)*)"\)/g,
+    );
+    const escaped = Array.from(calls).reduce(
+      (t, [, search = '', replacement = '']) =>
+        t.split(decodeLiteral(search)).join(decodeLiteral(replacement)),
+      text,
+    );
+    return `"${escaped}"`;
+  }
+
+  it('should escape backslash before quote so jsonString output parses back to the text', () => {
+    const tricky = 'Say "hi" \\ C:\\path\\"x"';
+    expect(JSON.parse(jsonStringModel(tricky))).toBe(tricky);
+  });
+
+  it('should return JSON null for a missing value', () => {
+    expect(JSON_HANDLERS).toContain('if v is missing value then return "null"');
   });
 });
+
+// Opt-in only: the unit lane never starts osascript, so macOS and Linux run the same suite.
+describe.runIf(process.platform === 'darwin' && process.env.MAILOO_REAL_OSASCRIPT === '1')(
+  'JSON_HANDLERS under real osascript (MAILOO_REAL_OSASCRIPT=1)',
+  () => {
+    it('should round-trip quotes, backslashes, a tab and a newline through jsonString', async () => {
+      // Pure AppleScript text handling: no application is addressed, so no permission prompt.
+      const { execFile } = await vi.importActual<{ execFile: typeof ExecFile }>(
+        'node:child_process',
+      );
+      const tricky = 'Say "hi" \\ C:\\path\tTab\nNext line';
+      const script = `${JSON_HANDLERS}\nreturn "[" & my jsonString("${escapeAS(tricky)}") & "," & my jsonString(missing value) & "]"`;
+      const { stdout } = await promisify(execFile)('osascript', ['-e', script], {
+        timeout: 10_000,
+      });
+      expect(parseOsascriptJson(stdout.trim(), 'round trip')).toEqual([tricky, null]);
+    });
+  },
+);

@@ -14,7 +14,7 @@ vi.mock('node:child_process', () => ({
   }),
 }));
 
-import { dateSetBy, dialogLinesOf } from '../test-support/applescript.js';
+import { dateSetBy, dialogLinesOf, literalAfter } from '../test-support/applescript.js';
 import RemindersService from './reminders.service.js';
 
 /** Builds the service while it believes it is on macOS, where osascript is used. */
@@ -142,5 +142,34 @@ describe('addReminder due date', () => {
     expect(dateSetBy(script, 'dueD', new Date(2026, 0, 31, 12, 0, 0))).toEqual(
       new Date(2026, 1, 28, 9, 30, 0),
     );
+  });
+});
+
+describe('addReminder script', () => {
+  const invoice = {
+    title: 'Pay "Acme" \\ invoice',
+    notes: 'Ref C:\\billing\n"Q4"',
+    listName: 'Home "Q4"',
+  };
+
+  async function addScript(): Promise<string> {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"added"}', stderr: '' });
+    await onDarwin(async (svc) => svc.addReminder(invoice, { confirm: false }));
+    return osascriptImpl.mock.calls[0]?.[1][1] ?? '';
+  }
+
+  it('should keep a quoted title, notes and list name intact in the add script', async () => {
+    const script = await addScript();
+    expect({
+      title: literalAfter(script, '{name:'),
+      notes: literalAfter(script, 'body:'),
+      list: literalAfter(script, 'set targetList to list '),
+    }).toEqual({ title: invoice.title, notes: invoice.notes, list: invoice.listName });
+  });
+
+  it('should give the add reminder script a 90 s budget', async () => {
+    // The confirm dialog alone may wait 60 s; a shorter budget would cut off a confirmed add.
+    await addScript();
+    expect(osascriptImpl.mock.calls[0]?.[2].timeout).toBe(90_000);
   });
 });
