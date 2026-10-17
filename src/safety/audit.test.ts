@@ -120,6 +120,37 @@ describe('Audit Logger', () => {
     expect(entry.params).toEqual({ nested: { password: '[REDACTED]', safe: 'ok' } });
   });
 
+  // schedule_email is the one caller that logs its whole input. Its arrays are
+  // recipient strings, copied as given; no caller passes objects inside an array.
+  it('should keep the recipient arrays and redact the body when schedule_email logs its params', async () => {
+    await auditLogger.log(
+      'schedule_email',
+      'personal',
+      {
+        account: 'personal',
+        to: ['a@example.com', 'b@example.com'],
+        subject: 'Quarterly report',
+        body: 'Numbers attached.',
+        send_at: '2026-11-02T09:00:00Z',
+        cc: ['c@example.com'],
+        bcc: [],
+        html: false,
+      },
+      'ok',
+    );
+    const [entry] = await readEntries();
+    expect(entry.params).toEqual({
+      account: 'personal',
+      to: ['a@example.com', 'b@example.com'],
+      subject: 'Quarterly report',
+      body: '[REDACTED]',
+      send_at: '2026-11-02T09:00:00Z',
+      cc: ['c@example.com'],
+      bcc: [],
+      html: false,
+    });
+  });
+
   it('should stamp the entry with the current time in ISO 8601 when logging', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-01-02T03:04:05.000Z'));
