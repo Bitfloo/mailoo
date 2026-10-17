@@ -102,8 +102,8 @@ export default class SmtpService {
   /** The same token gives the same Message-ID, so a recipient can drop a resent copy. */
   messageIdFor(accountName: string, token: string): string {
     const { email } = this.connections.getAccount(accountName);
-    const at = email.lastIndexOf('@');
-    return `<${token}@${at === -1 ? 'localhost' : email.slice(at + 1)}>`;
+    // The config schema admits only email addresses, env overlay included, so an '@' is always there.
+    return `<${token}@${email.slice(email.lastIndexOf('@') + 1)}>`;
   }
 
   // -------------------------------------------------------------------------
