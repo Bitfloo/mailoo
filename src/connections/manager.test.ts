@@ -90,18 +90,21 @@ describe('buildImapFlowOptions', () => {
     [true, false, 'absent'],
     [false, true, true],
     [false, false, 'absent'],
-  ] as const)('sets secure and doSTARTTLS for tls=%s starttls=%s (%s)', (tls, starttls, doStarttls) => {
-    const opts = buildImapFlowOptions({
-      ...account,
-      imap: { ...account.imap, tls, starttls },
-    }) as { secure?: boolean; doSTARTTLS?: boolean };
-    expect(opts.secure).toBe(tls);
-    if (doStarttls === true) {
-      expect(opts.doSTARTTLS).toBe(true);
-    } else {
-      expect(opts).not.toHaveProperty('doSTARTTLS');
-    }
-  });
+  ] as const)(
+    'sets secure and doSTARTTLS for tls=%s starttls=%s (%s)',
+    (tls, starttls, doStarttls) => {
+      const opts = buildImapFlowOptions({
+        ...account,
+        imap: { ...account.imap, tls, starttls },
+      }) as { secure?: boolean; doSTARTTLS?: boolean };
+      expect(opts.secure).toBe(tls);
+      if (doStarttls === true) {
+        expect(opts.doSTARTTLS).toBe(true);
+      } else {
+        expect(opts).not.toHaveProperty('doSTARTTLS');
+      }
+    },
+  );
 });
 
 describe('bindImapLifecycle', () => {

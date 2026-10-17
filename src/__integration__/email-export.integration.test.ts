@@ -87,6 +87,7 @@ describe('export_email against GreenMail', () => {
     const source = receiptSource(tag);
     const client = await services.connections.getImapClient(TEST_ACCOUNT_NAME);
     const appended = await client.append(mailbox, source, flags, INTERNAL_DATE);
+    // biome-ignore lint/complexity/useOptionalChain: optional chain breaks TS type narrowing for union with false
     if (!appended || !appended.uid) throw new Error('APPEND returned no UID (UIDPLUS)');
     return { uid: String(appended.uid), source, tag };
   }

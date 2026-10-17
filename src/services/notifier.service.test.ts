@@ -392,28 +392,28 @@ describe('NotifierService runtime alert updates', () => {
 });
 
 describe('desktop notification commands', () => {
-  it.each([
-    'darwin',
-    'win32',
-  ] as const)('keeps notification text out of the %s command script', (platform) => {
-    const commands = desktopNotificationCommands(platform, 'Title ZZ', 'Body ZZ', true);
-    commands.forEach((command) => {
-      const script = command.args
-        .filter((arg) => arg.includes('display notification') || arg.includes('ShowBalloonTip'))
-        .join('\n');
-      expect(script).not.toContain('Title ZZ');
-      expect(script).not.toContain('Body ZZ');
-      const carried = [...command.args, ...Object.values(command.env ?? {})].join('\n');
-      if (command.bin === 'paplay') {
-        expect(command.args).toEqual([
-          '/usr/share/sounds/freedesktop/stereo/message-new-instant.oga',
-        ]);
-        return;
-      }
-      expect(carried).toContain('Title ZZ');
-      expect(carried).toContain('Body ZZ');
-    });
-  });
+  it.each(['darwin', 'win32'] as const)(
+    'keeps notification text out of the %s command script',
+    (platform) => {
+      const commands = desktopNotificationCommands(platform, 'Title ZZ', 'Body ZZ', true);
+      commands.forEach((command) => {
+        const script = command.args
+          .filter((arg) => arg.includes('display notification') || arg.includes('ShowBalloonTip'))
+          .join('\n');
+        expect(script).not.toContain('Title ZZ');
+        expect(script).not.toContain('Body ZZ');
+        const carried = [...command.args, ...Object.values(command.env ?? {})].join('\n');
+        if (command.bin === 'paplay') {
+          expect(command.args).toEqual([
+            '/usr/share/sounds/freedesktop/stereo/message-new-instant.oga',
+          ]);
+          return;
+        }
+        expect(carried).toContain('Title ZZ');
+        expect(carried).toContain('Body ZZ');
+      });
+    },
+  );
 
   it('passes linux notification text as arguments after the option terminator', () => {
     // This quote is what a linux-only escape would rewrite; argv must keep it.
@@ -468,54 +468,53 @@ describe('desktop notification commands', () => {
     ]);
   });
 
-  it.each([
-    'darwin',
-    'linux',
-    'win32',
-  ] as const)('removes every NUL and cuts %s notification text to 200 characters', (platform) => {
-    // Both NULs are removed before the cut, so 200 letters remain and the next letter is gone.
-    const text = `\0${'a'.repeat(99)}\0${'a'.repeat(101)}Z`;
-    const bounded = 'a'.repeat(200);
-    const [command] = desktopNotificationCommands(platform, text, text, false);
-    if (platform === 'linux') {
-      expect(command.args).toEqual(['-u', 'normal', '--', bounded, bounded]);
-    } else if (platform === 'darwin') {
-      expect(command).toEqual({
-        bin: 'osascript',
-        args: [
-          '-e',
-          'on run argv',
-          '-e',
-          'display notification (item 2 of argv) with title (item 1 of argv)',
-          '-e',
-          'end run',
-          '--',
-          bounded,
-          bounded,
-        ],
-      });
-    } else {
-      expect(command).toEqual({
-        bin: 'powershell',
-        args: [
-          '-NoProfile',
-          '-NonInteractive',
-          '-Command',
-          [
-            "[void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms')",
-            '$n = New-Object System.Windows.Forms.NotifyIcon',
-            '$n.Icon = [System.Drawing.SystemIcons]::Information',
-            '$n.Visible = $true',
-            "$n.ShowBalloonTip(5000, $env:MAILOO_NOTIFY_TITLE, $env:MAILOO_NOTIFY_BODY, 'Info')",
-          ].join('; '),
-        ],
-        env: {
-          MAILOO_NOTIFY_TITLE: bounded,
-          MAILOO_NOTIFY_BODY: bounded,
-        },
-      });
-    }
-  });
+  it.each(['darwin', 'linux', 'win32'] as const)(
+    'removes every NUL and cuts %s notification text to 200 characters',
+    (platform) => {
+      // Both NULs are removed before the cut, so 200 letters remain and the next letter is gone.
+      const text = `\0${'a'.repeat(99)}\0${'a'.repeat(101)}Z`;
+      const bounded = 'a'.repeat(200);
+      const [command] = desktopNotificationCommands(platform, text, text, false);
+      if (platform === 'linux') {
+        expect(command.args).toEqual(['-u', 'normal', '--', bounded, bounded]);
+      } else if (platform === 'darwin') {
+        expect(command).toEqual({
+          bin: 'osascript',
+          args: [
+            '-e',
+            'on run argv',
+            '-e',
+            'display notification (item 2 of argv) with title (item 1 of argv)',
+            '-e',
+            'end run',
+            '--',
+            bounded,
+            bounded,
+          ],
+        });
+      } else {
+        expect(command).toEqual({
+          bin: 'powershell',
+          args: [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            [
+              "[void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms')",
+              '$n = New-Object System.Windows.Forms.NotifyIcon',
+              '$n.Icon = [System.Drawing.SystemIcons]::Information',
+              '$n.Visible = $true',
+              "$n.ShowBalloonTip(5000, $env:MAILOO_NOTIFY_TITLE, $env:MAILOO_NOTIFY_BODY, 'Info')",
+            ].join('; '),
+          ],
+          env: {
+            MAILOO_NOTIFY_TITLE: bounded,
+            MAILOO_NOTIFY_BODY: bounded,
+          },
+        });
+      }
+    },
+  );
 
   it('does not put over-cap macOS text in the environment when sound is on', () => {
     const text = `\0${'a'.repeat(99)}\0${'a'.repeat(101)}Z`;

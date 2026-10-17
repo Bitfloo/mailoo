@@ -185,14 +185,13 @@ describe('release bump', () => {
       await expect(stampReadme(others, '1.4.2')).resolves.toBe(others);
     });
 
-    it.each([
-      '0.10.0',
-      '0.2.10',
-      '10.0.0',
-    ])('should take release %s, whatever its digit counts', async (version) => {
-      const tags = readmeImageTags(await stampReadme(readme, version));
-      expect(tags).toEqual(readmeImageTags(readme).map(() => minorLine(version)));
-    });
+    it.each(['0.10.0', '0.2.10', '10.0.0'])(
+      'should take release %s, whatever its digit counts',
+      async (version) => {
+        const tags = readmeImageTags(await stampReadme(readme, version));
+        expect(tags).toEqual(readmeImageTags(readme).map(() => minorLine(version)));
+      },
+    );
 
     it.each([
       ['0.10', '0.11.0'],
@@ -203,13 +202,13 @@ describe('release bump', () => {
       await expect(stampReadme(line(from), version)).resolves.toBe(line(minorLine(version)));
     });
 
-    it.each([
-      '0.2.1',
-      '0.10.1',
-    ])('should keep the full-version pin %s on its release', async (version) => {
-      const pinned = `docker pull ghcr.io/bitfloo/mailoo:${version}\n`;
-      await expect(stampReadme(pinned, '1.4.2')).resolves.toBe(pinned);
-    });
+    it.each(['0.2.1', '0.10.1'])(
+      'should keep the full-version pin %s on its release',
+      async (version) => {
+        const pinned = `docker pull ghcr.io/bitfloo/mailoo:${version}\n`;
+        await expect(stampReadme(pinned, '1.4.2')).resolves.toBe(pinned);
+      },
+    );
 
     it.each([
       'v1.4.2',

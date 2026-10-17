@@ -618,10 +618,13 @@ describe('ImapService', () => {
       ['fetchDraft', async (svc) => svc.fetchDraft('test', 0)],
       ['fetchDraft fraction', async (svc) => svc.fetchDraft('test', 1.5)],
       ['deleteDraft', async (svc) => svc.deleteDraft('test', -1, 'Drafts')],
-    ])('should reject an id that is not one canonical UID from %s before contacting IMAP', async (_name, call) => {
-      await expect(call(service)).rejects.toThrow(/positive integer UID/);
-      expect(connections.getImapClient).not.toHaveBeenCalled();
-    });
+    ])(
+      'should reject an id that is not one canonical UID from %s before contacting IMAP',
+      async (_name, call) => {
+        await expect(call(service)).rejects.toThrow(/positive integer UID/);
+        expect(connections.getImapClient).not.toHaveBeenCalled();
+      },
+    );
 
     it.each<[string, Call]>([
       ['getEmail', async (svc) => svc.getEmail('test', '8', 'INBOX\r\nSent')],
@@ -647,10 +650,13 @@ describe('ImapService', () => {
       ['getCalendarParts', async (svc) => svc.getCalendarParts('test', 'INBOX\r\nSent', '8')],
       ['deleteDraft', async (svc) => svc.deleteDraft('test', 8, 'Drafts\nOther')],
       ['fetchDraft', async (svc) => svc.fetchDraft('test', 8, 'Drafts\r\nOther')],
-    ])('should reject a mailbox name with a control character from %s before contacting IMAP', async (_name, call) => {
-      await expect(call(service)).rejects.toThrow(/control characters/);
-      expect(connections.getImapClient).not.toHaveBeenCalled();
-    });
+    ])(
+      'should reject a mailbox name with a control character from %s before contacting IMAP',
+      async (_name, call) => {
+        await expect(call(service)).rejects.toThrow(/control characters/);
+        expect(connections.getImapClient).not.toHaveBeenCalled();
+      },
+    );
 
     it('should reject a label with an empty or relative path segment before contacting IMAP', async () => {
       await expect(service.deleteLabel('test', '../Secret')).rejects.toThrow(/relative path/);

@@ -37,6 +37,7 @@ function yamlScalar(section: string, key: string): string {
 }
 
 /** Shell fragment in docker-rebuild.yml for one GoReleaser tag template. sha-* is release-only. */
+// biome-ignore-start lint/suspicious/noTemplateCurlyInString: values are shell fragments from docker-rebuild.yml, not JS templates
 const RELEASE_TAG_IN_REBUILD: Record<string, string> = {
   '{{ .Version }}': '"${IMAGE}:${V}"',
   '{{ .Version }}-bookworm': '"${IMAGE}:${V}-bookworm"',
@@ -51,6 +52,7 @@ const RELEASE_TAG_IN_REBUILD: Record<string, string> = {
   '{{ if not .Prerelease }}latest{{ end }}': '"${IMAGE}:latest"',
   '{{ if not .Prerelease }}alpine{{ end }}': '"${IMAGE}:alpine"',
 };
+// biome-ignore-end lint/suspicious/noTemplateCurlyInString: end of shell fragments
 
 describe('docker rebuild images', () => {
   it('uses the release tag names, Dockerfiles, and architectures', () => {

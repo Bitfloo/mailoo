@@ -107,40 +107,41 @@ describe('export_email savePath refusals', () => {
     ],
   ];
 
-  it.each(
-    cases,
-  )('should refuse %s with the same reason download_attachment gives', async (_label, setup) => {
-    const run = exportTool({ source: EIGHT_BIT_SOURCE });
-    let download: ((args: ExportArgs & { filename: string }) => Promise<ToolResult>) | undefined;
-    registerAttachmentTools(
-      {
-        registerTool: (_name: string, _cfg: unknown, fn: typeof download) => {
-          download = fn;
-        },
-      } as never,
-      {
-        downloadAttachment: async () => ({
-          filename: 'receipt.eml',
-          mimeType: 'message/rfc822',
-          size: EIGHT_BIT_SOURCE.length,
-          contentBase64: EIGHT_BIT_SOURCE.toString('base64'),
-        }),
-      } as never,
-      false,
-    );
-    if (!download) throw new Error('download_attachment was not registered');
-    const downloadTool = download;
+  it.each(cases)(
+    'should refuse %s with the same reason download_attachment gives',
+    async (_label, setup) => {
+      const run = exportTool({ source: EIGHT_BIT_SOURCE });
+      let download: ((args: ExportArgs & { filename: string }) => Promise<ToolResult>) | undefined;
+      registerAttachmentTools(
+        {
+          registerTool: (_name: string, _cfg: unknown, fn: typeof download) => {
+            download = fn;
+          },
+        } as never,
+        {
+          downloadAttachment: async () => ({
+            filename: 'receipt.eml',
+            mimeType: 'message/rfc822',
+            size: EIGHT_BIT_SOURCE.length,
+            contentBase64: EIGHT_BIT_SOURCE.toString('base64'),
+          }),
+        } as never,
+        false,
+      );
+      if (!download) throw new Error('download_attachment was not registered');
+      const downloadTool = download;
 
-    await withPinnedRoots(async (cwd) => {
-      const { savePath, untouched } = await setup(cwd);
-      const args = { account: ACCOUNT, id: UID, mailbox: 'INBOX', savePath };
+      await withPinnedRoots(async (cwd) => {
+        const { savePath, untouched } = await setup(cwd);
+        const args = { account: ACCOUNT, id: UID, mailbox: 'INBOX', savePath };
 
-      const exported = await run(args);
-      const downloaded = await downloadTool({ ...args, filename: 'receipt.eml' });
+        const exported = await run(args);
+        const downloaded = await downloadTool({ ...args, filename: 'receipt.eml' });
 
-      expect(exported.isError).toBe(true);
-      expect(reason(exported)).toBe(reason(downloaded));
-      await untouched();
-    });
-  });
+        expect(exported.isError).toBe(true);
+        expect(reason(exported)).toBe(reason(downloaded));
+        await untouched();
+      });
+    },
+  );
 });
