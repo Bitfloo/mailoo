@@ -3,7 +3,26 @@ import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
 
-export const releaseYml = readFileSync(join(repoRoot, '.github/workflows/release.yml'), 'utf8');
+export const workflowDir = join(repoRoot, '.github/workflows');
+
+export const releaseYml = readFileSync(join(workflowDir, 'release.yml'), 'utf8');
+
+export function onBlock(yaml: string): string {
+  const match = yaml.match(/^on:\n([\s\S]*?)\n(?:concurrency|permissions|jobs):/m);
+  if (!match) {
+    throw new Error('missing on: block');
+  }
+  return match[1];
+}
+
+/** Job keys are indented, so a column-0 match stays on the workflow permissions. */
+export function topLevelPermissions(yaml: string): string {
+  const match = yaml.match(/^permissions:[^\n]*(?:\n {2}[^\n]*)*/m);
+  if (!match) {
+    throw new Error('missing top-level permissions');
+  }
+  return match[0];
+}
 
 /** Comment lines are stripped so a workflow comment mentioning a forbidden string does not trip the content assertions. */
 export function releaseSteps(yaml: string): string {
