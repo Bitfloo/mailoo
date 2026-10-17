@@ -110,6 +110,18 @@ describe('RemindersService osascript results', () => {
   });
 });
 
+describe('listReminders script', () => {
+  it('should keep a quoted title and list filter intact in the list_reminders script', async () => {
+    const opts = { title: 'Pay "Acme" \\ invoice', listName: 'Home "Q4"' };
+    await onDarwin(async (svc) => svc.listReminders(opts));
+    const script = osascriptImpl.mock.calls[0]?.[1][1] ?? '';
+    expect({
+      title: literalAfter(script, 'set titleFilter to '),
+      list: literalAfter(script, 'set listFilter to '),
+    }).toEqual({ title: opts.title, list: opts.listName });
+  });
+});
+
 describe('addReminder confirm dialog', () => {
   it('should show a quoted title, notes and list name in the dialog as written', async () => {
     osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"cancelled"}', stderr: '' });

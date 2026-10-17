@@ -16,6 +16,7 @@ vi.mock('node:child_process', () => ({
 
 import { dateSetBy, dialogLinesOf, literalAfter } from '../test-support/applescript.js';
 import onDarwin from '../test-support/platform.js';
+import type { LocalCalendarEventInput } from './local-calendar.service.js';
 import LocalCalendarService from './local-calendar.service.js';
 
 beforeEach(() => {
@@ -32,10 +33,13 @@ describe('addEvent script', () => {
     notes: 'Agenda:\n"budget" \\ hiring',
   };
 
-  async function addScript(): Promise<string> {
+  async function addScript(
+    event: LocalCalendarEventInput = offsite,
+    calendarName = 'Work',
+  ): Promise<string> {
     osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"added"}', stderr: '' });
     await onDarwin(async () =>
-      new LocalCalendarService().addEvent(offsite, 'Work', {
+      new LocalCalendarService().addEvent(event, calendarName, {
         confirm: false,
         skipDuplicateCheck: true,
       }),
@@ -50,6 +54,16 @@ describe('addEvent script', () => {
       location: literalAfter(script, '{location:'),
       notes: literalAfter(script, '{description:'),
     }).toEqual({ title: offsite.title, location: offsite.location, notes: offsite.notes });
+  });
+
+  it('should keep a quoted calendar name and URL intact in the add script', async () => {
+    const calendar = 'Board "Q3" \\ shared';
+    const url = 'https://meet.example.com/j/8812?pwd=a"b\\c';
+    const script = await addScript({ ...offsite, url }, calendar);
+    expect({
+      calendar: literalAfter(script, 'first calendar whose name is '),
+      url: literalAfter(script, '{url:'),
+    }).toEqual({ calendar, url });
   });
 
   it('should build the added event id and calendar name through jsonString', async () => {

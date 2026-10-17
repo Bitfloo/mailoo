@@ -22,6 +22,7 @@ vi.mock('node:child_process', () => ({
 
 import { dateSetBy, literalAfter } from '../test-support/applescript.js';
 import onDarwin from '../test-support/platform.js';
+import type { ListEventsOptions } from './local-calendar.service.js';
 import LocalCalendarService, { LIST_EVENTS_TIMEOUT_MS } from './local-calendar.service.js';
 
 beforeEach(() => {
@@ -95,6 +96,22 @@ describe('osascript results', () => {
         (field) => !script.includes(`my jsonString(${field})`),
       ),
     ).toEqual([]);
+  });
+});
+
+describe('listEvents script', () => {
+  async function listScript(opts: ListEventsOptions): Promise<string> {
+    await onDarwin(async () => new LocalCalendarService().listEvents(opts));
+    return osascriptImpl.mock.calls[0]?.[1][1] ?? '';
+  }
+
+  it('should keep a quoted title and calendar filter intact in the list_events script', async () => {
+    const opts = { title: 'Q3 "board" \\', calendarName: 'Home "Q4" \\ team' };
+    const script = await listScript(opts);
+    expect({
+      title: literalAfter(script, 'set titleFilter to '),
+      calendar: literalAfter(script, 'set calFilter to '),
+    }).toEqual({ title: opts.title, calendar: opts.calendarName });
   });
 });
 
