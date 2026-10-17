@@ -2,8 +2,11 @@ import { lookup } from 'node:dns/promises';
 import http from 'node:http';
 import https from 'node:https';
 import type { AddressInfo } from 'node:net';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
+import { __resetForTesting, bindServer, markInitialized } from '../logging.js';
 import { resolveWebhookUrl } from '../safety/validation.js';
+import type { AlertPayload, UrgencyLevel } from './notifier.service.js';
 import NotifierService, { desktopNotificationCommands, postWebhook } from './notifier.service.js';
 
 const { execFileMock } = vi.hoisted(() => {
@@ -398,6 +401,105 @@ describe('NotifierService runtime alert updates', () => {
     expect(notifier.getConfig().webhookUrl).toBe('');
     expect(notifier.getConfig().allowPrivateWebhooks).toBe(false);
     notifier.stop();
+  });
+});
+
+describe('NotifierService alert log', () => {
+  const quiet = {
+    desktop: false,
+    sound: false,
+    urgencyThreshold: 'high' as const,
+    webhookUrl: '',
+    webhookEvents: ['urgent' as const, 'high' as const],
+  };
+
+  /** Same fields HooksService.notifyBatch builds from a fetched envelope. */
+  function payload(priority: UrgencyLevel): AlertPayload {
+    return {
+      account: 'personal',
+      sender: { name: 'Alice Example', address: 'alice@example.com' },
+      subject: 'Quarterly numbers for review',
+      uid: '4711',
+      messageId: '<q3-4711@example.com>',
+      folder: 'INBOX',
+      hasAttachments: false,
+      priority,
+      labels: ['Finance'],
+      ruleName: 'finance-team',
+    };
+  }
+
+  let sent: { level: string; data: unknown }[];
+
+  beforeEach(() => {
+    sent = [];
+    // The real logging bridge with a connected fake server: assert what the client receives.
+    bindServer({
+      isConnected: () => true,
+      sendLoggingMessage: async (msg: { level: string; data: unknown }) => {
+        sent.push(msg);
+      },
+    } as unknown as McpServer);
+    markInitialized();
+  });
+
+  afterEach(() => {
+    __resetForTesting();
+  });
+
+  async function alertAt(priority: UrgencyLevel): Promise<void> {
+    const notifier = new NotifierService(quiet);
+    await notifier.alert(payload(priority));
+    notifier.stop();
+  }
+
+  it.each(['urgent', 'high', 'normal'] as const)(
+    'should send no sender or subject above debug for a %s alert',
+    async (priority) => {
+      await alertAt(priority);
+
+      const visible = JSON.stringify(sent.filter((m) => m.level !== 'debug'));
+
+      expect(visible).not.toMatch(/Alice|alice@example\.com|Quarterly/);
+    },
+  );
+
+  it.each([
+    ['urgent', 'alert'],
+    ['high', 'warning'],
+    ['normal', 'info'],
+  ] as const)(
+    'should report a %s alert at %s with account, folder, uid, labels and rule',
+    async (priority, level) => {
+      await alertAt(priority);
+
+      expect(sent.find((m) => m.level === level)?.data).toBe(
+        `${priority === 'urgent' ? '🚨' : '📧'} [${priority.toUpperCase()}] ` +
+          'personal/INBOX uid 4711 [Finance] (rule: finance-team)',
+      );
+    },
+  );
+
+  it('should send the sender and subject of a normal alert at debug only', async () => {
+    await alertAt('normal');
+
+    expect(sent.filter((m) => m.level === 'debug').map((m) => m.data)).toEqual([
+      '📧 [NORMAL] personal/INBOX uid 4711 from Alice Example: "Quarterly numbers for review"',
+    ]);
+  });
+
+  it('should send a low alert as one debug message with the sender and subject', async () => {
+    await alertAt('low');
+
+    expect(sent).toEqual([
+      {
+        level: 'debug',
+        logger: 'notifier',
+        data:
+          '📧 [LOW] personal/INBOX uid 4711 from Alice Example: "Quarterly numbers for review" ' +
+          '[Finance] (rule: finance-team)',
+      },
+    ]);
   });
 });
 

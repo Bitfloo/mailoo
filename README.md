@@ -607,6 +607,9 @@ Urgency-based multi-channel notification routing — grab attention for importan
 | `normal` | ❌ | ❌ | `info` | ❌ |
 | `low` | ❌ | ❌ | `debug` | ❌ |
 
+The MCP log entry at the listed level names the account, folder, UID, labels
+and rule. Sender and subject are sent only in a separate `debug` entry.
+
 ```toml
 [settings.hooks.alerts]
 desktop = true              # OS-level notifications (macOS/Linux/Windows)
