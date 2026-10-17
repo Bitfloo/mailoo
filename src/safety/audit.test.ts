@@ -188,6 +188,15 @@ describe('Audit Logger', () => {
     },
   );
 
+  it('should check the log file mode once per process and not again on later writes', async () => {
+    await auditLogger.log('send_email', 'x', { subject: 'first' }, 'ok');
+    await fs.chmod(auditLogger.AUDIT_LOG_PATH, 0o644);
+
+    await auditLogger.log('send_email', 'x', { subject: 'second' }, 'ok');
+
+    expect(permissionBits((await fs.stat(auditLogger.AUDIT_LOG_PATH)).mode)).toBe(0o644);
+  });
+
   it('should leave the mode of a symlinked data directory unchanged when logging', async () => {
     const operatorDir = path.join(dataHome, 'operator-mailoo');
     await fs.mkdir(operatorDir);
