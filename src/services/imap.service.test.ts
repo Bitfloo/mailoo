@@ -174,6 +174,14 @@ describe('ImapService', () => {
 
       expect(client.messageMove).toHaveBeenCalledWith('1', 'Sent', { uid: true });
     });
+
+    it('should reject when the server refuses the move', async () => {
+      client.messageMove.mockResolvedValue(false);
+
+      await expect(service.moveEmail('test', '42', 'INBOX', 'Archive')).rejects.toThrow(
+        'IMAP server rejected the move from "INBOX" to "Archive".',
+      );
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -189,18 +197,177 @@ describe('ImapService', () => {
       expect(client._releaseFn).toHaveBeenCalled();
     });
 
-    it('moves to trash when permanent=false', async () => {
-      // assertRealMailbox + trash detection both call client.list()
+    // The folder names differ from the 'Trash' fallback, so a lookup that
+    // ignores the \\Trash role cannot pass.
+    it('should move to the Gmail \\Trash folder when permanent=false', async () => {
+      client.list.mockResolvedValue(gmailMailboxes());
+
+      await service.deleteEmail('test', '99', 'INBOX', false);
+
+      expect(client.messageMove).toHaveBeenCalledWith('99', '[Gmail]/Trash', { uid: true });
+      expect(client.messageDelete).not.toHaveBeenCalled();
+    });
+
+    it('should move to INBOX.Trash on a server with the INBOX. namespace', async () => {
       client.list.mockResolvedValue([
-        { name: 'INBOX', path: 'INBOX', specialUse: '\\Inbox' },
-        { name: 'Trash', path: 'Trash', specialUse: '\\Trash' },
+        { name: 'INBOX', path: 'INBOX', specialUse: '\\Inbox', flags: new Set<string>() },
+        { name: 'Trash', path: 'INBOX.Trash', specialUse: '\\Trash', flags: new Set<string>() },
       ]);
 
       await service.deleteEmail('test', '99', 'INBOX', false);
 
+      expect(client.messageMove).toHaveBeenCalledWith('99', 'INBOX.Trash', { uid: true });
+    });
+
+    it.each(['[Gmail]/All Mail', '[Gmail]/Starred'])(
+      'should refuse to move to Trash from the virtual folder %s',
+      async (mailbox) => {
+        client.list.mockResolvedValue(gmailMailboxes());
+
+        await expect(service.deleteEmail('test', '99', mailbox, false)).rejects.toThrow(
+          /is a virtual folder/,
+        );
+        expect(client.messageMove).not.toHaveBeenCalled();
+      },
+    );
+
+    it('should reject when the server refuses the move to Trash', async () => {
+      client.list.mockResolvedValue(gmailMailboxes());
+      client.messageMove.mockResolvedValue(false);
+
+      await expect(service.deleteEmail('test', '99', 'INBOX', false)).rejects.toThrow(
+        'IMAP server rejected the move to Trash.',
+      );
+    });
+  });
+
+  describe('bulkDelete', () => {
+    it('should move every id to the \\Trash folder by default', async () => {
+      client.list.mockResolvedValue(gmailMailboxes());
+
+      const result = await service.bulkDelete('test', [3, 5], 'INBOX');
+
+      expect(result).toEqual({ total: 2, succeeded: 2, failed: 0 });
+      expect(client.messageMove).toHaveBeenCalledWith('3,5', '[Gmail]/Trash', { uid: true });
+    });
+
+    it('should never expunge by default', async () => {
+      client.list.mockResolvedValue(gmailMailboxes());
+
+      await service.bulkDelete('test', [3, 5], 'INBOX');
+
       expect(client.messageDelete).not.toHaveBeenCalled();
-      expect(client.messageMove).toHaveBeenCalledWith('99', 'Trash', { uid: true });
-      expect(client._releaseFn).toHaveBeenCalled();
+    });
+
+    it('should expunge every id when permanent=true', async () => {
+      const result = await service.bulkDelete('test', [3, 5], 'INBOX', true);
+
+      expect(result).toEqual({ total: 2, succeeded: 2, failed: 0 });
+      expect(client.messageDelete).toHaveBeenCalledWith('3,5', { uid: true });
+    });
+
+    it('should refuse to move to Trash from a virtual folder', async () => {
+      client.list.mockResolvedValue(gmailMailboxes());
+
+      await expect(service.bulkDelete('test', [3], '[Gmail]/All Mail')).rejects.toThrow(
+        /is a virtual folder/,
+      );
+      expect(client.messageMove).not.toHaveBeenCalled();
+    });
+
+    it('should report every id failed when the server refuses the move to Trash', async () => {
+      client.list.mockResolvedValue(gmailMailboxes());
+      client.messageMove.mockResolvedValue(false);
+
+      const result = await service.bulkDelete('test', [3, 5], 'INBOX');
+
+      expect(result).toEqual({
+        total: 2,
+        succeeded: 0,
+        failed: 2,
+        errors: ['IMAP server rejected the move to Trash.'],
+      });
+    });
+  });
+
+  describe('bulkMove', () => {
+    it('should move every id to the destination in one command', async () => {
+      client.list.mockResolvedValue(gmailMailboxes());
+
+      const result = await service.bulkMove('test', [3, 5], 'INBOX', 'Receipts');
+
+      expect(result).toEqual({ total: 2, succeeded: 2, failed: 0 });
+      expect(client.messageMove).toHaveBeenCalledWith('3,5', 'Receipts', { uid: true });
+    });
+
+    it('should report every id failed when the server refuses the move', async () => {
+      client.messageMove.mockResolvedValue(false);
+
+      const result = await service.bulkMove('test', [3, 5], 'INBOX', 'Receipts');
+
+      expect(result).toEqual({
+        total: 2,
+        succeeded: 0,
+        failed: 2,
+        errors: ['IMAP server rejected the move operation.'],
+      });
+    });
+
+    it('should report the server error when the move fails', async () => {
+      client.messageMove.mockRejectedValue(new Error("Mailbox doesn't exist: Receipts"));
+
+      const result = await service.bulkMove('test', [3, 5], 'INBOX', 'Receipts');
+
+      expect(result).toEqual({
+        total: 2,
+        succeeded: 0,
+        failed: 2,
+        errors: ["Mailbox doesn't exist: Receipts"],
+      });
+    });
+
+    it('should refuse to move out of a virtual folder', async () => {
+      client.list.mockResolvedValue(gmailMailboxes());
+
+      await expect(service.bulkMove('test', [3], '[Gmail]/Starred', 'Receipts')).rejects.toThrow(
+        /is a virtual folder/,
+      );
+      expect(client.messageMove).not.toHaveBeenCalled();
+    });
+
+    it('should release the mailbox lock when the move fails', async () => {
+      client.messageMove.mockRejectedValue(new Error('connection lost'));
+
+      await service.bulkMove('test', [3], 'INBOX', 'Receipts');
+
+      expect(client._releaseFn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('bulkSetFlags', () => {
+    it.each([
+      ['mark_read', 'messageFlagsAdd', '\\Seen'],
+      ['mark_unread', 'messageFlagsRemove', '\\Seen'],
+      ['flag', 'messageFlagsAdd', '\\Flagged'],
+      ['unflag', 'messageFlagsRemove', '\\Flagged'],
+    ] as const)('should apply %s with %s(%s) to every id', async (action, method, flag) => {
+      const result = await service.bulkSetFlags('test', [3, 5], 'INBOX', action);
+
+      expect(result).toEqual({ total: 2, succeeded: 2, failed: 0 });
+      expect(client[method]).toHaveBeenCalledWith('3,5', [flag], { uid: true });
+    });
+
+    it('should report every id failed when the server refuses the flag change', async () => {
+      client.messageFlagsAdd.mockResolvedValue(false);
+
+      const result = await service.bulkSetFlags('test', [3, 5], 'INBOX', 'mark_read');
+
+      expect(result).toEqual({
+        total: 2,
+        succeeded: 0,
+        failed: 2,
+        errors: ['IMAP server rejected the flag operation.'],
+      });
     });
   });
 
