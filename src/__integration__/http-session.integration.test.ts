@@ -159,10 +159,15 @@ describe('HTTP session ids the host does not hold', () => {
   it('should answer 404 with JSON-RPC error -32001 when the session id is unknown', async () => {
     const running = await startHost({ now: 1_000 }, ttlMs);
     try {
-      const response = await postRpc(running.port, TOOLS_LIST, 'no-such-session');
+      const response = await postRpc(running.port, TOOLS_LIST, { sessionId: 'no-such-session' });
 
-      expect({ status: response.status, body: JSON.parse(response.body) }).toEqual({
+      expect({
+        status: response.status,
+        contentType: response.headers['content-type'],
+        body: JSON.parse(response.body),
+      }).toEqual({
         status: 404,
+        contentType: 'application/json',
         body: { jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null },
       });
     } finally {
@@ -178,7 +183,7 @@ describe('HTTP session ids the host does not hold', () => {
       clock.now = 1_000 + ttlMs + 1;
       await postInitialize(running.port, 2);
 
-      const response = await postRpc(running.port, TOOLS_LIST, first.sessionId);
+      const response = await postRpc(running.port, TOOLS_LIST, { sessionId: first.sessionId });
 
       expect(response.status).toBe(404);
     } finally {
@@ -189,7 +194,9 @@ describe('HTTP session ids the host does not hold', () => {
   it('should answer 404 when an initialize request carries an unknown session id', async () => {
     const running = await startHost({ now: 1_000 }, ttlMs);
     try {
-      const response = await postRpc(running.port, initializeBody(1), 'no-such-session');
+      const response = await postRpc(running.port, initializeBody(1), {
+        sessionId: 'no-such-session',
+      });
 
       expect(response.status).toBe(404);
     } finally {
@@ -202,7 +209,22 @@ describe('HTTP session ids the host does not hold', () => {
     try {
       const response = await postRpc(running.port, TOOLS_LIST);
 
-      expect(response.status).toBe(400);
+      expect({
+        status: response.status,
+        contentType: response.headers['content-type'],
+        body: JSON.parse(response.body),
+      }).toEqual({
+        status: 400,
+        contentType: 'application/json',
+        body: {
+          jsonrpc: '2.0',
+          error: {
+            code: -32000,
+            message: 'Bad Request: provide mcp-session-id or send an initialize request',
+          },
+          id: null,
+        },
+      });
     } finally {
       await running.stop();
     }
@@ -217,8 +239,13 @@ describe('HTTP request bodies', () => {
     try {
       const response = await postRpc(running.port, '{not json');
 
-      expect({ status: response.status, body: JSON.parse(response.body) }).toEqual({
+      expect({
+        status: response.status,
+        contentType: response.headers['content-type'],
+        body: JSON.parse(response.body),
+      }).toEqual({
         status: 400,
+        contentType: 'application/json',
         body: { jsonrpc: '2.0', error: { code: -32700, message: 'Parse error' }, id: null },
       });
     } finally {

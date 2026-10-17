@@ -78,18 +78,22 @@ export function initializeBody(id: number): string {
   });
 }
 
-export function postInitialize(
-  port: number,
-  id: number,
-): Promise<{ status: number; sessionId: string; body: string }> {
+interface RpcResponse {
+  status: number;
+  sessionId: string;
+  headers: http.IncomingHttpHeaders;
+  body: string;
+}
+
+export function postInitialize(port: number, id: number): Promise<RpcResponse> {
   return postRpc(port, initializeBody(id));
 }
 
 export function postRpc(
   port: number,
   payload: string,
-  sessionId?: string,
-): Promise<{ status: number; sessionId: string; body: string }> {
+  options: { sessionId?: string } = {},
+): Promise<RpcResponse> {
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
@@ -102,7 +106,7 @@ export function postRpc(
           'content-type': 'application/json',
           'content-length': Buffer.byteLength(payload),
           accept: 'application/json, text/event-stream',
-          ...(sessionId ? { 'mcp-session-id': sessionId } : {}),
+          ...(options.sessionId ? { 'mcp-session-id': options.sessionId } : {}),
         },
       },
       (res) => {
@@ -114,6 +118,7 @@ export function postRpc(
           resolve({
             status: res.statusCode ?? 0,
             sessionId,
+            headers: res.headers,
             body: Buffer.concat(parts).toString('utf8'),
           });
         });
