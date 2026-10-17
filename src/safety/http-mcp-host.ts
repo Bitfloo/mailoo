@@ -13,7 +13,7 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 
 import { SCHEDULED_DIR } from '../config/xdg.js';
 import type ConnectionManager from '../connections/manager.js';
-import { bindServer, markInitialized, mcpLog } from '../logging.js';
+import { bindServer, markInitialized, mcpLog, unbindServer } from '../logging.js';
 import registerAllPrompts from '../prompts/register.js';
 import registerAllResources from '../resources/register.js';
 import createServer, { PKG_VERSION } from '../server.js';
@@ -255,6 +255,7 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
           scheduler,
           onDispose: () => {
             candidates.delete(sid);
+            unbindServer(mcpServer);
             applySamplingTarget();
           },
         });
@@ -299,7 +300,7 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
 
         const ls = mcpServer.server;
         ls.oninitialized = () => {
-          markInitialized();
+          markInitialized(mcpServer);
           candidates.set(sid, {
             server: ls,
             sampling: (ls.getClientCapabilities?.()?.sampling ?? null) != null,

@@ -166,6 +166,8 @@ Each request is checked before the body is handed to the MCP session:
 
 Inside a container, loopback is the container's own loopback. Publishing the port means listening on `0.0.0.0` with a token and `MCP_EMAIL_HTTP_ALLOWED_HOSTS` set to the name clients use, with or without the published port.
 
+Server log notifications (`notifications/message`) go to every session that has finished its handshake, not only to the newest one.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MCP_EMAIL_HTTP_HOST` | `127.0.0.1` and `::1` | Single listen address. The host argument wins. |

@@ -8,7 +8,12 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
+
 import ConnectionManager from '../connections/manager.js';
+import { mcpLog } from '../logging.js';
 import { createHttpMcpHost } from '../safety/http-mcp-host.js';
 import { resolveHttpListen, startGuardedHttpServers } from '../safety/http-transport.js';
 import CalendarService from '../services/calendar.service.js';
@@ -233,6 +238,71 @@ describe('HTTP session isolation', () => {
       await host.close();
       await listener.close();
       await fs.rm(queueRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+async function startHost(clock: { now: number }, ttlMs: number) {
+  const queueRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-http-host-'));
+  const connections = new ConnectionManager([]);
+  const host = await createHttpMcpHost({
+    config: testConfig(),
+    connections,
+    imap: new ImapService(connections),
+    templateService: new TemplateService(path.join(queueRoot, 'templates')),
+    calendarService: new CalendarService(),
+    localCalendarService: new LocalCalendarService(),
+    remindersService: new RemindersService(),
+    bodyLimitBytes: 1024 * 1024,
+    scheduledDir: path.join(queueRoot, 'scheduled'),
+    ttlMs,
+    now: () => clock.now,
+  });
+  const listener = await startGuardedHttpServers(
+    resolveHttpListen({ port: 0, host: '127.0.0.1' }),
+    host.handle,
+  );
+  return {
+    host,
+    port: listener.port,
+    async stop() {
+      await host.close();
+      await listener.close();
+      await fs.rm(queueRoot, { recursive: true, force: true });
+    },
+  };
+}
+
+// Each session binds its own McpServer for logging. One module-wide reference
+// kept only the session bound last, so its close silenced every other client.
+describe('HTTP session logging', () => {
+  it('should deliver a log to a live session after the session bound last terminated', async () => {
+    const running = await startHost({ now: 1_000 }, 5_000);
+    const url = new URL(`http://127.0.0.1:${running.port}/mcp`);
+    const live = new Client({ name: 'mailoo-live', version: '0.0.0' });
+    const received: unknown[] = [];
+    live.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {
+      received.push(notification.params.data);
+    });
+    const endedTransport = new StreamableHTTPClientTransport(url);
+    const ended = new Client({ name: 'mailoo-ended', version: '0.0.0' });
+    try {
+      await live.connect(new StreamableHTTPClientTransport(url));
+      await ended.connect(endedTransport);
+      await endedTransport.terminateSession();
+
+      // The live client opens its notification stream asynchronously after the
+      // handshake; repeat the log until that stream is up.
+      await vi.waitFor(
+        async () => {
+          await mcpLog('info', 'test', 'after terminate');
+          expect(received).toContain('after terminate');
+        },
+        { timeout: 5_000, interval: 100 },
+      );
+    } finally {
+      await Promise.allSettled([live.close(), ended.close()]);
+      await running.stop();
     }
   });
 });
