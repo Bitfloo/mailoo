@@ -33,6 +33,18 @@ const CURSOR_CONFIG = `{
 }
 `;
 
+const CURSOR_CONFIG_REGISTERED = `{
+  "mcpServers": {
+    "other": { "command": "other-server", "args": ["--stdio"] },
+    "mailoo": { "command": "npx", "args": ["@bitfloo/mailoo", "stdio"] }
+  }
+}
+`;
+
+function permissionBits(mode: number): number {
+  return mode % 0o1000;
+}
+
 describe('mailoo install', () => {
   let home: string;
   let cursorConfig: string;
@@ -84,6 +96,37 @@ describe('mailoo install', () => {
     await expect(runInstallCommand()).rejects.toThrow(`${cursorConfig} is not valid JSON`);
   });
 
+  it('should reject a client config that is the JSON literal null', async () => {
+    await fs.writeFile(cursorConfig, 'null\n');
+
+    await expect(runInstallCommand()).rejects.toThrow(`${cursorConfig} is not valid JSON`);
+  });
+
+  // root bypasses file permission bits
+  it.skipIf(process.getuid?.() === 0)(
+    'should reject with EACCES when the client config cannot be read',
+    async () => {
+      await fs.writeFile(cursorConfig, CURSOR_CONFIG);
+      await fs.chmod(cursorConfig, 0o000);
+
+      await expect(runInstallCommand()).rejects.toMatchObject({ code: 'EACCES' });
+    },
+  );
+
+  // root bypasses file permission bits
+  it.skipIf(process.getuid?.() === 0)(
+    'should leave a client config it cannot read byte-identical',
+    async () => {
+      await fs.writeFile(cursorConfig, CURSOR_CONFIG);
+      await fs.chmod(cursorConfig, 0o000);
+
+      await runInstallCommand().catch(() => undefined);
+
+      await fs.chmod(cursorConfig, 0o600);
+      expect(await fs.readFile(cursorConfig, 'utf-8')).toBe(CURSOR_CONFIG);
+    },
+  );
+
   it('should add the mailoo entry and keep other servers when the config is valid JSON', async () => {
     await fs.writeFile(cursorConfig, CURSOR_CONFIG);
 
@@ -95,6 +138,15 @@ describe('mailoo install', () => {
         mailoo: { command: 'npx', args: [expect.any(String), 'stdio'] },
       },
     });
+  });
+
+  it('should write the client config with mode 0600 when it was 0644', async () => {
+    await fs.writeFile(cursorConfig, CURSOR_CONFIG);
+    await fs.chmod(cursorConfig, 0o644);
+
+    await runInstallCommand();
+
+    expect(permissionBits((await fs.stat(cursorConfig)).mode)).toBe(0o600);
   });
 
   it('should create the client config when only its directory exists', async () => {
@@ -139,12 +191,22 @@ describe('mailoo install', () => {
     }).toEqual({ link: true, servers: ['other', 'mailoo'] });
   });
 
-  it('should leave a client config that is not valid JSON byte-identical on remove', async () => {
+  it('should remove only the mailoo entry and keep other servers on remove', async () => {
+    await fs.writeFile(cursorConfig, CURSOR_CONFIG_REGISTERED);
+
+    await runInstallCommand('remove');
+
+    expect(JSON.parse(await fs.readFile(cursorConfig, 'utf-8'))).toEqual({
+      mcpServers: { other: { command: 'other-server', args: ['--stdio'] } },
+    });
+  });
+
+  // Read as {}, an unparseable file looked like "nothing registered" and the
+  // command ended quietly instead of saying the file needs fixing.
+  it('should reject naming the client config on remove when it is not valid JSON', async () => {
     await fs.writeFile(cursorConfig, CURSOR_CONFIG_WITH_COMMENT);
 
-    await runInstallCommand('remove').catch(() => undefined);
-
-    expect(await fs.readFile(cursorConfig, 'utf-8')).toBe(CURSOR_CONFIG_WITH_COMMENT);
+    await expect(runInstallCommand('remove')).rejects.toThrow(`${cursorConfig} is not valid JSON`);
   });
 
   it('should report a client config that is not valid JSON in status', async () => {
