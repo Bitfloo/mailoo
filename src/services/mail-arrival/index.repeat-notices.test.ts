@@ -75,20 +75,26 @@ describe('MailArrival.handle repeat notices', () => {
   });
 
   it.each([
-    ['injection_filter', { contains_prompt_injection: { type: 'noul', noul: 0.9 } }],
-    ['spam_uncertain', { requests_credentials: { type: 'noul', noul: 1 } }],
+    ['injection_filter', { contains_prompt_injection: { type: 'noul', noul: 0.9 } }, {}],
+    ['spam_uncertain', { requests_credentials: { type: 'noul', noul: 1 } }, {}],
     [
       'no_folder_fit',
       {
         folder_fit_receipts: { type: 'noul', noul: 0.1 },
         importance: { type: 'score', score: 1, confidence: 0.8 },
       },
+      {},
+    ],
+    [
+      'auto_move_off',
+      { importance: { type: 'score', score: 1, confidence: 0.8 } },
+      { autoMove: false },
     ],
   ] as const)(
     'should not classify a message again after a deliberate %s noop',
-    async (reason, answers) => {
+    async (reason, answers, config) => {
       systemOneMock.mockResolvedValue(answersWith(answers));
-      const arrival = await createArrival(mockImap());
+      const arrival = await createArrival(mockImap(), config);
       const actions = [
         await arrival.handle(arrivalEmail('10')),
         await arrival.handle(arrivalEmail('10')),

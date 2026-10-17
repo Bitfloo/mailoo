@@ -152,9 +152,12 @@ export function arrivalEmail(id: string, accountName = 'personal'): ArrivalEmail
   };
 }
 
-export async function createArrival(imap: ImapStub): Promise<MailArrival> {
+export async function createArrival(
+  imap: ImapStub,
+  overrides: Partial<SystemOneConfig> = {},
+): Promise<MailArrival> {
   const arrival = await MailArrival.tryCreate({
-    config: systemOneConfig(),
+    config: systemOneConfig(overrides),
     imap: imap as unknown as ImapService,
     apiKey: 'test-key',
     accounts: [account],
