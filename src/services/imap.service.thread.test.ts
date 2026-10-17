@@ -253,6 +253,47 @@ describe('ImapService', () => {
       expect(result.messageCount).toBe(3);
     });
 
+    it('should return the Message-ID it was asked for as the thread id', async () => {
+      serveThread(thread);
+
+      const result = await service.getThread('test', '<thread-3@example.test>');
+
+      expect(result.threadId).toBe('<thread-3@example.test>');
+    });
+
+    // A reply often writes an address in another case than the message it answers.
+    it('should list each participant once, from From, To and Cc, ignoring case', async () => {
+      const [first, reply] = [threadMessage(1, []), threadMessage(2, ['<thread-1@example.test>'])];
+      const messages = [
+        {
+          ...first,
+          envelope: { ...first.envelope, cc: [{ name: 'Carol', address: 'carol@example.test' }] },
+        },
+        {
+          ...reply,
+          envelope: {
+            ...reply.envelope,
+            from: [{ name: 'Bob', address: 'Bob@Example.test' }],
+            to: [
+              { name: '', address: 'ALICE@example.test' },
+              { name: 'Dan', address: 'dan@example.test' },
+            ],
+            cc: [{ name: '', address: 'Carol@example.test' }],
+          },
+        },
+      ];
+      serveThread(messages);
+
+      const result = await service.getThread('test', '<thread-1@example.test>');
+
+      expect(result.participants).toEqual([
+        { name: '', address: 'alice@example.test' },
+        { name: '', address: 'bob@example.test' },
+        { name: 'Carol', address: 'carol@example.test' },
+        { name: 'Dan', address: 'dan@example.test' },
+      ]);
+    });
+
     it('should release the mailbox lock once after reading the thread', async () => {
       serveThread(thread);
 
