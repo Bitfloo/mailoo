@@ -2,6 +2,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { YAMLParseError } from 'yaml';
+
 import {
   jobSections,
   onBlock,
@@ -138,8 +140,22 @@ describe('workflow file, job and key readers', () => {
     expect(() => readKeyLines('a: 1\n"\\x69f": x\n', 'a')).toThrow('"\\x69f": x');
   });
 
-  it('should pass plain, quoted, flow and spaced keys', () => {
-    expect(unreadKeys('a:\n  - { uses: a/b, \'with\': { x: 1 } }\n  - "if" : y\n')).toEqual([]);
+  it.each(['if: a\nif: b\n', 'a: 1\n---\nif: x\n', 'a:\n\tif: x\n', '"\\x69f": x\nb:\n\tc: 1\n'])(
+    'should refuse %j as text the YAML parser rejects',
+    (text) => {
+      // A document the parser cannot read whole could hide a key from the guard.
+      expect(() => readKeyLines(text, 'if')).toThrow(YAMLParseError);
+    },
+  );
+
+  it('should not read a key that only ends in the name', () => {
+    expect(readKeyLines('a-if: 1\n', 'if')).toEqual([]);
+  });
+
+  it('should pass plain, quoted, flow, spaced and symbol keys', () => {
+    expect(unreadKeys('a:\n  - { uses: a/b, \'with\': { x: 1 } }\n  - "if" : y\na+b: 1\n')).toEqual(
+      [],
+    );
   });
 
   it('should read a job key with an underscore, a comment or quotes as its own job', () => {
