@@ -214,6 +214,19 @@ describe('scheduler subcommand router', () => {
     });
   });
 
+  it('should run the exported list command when no command map is given', async () => {
+    const ran: string[] = [];
+    const list = vi.spyOn(SCHEDULER_COMMANDS, 'list').mockImplementation(async () => {
+      ran.push('list');
+    });
+    try {
+      await runSchedulerCommand('list');
+      expect(ran).toEqual(['list']);
+    } finally {
+      list.mockRestore();
+    }
+  });
+
   it('should run the command each subcommand names', async () => {
     const { commands, ran } = recordedCommands();
     const names = Object.keys(commands);
