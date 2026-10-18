@@ -38,7 +38,7 @@ function steps(workflow: string, yaml: string): Record<string, string[]> {
 
 // biome-ignore-start lint/suspicious/noTemplateCurlyInString: values are commands and expressions from the workflows, not JS templates
 /**
- * Every step of every job, in order. A command moved before the checkout or setup-node runs
+ * Every step of every job, in order. A command moved before the checkout or setup-node would run
  * without them, and an action dropped, added or moved fails too. A checkout ref, repository, path
  * or sparse-checkout would check, build or publish another tree than the commit that started the
  * run; fetch-depth 0 gives GoReleaser and the public-log range the history they read; Scorecard's
@@ -103,7 +103,7 @@ const STEPS: Record<string, Record<string, string[]>> = {
     ],
   },
   'release.yml': {
-    // A flag such as --dry-run, or the npm CLI directory on another step, publishes nothing.
+    // A flag such as --dry-run, or npm ci run outside .github/npm-cli, would publish nothing.
     npm: [
       'actions/checkout',
       'pnpm/action-setup',

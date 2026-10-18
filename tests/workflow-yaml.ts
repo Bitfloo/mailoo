@@ -137,7 +137,7 @@ export interface Harness {
 
 /**
  * The text of a step the harness declares, read from the harness's own job, so a step of the same
- * name elsewhere is neither run nor exempted from the run roster in its place.
+ * name in another job is not run in its place.
  */
 export function harnessedStep(harness: Harness, label: string): string {
   const where = `${harness.workflow} ${harness.job}`;
