@@ -763,8 +763,8 @@ Outbound calls, child processes, files, and environment variables below are what
 | `powershell` | Windows balloon notifications | `src/services/notifier.service.ts` |
 | `which` (Windows: `where`) | Checks that `osascript`, `afplay`, `notify-send`, `paplay`, or `powershell` exists. `afplay` is only probed; macOS sound goes through `osascript` | `src/services/notifier.service.ts` |
 | `xdg-open` | Opens a temporary calendar file on Linux | `src/services/local-calendar.service.ts` |
-| `launchctl` | Installs or removes the macOS scheduler agent | `src/cli/scheduler.ts` |
-| `crontab` | Installs or removes the Linux scheduler line | `src/cli/scheduler.ts` |
+| `launchctl` | Installs or removes the macOS scheduler agent | `src/cli/scheduler.ts`, `src/cli/scheduler-install.ts` |
+| `crontab` | Installs or removes the Linux scheduler line | `src/cli/scheduler.ts`, `src/cli/scheduler-install.ts` |
 
 ### Files
 
@@ -780,8 +780,8 @@ Paths follow the XDG defaults in `src/config/xdg.ts` unless `XDG_CONFIG_HOME`, `
 | `$XDG_STATE_HOME/mailoo/calendar-processed.json` (mode `0600`) and `.lock` | Which messages already created an automatic event or reminder, replaced through a temp file and rename. A damaged file stops automatic calendar processing, and makes `analyze_email_for_scheduling` report an error, instead of starting over | `src/utils/calendar-state.ts` |
 | `savePath` under the working directory | `download_attachment` or `export_email` when that argument is set | `src/tools/attachments.tool.ts`, `src/tools/export.tool.ts` |
 | OS temp directory, `mailoo-event-*.ics` | Linux calendar file passed to `xdg-open` | `src/services/local-calendar.service.ts` |
-| `~/Library/LaunchAgents/com.bitfloo.mailoo.scheduler.plist` | macOS scheduler agent. Its stdout and stderr are `/tmp/mailoo-scheduler.log` | `src/cli/scheduler.ts` |
-| User crontab | One Mailoo line on Linux | `src/cli/scheduler.ts` |
+| `~/Library/LaunchAgents/com.bitfloo.mailoo.scheduler.plist` | macOS scheduler agent. Its stdout and stderr are `/tmp/mailoo-scheduler.log` | `src/cli/scheduler-install.ts`, `src/cli/scheduler.ts` |
+| User crontab | One Mailoo line on Linux | `src/cli/scheduler-install.ts` |
 | MCP client config (Claude, Cursor, Windsurf) | `mailoo install` merges the launch entry | `src/cli/install-commands.ts` |
 
 Templates under `$XDG_CONFIG_HOME/mailoo/templates/` are read, not written by the server.

@@ -5,9 +5,6 @@
  * for managing the email scheduler.
  */
 
-/* eslint-disable n/no-sync -- CLI install waits for launchctl and crontab */
-
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -16,92 +13,21 @@ import { loadConfig } from '../config/loader.js';
 import { createMailServices } from '../services/mail-services.js';
 import SchedulerService from '../services/scheduler.service.js';
 import type { AppConfig, ScheduledEmail } from '../types/index.js';
+import type { CommandRunner } from './scheduler-install.js';
 import {
   buildCronLine,
   buildLaunchdPlist,
   CHECK_INTERVAL_SECONDS,
   CRONTAB_MARKER,
+  installCrontabLine,
   LAUNCHD_LABEL,
+  loadLaunchAgent,
+  removeCrontabLine,
+  runCommandFile,
 } from './scheduler-install.js';
 
 const LAUNCHD_PLIST_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents');
 const LAUNCHD_PLIST = path.join(LAUNCHD_PLIST_DIR, `${LAUNCHD_LABEL}.plist`);
-
-export type CommandRunner = (file: string, args: readonly string[], input?: string) => string;
-
-export function runCommandFile(file: string, args: readonly string[], input?: string): string {
-  // crontab reports a missing table on stderr. Discarding it leaves stderr null
-  // and the Error message omits the text, so a permission failure looks empty.
-  const stderr = file === 'crontab' ? 'pipe' : 'ignore';
-  return execFileSync(file, [...args], {
-    encoding: 'utf-8',
-    stdio: input === undefined ? ['ignore', 'pipe', stderr] : ['pipe', 'pipe', stderr],
-    ...(input === undefined ? {} : { input }),
-  });
-}
-
-function stderrText(err: unknown): string {
-  if (typeof err !== 'object' || err === null || !('stderr' in err)) return '';
-  const { stderr } = err as { stderr?: unknown };
-  return typeof stderr === 'string' ? stderr : '';
-}
-
-// Exit status 1 is also used when crontab cannot be read. Only this stderr text
-// means the user has no crontab.
-function isNoCrontab(err: unknown): boolean {
-  return /no crontab for/i.test(stderrText(err));
-}
-
-function crontabReadError(err: unknown): Error {
-  const detail = stderrText(err).trim();
-  const fallback = err instanceof Error ? err.message : String(err);
-  return new Error(`Could not read the crontab: ${detail.length > 0 ? detail : fallback}`);
-}
-
-function readCrontab(run: CommandRunner): string | undefined {
-  try {
-    return run('crontab', ['-l']);
-  } catch (err) {
-    if (isNoCrontab(err)) return undefined;
-    throw crontabReadError(err);
-  }
-}
-
-export async function loadLaunchAgent(
-  plistPath: string,
-  plist: string,
-  run: CommandRunner = runCommandFile,
-): Promise<void> {
-  await fs.mkdir(path.dirname(plistPath), { recursive: true });
-  await fs.writeFile(plistPath, plist, { mode: 0o600 });
-  await fs.chmod(plistPath, 0o600);
-  try {
-    run('launchctl', ['load', plistPath]);
-  } catch {
-    // May already be loaded
-  }
-}
-
-export function installCrontabLine(
-  line: string,
-  marker: string,
-  run: CommandRunner = runCommandFile,
-): boolean {
-  const existing = readCrontab(run) ?? '';
-  if (existing.includes(marker)) return false;
-  const body = existing.trim().length === 0 ? `${line}\n` : `${existing.trimEnd()}\n${line}\n`;
-  run('crontab', ['-'], body);
-  return true;
-}
-
-export function removeCrontabLine(marker: string, run: CommandRunner = runCommandFile): boolean {
-  const existing = readCrontab(run);
-  if (existing === undefined) return false;
-  const lines = existing.split('\n').filter((entry) => !entry.includes(marker));
-  const body = lines.join('\n');
-  run('crontab', ['-'], body.endsWith('\n') ? body : `${body}\n`);
-  return true;
-}
 
 function getExecutablePath(): string {
   return process.argv[1] ?? 'mailoo';

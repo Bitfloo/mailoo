@@ -2,8 +2,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import type { CommandRunner } from './scheduler.js';
-import { installCrontabLine, loadLaunchAgent, removeCrontabLine, runInstall } from './scheduler.js';
+import { runInstall } from './scheduler.js';
+import type { CommandRunner } from './scheduler-install.js';
+import { installCrontabLine, loadLaunchAgent, removeCrontabLine } from './scheduler-install.js';
 
 const SRC = path.resolve('src');
 
