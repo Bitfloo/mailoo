@@ -180,6 +180,7 @@ export function formatScheduledList(emails: ScheduledEmail[]): string[] {
 
   const lines: string[] = [];
   const pending = emails.filter((e) => e.status === 'pending');
+  const sending = emails.filter((e) => e.status === 'sending');
   const sent = emails.filter((e) => e.status === 'sent');
   const failed = emails.filter((e) => e.status === 'failed');
 
@@ -189,6 +190,15 @@ export function formatScheduledList(emails: ScheduledEmail[]): string[] {
       const overdue = new Date(e.sendAt).getTime() < Date.now() ? ' ⚠️ OVERDUE' : '';
       lines.push(
         `  ${e.id.slice(0, 8)} | ${e.account} → ${e.to.join(', ')} | "${e.subject}" | ${e.sendAt}${overdue}`,
+      );
+    });
+  }
+
+  if (sending.length > 0) {
+    lines.push(`\n📤 Sending (${sending.length}):`);
+    sending.forEach((e) => {
+      lines.push(
+        `  ${e.id.slice(0, 8)} | ${e.account} → ${e.to.join(', ')} | "${e.subject}" | ${e.sendAt}`,
       );
     });
   }
