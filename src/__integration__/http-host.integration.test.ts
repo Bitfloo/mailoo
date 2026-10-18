@@ -218,15 +218,20 @@ describe('HTTP host routes', () => {
     expect({ status: res.status, allow: res.headers.allow }).toEqual({ status: 405, allow: 'GET' });
   });
 
-  it('should answer /health with ok and the package version', async () => {
+  it('should answer /health with ok and the package version as JSON', async () => {
     const pkg = JSON.parse(
       await fs.readFile(new URL('../../package.json', import.meta.url), 'utf8'),
     ) as { version: string };
 
     const res = await ask('GET', '/health');
 
-    expect({ status: res.status, body: JSON.parse(res.body) }).toEqual({
+    expect({
+      status: res.status,
+      type: res.headers['content-type'],
+      body: JSON.parse(res.body),
+    }).toEqual({
       status: 200,
+      type: 'application/json',
       body: { ok: true, version: pkg.version },
     });
   });
