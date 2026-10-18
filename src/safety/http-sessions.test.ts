@@ -17,7 +17,7 @@ interface Run {
 }
 
 interface Step {
-  action: 'set' | 'begin' | 'end' | 'touch' | 'wait' | 'sweep';
+  action: 'set' | 'begin' | 'end' | 'wait' | 'sweep';
   added?: string;
   swept: boolean;
   overCap: boolean;
@@ -33,7 +33,6 @@ function pickAction(roll: number, present: boolean): Step['action'] {
   if (roll < 0.2 && !present) return 'set';
   if (roll < 0.4 && present) return 'begin';
   if (roll < 0.6) return 'end';
-  if (roll < 0.7 && present) return 'touch';
   if (roll < 0.85) return 'wait';
   return 'sweep';
 }
@@ -52,10 +51,6 @@ const APPLY: Record<Step['action'], (run: Run, id: string, random: () => number)
   end: ({ store, open }, id) => {
     store.endRequest(id);
     if (open.has(id)) open.set(id, Math.max(0, (open.get(id) ?? 0) - 1));
-  },
-  touch: ({ clock, store, lastUsed }, id) => {
-    store.touch(id);
-    lastUsed.set(id, clock.now);
   },
   wait: (run, _id, random) => {
     const { clock } = run;
@@ -197,7 +192,7 @@ describe('HttpSessionStore', () => {
   it('should keep the table invariants over a seeded mix of sessions, requests, waits and sweeps', () => {
     const run = newRun();
     const random = seededRandom(20_261_017);
-    const unvisited = new Set<Step['action']>(['set', 'begin', 'end', 'touch', 'wait', 'sweep']);
+    const unvisited = new Set<Step['action']>(['set', 'begin', 'end', 'wait', 'sweep']);
 
     const breaches = Array.from({ length: 3_000 }).flatMap((_, at) => {
       const step = applyRandomAction(run, random);

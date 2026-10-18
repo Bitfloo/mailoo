@@ -292,7 +292,6 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
     }
     if (existing && sessionId) {
       transport = existing;
-      sessions.touch(sessionId);
       sessions.beginRequest(sessionId);
     } else if (!sessionId && req.method === 'POST' && isInitializeRequest(body)) {
       opened = await openSession(services, lifecycle);
