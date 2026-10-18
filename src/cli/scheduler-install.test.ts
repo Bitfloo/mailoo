@@ -1,7 +1,35 @@
 import { SCHEDULER_INTERVAL_MS } from '../services/scheduler.service.js';
 import { buildCronLine, buildLaunchdPlist } from './scheduler-install.js';
 
+// launchctl refuses a plist whose elements do not close in order, and install
+// would still report the agent as installed.
+function unclosedTags(xml: string): string[] {
+  const open: string[] = [];
+  const problems: string[] = [];
+  // A self-closing tag such as <true/> does not match: it leaves nothing open.
+  for (const [, slash, name] of xml.matchAll(/<(\/?)([A-Za-z]+)(?:\s[^>/]*)?>/g)) {
+    if (slash === '') open.push(name);
+    else if (open.pop() !== name) problems.push(`</${name}>`);
+  }
+  return [...problems, ...open.map((name) => `<${name}>`)];
+}
+
 describe('scheduler install commands', () => {
+  it('should build a well-formed plist that logs both output streams', () => {
+    const plist = buildLaunchdPlist('/usr/bin/node', '/opt/mailoo/main.js');
+    const logPath = (key: string) =>
+      new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`).exec(plist)?.[1];
+    expect({
+      unclosed: unclosedTags(plist),
+      stdout: logPath('StandardOutPath'),
+      stderr: logPath('StandardErrorPath'),
+    }).toEqual({
+      unclosed: [],
+      stdout: '/tmp/mailoo-scheduler.log',
+      stderr: '/tmp/mailoo-scheduler.log',
+    });
+  });
+
   it('should start the launchd agent on the interval the server checks the queue at', () => {
     const plist = buildLaunchdPlist('/usr/bin/node', '/opt/mailoo/main.js');
     const seconds = /<key>StartInterval<\/key>\s*<integer>(\d+)<\/integer>/.exec(plist)?.[1];
