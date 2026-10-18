@@ -6,6 +6,7 @@ import { YAMLParseError } from 'yaml';
 
 import {
   jobSections,
+  jobSteps,
   onBlock,
   readKeyLines,
   topLevelPermissions,
@@ -74,6 +75,13 @@ describe('code scanning workflows', () => {
     const jobs = jobSections(scorecardYml).filter((job) => job.includes('ossf/scorecard-action@'));
     expect(jobs).toHaveLength(1);
     expect(scorecardYml).toContain('ossf/scorecard-action@');
+  });
+
+  it('should check out the Scorecard workflow without persisting credentials', () => {
+    const checkouts = Object.values(jobSteps(scorecardYml))
+      .flat()
+      .filter((step) => step.uses?.startsWith('actions/checkout@'));
+    expect(checkouts.map((step) => step.with?.['persist-credentials'])).toEqual([false]);
   });
 
   it('should run Scorecard only on its schedule and when branch protection changes', () => {
