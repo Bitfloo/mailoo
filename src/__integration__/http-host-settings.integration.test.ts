@@ -5,6 +5,8 @@
  * services reports its outcome.
  */
 
+import fs from 'node:fs/promises';
+
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -19,6 +21,10 @@ import { buildTestAccount, createTestServices, TEST_ACCOUNT_NAME } from './helpe
 // reports/ (gitignored), as the labels suite does.
 vi.hoisted(() => {
   vi.stubEnv('XDG_DATA_HOME', `${process.cwd()}/reports/xdg-data`);
+});
+
+afterAll(async () => {
+  await fs.rm(`${process.cwd()}/reports/xdg-data`, { recursive: true, force: true });
 });
 
 function writableConfig(): AppConfig {
