@@ -194,7 +194,25 @@ describe('release version selection', () => {
   });
 });
 
+/** Each action repository the texts pin to more than one commit or tag, with its pins sorted. */
+function splitPins(texts: string[]): [string, string[]][] {
+  const pins = new Map<string, Set<string>>();
+  for (const yaml of texts) {
+    for (const [, repository, pin] of yaml.matchAll(
+      /^ +(?:- )?uses: ([^/@\s]+\/[^/@\s]+)\S*@(.+)$/gm,
+    )) {
+      pins.set(repository, (pins.get(repository) ?? new Set()).add(pin));
+    }
+  }
+  return [...pins]
+    .filter(([, set]) => set.size > 1)
+    .map(([repository, set]) => [repository, [...set].sort()]);
+}
+
 describe('pinned GitHub Actions', () => {
+  const sha = 'd23441a48e516b6c34aea4fa41551a30e30af803';
+  const otherSha = '0123456789abcdef0123456789abcdef01234567';
+
   it('should pin every uses: to a commit SHA with the version tag in a comment', () => {
     const unpinned = workflowFiles().flatMap((name) =>
       unpinnedUses(readFileSync(join(workflowDir, name), 'utf8')).map((line) => `${name}: ${line}`),
@@ -205,18 +223,29 @@ describe('pinned GitHub Actions', () => {
   it('should pin each action repository to one commit and tag in every workflow', () => {
     // Two pins of one repository would run two versions of it, and a tag comment that differs for
     // one commit would name a version that commit is not.
-    const pins = new Map<string, Set<string>>();
-    for (const [, yaml] of workflowTexts()) {
-      for (const [, repository, pin] of yaml.matchAll(
-        /^ +(?:- )?uses: ([^/@\s]+\/[^/@\s]+)\S*@(.+)$/gm,
-      )) {
-        pins.set(repository, (pins.get(repository) ?? new Set()).add(pin));
-      }
-    }
-    expect([...pins].filter(([, set]) => set.size > 1)).toEqual([]);
+    expect(splitPins(workflowTexts().map(([, yaml]) => yaml))).toEqual([]);
   });
 
-  const sha = 'd23441a48e516b6c34aea4fa41551a30e30af803';
+  it.each([
+    { pair: 'one commit under two tags', a: `a/b@${sha} # v1.2.3`, b: `a/b@${sha} # v1.2.4` },
+    { pair: 'two commits under one tag', a: `a/b@${sha} # v1.2.3`, b: `a/b@${otherSha} # v1.2.3` },
+    {
+      pair: 'two paths of one repository at two commits',
+      a: `a/b/init@${sha} # v1.2.3`,
+      b: `a/b/analyze@${otherSha} # v1.2.4`,
+    },
+  ])('should flag $pair in two workflows as a split pin', ({ a, b }) => {
+    const split = splitPins([`      - uses: ${a}\n`, `      - uses: ${b}\n`]);
+    expect(split.map(([repository]) => repository)).toEqual(['a/b']);
+  });
+
+  it('should pass two paths of one repository at the same commit and tag', () => {
+    const texts = [
+      `      - uses: a/b/init@${sha} # v1.2.3\n`,
+      `      - uses: a/b/analyze@${sha} # v1.2.3\n`,
+    ];
+    expect(splitPins(texts)).toEqual([]);
+  });
 
   it.each([
     '- { uses: actions/checkout@v6 }',

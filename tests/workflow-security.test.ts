@@ -62,6 +62,15 @@ describe('scheduled workflows', () => {
     ([, yaml]) => (parse(yaml) as { on?: { schedule?: unknown } }).on?.schedule !== undefined,
   );
 
+  it('should find the three scheduled workflows', () => {
+    // An empty list would run the two tests below zero times and pass.
+    expect(scheduled.map(([name]) => name)).toEqual([
+      'codeql.yml',
+      'docker-rebuild.yml',
+      'scorecard.yml',
+    ]);
+  });
+
   it.each(scheduled)('should run %s on a weekly schedule', (_, yaml) => {
     const [digits, weekday] = [expect.stringMatching(/^\d+$/), expect.stringMatching(/^[0-6]$/)];
     expect(weeklyCron(yaml)).toEqual([digits, digits, '*', '*', weekday]);
@@ -153,6 +162,17 @@ describe('workflow file, job and key readers', () => {
         writeFileSync(join(dir, name), '');
       });
       expect(workflowFiles(dir)).toEqual(['a.yml', 'b.yaml']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('should refuse a workflow directory with no workflow in it', () => {
+    // Every roster keyed by this list would otherwise pass over zero files.
+    const dir = mkdtempSync(join(tmpdir(), 'mailoo-workflows-'));
+    try {
+      writeFileSync(join(dir, 'notes.txt'), '');
+      expect(() => workflowFiles(dir)).toThrow('no workflow files');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
