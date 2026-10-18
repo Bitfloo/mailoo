@@ -127,7 +127,9 @@ Write tools are omitted when `read_only` is true.
 
 `send_email` `attachments[]`: each item needs **`path`**, **`base64`**,
 or **`emailId` + `filename`** (copy from an existing message; `mailbox`
-defaults to INBOX). Optional `contentType`.
+defaults to INBOX). Optional `contentType`. When two attachments of the
+message share the copied `filename`, the item is refused, and so is
+`send_draft` for such a draft; see [`download_attachment`](#download_attachment).
 
 `path` must be a regular file under the process working directory or
 the user's home directory. A path segment that starts with `.` is

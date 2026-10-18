@@ -65,7 +65,7 @@ Policy and how to report a vulnerability: **[SECURITY.md](SECURITY.md)**.
 | Topic | Where |
 |-------|--------|
 | Sent APPEND, IMAP4rev2, Sieve, `read_only`, stdio EOF | [docs/configuration.md](docs/configuration.md) |
-| `savePath`, search dates, `get_email_security`, sieve tools, send/draft attachments, RFC 2047 | [docs/tools.md](docs/tools.md) |
+| `savePath`, search dates, `get_email_security`, sieve tools, send/draft attachments, RFC 2047, protected folders, busy-mailbox timeout, `bulk_action` ids, calendar attachment saves | [docs/tools.md](docs/tools.md) |
 | Performance notes | [docs/performance-roadmap.md](docs/performance-roadmap.md) |
 
 ## Background
