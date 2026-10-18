@@ -5,6 +5,12 @@ import path from 'node:path';
 import { parse as parseTOML } from 'smol-toml';
 
 import { SettingsSchema } from '../config/schema.js';
+import {
+  CONFIG_FAILING_SCHEMA,
+  CONFIG_WITH_PERSONAL,
+  CONFIG_WITH_PERSONAL_AND_WORK,
+  CONFIG_WITH_SYNTAX_ERROR,
+} from '../test-support/account-config-fixtures.js';
 
 /** Wizard answers keyed by prompt message; the account uses reserved example domains. */
 const ANSWERS: Record<string, string | boolean> = {
@@ -56,52 +62,6 @@ vi.mock('../connections/manager.js', () => ({
     testSmtp: async () => ({ success: true }),
   },
 }));
-
-/** Real shape: one account, then a table header the user left unclosed. */
-const CONFIG_WITH_SYNTAX_ERROR = `[[accounts]]
-name = "personal"
-email = "me@example.com"
-password = "secret"
-
-[accounts.imap]
-host = "imap.example.com"
-
-[accounts.smtp
-host = "smtp.example.com"
-`;
-
-/** Real shape: one account and a [settings] table with one value set by hand. */
-const CONFIG_WITH_PERSONAL = `[settings]
-rate_limit = 3
-
-[[accounts]]
-name = "personal"
-email = "me@example.com"
-password = "secret"
-
-[accounts.imap]
-host = "imap.example.com"
-
-[accounts.smtp]
-host = "smtp.example.com"
-`;
-
-/** Real shape: a second account appended after the first. */
-const CONFIG_WITH_PERSONAL_AND_WORK = `${CONFIG_WITH_PERSONAL}
-[[accounts]]
-name = "work"
-email = "work@example.com"
-password = "secret"
-
-[accounts.imap]
-host = "imap.example.com"
-
-[accounts.smtp]
-host = "smtp.example.com"
-`;
-
-/** Parses as TOML, fails the schema: the account email is not an address. */
-const CONFIG_FAILING_SCHEMA = CONFIG_WITH_PERSONAL.replace('me@example.com', 'nope');
 
 describe('mailoo account and setup', () => {
   let home: string;
