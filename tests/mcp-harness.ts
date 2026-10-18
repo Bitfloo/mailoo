@@ -45,10 +45,15 @@ export interface Publisher {
   succeedsOn?: number;
 }
 
-/** Run the publish step against a fake mcp-publisher; return its exit status, the calls and each pause. */
+/**
+ * Run the publish step against a fake mcp-publisher. Return its exit status, its stdout, the calls,
+ * each call's arguments as `[arg]...` and each pause.
+ */
 export function publish(publisher: Publisher): {
   status: number | null;
+  stdout: string;
   calls: number;
+  args: string[];
   pauses: string[];
 } {
   const temp = mkdtempSync(join(tmpdir(), 'mailoo-mcp-publish-'));
@@ -56,9 +61,11 @@ export function publish(publisher: Publisher): {
     const message = publisher.error === 'npm' ? npmNotShownYet : 'unauthorized';
     writeFileSync(join(temp, 'message'), `Error: ${message}\n`);
     writeFileSync(join(temp, 'calls'), '0');
+    writeFileSync(join(temp, 'args'), '');
     writeFileSync(join(temp, 'pauses'), '');
     script(join(temp, 'mcp-publisher'), [
       'n=$(($(cat calls) + 1)); echo "$n" > calls',
+      `printf '[%s]' "$@" >> args; echo >> args`,
       `if [ "$n" -eq ${publisher.succeedsOn ?? 0} ]; then exit 0; fi`,
       `cat message >&${publisher.stream === 'stderr' ? 2 : 1}`,
       `exit ${publisher.status}`,
@@ -66,14 +73,16 @@ export function publish(publisher: Publisher): {
     mkdirSync(join(temp, 'bin'));
     // The step pauses between attempts; the shim records each pause instead of waiting it out.
     script(join(temp, 'bin/sleep'), ['echo "$1" >> pauses']);
-    const { status } = runStep(runBlock(publishStep), temp, {
+    const { status, stdout } = runStep(runBlock(publishStep), temp, {
       PATH: `${join(temp, 'bin')}:${process.env.PATH}`,
       TMPDIR: temp,
     });
     const read = (name: string) => readFileSync(join(temp, name), 'utf8');
     return {
       status,
+      stdout,
       calls: Number(read('calls')),
+      args: read('args').split('\n').filter(Boolean),
       pauses: read('pauses').split('\n').filter(Boolean),
     };
   } finally {
