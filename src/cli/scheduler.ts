@@ -14,15 +14,18 @@ import path from 'node:path';
 
 import { loadConfig } from '../config/loader.js';
 import { createMailServices } from '../services/mail-services.js';
-import SchedulerService, { SCHEDULER_INTERVAL_MS } from '../services/scheduler.service.js';
+import SchedulerService from '../services/scheduler.service.js';
 import type { AppConfig, ScheduledEmail } from '../types/index.js';
+import {
+  buildCronLine,
+  buildLaunchdPlist,
+  CHECK_INTERVAL_SECONDS,
+  CRONTAB_MARKER,
+  LAUNCHD_LABEL,
+} from './scheduler-install.js';
 
-const LAUNCHD_LABEL = 'com.bitfloo.mailoo.scheduler';
 const LAUNCHD_PLIST_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents');
 const LAUNCHD_PLIST = path.join(LAUNCHD_PLIST_DIR, `${LAUNCHD_LABEL}.plist`);
-const CRONTAB_MARKER = '# mailoo scheduler';
-// The OS daemon runs the check as often as the server does.
-const CHECK_INTERVAL_SECONDS = SCHEDULER_INTERVAL_MS / 1000;
 
 export type CommandRunner = (file: string, args: readonly string[], input?: string) => string;
 
@@ -53,10 +56,6 @@ function crontabReadError(err: unknown): Error {
   const detail = stderrText(err).trim();
   const fallback = err instanceof Error ? err.message : String(err);
   return new Error(`Could not read the crontab: ${detail.length > 0 ? detail : fallback}`);
-}
-
-function quoteCronArg(value: string): string {
-  return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
 function readCrontab(run: CommandRunner): string | undefined {
@@ -102,37 +101,6 @@ export function removeCrontabLine(marker: string, run: CommandRunner = runComman
   const body = lines.join('\n');
   run('crontab', ['-'], body.endsWith('\n') ? body : `${body}\n`);
   return true;
-}
-
-export function buildLaunchdPlist(nodePath: string, cliPath: string): string {
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>${LAUNCHD_LABEL}</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>${nodePath}</string>
-    <string>${cliPath}</string>
-    <string>scheduler</string>
-    <string>check</string>
-  </array>
-  <key>StartInterval</key>
-  <integer>${CHECK_INTERVAL_SECONDS}</integer>
-  <key>StandardOutPath</key>
-  <string>/tmp/mailoo-scheduler.log</string>
-  <key>StandardErrorPath</key>
-  <string>/tmp/mailoo-scheduler.log</string>
-  <key>RunAtLoad</key>
-  <true/>
-</dict>
-</plist>`;
-}
-
-/** Cron counts whole minutes, so the minute field steps by the interval in minutes. */
-export function buildCronLine(nodePath: string, cliPath: string): string {
-  return `*/${CHECK_INTERVAL_SECONDS / 60} * * * * ${quoteCronArg(nodePath)} ${quoteCronArg(cliPath)} scheduler check ${CRONTAB_MARKER}`;
 }
 
 function getExecutablePath(): string {
