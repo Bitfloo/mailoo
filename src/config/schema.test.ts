@@ -1,7 +1,11 @@
+import { readFile } from 'node:fs/promises';
+
+import LOOPBACK_HOSTNAMES from '../utils/loopback.js';
 import {
   AccountConfigSchema,
   AppConfigFileSchema,
   ImapConfigSchema,
+  OAuth2ConfigSchema,
   SettingsSchema,
   SmtpConfigSchema,
   SystemOneConfigSchema,
@@ -112,6 +116,104 @@ describe('AccountConfigSchema', () => {
 
   it('rejects missing smtp', () => {
     expect(() => AccountConfigSchema.parse({ ...validAccount(), smtp: undefined })).toThrow();
+  });
+});
+
+// The token endpoint receives client_secret and refresh_token in the POST body.
+describe('OAuth2ConfigSchema custom endpoints', () => {
+  function customOAuth(endpoint: string) {
+    return {
+      provider: 'custom' as const,
+      client_id: 'id',
+      client_secret: 'secret',
+      refresh_token: 'token',
+      token_url: endpoint,
+      auth_url: endpoint,
+    };
+  }
+
+  it.each([
+    'https://auth.example.com/token',
+    'http://127.0.0.1:8080/token',
+    'http://[::1]:8080/token',
+    'http://localhost:8080/token',
+  ])('should accept %s', (endpoint) => {
+    expect(OAuth2ConfigSchema.safeParse(customOAuth(endpoint)).success).toBe(true);
+  });
+
+  it.each([
+    'http://auth.example.com/token',
+    'http://10.0.0.5/token',
+    'http://localhost.example.com/token',
+    'ftp://auth.example.com/token',
+    'not a url',
+  ])('should reject %s', (endpoint) => {
+    expect(OAuth2ConfigSchema.safeParse(customOAuth(endpoint)).success).toBe(false);
+  });
+
+  // Only plain http earns the loopback exception; another scheme is not https either.
+  it.each(['ftp://localhost/token', 'ws://127.0.0.1/token'])(
+    'should reject %s although its host is loopback',
+    (endpoint) => {
+      const config = { ...customOAuth('https://auth.example.com/token'), token_url: endpoint };
+      expect(OAuth2ConfigSchema.safeParse(config).success).toBe(false);
+    },
+  );
+
+  // Zod runs the https refine after .url() failed; a second issue would blame
+  // the scheme when the value is not a URL at all.
+  it('should report one issue for a token_url that is not a URL', () => {
+    const config = { ...customOAuth('https://auth.example.com/token'), token_url: 'not a url' };
+    expect(OAuth2ConfigSchema.safeParse(config).error?.issues).toHaveLength(1);
+  });
+
+  it('should reject an http token_url even when auth_url is https', () => {
+    const config = {
+      ...customOAuth('https://auth.example.com/authorize'),
+      token_url: 'http://auth.example.com/token',
+    };
+    expect(OAuth2ConfigSchema.safeParse(config).error?.issues[0]?.path).toEqual(['token_url']);
+  });
+
+  it('should reject an http auth_url even when token_url is https', () => {
+    const config = {
+      ...customOAuth('https://auth.example.com/token'),
+      auth_url: 'http://auth.example.com/authorize',
+    };
+    expect(OAuth2ConfigSchema.safeParse(config).error?.issues[0]?.path).toEqual(['auth_url']);
+  });
+
+  // The README and the rejection message list the hosts in prose; the
+  // loopback set is what the check reads.
+  it.each([
+    [
+      'README.md',
+      async () => {
+        const readme = await readFile(new URL('../../README.md', import.meta.url), 'utf8');
+        const sentence = /plain `http` is accepted only for ([^(]+)\(/.exec(readme)?.[1] ?? '';
+        return [...sentence.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
+      },
+    ],
+    [
+      'the rejection message',
+      async () => {
+        const { error } = OAuth2ConfigSchema.safeParse(
+          customOAuth('http://auth.example.com/token'),
+        );
+        const hosts = /http only for (.+)\)$/.exec(error?.issues[0]?.message ?? '')?.[1] ?? '';
+        return hosts.split(/, | or /);
+      },
+    ],
+  ])('should name exactly the loopback hosts in %s', async (_source, listedHosts) => {
+    const loopback = [...LOOPBACK_HOSTNAMES].map((host) => host.replace(/^\[|\]$/g, ''));
+
+    expect((await listedHosts()).sort()).toEqual(loopback.sort());
+  });
+
+  it('should name https in the rejection message', () => {
+    expect(() => OAuth2ConfigSchema.parse(customOAuth('http://auth.example.com/token'))).toThrow(
+      /https/,
+    );
   });
 });
 

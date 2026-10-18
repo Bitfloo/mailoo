@@ -23,7 +23,7 @@ import {
 
 import { CONFIG_FILE, configExists, loadRawConfig, saveConfig } from '../config/loader.js';
 import type { RawAccountConfig, RawAppConfig } from '../config/schema.js';
-import { AppConfigFileSchema, SystemOneConfigSchema } from '../config/schema.js';
+import { AppConfigFileSchema, SettingsSchema } from '../config/schema.js';
 import { testImap, testSmtp } from '../connections/probe.js';
 import type { AccountConfig } from '../types/index.js';
 import ensureInteractive from './guard.js';
@@ -292,9 +292,9 @@ async function resolveServerSettings(
         smtpPort: provider.smtp.port,
         smtpTls: provider.smtp.tls,
         smtpStarttls: provider.smtp.starttls,
-        smtpPoolEnabled: true,
-        smtpPoolMaxConnections: 1,
-        smtpPoolMaxMessages: 100,
+        smtpPoolEnabled: defaults?.smtpPoolEnabled ?? true,
+        smtpPoolMaxConnections: defaults?.smtpPoolMaxConnections ?? 1,
+        smtpPoolMaxMessages: defaults?.smtpPoolMaxMessages ?? 100,
       };
     }
   } else {
@@ -459,15 +459,9 @@ async function addAccount(): Promise<void> {
   ensureInteractive();
   intro('mailoo › Add Account');
 
-  let existingConfig: RawAppConfig | undefined;
-  const exists = await configExists();
-  if (exists) {
-    try {
-      existingConfig = await loadRawConfig();
-    } catch {
-      log.warning('Could not parse existing config. A new config will be created.');
-    }
-  }
+  // Only a missing file starts a new config: saving over one that failed to
+  // load would drop every account it holds.
+  const existingConfig = (await configExists()) ? await loadRawConfig() : undefined;
 
   // 1. Identity
   const identity = await promptAccountIdentity();
@@ -498,38 +492,7 @@ async function addAccount(): Promise<void> {
         accounts: [...existingConfig.accounts, newAccount],
       }
     : {
-        settings: {
-          rate_limit: 10,
-          read_only: false,
-          toolset: 'full',
-          save_to_sent: true,
-          watcher: {
-            enabled: false,
-            folders: ['INBOX'],
-            idle_timeout: 1740,
-          },
-          system_one: SystemOneConfigSchema.parse({}),
-          hooks: {
-            on_new_email: 'notify',
-            preset: 'priority-focus',
-            auto_label: false,
-            auto_flag: false,
-            batch_delay: 5,
-            rules: [],
-            alerts: {
-              desktop: false,
-              sound: false,
-              urgency_threshold: 'high',
-              webhook_url: '',
-              webhook_events: ['urgent', 'high'],
-              allow_private_webhooks: false,
-            },
-            auto_calendar: false,
-            calendar_name: '',
-            calendar_alarm_minutes: 15,
-            calendar_confirm: true,
-          },
-        },
+        settings: SettingsSchema.parse({}),
         accounts: [newAccount],
       };
 

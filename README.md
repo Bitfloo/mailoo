@@ -778,7 +778,7 @@ Outbound calls, child processes, files, and environment variables below are what
 | `https://accounts.google.com/o/oauth2/v2/auth` | Authorization URL for the operator's browser; the process does not fetch it | `src/services/oauth.service.ts` |
 | `https://login.microsoftonline.com/common/oauth2/v2.0/token` | Microsoft token refresh and code exchange | `src/services/oauth.service.ts` |
 | `https://login.microsoftonline.com/common/oauth2/v2.0/authorize` | Authorization URL for the operator's browser; the process does not fetch it | `src/services/oauth.service.ts` |
-| Custom `token_url` / `auth_url` | Same split when `oauth2.provider` is `custom` | `src/services/oauth.service.ts` |
+| Custom `token_url` / `auth_url` | Same split when `oauth2.provider` is `custom`. Config validation requires `https`; plain `http` is accepted only for `127.0.0.1`, `::1`, or `localhost` (`src/config/schema.ts`) | `src/services/oauth.service.ts` |
 | Configured webhook URL (`http` or `https` POST) | Alerts, after a DNS lookup of that host | `src/services/notifier.service.ts`, `src/safety/validation.ts` |
 | `https://api.typesafe.ai` (or `TYPESAFE_BASE_URL`) | System One classification, only when that integration is on. Fields sent: [System One](#system-one-opt-in-typed-filing) | `src/services/mail-arrival/index.ts` |
 
@@ -804,7 +804,7 @@ Paths follow the XDG defaults in `src/config/xdg.ts` unless `XDG_CONFIG_HOME`, `
 | Path | What is written | Code |
 |---|---|---|
 | `$XDG_CONFIG_HOME/mailoo/config.toml` (mode `0600`) | Accounts and settings, including passwords and OAuth secrets | `src/config/loader.ts` |
-| `$XDG_DATA_HOME/mailoo/audit.log` | Append-only audit lines | `src/safety/audit.ts` |
+| `$XDG_DATA_HOME/mailoo/audit.log` | Append-only audit lines. File and directory modes: [SECURITY.md](SECURITY.md#security-considerations) | `src/safety/audit.ts` |
 | `$XDG_STATE_HOME/mailoo/scheduled/` and `scheduled/sent/` | Scheduled-send JSON records (mode `0600`), replaced through a temp file and rename | `src/services/scheduler.service.ts` |
 | `$XDG_DATA_HOME/mailoo/calendar-attachments/` | Attachment files saved for a calendar event | `src/services/imap.service.ts` |
 | `$XDG_STATE_HOME/mailoo/mailbox-writers.lock` | Which `stdio` server runs hooks, the watcher and the scheduler. The holder refreshes it and deletes it on shutdown; timings in [configuration](docs/configuration.md#one-mailbox-writer-per-machine) | `src/safety/writer-lease.ts` |
@@ -813,7 +813,7 @@ Paths follow the XDG defaults in `src/config/xdg.ts` unless `XDG_CONFIG_HOME`, `
 | OS temp directory, `mailoo-event-*.ics` | Linux calendar file passed to `xdg-open` | `src/services/local-calendar.service.ts` |
 | `~/Library/LaunchAgents/com.bitfloo.mailoo.scheduler.plist` | macOS scheduler agent. Its stdout and stderr are `/tmp/mailoo-scheduler.log` | `src/cli/scheduler-install.ts`, `src/cli/scheduler.ts` |
 | User crontab | One Mailoo line on Linux | `src/cli/scheduler-install.ts` |
-| MCP client config (Claude, Cursor, Windsurf) | `mailoo install` merges the launch entry | `src/cli/install-commands.ts` |
+| MCP client config (Claude, Cursor, Windsurf) | `mailoo install` merges the launch entry and replaces the file through a temp file and rename (mode `0600`). A file that is not a JSON object (for example JSON with comments) is left unchanged and the command stops | `src/cli/install-commands.ts`, `src/cli/client-config.ts` |
 
 Templates under `$XDG_CONFIG_HOME/mailoo/templates/` are read, not written by the server.
 

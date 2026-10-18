@@ -20,6 +20,7 @@ import {
   specificRoot,
 } from '../safety/local-paths.js';
 import type ImapService from '../services/imap.service.js';
+import isEnoent from '../utils/fs-errors.js';
 import { accountParam, emailIdInputFields, resolveEmailId } from './schema-helpers.js';
 
 const BYTES_PER_MEBIBYTE = 1024 * 1024;
@@ -57,10 +58,6 @@ function errnoOf(err: unknown): string | undefined {
   if (typeof err !== 'object' || err === null || !('code' in err)) return undefined;
   const { code } = err as { code?: unknown };
   return typeof code === 'string' ? code : undefined;
-}
-
-function isEnoent(err: unknown): boolean {
-  return errnoOf(err) === 'ENOENT';
 }
 
 export function attachmentOpenFailure(err: unknown): Error {
