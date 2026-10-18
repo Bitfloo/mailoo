@@ -81,6 +81,17 @@ variables = ["name"]
     expect(result).toEqual({ subject: '{{toString}}', body: '{{constructor}} Al' });
   });
 
+  it('should substitute a variable with capitals, digits and underscores', async () => {
+    const tmpl = `name = "caps"
+subject = "Re {{First_Name2}}"
+body = "Hi {{First_Name2}}"
+variables = ["First_Name2"]
+`;
+    await fs.writeFile(path.join(tempDir, 'caps.toml'), tmpl);
+    const result = await service.applyTemplate('caps', { First_Name2: 'Ada' });
+    expect(result).toMatchObject({ subject: 'Re Ada', body: 'Hi Ada' });
+  });
+
   it('handles same variable used multiple times', async () => {
     const result = await service.applyTemplate('greeting', { name: 'Bob', company: 'Co' });
     expect(result.subject).toBe('Hello Bob');
@@ -256,6 +267,34 @@ describe('TemplateService', () => {
     const template = await service.getTemplate('numbered');
 
     expect(template.description).toBeUndefined();
+  });
+
+  it("should list a template's description, subject, body and variables", async () => {
+    await fs.writeFile(path.join(tempDir, 'greeting.toml'), VALID_TEMPLATE);
+
+    await expect(service.listTemplates()).resolves.toEqual([
+      {
+        name: 'greeting',
+        description: 'A greeting template',
+        subject: 'Hello {{name}}',
+        body: 'Dear {{name}}, welcome to {{company}}!',
+        variables: ['name', 'company'],
+      },
+    ]);
+  });
+
+  it('should name every template, comma-separated, in the not-found message', async () => {
+    await fs.writeFile(path.join(tempDir, 'greeting.toml'), VALID_TEMPLATE);
+    await fs.writeFile(path.join(tempDir, 'minimal.toml'), MINIMAL_TEMPLATE);
+
+    const message = await service.getTemplate('nope').catch((err: Error) => err.message);
+
+    // readdir order is up to the file system, so the names are compared as a set.
+    const [lead, names = ''] = String(message).split('Available: ');
+    expect({ lead, names: names.split(', ').sort() }).toEqual({
+      lead: 'Template "nope" not found. ',
+      names: ['greeting', 'minimal'],
+    });
   });
 
   it('should name none as available when no template exists', async () => {
