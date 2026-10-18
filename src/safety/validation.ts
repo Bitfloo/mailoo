@@ -14,7 +14,7 @@ import { z } from 'zod';
 export const recipientEmail = z.string().regex(z.regexes.html5Email);
 
 /** IMAP UID is an nz-number: 1 through 2^32-1, with no leading zeros (RFC 9051). */
-const MAX_MESSAGE_UID = 4_294_967_295;
+export const MAX_MESSAGE_UID = 4_294_967_295;
 
 /**
  * Validate and sanitize an IMAP mailbox name.

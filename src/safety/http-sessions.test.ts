@@ -1,10 +1,117 @@
-import HttpSessionStore from './http-sessions.js';
+import { readFile } from 'node:fs/promises';
+
+import seededRandom from '../test-support/seeded-random.js';
+import type { SessionTransport } from './http-sessions.js';
+import HttpSessionStore, {
+  DEFAULT_HTTP_MAX_SESSIONS,
+  DEFAULT_HTTP_SESSION_TTL_MS,
+} from './http-sessions.js';
 
 function fakeTransport() {
   return { close: vi.fn().mockResolvedValue(undefined) };
 }
 
+const MAX = 3;
+const TTL = 1_000;
+
+/** The store under test beside a model of each live session's open requests and idle clock. */
+interface Run {
+  clock: { now: number };
+  store: HttpSessionStore<ReturnType<typeof fakeTransport>>;
+  open: Map<string, number>;
+  lastUsed: Map<string, number>;
+  evicted: { ttl: number; cap: number };
+}
+
+interface Step {
+  action: 'set' | 'begin' | 'end' | 'wait' | 'sweep';
+  added?: string;
+  swept: boolean;
+  overCap: boolean;
+}
+
+function newRun(): Run {
+  const clock = { now: 0 };
+  const store = new HttpSessionStore<ReturnType<typeof fakeTransport>>(MAX, TTL, () => clock.now);
+  return { clock, store, open: new Map(), lastUsed: new Map(), evicted: { ttl: 0, cap: 0 } };
+}
+
+function pickAction(roll: number, present: boolean): Step['action'] {
+  if (roll < 0.2) return present ? 'begin' : 'set';
+  if (roll < 0.6) return 'end';
+  if (roll < 0.85) return 'wait';
+  return 'sweep';
+}
+
+const APPLY: Record<Step['action'], (run: Run, id: string, random: () => number) => void> = {
+  set: ({ clock, store, open, lastUsed }, id) => {
+    store.set(id, fakeTransport());
+    open.set(id, 0);
+    lastUsed.set(id, clock.now);
+  },
+  begin: ({ clock, store, open, lastUsed }, id) => {
+    store.beginRequest(id);
+    open.set(id, (open.get(id) ?? 0) + 1);
+    lastUsed.set(id, clock.now);
+  },
+  end: ({ store, open }, id) => {
+    store.endRequest(id);
+    if (open.has(id)) open.set(id, Math.max(0, (open.get(id) ?? 0) - 1));
+  },
+  wait: (run, _id, random) => {
+    const { clock } = run;
+    clock.now += Math.floor(random() * 800);
+  },
+  sweep: ({ store }) => {
+    store.evict();
+  },
+};
+
+function applyRandomAction(run: Run, random: () => number): Step {
+  const roll = random();
+  const id = `s${Math.floor(random() * 8)}`;
+  const { size } = run.store;
+  const action = pickAction(roll, run.store.get(id) !== undefined);
+  APPLY[action](run, id, random);
+  if (action === 'set') return { action, added: id, swept: true, overCap: size >= MAX };
+  return { action, swept: action === 'sweep', overCap: size > MAX };
+}
+
+/** What a session's fate after one step says about the table, if it breaks a promise. */
+function sessionBreach(present: boolean, idle: boolean, expired: boolean, step: Step) {
+  if (!present && !idle) return 'active, evicted';
+  if (!present && !expired && !step.overCap) return 'evicted early';
+  if (present && idle && expired && step.swept) return 'expired, kept';
+  return undefined;
+}
+
+function checkInvariants(run: Run, step: Step, at: number): string[] {
+  const { clock, store, open, lastUsed, evicted } = run;
+  const breaches: string[] = [];
+  for (const id of [...open.keys()]) {
+    const present = store.get(id) !== undefined;
+    const expired = clock.now - (lastUsed.get(id) ?? clock.now) > TTL;
+    const breach = sessionBreach(present, open.get(id) === 0, expired, step);
+    if (breach) breaches.push(`step ${at}: ${id} ${breach}`);
+    if (!present) {
+      evicted[expired ? 'ttl' : 'cap'] += 1;
+      open.delete(id);
+      lastUsed.delete(id);
+    }
+  }
+  const idleKept = Array.from(open.entries()).filter(([id, n]) => n === 0 && id !== step.added);
+  if (step.swept && store.size > MAX && idleKept.length > 0) {
+    breaches.push(`step ${at}: ${store.size} sessions over a cap of ${MAX}`);
+  }
+  return breaches;
+}
+
 describe('HttpSessionStore', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
   it('evicts the oldest idle session when over max', () => {
     let now = 1_000;
     const store = new HttpSessionStore(2, 60_000, () => now);
@@ -50,6 +157,131 @@ describe('HttpSessionStore', () => {
     expect(a.close).toHaveBeenCalled();
   });
 
+  it('should keep a session idle for exactly the TTL and evict it one millisecond later', () => {
+    let now = 0;
+    const store = new HttpSessionStore(32, 1_000, () => now);
+    const a = fakeTransport();
+    store.set('a', a);
+
+    now = 1_000;
+    store.evict();
+    const atTtl = store.get('a');
+    now = 1_001;
+    store.evict();
+
+    expect({ atTtl, afterTtl: store.get('a') }).toEqual({ atTtl: a, afterTtl: undefined });
+  });
+
+  it('should hold 32 sessions by default and evict the oldest idle one for the 33rd', () => {
+    vi.useFakeTimers({ now: 0 });
+    const store = new HttpSessionStore<SessionTransport>();
+    Array.from({ length: 33 }).forEach((_, i) => {
+      store.set(`s${i}`, fakeTransport());
+      vi.advanceTimersByTime(1);
+    });
+
+    expect({
+      size: store.size,
+      oldest: store.get('s0'),
+      kept: store.get('s1') !== undefined,
+    }).toEqual({ size: 32, oldest: undefined, kept: true });
+  });
+
+  it('should keep a session idle for 30 minutes by default and evict it one millisecond later', () => {
+    vi.useFakeTimers({ now: 0 });
+    const store = new HttpSessionStore<SessionTransport>();
+    const a = fakeTransport();
+    store.set('a', a);
+
+    vi.advanceTimersByTime(30 * 60_000);
+    store.evict();
+    const atTtl = store.get('a');
+    vi.advanceTimersByTime(1);
+    store.evict();
+
+    expect({ atTtl, afterTtl: store.get('a') }).toEqual({ atTtl: a, afterTtl: undefined });
+  });
+
+  // Operators size clients by the documented numbers; the defaults are what the host uses.
+  it('should state the default idle TTL and session cap in docs/configuration.md', async () => {
+    const doc = await readFile(new URL('../../docs/configuration.md', import.meta.url), 'utf8');
+    const limits = /idle for more than \*\*(\d+) minutes\*\*.* past \*\*(\d+)\*\* sessions/;
+    const stated = limits.exec(doc);
+
+    expect({ minutes: Number(stated?.[1]), cap: Number(stated?.[2]) }).toEqual({
+      minutes: DEFAULT_HTTP_SESSION_TTL_MS / 60_000,
+      cap: DEFAULT_HTTP_MAX_SESSIONS,
+    });
+  });
+
+  // The host deletes a session from its transport's onclose; closing it again
+  // from here would close an already closed transport.
+  it('should forget a deleted session and leave its transport unclosed', () => {
+    const store = new HttpSessionStore(32, 1_000, () => 0);
+    const a = fakeTransport();
+    store.set('a', a);
+
+    store.delete('a');
+
+    expect({ a: store.get('a'), size: store.size, closes: a.close.mock.calls.length }).toEqual({
+      a: undefined,
+      size: 0,
+      closes: 0,
+    });
+  });
+
+  it('should still expire a session after endRequest is called without a matching beginRequest', () => {
+    let now = 0;
+    const store = new HttpSessionStore(32, 1_000, () => now);
+    const a = fakeTransport();
+    store.set('a', a);
+    store.endRequest('a');
+
+    now = 1_001;
+    store.evict();
+
+    expect(store.get('a')).toBeUndefined();
+  });
+
+  it('should restart the idle clock when a request begins', () => {
+    let now = 0;
+    const store = new HttpSessionStore(32, 1_000, () => now);
+    const a = fakeTransport();
+    store.set('a', a);
+    now = 900;
+    store.beginRequest('a');
+    store.endRequest('a');
+
+    now = 1_500;
+    store.evict();
+
+    expect(store.get('a')).toBe(a);
+  });
+
+  // The examples above pin one step each; a long random mix must keep the
+  // same promises.
+  it('should keep the table invariants over a seeded mix of sessions, requests, waits and sweeps', () => {
+    const run = newRun();
+    const random = seededRandom(20_261_017);
+    // One visit per path let a run reach the cap once and pass, and begins that outran ends
+    // kept sessions busy, so 5 evictions were by TTL. This seed draws 410 sets (218 at the
+    // cap), 207 begins, 1,202 ends, 731 waits and 450 sweeps, and evicts 248 sessions by
+    // TTL and 160 by the cap.
+    const visits = { set: 0, setAtCap: 0, begin: 0, end: 0, wait: 0, sweep: 0 };
+
+    const breaches: string[] = [];
+    for (let at = 0; at < 3_000; at += 1) {
+      const step = applyRandomAction(run, random);
+      visits[step.action] += 1;
+      if (step.action === 'set' && step.overCap) visits.setAtCap += 1;
+      breaches.push(...checkInvariants(run, step, at));
+    }
+    const thin = Object.entries(visits).flatMap(([path, n]) => (n < 40 ? [path] : []));
+    const rare = Object.entries(run.evicted).flatMap(([cause, n]) => (n <= 20 ? [cause] : []));
+
+    expect({ breaches, thin, rare }).toEqual({ breaches: [], thin: [], rare: [] });
+  });
+
   it('writes stderr when transport.close rejects', async () => {
     const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     let now = 1_000;
@@ -62,5 +294,25 @@ describe('HttpSessionStore', () => {
       expect(write.mock.calls.some((call) => String(call[0]).includes('close failed'))).toBe(true);
     });
     write.mockRestore();
+  });
+
+  it('should write the failure to stderr and keep evicting when transport.close throws synchronously', () => {
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let now = 0;
+    const store = new HttpSessionStore<SessionTransport>(32, 1_000, () => now);
+    store.set('a', {
+      close: () => {
+        throw new Error('boom');
+      },
+    });
+    store.set('b', fakeTransport());
+
+    now = 1_001;
+    store.evict();
+
+    expect({ logged: write.mock.calls.map((call) => call[0]), b: store.get('b') }).toEqual({
+      logged: ['[mailoo] HTTP session close failed: boom\n'],
+      b: undefined,
+    });
   });
 });

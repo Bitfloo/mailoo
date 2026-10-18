@@ -4,19 +4,16 @@
  * Idle sessions are closed by the session table.
  */
 
-import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 
 import { SCHEDULED_DIR } from '../config/xdg.js';
 import type ConnectionManager from '../connections/manager.js';
-import { bindServer, markInitialized, mcpLog } from '../logging.js';
-import registerAllPrompts from '../prompts/register.js';
-import registerAllResources from '../resources/register.js';
-import createServer, { PKG_VERSION } from '../server.js';
+import { mcpLog } from '../logging.js';
+import { PKG_VERSION } from '../server.js';
 import type CalendarService from '../services/calendar.service.js';
 import { EmailEventBus } from '../services/event-bus.js';
 import HooksService from '../services/hooks.service.js';
@@ -28,15 +25,20 @@ import SchedulerService from '../services/scheduler.service.js';
 import SmtpService from '../services/smtp.service.js';
 import type TemplateService from '../services/template.service.js';
 import WatcherService from '../services/watcher.service.js';
-import registerAllTools from '../tools/register.js';
 import type { AppConfig } from '../types/index.js';
 import type { HttpSessionScope } from './http-session-scope.js';
-import { createHttpSessionScope } from './http-session-scope.js';
+import type { OpenedSession, SessionLifecycle } from './http-session-setup.js';
+import openSession from './http-session-setup.js';
 import HttpSessionStore, {
   DEFAULT_HTTP_MAX_SESSIONS,
   DEFAULT_HTTP_SESSION_TTL_MS,
 } from './http-sessions.js';
-import { readLimitedBody, resolveHttpRoute } from './http-transport.js';
+import {
+  allowedMethods,
+  readLimitedBody,
+  resolveHttpRoute,
+  rpcErrorBody,
+} from './http-transport.js';
 import RateLimiter from './rate-limiter.js';
 import { maybeStartMailboxWriters } from './write-side-effects.js';
 
@@ -77,6 +79,11 @@ interface SamplingCandidate {
   order: number;
 }
 
+function sendRpcError(res: ServerResponse, status: number, code: number, message: string): void {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(rpcErrorBody(code, message));
+}
+
 export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<HttpMcpHost> {
   const events = new EmailEventBus();
   const rateLimiter = new RateLimiter(options.config.settings.rateLimit);
@@ -102,7 +109,7 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
     options.now,
   );
   const scopes = new Map<string, HttpSessionScope>();
-  const disposing: Promise<void>[] = [];
+  const disposing = new Set<Promise<void>>();
   const canWrite = !options.config.settings.readOnly;
 
   // Never call a disposed session's server. The newest sampling client wins
@@ -187,16 +194,63 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
     }
   };
 
+  // Node ends the process on an unhandled rejection, so a failed dispose is
+  // reported here. A settled entry leaves the set: a long-lived host would
+  // otherwise keep one promise per closed session.
+  const trackDispose = (scope: HttpSessionScope): void => {
+    const pending: Promise<void> = scope
+      .dispose()
+      .catch((err: unknown) => {
+        process.stderr.write(
+          `[mailoo] HTTP session dispose failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      })
+      .finally(() => {
+        disposing.delete(pending);
+      });
+    disposing.add(pending);
+  };
+
   const release = (sid: string, scope: HttpSessionScope): void => {
     sessions.delete(sid);
     scopes.delete(sid);
-    disposing.push(scope.dispose());
+    trackDispose(scope);
+  };
+
+  const services = { ...options, events, smtp, scheduler, watcher, hooks };
+  const lifecycle: SessionLifecycle = {
+    registered: (id, transport, scope) => {
+      sessions.set(id, transport);
+      scopes.set(id, scope);
+      sessions.beginRequest(id);
+    },
+    closed: release,
+    disposed: (sid) => {
+      candidates.delete(sid);
+      applySamplingTarget();
+    },
+    initialized: (sid, server) => {
+      candidates.set(sid, {
+        server,
+        sampling: (server.getClientCapabilities?.()?.sampling ?? null) != null,
+        order: samplingOrder,
+      });
+      samplingOrder += 1;
+      if (!bootStarted) {
+        bootStarted = true;
+        ready = bootWriters(server);
+      } else {
+        applySamplingTarget();
+      }
+    },
+    abandoned: trackDispose,
   };
 
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const route = resolveHttpRoute(req.method, req.url);
+    // Only /health gets here: the guard refuses methods outside GET, POST and DELETE first.
     if (route === 'method') {
-      res.writeHead(405, { Allow: req.url === '/health' ? 'GET' : 'GET, POST, DELETE' });
+      res.writeHead(405, { Allow: allowedMethods(req.url) });
       res.end();
       return;
     }
@@ -218,14 +272,7 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
         try {
           body = JSON.parse(raw.toString());
         } catch {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(
-            JSON.stringify({
-              jsonrpc: '2.0',
-              error: { code: -32700, message: 'Parse error' },
-              id: null,
-            }),
-          );
+          sendRpcError(res, 400, -32700, 'Parse error');
           return;
         }
       }
@@ -234,112 +281,37 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
     const sessionIdHeader = req.headers['mcp-session-id'];
     const sessionId = Array.isArray(sessionIdHeader) ? sessionIdHeader[0] : sessionIdHeader;
     let transport: StreamableHTTPServerTransport;
-    let trackedId = sessionId;
-    let created: HttpSessionScope | undefined;
-    let registered = false;
+    let opened: OpenedSession | undefined;
 
-    const existing = sessionId ? sessions.get(sessionId) : undefined;
-    if (existing && sessionId) {
-      transport = existing;
-      sessions.touch(sessionId);
-    } else if (!sessionId && req.method === 'POST' && isInitializeRequest(body)) {
-      try {
-        const sid = randomUUID();
-        // SDK binds one transport per McpServer.
-        const mcpServer = createServer();
-        const scope = createHttpSessionScope({
-          id: sid,
-          server: mcpServer.server,
-          events,
-          smtp,
-          scheduler,
-          onDispose: () => {
-            candidates.delete(sid);
-            applySamplingTarget();
-          },
-        });
-        created = scope;
-        const newTransport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => sid,
-          onsessioninitialized: (initializedId) => {
-            sessions.set(initializedId, newTransport);
-            scopes.set(initializedId, scope);
-            sessions.beginRequest(initializedId);
-            trackedId = initializedId;
-            registered = true;
-          },
-        });
-        newTransport.onclose = () => {
-          release(newTransport.sessionId ?? sid, scope);
-        };
-        bindServer(mcpServer);
-        registerAllTools(
-          mcpServer,
-          options.connections,
-          options.imap,
-          smtp,
-          options.config,
-          options.templateService,
-          options.calendarService,
-          options.localCalendarService,
-          options.remindersService,
-          scheduler,
-          watcher,
-          hooks,
-        );
-        registerAllResources(
-          mcpServer,
-          options.connections,
-          options.imap,
-          options.templateService,
-          scheduler,
-        );
-        registerAllPrompts(mcpServer);
-        await mcpServer.connect(newTransport);
-
-        const ls = mcpServer.server;
-        ls.oninitialized = () => {
-          markInitialized();
-          candidates.set(sid, {
-            server: ls,
-            sampling: (ls.getClientCapabilities?.()?.sampling ?? null) != null,
-            order: samplingOrder,
-          });
-          samplingOrder += 1;
-          if (!bootStarted) {
-            bootStarted = true;
-            ready = bootWriters(ls);
-          } else {
-            applySamplingTarget();
-          }
-        };
-
-        transport = newTransport;
-      } catch (err) {
-        if (created && !registered) disposing.push(created.dispose());
-        throw err;
+    if (sessionId) {
+      const existing = sessions.get(sessionId);
+      if (!existing) {
+        // Streamable HTTP: 404 tells the client its session is gone and it must
+        // initialize again. A 400 left a client evicted by the idle TTL stuck.
+        sendRpcError(res, 404, -32001, 'Session not found');
+        return;
       }
+      transport = existing;
+      sessions.beginRequest(sessionId);
+    } else if (req.method === 'POST' && isInitializeRequest(body)) {
+      opened = await openSession(services, lifecycle);
+      transport = opened.transport;
     } else {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          error: {
-            code: -32000,
-            message: 'Bad Request: provide mcp-session-id or send an initialize request',
-          },
-          id: null,
-        }),
+      sendRpcError(
+        res,
+        400,
+        -32000,
+        'Bad Request: provide mcp-session-id or send an initialize request',
       );
       return;
     }
 
-    if (trackedId && !registered) sessions.beginRequest(trackedId);
     try {
       await transport.handleRequest(req, res, body);
     } finally {
+      const trackedId = sessionId ?? opened?.registration.id;
       if (trackedId) sessions.endRequest(trackedId);
-      if (created && !registered) disposing.push(created.dispose());
+      if (opened && opened.registration.id === undefined) trackDispose(opened.scope);
       sessions.evict();
     }
   };
@@ -362,7 +334,7 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
       }
       hooks.stop();
       await watcher.stop();
-      await Promise.allSettled(disposing);
+      await Promise.allSettled([...disposing]);
       await Promise.allSettled([...scopes.values()].map(async (scope) => scope.dispose()));
     },
   };

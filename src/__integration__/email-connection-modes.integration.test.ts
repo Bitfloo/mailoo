@@ -28,7 +28,7 @@ describe('Connection Modes', () => {
     beforeAll(async () => {
       services = createTestServices(account);
       await seedEmail({ subject: 'Plain mode test' });
-      await waitForDelivery();
+      await waitForDelivery('Plain mode test');
     });
 
     afterAll(async () => {
@@ -198,7 +198,7 @@ describe('Connection Modes', () => {
         subject: 'Cross-mode plain-to-ssl',
         body: 'Sent plain, read SSL',
       });
-      await waitForDelivery();
+      await waitForDelivery('Cross-mode plain-to-ssl');
 
       const list = await sslServices.imapService.listEmails('integration-ssl', {
         subject: 'Cross-mode plain-to-ssl',
@@ -212,7 +212,7 @@ describe('Connection Modes', () => {
         subject: 'Cross-mode ssl-to-plain',
         body: 'Sent SSL, read plain',
       });
-      await waitForDelivery();
+      await waitForDelivery('Cross-mode ssl-to-plain');
 
       const list = await plainServices.imapService.listEmails('integration', {
         subject: 'Cross-mode ssl-to-plain',

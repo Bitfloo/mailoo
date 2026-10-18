@@ -10,9 +10,13 @@
  * written to stdout and breaking clients.
  *
  * Usage:
- *   bindServer(server)       — call once after creating the McpServer
- *   markInitialized()        — call from the `oninitialized` callback
+ *   bindServer(server)       — call after creating each McpServer
+ *   markInitialized(server)  — call from that server's `oninitialized` callback
+ *   unbindServer(server)     — call when an HTTP session is disposed
  *   mcpLog("info", …)        — fire-and-forget from anywhere
+ *
+ * Logs are process-wide (one principal), so every live, initialized session
+ * receives them.
  */
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -27,27 +31,45 @@ type LogLevel =
   | 'alert'
   | 'emergency';
 
-let mcpServerRef: McpServer | null = null;
-
-/** `true` only after the client has completed the MCP `initialized` handshake. */
-let initialized = false;
+/** Bound servers; the value is `true` once that client completed the `initialized` handshake. */
+const servers = new Map<McpServer, boolean>();
 
 /**
  * Bind an McpServer instance so subsequent `mcpLog()` calls
- * are forwarded to the connected client.
+ * are forwarded to its client once it is marked initialized.
  */
 export function bindServer(server: McpServer): void {
-  mcpServerRef = server;
+  if (!servers.has(server)) servers.set(server, false);
+}
+
+export function unbindServer(server: McpServer): void {
+  servers.delete(server);
 }
 
 /**
- * Mark the server as fully initialized (handshake complete).
+ * Mark a server as fully initialized (handshake complete).
  *
  * Call this from the `server.server.oninitialized` callback so that
- * `mcpLog()` starts forwarding messages to the client.
+ * `mcpLog()` starts forwarding messages to the client. Without an argument
+ * it marks every bound server, which is the single stdio server.
  */
-export function markInitialized(): void {
-  initialized = true;
+export function markInitialized(server?: McpServer): void {
+  if (server) {
+    if (servers.has(server)) servers.set(server, true);
+    return;
+  }
+  [...servers.keys()].forEach((bound) => {
+    servers.set(bound, true);
+  });
+}
+
+/**
+ * Number of bound servers. Exported for tests only: they prove a disposed
+ * session's server is released, which no log output can show.
+ * @internal
+ */
+export function boundServerCount(): number {
+  return servers.size;
 }
 
 /**
@@ -56,23 +78,28 @@ export function markInitialized(): void {
  */
 // eslint-disable-next-line @typescript-eslint/naming-convention, no-underscore-dangle
 export function __resetForTesting(): void {
-  mcpServerRef = null;
-  initialized = false;
+  servers.clear();
 }
 
 /**
  * Emit a structured log message over the MCP logging channel.
  *
- * Safe to call at any point — silently dropped when:
- *   • the server hasn't been bound yet
- *   • the transport isn't connected
- *   • the MCP handshake hasn't completed (`markInitialized()` not called)
+ * Safe to call at any point — a server is skipped when:
+ *   • it hasn't been bound, or was unbound
+ *   • its transport isn't connected
+ *   • its MCP handshake hasn't completed (`markInitialized()` not called)
  */
 export async function mcpLog(level: LogLevel, logger: string, data: unknown): Promise<void> {
-  if (!initialized || !mcpServerRef?.isConnected()) return;
-  try {
-    await mcpServerRef.sendLoggingMessage({ level, logger, data });
-  } catch {
-    // Never let a logging failure break tool execution
-  }
+  const targets = [...servers]
+    .filter(([server, initialized]) => initialized && server.isConnected())
+    .map(([server]) => server);
+  await Promise.all(
+    targets.map(async (server) => {
+      try {
+        await server.sendLoggingMessage({ level, logger, data });
+      } catch {
+        // Never let a logging failure break tool execution
+      }
+    }),
+  );
 }

@@ -47,7 +47,7 @@ describe('Email Label Operations', () => {
   beforeAll(async () => {
     services = createTestServices(buildTestAccount());
     await seedEmail({ subject: 'Label test email' });
-    await waitForDelivery();
+    await waitForDelivery('Label test email');
   });
 
   afterAll(async () => {
@@ -130,7 +130,7 @@ describe('Email Label Operations', () => {
 
     it('should return isError and leave FLAGS without \\Deleted when add_label is a system flag', async () => {
       await seedEmail({ subject: 'System flag label refusal' });
-      await waitForDelivery();
+      await waitForDelivery('System flag label refusal');
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'System flag label refusal',
       });

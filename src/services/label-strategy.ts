@@ -9,6 +9,8 @@
 
 import type { ImapFlow } from 'imapflow';
 import type { LabelInfo, LabelStrategyType } from '../types/index.js';
+import lockMailbox from './mailbox-lock.js';
+import assertMailboxRemovable from './protected-mailboxes.js';
 
 // ---------------------------------------------------------------------------
 // Strategy interface
@@ -48,7 +50,7 @@ function createProtonMailStrategy(): LabelStrategy {
 
     addLabel: async (client, emailId, mailbox, label) => {
       const targetPath = `${LABELS_PREFIX}${label}`;
-      const lock = await client.getMailboxLock(mailbox);
+      const lock = await lockMailbox(client, mailbox);
       try {
         const result = await client.messageCopy(emailId, targetPath, { uid: true });
         if (!result) {
@@ -65,7 +67,7 @@ function createProtonMailStrategy(): LabelStrategy {
       const labelPath = `${LABELS_PREFIX}${label}`;
 
       // Fetch Message-ID from source mailbox
-      const srcLock = await client.getMailboxLock(mailbox);
+      const srcLock = await lockMailbox(client, mailbox);
       let messageId: string | undefined;
       try {
         const msg = await client.fetchOne(emailId, { envelope: true }, { uid: true });
@@ -82,7 +84,7 @@ function createProtonMailStrategy(): LabelStrategy {
       }
 
       // Find the email's UID inside the label folder and delete it
-      const labelLock = await client.getMailboxLock(labelPath);
+      const labelLock = await lockMailbox(client, labelPath);
       try {
         const results = await client.search({ header: { 'message-id': messageId } }, { uid: true });
         if (!results || !Array.isArray(results) || results.length === 0) {
@@ -151,7 +153,7 @@ function createGmailStrategy(): LabelStrategy {
 
     addLabel: async (client, emailId, mailbox, label) => {
       assertGmailLabel(label);
-      const lock = await client.getMailboxLock(mailbox);
+      const lock = await lockMailbox(client, mailbox);
       try {
         const result = await client.messageFlagsAdd(emailId, [label], {
           uid: true,
@@ -167,7 +169,7 @@ function createGmailStrategy(): LabelStrategy {
 
     removeLabel: async (client, emailId, mailbox, label) => {
       assertGmailLabel(label);
-      const lock = await client.getMailboxLock(mailbox);
+      const lock = await lockMailbox(client, mailbox);
       try {
         const result = await client.messageFlagsRemove(emailId, [label], {
           uid: true,
@@ -186,6 +188,8 @@ function createGmailStrategy(): LabelStrategy {
     },
 
     deleteLabel: async (client, name) => {
+      // A Gmail label is a folder, so INBOX and [Gmail]/Trash are reachable by name.
+      await assertMailboxRemovable(client, name, 'delete');
       await client.mailboxDelete(name);
     },
   };
@@ -213,7 +217,7 @@ function createKeywordStrategy(): LabelStrategy {
     listLabels: async (client) => {
       // IMAP keywords cannot be enumerated server-wide.
       // We sample the INBOX's PERMANENTFLAGS for known keywords.
-      const lock = await client.getMailboxLock('INBOX');
+      const lock = await lockMailbox(client, 'INBOX');
       try {
         const status = client.mailbox;
         const keywords: LabelInfo[] = [];
@@ -233,7 +237,7 @@ function createKeywordStrategy(): LabelStrategy {
 
     addLabel: async (client, emailId, mailbox, label) => {
       assertKeywordLabel(label);
-      const lock = await client.getMailboxLock(mailbox);
+      const lock = await lockMailbox(client, mailbox);
       try {
         const result = await client.messageFlagsAdd(emailId, [label], { uid: true });
         if (!result) {
@@ -246,7 +250,7 @@ function createKeywordStrategy(): LabelStrategy {
 
     removeLabel: async (client, emailId, mailbox, label) => {
       assertKeywordLabel(label);
-      const lock = await client.getMailboxLock(mailbox);
+      const lock = await lockMailbox(client, mailbox);
       try {
         const result = await client.messageFlagsRemove(emailId, [label], { uid: true });
         if (!result) {
@@ -288,7 +292,7 @@ export async function detectLabelStrategy(client: ImapFlow): Promise<LabelStrate
   }
 
   // 3. Check PERMANENTFLAGS for \* (arbitrary keywords allowed)
-  const lock = await client.getMailboxLock('INBOX');
+  const lock = await lockMailbox(client, 'INBOX');
   try {
     const mb = client.mailbox;
     if (mb && typeof mb === 'object' && 'permanentFlags' in mb) {

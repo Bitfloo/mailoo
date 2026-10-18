@@ -4,8 +4,22 @@ Runtime TOML lives at `$XDG_CONFIG_HOME/mailoo/config.toml` (default
 `~/.config/mailoo/config.toml`). The [README](../README.md#configuration)
 covers install, the wizard, and the common `[settings]` / `[[accounts]]`
 shape. This page is the SSOT for behaviour added around Sent copies,
-IMAP4rev2, ManageSieve, read-only side effects, stdio lifecycle,
-and webhook targets.
+IMAP4rev2, ManageSieve, read-only side effects, reconnect backoff,
+stdio lifecycle, and webhook targets.
+
+A config file that is not valid TOML is reported as
+`Config file <path> is not valid TOML (line L, column C): <reason>`, without
+the line text, which may hold a password. Every command that reads the file
+stops on it and leaves the file unchanged. The server, `mailoo test`,
+`mailoo scheduler check`, `list` and `status`, and `mailoo config show` read
+a complete `MCP_EMAIL_*` account (address, IMAP host, SMTP host, and a
+password or OAuth2 provider) from the environment before the file, so they
+stop on this error only when no such account is set; `mailoo config show` prefixes it with
+`Failed to load config:`. `mailoo setup`, `mailoo config edit` and
+`mailoo account add`, `list`, `edit` and `delete` read the file directly and
+always stop on it. `mailoo setup` and `mailoo account add` stop the same way
+on a file that parses but is not a valid config, for example one with no
+`[[accounts]]`; only a missing file starts a new config.
 
 Vulnerability reports: [SECURITY.md](../SECURITY.md). Do not open public
 issues for credential leaks.
@@ -162,11 +176,28 @@ Each request is checked before the body is handed to the MCP session:
 
 Inside a container, loopback is the container's own loopback. Publishing the port means listening on `0.0.0.0` with a token and `MCP_EMAIL_HTTP_ALLOWED_HOSTS` set to the name clients use, with or without the published port.
 
+Server log notifications (`notifications/message`) go to every session that has finished its handshake, not only to the newest one.
+
+A session idle for more than **30 minutes** is dropped, and past **32** sessions the oldest idle one is dropped first. A session with a request in flight is never dropped.
+
+A request whose `mcp-session-id` the server does not hold (never issued, closed, or dropped after it sat idle) gets **404** with JSON-RPC error `-32001` `Session not found`. The client starts a new session with `initialize`. A non-initialize request with no `mcp-session-id` still gets **400**.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MCP_EMAIL_HTTP_HOST` | `127.0.0.1` and `::1` | Single listen address. The host argument wins. |
 | `MCP_EMAIL_HTTP_TOKEN` | unset | Bearer token. Required when the listen address is not loopback or `MCP_EMAIL_HTTP_ALLOWED_HOSTS` lists a non-loopback name. |
 | `MCP_EMAIL_HTTP_ALLOWED_HOSTS` | listen address, or the loopback names | Required for `0.0.0.0` and `::`. Names or `host:port`. |
+
+## Reconnect backoff
+
+After an IMAP login or SMTP verify for an account fails, Mailoo does not
+dial that server again for the account until a backoff window has passed:
+1 s after the first failure, doubling to 60 s, each window shortened by up
+to a quarter so accounts do not retry in lockstep. A tool call inside the
+window fails at once with
+`Last IMAP connect for "<account>" failed: <error> (next attempt in <n>s)`
+(`SMTP` for sends). A successful connect resets the window. The IDLE
+watcher retries a dropped or failed folder connection on the same schedule.
 
 ## Stdio shutdown
 

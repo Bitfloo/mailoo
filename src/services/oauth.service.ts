@@ -37,7 +37,48 @@ const PROVIDER_ENDPOINTS: Record<string, ProviderEndpoints> = {
 /** 5-minute safety buffer before token expiry */
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 
+/** A token endpoint that stops answering would otherwise stall every IMAP or SMTP connect behind it. */
+export const TOKEN_REQUEST_TIMEOUT_MS = 15_000;
+
+/** The timeout also covers the body: an endpoint can send its headers and then stall. */
+async function postTokenRequest<T>(
+  tokenUrl: string,
+  body: URLSearchParams,
+  action: string,
+): Promise<T> {
+  try {
+    const response = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+      signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`OAuth2 ${action} failed (${response.status}): ${text}`);
+    }
+    return (await response.json()) as T;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'TimeoutError') {
+      throw new Error(`OAuth2 ${action} timed out after ${TOKEN_REQUEST_TIMEOUT_MS / 1000}s`, {
+        cause: err,
+      });
+    }
+    throw err;
+  }
+}
+
 export default class OAuthService {
+  /**
+   * Refreshes in flight, keyed by refresh token. When a token expires, the IMAP pool, the SMTP
+   * transport and the watcher all ask at once, each through its own service instance; without
+   * this every one of them POSTs the same refresh token and providers throttle the burst.
+   */
+  private static readonly pendingRefresh = new Map<
+    string,
+    Promise<{ accessToken: string; tokenExpiry: number }>
+  >();
+
   /**
    * Get a valid access token, refreshing if expired.
    */
@@ -47,15 +88,25 @@ export default class OAuthService {
       return oauth2.accessToken;
     }
 
-    const result = await OAuthService.refreshAccessToken(oauth2);
+    const { refreshToken } = oauth2;
+    let pending = OAuthService.pendingRefresh.get(refreshToken);
+    if (!pending) {
+      pending = OAuthService.refreshAccessToken(oauth2)
+        .then((result) => ({
+          accessToken: result.accessToken,
+          tokenExpiry: Date.now() + result.expiresIn * 1000,
+        }))
+        .finally(() => {
+          OAuthService.pendingRefresh.delete(refreshToken);
+        });
+      OAuthService.pendingRefresh.set(refreshToken, pending);
+    }
 
     // Cache on the config object (in-memory only)
-    Object.assign(oauth2, {
-      accessToken: result.accessToken,
-      tokenExpiry: Date.now() + result.expiresIn * 1000,
-    });
+    const token = await pending;
+    Object.assign(oauth2, token);
 
-    return result.accessToken;
+    return token.accessToken;
   }
 
   /**
@@ -81,21 +132,11 @@ export default class OAuthService {
       refresh_token: oauth2.refreshToken,
     });
 
-    const response = await fetch(endpoints.tokenUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`OAuth2 token refresh failed (${response.status}): ${text}`);
-    }
-
-    const data = (await response.json()) as {
-      access_token: string;
-      expires_in: number;
-    };
+    const data = await postTokenRequest<{ access_token: string; expires_in: number }>(
+      endpoints.tokenUrl,
+      body,
+      'token refresh',
+    );
 
     return {
       accessToken: data.access_token,
@@ -159,22 +200,11 @@ export default class OAuthService {
       redirect_uri: redirectUri,
     });
 
-    const response = await fetch(endpoints.tokenUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`OAuth2 code exchange failed (${response.status}): ${text}`);
-    }
-
-    const data = (await response.json()) as {
+    const data = await postTokenRequest<{
       access_token: string;
       refresh_token: string;
       expires_in: number;
-    };
+    }>(endpoints.tokenUrl, body, 'code exchange');
 
     return {
       accessToken: data.access_token,

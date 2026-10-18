@@ -4,6 +4,7 @@
  * No MCP dependency — fully unit-testable.
  */
 
+import { join } from 'node:path';
 import type { ImapFlow } from 'imapflow';
 import type { IConnectionManager } from '../connections/types.js';
 import { sanitizeAttachmentFilename } from '../safety/local-paths.js';
@@ -34,7 +35,10 @@ import { looksLikeRawMime, preferRicherPlain, stripHtml } from '../utils/email-b
 import compileRfc822 from '../utils/mail-compose.js';
 import type { LabelStrategy } from './label-strategy.js';
 import { detectLabelStrategy } from './label-strategy.js';
+import type { SavedAttachment } from './local-calendar.service.js';
+import lockMailbox from './mailbox-lock.js';
 import { resolveOutgoingAttachments } from './outgoing-attachments.js';
+import assertMailboxRemovable from './protected-mailboxes.js';
 
 // ---------------------------------------------------------------------------
 // Helpers (must be defined before ImapService)
@@ -70,57 +74,73 @@ function mimeTypeOf(bs: Record<string, unknown>): string {
   return raw.toLowerCase();
 }
 
-function extractAttachments(bodyStructure: unknown): AttachmentMeta[] {
-  const attachments: AttachmentMeta[] = [];
+/**
+ * Content-Type and Content-Disposition parameters of a part; the disposition's
+ * value wins on a shared key. imapflow sets dispositionParameters whenever that
+ * header carries any parameter, so it may hold a size= and no filename.
+ */
+function partParameters(bs: Record<string, unknown>): Record<string, string> {
+  return {
+    ...(bs.parameters as Record<string, string> | undefined),
+    ...(bs.dispositionParameters as Record<string, string> | undefined),
+  };
+}
+
+interface AttachmentPart extends AttachmentMeta {
+  /** IMAP part number (BODY[part]); empty for the root of a single-part message. */
+  part: string;
+}
+
+/**
+ * Every attachment with its MIME part number, in BODYSTRUCTURE order. A filename
+ * is not unique within a message, so a download needs the part number.
+ */
+function listAttachmentParts(bodyStructure: unknown, partPath = ''): AttachmentPart[] {
+  const attachments: AttachmentPart[] = [];
   if (!bodyStructure || typeof bodyStructure !== 'object') return attachments;
 
   const bs = bodyStructure as Record<string, unknown>;
+  const effectivePath = (bs.part as string | undefined) ?? partPath;
   if (bs.disposition === 'attachment') {
-    const params = (bs.dispositionParameters ?? bs.parameters ?? {}) as Record<string, string>;
+    const params = partParameters(bs);
     attachments.push({
       filename: params.filename ?? params.name ?? 'unnamed',
       mimeType: mimeTypeOf(bs) || 'application/octet-stream',
       size: (bs.size as number) ?? 0,
+      part: effectivePath,
     });
   }
 
   if (Array.isArray(bs.childNodes)) {
-    (bs.childNodes as unknown[]).forEach((child) => {
-      attachments.push(...extractAttachments(child));
+    (bs.childNodes as unknown[]).forEach((child, i) => {
+      const childPart = effectivePath ? `${effectivePath}.${i + 1}` : String(i + 1);
+      attachments.push(...listAttachmentParts(child, childPart));
     });
   }
 
   return attachments;
 }
 
-/** Find the MIME part number for an attachment by filename. */
-function findMimePartByFilename(
-  bodyStructure: unknown,
-  targetFilename: string,
-  partPath = '',
-): string | undefined {
-  if (!bodyStructure || typeof bodyStructure !== 'object') return undefined;
+function extractAttachments(bodyStructure: unknown): AttachmentMeta[] {
+  return listAttachmentParts(bodyStructure).map(({ filename, mimeType, size }) => ({
+    filename,
+    mimeType,
+    size,
+  }));
+}
 
-  const bs = bodyStructure as Record<string, unknown>;
-  const currentPart = bs.part as string | undefined;
-  const effectivePath = currentPart ?? partPath;
-
-  if (bs.disposition === 'attachment') {
-    const params = (bs.dispositionParameters ?? bs.parameters ?? {}) as Record<string, string>;
-    const filename = params.filename ?? params.name ?? 'unnamed';
-    if (filename === targetFilename) return effectivePath;
+/** A file name not yet used in this directory; compared without case for case-insensitive disks. */
+function uniqueFilename(name: string, used: Set<string>): string {
+  const dot = name.lastIndexOf('.');
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : '';
+  let candidate = name;
+  // eslint-disable-next-line no-plusplus
+  for (let n = 2; used.has(candidate.toLowerCase()); n++) {
+    candidate = `${stem}-${n}${ext}`;
   }
-
-  if (Array.isArray(bs.childNodes)) {
-    // eslint-disable-next-line no-plusplus
-    for (let i = 0; i < bs.childNodes.length; i++) {
-      const childPart = effectivePath ? `${effectivePath}.${i + 1}` : String(i + 1);
-      const found = findMimePartByFilename(bs.childNodes[i], targetFilename, childPart);
-      if (found) return found;
-    }
-  }
-
-  return undefined;
+  used.add(candidate.toLowerCase());
+  return candidate;
 }
 
 export interface TextMimeParts {
@@ -159,20 +179,31 @@ export function findTextMimeParts(bodyStructure: unknown, partPath = ''): TextMi
   }, here);
 }
 
+/** Content of one MIME part with its transfer encoding (base64, quoted-printable) removed. */
+async function downloadPart(
+  client: ImapFlow,
+  uid: string,
+  part: string,
+): Promise<Buffer | undefined> {
+  const downloaded = await client.download(uid, part, { uid: true });
+  if (!downloaded?.content) return undefined;
+  const chunks: Buffer[] = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for await (const chunk of downloaded.content) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
 async function downloadMimePart(
   client: ImapFlow,
   uid: number,
   part: string,
 ): Promise<string | undefined> {
   try {
-    const downloaded = await client.download(String(uid), part, { uid: true });
-    if (!downloaded?.content) return undefined;
-    const chunks: Buffer[] = [];
-    // eslint-disable-next-line no-restricted-syntax
-    for await (const chunk of downloaded.content) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    const text = Buffer.concat(chunks).toString('utf-8');
+    const content = await downloadPart(client, String(uid), part);
+    if (!content) return undefined;
+    const text = content.toString('utf-8');
     if (looksLikeRawMime(text)) return undefined;
     return text;
   } catch {
@@ -180,9 +211,122 @@ async function downloadMimePart(
   }
 }
 
+/** Default per-attachment limit for saveEmailAttachments. */
+export const SAVED_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Download each part by number and write it under destDir. Two attachments may
+ * share a filename, and each gets its own file instead of the first one written twice.
+ */
+async function writeAttachmentParts(
+  client: ImapFlow,
+  uid: string,
+  parts: AttachmentPart[],
+  destDir: string,
+): Promise<SavedAttachment[]> {
+  const { mkdir, writeFile } = await import('node:fs/promises');
+  await mkdir(destDir, { recursive: true });
+  const saved: SavedAttachment[] = [];
+  const usedNames = new Set<string>();
+  // eslint-disable-next-line no-restricted-syntax
+  for (const meta of parts) {
+    const name = uniqueFilename(sanitizeAttachmentFilename(meta.filename), usedNames);
+    const localPath = join(destDir, name);
+    try {
+      // imapflow runs one command at a time per connection.
+      // eslint-disable-next-line no-await-in-loop
+      const content = meta.part ? await downloadPart(client, uid, meta.part) : undefined;
+      if (content) {
+        // eslint-disable-next-line no-await-in-loop
+        await writeFile(localPath, content);
+        saved.push({
+          filename: meta.filename,
+          localPath,
+          fileUrl: `file://${localPath}`,
+          mimeType: meta.mimeType,
+          size: content.length,
+        });
+      }
+    } catch {
+      // Best effort: an unreadable part or a failed write skips that attachment only.
+    }
+  }
+  return saved;
+}
+
+/** get_thread fetches each message in full; a mailing-list thread can run to hundreds. */
+export const MAX_THREAD_MESSAGES = 50;
+
+const THREAD_HEADERS = ['Message-ID', 'References', 'In-Reply-To'];
+
+/** Every Message-ID a fetched header block names, unfolding continuation lines first. */
+function threadIdsInHeaders(headers: Buffer | undefined): string[] {
+  if (!headers) return [];
+  return headers
+    .toString('utf-8')
+    .replace(/\r?\n[ \t]+/g, ' ')
+    .split(/\r?\n/)
+    .filter((line) => /^(message-id|references|in-reply-to):/i.test(line))
+    .flatMap((line) => line.match(/<[^<>\s]+>/g) ?? []);
+}
+
+/* eslint-disable no-await-in-loop, no-restricted-syntax -- imapflow runs one command at a time */
+/** UIDs whose Message-ID is id, or whose References or In-Reply-To names it. */
+async function searchThreadHeaders(client: ImapFlow, id: string): Promise<number[]> {
+  const uids: number[] = [];
+  for (const header of THREAD_HEADERS) {
+    try {
+      const result = await client.search({ header: { [header]: id } }, { uid: true });
+      if (Array.isArray(result)) uids.push(...result);
+    } catch {
+      // Header search may fail on some servers
+    }
+  }
+  return uids;
+}
+
+/** Add every Message-ID the thread headers of these messages name to ids. */
+async function collectThreadIds(client: ImapFlow, uids: number[], ids: Set<string>): Promise<void> {
+  const rows = await client.fetchAll(
+    uids.join(','),
+    { uid: true, headers: THREAD_HEADERS },
+    { uid: true },
+  );
+  for (const id of rows.flatMap((row) => threadIdsInHeaders(row.headers))) ids.add(id);
+}
+
+/**
+ * UIDs of the thread around messageId, at most max. A reply may name only the
+ * message it answers, in In-Reply-To, so the ids of every message found are
+ * searched in turn until no new message turns up.
+ */
+async function findThreadUids(client: ImapFlow, messageId: string, max: number): Promise<number[]> {
+  const ids = new Set([messageId]);
+  const searched = new Set<string>();
+  const found = new Set<number>();
+  const read = new Set<number>();
+  let unread: number[] = [];
+  do {
+    for (const id of [...ids].filter((known) => !searched.has(known))) {
+      if (found.size >= max) break;
+      searched.add(id);
+      for (const uid of await searchThreadHeaders(client, id)) found.add(uid);
+    }
+    unread = [...found].filter((uid) => !read.has(uid));
+    if (unread.length > 0 && found.size < max) {
+      for (const uid of unread) read.add(uid);
+      await collectThreadIds(client, unread, ids);
+    }
+  } while (unread.length > 0 && found.size < max);
+  return [...found].slice(0, max);
+}
+/* eslint-enable no-await-in-loop, no-restricted-syntax */
+
 const DEFAULT_DATE_SORT_WINDOW = 250;
 const FALLBACK_SOURCE_MAX_BYTES = 65_536;
 const LIST_PREVIEW_SOURCE_MAX_BYTES = 4096;
+// In-Reply-To rides along because some servers (GreenMail among them) leave it out of ENVELOPE.
+const MESSAGE_HEADER_FIELDS = ['references', 'in-reply-to', 'content-type'];
 
 function parseHeaderBlock(headerBlock: string): Record<string, string> {
   const headers: Record<string, string> = {};
@@ -449,7 +593,7 @@ async function messageToEmail(
     bodyText,
     bodyHtml,
     messageId: (envelope.messageId as string) ?? '',
-    inReplyTo: (envelope.inReplyTo as string) ?? undefined,
+    inReplyTo: (envelope.inReplyTo as string | undefined) ?? headers['in-reply-to'],
     references: extractReferences(msg, headers),
     attachments: extractAttachments(msg.bodyStructure),
     headers,
@@ -464,6 +608,11 @@ export function emlFilename(internalDate: Date | string | undefined, uid: string
   const date = internalDate instanceof Date ? internalDate : new Date(internalDate ?? Number.NaN);
   const day = Number.isNaN(date.getTime()) ? 'undated' : date.toISOString().slice(0, 10);
   return sanitizeAttachmentFilename(`${day}_${uid}.eml`);
+}
+
+/** UID set for a bulk action. Each id must be one canonical UID, as for single-message tools. */
+function bulkUidSet(ids: number[]): string {
+  return ids.map((id) => parseMessageUid(String(id))).join(',');
 }
 
 function exportTooLarge(uid: string, size: number, maxSizeBytes: number): Error {
@@ -508,11 +657,15 @@ export default class ImapService {
     if (pending) return pending;
 
     const promise = (async () => {
-      const client = await this.connections.getImapClient(accountName);
-      const strategy = await detectLabelStrategy(client);
-      this.labelStrategies.set(accountName, strategy);
-      this.labelStrategyPending.delete(accountName);
-      return strategy;
+      try {
+        const client = await this.connections.getImapClient(accountName);
+        const strategy = await detectLabelStrategy(client);
+        this.labelStrategies.set(accountName, strategy);
+        return strategy;
+      } finally {
+        // Only a success is cached; a failed detection is retried on the next call.
+        this.labelStrategyPending.delete(accountName);
+      }
     })();
 
     this.labelStrategyPending.set(accountName, promise);
@@ -584,7 +737,7 @@ export default class ImapService {
     const page = options.page ?? 1;
     const pageSize = options.pageSize ?? 20;
 
-    const lock = await client.getMailboxLock(mailbox);
+    const lock = await lockMailbox(client, mailbox);
     try {
       // Build search criteria
       const search: Record<string, unknown> = {};
@@ -690,7 +843,7 @@ export default class ImapService {
     const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
 
-    const lock = await client.getMailboxLock(safeMailbox);
+    const lock = await lockMailbox(client, safeMailbox);
     try {
       const msg = await client.fetchOne(
         uidText,
@@ -699,7 +852,7 @@ export default class ImapService {
           envelope: true,
           flags: true,
           bodyStructure: true,
-          headers: ['references', 'content-type'],
+          headers: MESSAGE_HEADER_FIELDS,
         },
         { uid: true },
       );
@@ -720,24 +873,27 @@ export default class ImapService {
     const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
 
-    const lock = await client.getMailboxLock(safeMailbox);
+    const lock = await lockMailbox(client, safeMailbox);
     try {
-      const emails: Email[] = [];
-      // eslint-disable-next-line no-restricted-syntax
-      for await (const msg of client.fetch(
+      // messageToEmail downloads body parts, and a command issued while a FETCH iterator is open
+      // never starts, so the rows are collected first.
+      const rows = await client.fetchAll(
         uidList.join(','),
         {
           uid: true,
           envelope: true,
           flags: true,
           bodyStructure: true,
-          headers: ['references', 'content-type'],
+          headers: MESSAGE_HEADER_FIELDS,
         },
         { uid: true },
-      )) {
+      );
+      const emails: Email[] = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const msg of rows) {
         const raw = msg as unknown as Record<string, unknown>;
-        const uid = raw.uid as number;
-        emails.push(await messageToEmail(raw, client, uid));
+        // eslint-disable-next-line no-await-in-loop
+        emails.push(await messageToEmail(raw, client, raw.uid as number));
       }
       return emails;
     } finally {
@@ -766,7 +922,7 @@ export default class ImapService {
     const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
 
-    const lock = await client.getMailboxLock(safeMailbox);
+    const lock = await lockMailbox(client, safeMailbox);
     try {
       const msg = await client.fetchOne(
         uidText,
@@ -830,7 +986,7 @@ export default class ImapService {
     const pageSize = options.pageSize ?? 20;
     const sanitizedQuery = query ? sanitizeSearchQuery(query) : '';
 
-    const lock = await client.getMailboxLock(mailbox);
+    const lock = await lockMailbox(client, mailbox);
     try {
       // Build search criteria — base query OR across subject/from/body
       const baseCriteria: Record<string, unknown> = sanitizedQuery
@@ -1038,7 +1194,7 @@ export default class ImapService {
 
     // 1. Fetch Message-ID from the source mailbox
     let messageId: string | undefined;
-    const srcLock = await client.getMailboxLock(safeSource);
+    const srcLock = await lockMailbox(client, safeSource);
     try {
       const msg = await client.fetchOne(uidText, { headers: true }, { uid: true });
       // biome-ignore lint/complexity/useOptionalChain: optional chain breaks TS type narrowing for union with false
@@ -1073,7 +1229,7 @@ export default class ImapService {
     const folders: string[] = [];
     const searchMailbox = async (mbPath: string): Promise<void> => {
       try {
-        const lock = await client.getMailboxLock(mbPath);
+        const lock = await lockMailbox(client, mbPath);
         try {
           const results = await client.search(
             { header: { 'message-id': messageId } },
@@ -1113,7 +1269,7 @@ export default class ImapService {
     const safeDest = sanitizeMailboxName(destinationMailbox);
     const client = await this.connections.getImapClient(accountName);
     await ImapService.assertRealMailbox(client, safeSource);
-    const lock = await client.getMailboxLock(safeSource);
+    const lock = await lockMailbox(client, safeSource);
     try {
       const ok = await client.messageMove(uidText, safeDest, { uid: true });
       if (!ok) {
@@ -1135,7 +1291,7 @@ export default class ImapService {
     const client = await this.connections.getImapClient(accountName);
 
     if (permanent) {
-      const lock = await client.getMailboxLock(safeMailbox);
+      const lock = await lockMailbox(client, safeMailbox);
       try {
         const ok = await client.messageDelete(uidText, { uid: true });
         if (!ok) {
@@ -1150,7 +1306,7 @@ export default class ImapService {
       const trash = mailboxes.find((mb) => mb.specialUse === '\\Trash');
       const trashPath = trash?.path ?? 'Trash';
 
-      const lock = await client.getMailboxLock(safeMailbox);
+      const lock = await lockMailbox(client, safeMailbox);
       try {
         const ok = await client.messageMove(uidText, trashPath, { uid: true });
         if (!ok) {
@@ -1176,7 +1332,7 @@ export default class ImapService {
     const safeMailbox = sanitizeMailboxName(mailbox);
     const { flags, add } = flagChange[action];
     const client = await this.connections.getImapClient(accountName);
-    const lock = await client.getMailboxLock(safeMailbox);
+    const lock = await lockMailbox(client, safeMailbox);
     try {
       let ok: boolean;
       if (add) {
@@ -1202,8 +1358,10 @@ export default class ImapService {
     mailbox: string,
     action: 'mark_read' | 'mark_unread' | 'flag' | 'unflag',
   ): Promise<BulkResult> {
+    const range = bulkUidSet(ids);
+    const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
-    const lock = await client.getMailboxLock(mailbox);
+    const lock = await lockMailbox(client, safeMailbox);
     const result: BulkResult = {
       total: ids.length,
       succeeded: 0,
@@ -1218,7 +1376,6 @@ export default class ImapService {
         unflag: { flags: ['\\Flagged'], add: false },
       };
       const { flags, add } = flagMap[action];
-      const range = ids.join(',');
       let ok: boolean;
       if (add) {
         ok = await client.messageFlagsAdd(range, flags, { uid: true });
@@ -1247,9 +1404,12 @@ export default class ImapService {
     mailbox: string,
     destination: string,
   ): Promise<BulkResult> {
+    const range = bulkUidSet(ids);
+    const safeMailbox = sanitizeMailboxName(mailbox);
+    const safeDest = sanitizeMailboxName(destination);
     const client = await this.connections.getImapClient(accountName);
-    await ImapService.assertRealMailbox(client, mailbox);
-    const lock = await client.getMailboxLock(mailbox);
+    await ImapService.assertRealMailbox(client, safeMailbox);
+    const lock = await lockMailbox(client, safeMailbox);
     const result: BulkResult = {
       total: ids.length,
       succeeded: 0,
@@ -1257,8 +1417,7 @@ export default class ImapService {
       errors: [],
     };
     try {
-      const range = ids.join(',');
-      const ok = await client.messageMove(range, destination, { uid: true });
+      const ok = await client.messageMove(range, safeDest, { uid: true });
       if (ok) {
         result.succeeded = ids.length;
       } else {
@@ -1281,6 +1440,8 @@ export default class ImapService {
     mailbox: string,
     permanent = false,
   ): Promise<BulkResult> {
+    const range = bulkUidSet(ids);
+    const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
     const result: BulkResult = {
       total: ids.length,
@@ -1290,9 +1451,8 @@ export default class ImapService {
     };
 
     if (permanent) {
-      const lock = await client.getMailboxLock(mailbox);
+      const lock = await lockMailbox(client, safeMailbox);
       try {
-        const range = ids.join(',');
         const ok = await client.messageDelete(range, { uid: true });
         if (ok) {
           result.succeeded = ids.length;
@@ -1307,14 +1467,13 @@ export default class ImapService {
         lock.release();
       }
     } else {
-      await ImapService.assertRealMailbox(client, mailbox);
+      await ImapService.assertRealMailbox(client, safeMailbox);
       const mailboxes = await client.list();
       const trash = mailboxes.find((mb) => mb.specialUse === '\\Trash');
       const trashPath = trash?.path ?? 'Trash';
 
-      const lock = await client.getMailboxLock(mailbox);
+      const lock = await lockMailbox(client, safeMailbox);
       try {
-        const range = ids.join(',');
         const ok = await client.messageMove(range, trashPath, { uid: true });
         if (ok) {
           result.succeeded = ids.length;
@@ -1402,7 +1561,7 @@ export default class ImapService {
     const uidText = parseMessageUid(emailId);
     const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
-    const lock = await client.getMailboxLock(safeMailbox, { readOnly: true });
+    const lock = await lockMailbox(client, safeMailbox, { readOnly: true });
     try {
       const msg = await client.fetchOne(
         uidText,
@@ -1432,7 +1591,7 @@ export default class ImapService {
     const uid = Number(uidText);
     const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
-    const lock = await client.getMailboxLock(safeMailbox, { readOnly: true });
+    const lock = await lockMailbox(client, safeMailbox, { readOnly: true });
     try {
       const msg = await client.fetchOne(uidText, { uid: true, bodyStructure: true }, { uid: true });
       if (!msg) return '';
@@ -1456,7 +1615,7 @@ export default class ImapService {
     const uidText = parseMessageUid(emailId);
     const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
-    const lock = await client.getMailboxLock(safeMailbox, { readOnly: true });
+    const lock = await lockMailbox(client, safeMailbox, { readOnly: true });
     try {
       const msg = await client.fetchOne(uidText, { uid: true, bodyStructure: true }, { uid: true });
       if (!msg) return [];
@@ -1503,7 +1662,7 @@ export default class ImapService {
     const uidText = parseMessageUid(String(emailId));
     const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
-    const lock = await client.getMailboxLock(safeMailbox);
+    const lock = await lockMailbox(client, safeMailbox);
     try {
       await client.messageDelete(uidText, { uid: true });
     } finally {
@@ -1516,18 +1675,24 @@ export default class ImapService {
   // -------------------------------------------------------------------------
 
   async createMailbox(accountName: string, folderPath: string): Promise<void> {
+    const safePath = sanitizeMailboxName(folderPath);
     const client = await this.connections.getImapClient(accountName);
-    await client.mailboxCreate(folderPath);
+    await client.mailboxCreate(safePath);
   }
 
   async renameMailbox(accountName: string, folderPath: string, newPath: string): Promise<void> {
+    const safePath = sanitizeMailboxName(folderPath);
+    const safeNewPath = sanitizeMailboxName(newPath);
     const client = await this.connections.getImapClient(accountName);
-    await client.mailboxRename(folderPath, newPath);
+    await assertMailboxRemovable(client, safePath, 'rename');
+    await client.mailboxRename(safePath, safeNewPath);
   }
 
   async deleteMailbox(accountName: string, folderPath: string): Promise<void> {
+    const safePath = sanitizeMailboxName(folderPath);
     const client = await this.connections.getImapClient(accountName);
-    await client.mailboxDelete(folderPath);
+    await assertMailboxRemovable(client, safePath, 'delete');
+    await client.mailboxDelete(safePath);
   }
 
   // -------------------------------------------------------------------------
@@ -1550,7 +1715,7 @@ export default class ImapService {
     const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
 
-    const lock = await client.getMailboxLock(safeMailbox);
+    const lock = await lockMailbox(client, safeMailbox);
     try {
       // Fetch bodyStructure to find the MIME part
       const msg = await client.fetchOne(uidText, { uid: true, bodyStructure: true }, { uid: true });
@@ -1559,13 +1724,19 @@ export default class ImapService {
         throw new Error(`Email ${emailId} not found in ${mailbox}`);
       }
 
-      const attachments = extractAttachments(msg.bodyStructure);
-      const attachment = attachments.find((a) => a.filename === filename);
-      if (!attachment) {
+      const attachments = listAttachmentParts(msg.bodyStructure);
+      const matches = attachments.filter((a) => a.filename === filename);
+      if (matches.length === 0) {
         throw new Error(
           `Attachment "${filename}" not found. Available: ${attachments.map((a) => a.filename).join(', ') || 'none'}`,
         );
       }
+      if (matches.length > 1) {
+        throw new Error(
+          `Attachment name "${filename}" matches ${matches.length} attachments in email ${uidText} (MIME parts ${matches.map((a) => a.part).join(', ')}); refusing to guess which one to return.`,
+        );
+      }
+      const [attachment] = matches;
 
       if (attachment.size > maxSizeBytes) {
         throw new Error(
@@ -1573,27 +1744,14 @@ export default class ImapService {
         );
       }
 
-      // Find the MIME part number
-      const partNumber = findMimePartByFilename(msg.bodyStructure, filename);
-      if (!partNumber) {
+      if (!attachment.part) {
         throw new Error(`Could not locate MIME part for "${filename}"`);
       }
 
-      // Download the part
-      const downloadResult = await client.download(uidText, partNumber, {
-        uid: true,
-      });
-
-      if (!downloadResult?.content) {
+      const content = await downloadPart(client, uidText, attachment.part);
+      if (!content) {
         throw new Error(`Failed to download attachment "${filename}"`);
       }
-
-      const chunks: Buffer[] = [];
-      // eslint-disable-next-line no-restricted-syntax
-      for await (const chunk of downloadResult.content) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-      }
-      const content = Buffer.concat(chunks);
 
       return {
         filename: attachment.filename,
@@ -1630,7 +1788,7 @@ export default class ImapService {
     const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
 
-    const lock = await client.getMailboxLock(safeMailbox, { readOnly: true });
+    const lock = await lockMailbox(client, safeMailbox, { readOnly: true });
     try {
       const meta = await client.fetchOne(
         uidText,
@@ -1673,70 +1831,29 @@ export default class ImapService {
    * Download and save all non-ICS attachments from an email to a local directory.
    * Returns metadata including the saved file paths and file:// URLs.
    *
-   * Attachments larger than maxSizeBytes (default 25 MB) are skipped.
+   * Attachments larger than maxSizeBytes are skipped.
    */
   async saveEmailAttachments(
     accountName: string,
     emailId: string,
     mailbox: string,
     destDir: string,
-    maxSizeBytes = 25 * 1024 * 1024,
-  ): Promise<
-    {
-      filename: string;
-      localPath: string;
-      fileUrl: string;
-      mimeType: string;
-      size: number;
-    }[]
-  > {
+    maxSizeBytes = SAVED_ATTACHMENT_MAX_BYTES,
+  ): Promise<SavedAttachment[]> {
     const uidText = parseMessageUid(emailId);
     const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
-
-    const lock = await client.getMailboxLock(safeMailbox);
-    let attachmentMetas: AttachmentMeta[] = [];
+    const lock = await lockMailbox(client, safeMailbox);
     try {
       const msg = await client.fetchOne(uidText, { uid: true, bodyStructure: true }, { uid: true });
       if (!msg) return [];
       // biome-ignore format: line too long; eslint implicit-arrow-linebreak prevents multi-line implicit return
-      attachmentMetas = extractAttachments(msg.bodyStructure).filter((a) => a.size <= maxSizeBytes && !a.mimeType.includes('calendar') && !a.filename.toLowerCase().endsWith('.ics'));
+      const parts = listAttachmentParts(msg.bodyStructure).filter((a) => a.size <= maxSizeBytes && !a.mimeType.includes('calendar') && !a.filename.toLowerCase().endsWith('.ics'));
+      if (parts.length === 0) return [];
+      return await writeAttachmentParts(client, uidText, parts, destDir);
     } finally {
       lock.release();
     }
-
-    if (attachmentMetas.length === 0) return [];
-
-    const { mkdir } = await import('node:fs/promises');
-    await mkdir(destDir, { recursive: true });
-
-    const results = await Promise.allSettled(
-      attachmentMetas.map(async (meta) => {
-        const downloaded = await this.downloadAttachment(
-          accountName,
-          uidText,
-          safeMailbox,
-          meta.filename,
-          maxSizeBytes,
-        );
-        const safe = meta.filename.replace(/[/\\?%*:|"<>]/g, '_');
-        const localPath = `${destDir}/${safe}`;
-        const { writeFile } = await import('node:fs/promises');
-        await writeFile(localPath, Buffer.from(downloaded.contentBase64, 'base64'));
-        return {
-          filename: meta.filename,
-          localPath,
-          fileUrl: `file://${localPath}`,
-          mimeType: meta.mimeType,
-          size: downloaded.size,
-        };
-      }),
-    );
-
-    type FulfilledValue = (typeof results)[0] extends PromiseFulfilledResult<infer T> ? T : never;
-    return results
-      .filter((r) => r.status === 'fulfilled')
-      .map((r) => (r as PromiseFulfilledResult<FulfilledValue>).value);
   }
 
   /**
@@ -1754,93 +1871,12 @@ export default class ImapService {
     participants: EmailAddress[];
     messageCount: number;
   }> {
-    const MAX_THREAD_MESSAGES = 50;
+    const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
-    const lock = await client.getMailboxLock(mailbox);
+    const lock = await lockMailbox(client, safeMailbox);
     try {
-      // Collect all Message-IDs in the thread
-      const targetMsgIds = new Set<string>([messageId]);
-
-      // First, find the root message to get its References chain
-      const rootSearch = await client.search(
-        { header: { 'Message-ID': messageId } },
-        { uid: true },
-      );
-      const rootUids: number[] = Array.isArray(rootSearch) ? rootSearch : [];
-
-      if (rootUids.length > 0) {
-        const rootMsg = await client.fetchOne(
-          String(rootUids[0]),
-          { uid: true, envelope: true, headers: ['references', 'content-type'] },
-          { uid: true },
-        );
-
-        if (rootMsg) {
-          const raw = rootMsg as unknown as Record<string, unknown>;
-          const envelope = (raw.envelope ?? {}) as Record<string, unknown>;
-          const inReplyTo = envelope.inReplyTo as string | undefined;
-          if (inReplyTo) targetMsgIds.add(inReplyTo);
-
-          const refs = extractReferences(raw);
-          if (refs) {
-            refs.forEach((ref) => {
-              targetMsgIds.add(ref);
-            });
-          }
-        }
-      }
-
-      // Search for all related messages by Message-ID
-      const foundUids = new Set<number>();
-      // eslint-disable-next-line no-restricted-syntax
-      for (const msgId of targetMsgIds) {
-        if (foundUids.size >= MAX_THREAD_MESSAGES) break;
-
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          const searchResult = await client.search(
-            { header: { 'Message-ID': msgId } },
-            { uid: true },
-          );
-          if (Array.isArray(searchResult)) {
-            searchResult.forEach((uid) => {
-              foundUids.add(uid);
-            });
-          }
-        } catch {
-          // Header search may not be supported for all messages
-        }
-      }
-
-      // Also search for messages that reference any of our Message-IDs
-      // eslint-disable-next-line no-restricted-syntax
-      for (const msgId of targetMsgIds) {
-        if (foundUids.size >= MAX_THREAD_MESSAGES) break;
-
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          const refSearch = await client.search({ header: { References: msgId } }, { uid: true });
-          if (Array.isArray(refSearch)) {
-            refSearch.forEach((uid) => {
-              foundUids.add(uid);
-            });
-          }
-          // eslint-disable-next-line no-await-in-loop
-          const replySearch = await client.search(
-            { header: { 'In-Reply-To': msgId } },
-            { uid: true },
-          );
-          if (Array.isArray(replySearch)) {
-            replySearch.forEach((uid) => {
-              foundUids.add(uid);
-            });
-          }
-        } catch {
-          // Header search may fail on some servers
-        }
-      }
-
-      if (foundUids.size === 0) {
+      const uidList = await findThreadUids(client, messageId, MAX_THREAD_MESSAGES);
+      if (uidList.length === 0) {
         return {
           threadId: messageId,
           messages: [],
@@ -1850,25 +1886,27 @@ export default class ImapService {
       }
 
       // Fetch full content for all thread messages
-      const uidList = Array.from(foundUids).slice(0, MAX_THREAD_MESSAGES);
       const range = uidList.join(',');
       const messages: Email[] = [];
 
-      // eslint-disable-next-line no-restricted-syntax
-      for await (const msg of client.fetch(
+      // imapflow runs one command at a time and a FETCH stays in flight until
+      // its loop ends, so the body downloads in messageToEmail must start after it.
+      const rows = await client.fetchAll(
         range,
         {
           uid: true,
           envelope: true,
           flags: true,
           bodyStructure: true,
-          headers: ['references', 'content-type'],
+          headers: MESSAGE_HEADER_FIELDS,
         },
         { uid: true },
-      )) {
+      );
+      // eslint-disable-next-line no-restricted-syntax
+      for (const msg of rows) {
         const raw = msg as unknown as Record<string, unknown>;
-        const uid = raw.uid as number;
-        messages.push(await messageToEmail(raw, client, uid));
+        // eslint-disable-next-line no-await-in-loop
+        messages.push(await messageToEmail(raw, client, raw.uid as number));
       }
 
       // Sort chronologically
@@ -1907,11 +1945,11 @@ export default class ImapService {
     accountName: string,
     options: { mailbox?: string; limit?: number } = {},
   ): Promise<Contact[]> {
+    const mailbox = sanitizeMailboxName(options.mailbox ?? 'INBOX');
     const client = await this.connections.getImapClient(accountName);
-    const mailbox = options.mailbox ?? 'INBOX';
     const limit = Math.min(options.limit ?? 100, 500);
 
-    const lock = await client.getMailboxLock(mailbox);
+    const lock = await lockMailbox(client, mailbox);
     try {
       // Search for all messages, take the latest N
       const searchResult = await client.search({ all: true }, { uid: true });
@@ -1990,6 +2028,7 @@ export default class ImapService {
     mailbox: string,
     period: 'day' | 'week' | 'month',
   ): Promise<EmailStats> {
+    const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
 
     const now = new Date();
@@ -1998,7 +2037,7 @@ export default class ImapService {
     else if (period === 'week') since.setDate(since.getDate() - 7);
     else since.setMonth(since.getMonth() - 1);
 
-    const lock = await client.getMailboxLock(mailbox);
+    const lock = await lockMailbox(client, safeMailbox);
     try {
       // Date-range search
       const uids: number[] = await client
@@ -2114,18 +2153,15 @@ export default class ImapService {
   async getQuota(accountName: string): Promise<QuotaInfo | null> {
     const client = await this.connections.getImapClient(accountName);
     try {
-      const quota = await (
-        client as unknown as {
-          getQuotaForMailbox: (path: string) => Promise<{
-            storage?: { usage?: number; limit?: number };
-          } | null>;
-        }
-      ).getQuotaForMailbox('INBOX');
+      const quota = await client.getQuota('INBOX');
+      // imapflow reports bytes in storage.usage; its type declaration names the field `used`.
+      const storage = quota
+        ? (quota.storage as { usage?: number; limit?: number } | undefined)
+        : undefined;
+      if (!storage?.limit) return null;
 
-      if (!quota?.storage?.limit) return null;
-
-      const usedMb = Math.round((quota.storage.usage ?? 0) / 1024);
-      const totalMb = Math.round(quota.storage.limit / 1024);
+      const usedMb = Math.round((storage.usage ?? 0) / 1024 / 1024);
+      const totalMb = Math.round(storage.limit / 1024 / 1024);
       return {
         usedMb,
         totalMb,
@@ -2142,15 +2178,8 @@ export default class ImapService {
 
   async getCapabilities(accountName: string): Promise<string[]> {
     const client = await this.connections.getImapClient(accountName);
-    try {
-      // ImapFlow exposes capabilities as a Set on the client
-      const caps = (client as unknown as Record<string, unknown>).capabilities as
-        | Set<string>
-        | undefined;
-      return caps ? Array.from(caps) : [];
-    } catch {
-      return [];
-    }
+    // imapflow maps each capability name to true, or to a number such as APPENDLIMIT's.
+    return [...client.capabilities.keys()];
   }
 
   // -------------------------------------------------------------------------
@@ -2162,37 +2191,20 @@ export default class ImapService {
     const uidText = parseMessageUid(emailId);
     const safeMailbox = sanitizeMailboxName(mailbox);
     const client = await this.connections.getImapClient(accountName);
-    const lock = await client.getMailboxLock(safeMailbox);
+    const lock = await lockMailbox(client, safeMailbox);
 
     try {
       const icsContents: string[] = [];
 
-      // Fetch body structure
-      for await (const msg of client.fetch(
-        uidText,
-        { uid: true, bodyStructure: true },
-        { uid: true },
-      )) {
-        const structure = (msg as unknown as Record<string, unknown>).bodyStructure;
-        const parts = this.findCalendarParts(structure);
+      const msg = await client.fetchOne(uidText, { uid: true, bodyStructure: true }, { uid: true });
+      if (!msg) return icsContents;
 
-        // Fetch each calendar part
-        for (const partId of parts) {
-          for await (const partMsg of client.fetch(
-            uidText,
-            { uid: true, bodyParts: [partId] },
-            { uid: true },
-          )) {
-            const bodyParts = (partMsg as unknown as Record<string, unknown>).bodyParts as
-              | Map<string, Buffer>
-              | undefined;
-            if (bodyParts) {
-              bodyParts.forEach((buf) => {
-                icsContents.push(buf.toString('utf-8'));
-              });
-            }
-          }
-        }
+      // imapflow runs one command at a time, so each part is downloaded only
+      // after the structure fetch has finished. A part fetched inside an open
+      // FETCH loop never starts.
+      for (const partId of this.findCalendarParts(msg.bodyStructure)) {
+        const content = await downloadPart(client, uidText, partId);
+        if (content) icsContents.push(content.toString('utf-8'));
       }
 
       return icsContents;
@@ -2210,26 +2222,16 @@ export default class ImapService {
     const s = structure as Record<string, unknown>;
     const parts: string[] = [];
 
-    const type = (s.type as string | undefined)?.toLowerCase() ?? '';
-    const subtype = (s.subtype as string | undefined)?.toLowerCase() ?? '';
     const disposition = (s.disposition as string | undefined)?.toLowerCase() ?? '';
+    const params = partParameters(s);
+    const isIcsAttachment =
+      disposition === 'attachment' &&
+      (params.filename ?? params.name ?? '').toLowerCase().endsWith('.ics');
 
-    // Check for text/calendar part
-    if (type === 'text' && subtype === 'calendar') {
-      const partId = s.part as string | undefined;
-      if (partId) parts.push(partId);
-      else if (prefix) parts.push(prefix);
-    }
-
-    // Check for .ics attachment
-    if (disposition === 'attachment' && typeof s.dispositionParameters === 'object') {
-      const params = s.dispositionParameters as Record<string, string>;
-      const filename = params.filename ?? '';
-      if (filename.toLowerCase().endsWith('.ics')) {
-        const partId = s.part as string | undefined;
-        if (partId) parts.push(partId);
-        else if (prefix) parts.push(prefix);
-      }
+    // imapflow reports the type as "text/calendar" with no subtype field.
+    if (mimeTypeOf(s) === 'text/calendar' || isIcsAttachment) {
+      // A single-part message has no part number from imapflow; its body is part 1.
+      parts.push((s.part as string | undefined) ?? (prefix || '1'));
     }
 
     // Recurse into child nodes
