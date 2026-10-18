@@ -2,10 +2,17 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import ConnectionManager from '../connections/manager.js';
 import queueId from '../test-support/queue-id.js';
-import type { SchedulerService } from '../test-support/scheduler-fixtures.js';
-import { createService, daysFromNow, pendingRecord } from '../test-support/scheduler-fixtures.js';
+import {
+  createService,
+  daysFromNow,
+  pendingRecord,
+  SchedulerService,
+} from '../test-support/scheduler-fixtures.js';
+import { testAccount } from '../test-support/watcher-harness.js';
 import type { ScheduledEmail } from '../types/index.js';
+import ImapService from './imap.service.js';
 
 describe('list order', () => {
   it('should order a filtered list by send time', async () => {
@@ -98,5 +105,36 @@ describe('list filters', () => {
     await withQueue(records, async (service) => {
       expect(ids(await service.list({ account: 'work' }))).toEqual([queueId(1)]);
     });
+  });
+
+  // A record stores the resolved name, so the filter must resolve the way schedule_email did.
+  it('should match the account filter by address and case, and keep a removed account listable', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-account-'));
+    try {
+      const records = [
+        pendingRecord(queueId(0), daysFromNow(1)),
+        { ...pendingRecord(queueId(1), daysFromNow(2)), account: 'work' },
+        { ...pendingRecord(queueId(2), daysFromNow(3)), account: 'retired' },
+      ];
+      await Promise.all(
+        records.map(async (record) =>
+          fs.writeFile(path.join(queueDir, `${record.id}.json`), JSON.stringify(record)),
+        ),
+      );
+      const connections = new ConnectionManager([
+        { ...testAccount, name: 'personal', email: 'me@example.com' },
+        { ...testAccount, name: 'work', email: 'work@example.com' },
+      ]);
+      const { smtp } = createService(queueDir);
+      const service = new SchedulerService(smtp as never, new ImapService(connections), queueDir);
+
+      expect({
+        byAddress: ids(await service.list({ account: 'work@example.com' })),
+        byCase: ids(await service.list({ account: 'WORK' })),
+        removed: ids(await service.list({ account: 'retired' })),
+      }).toEqual({ byAddress: [queueId(1)], byCase: [queueId(1)], removed: [queueId(2)] });
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
   });
 });
