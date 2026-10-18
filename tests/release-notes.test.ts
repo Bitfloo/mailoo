@@ -5,14 +5,7 @@ import { join } from 'node:path';
 import { repoRoot } from './agents/agent-file.js';
 import { changelogMd, swapOnce } from './changelog-fixture.js';
 import { releaseNotes } from './release-notes-harness.js';
-import {
-  harnessedStep,
-  releaseJob,
-  releaseStep,
-  releaseYml,
-  requireTools,
-  runBlock,
-} from './workflow-yaml.js';
+import { harnessedStep, releaseStep, releaseYml, requireTools, runBlock } from './workflow-yaml.js';
 
 requireTools(['awk', 'bash']);
 
@@ -167,33 +160,5 @@ describe('release notes', () => {
     // A re-run or a manual dispatch for a tag that already has a release would otherwise keep the old body.
     const goreleaser = readFileSync(join(repoRoot, '.goreleaser.yaml'), 'utf8');
     expect(goreleaser).toMatch(/^release:\n(?: {2}.*\n)*? {2}mode: replace$/m);
-  });
-
-  const dockerJob = () => releaseJob('goreleaser/goreleaser-action@');
-
-  it('should run only the docker setup actions between the checkout and the release notes', () => {
-    // Another checkout or a run step there could hand the notes step another CHANGELOG.md or none.
-    const job = dockerJob();
-    const before = job.slice(
-      job.indexOf('- uses: actions/checkout@'),
-      job.indexOf('- name: Write release notes\n'),
-    );
-    expect(
-      before.split(/\n {6}- /).map((step) => step.match(/uses: ([\w-]+\/[\w-]+)@/)?.[1] ?? step),
-    ).toEqual([
-      'actions/checkout',
-      'docker/setup-qemu-action',
-      'docker/setup-buildx-action',
-      'docker/login-action',
-    ]);
-  });
-
-  it('should write the release notes right before GoReleaser reads them', () => {
-    // A step in between could rewrite the file GoReleaser publishes as the release body.
-    const written = releaseStep(releaseYml, 'Write release notes');
-    const job = dockerJob();
-    expect(job.slice(job.indexOf(written) + written.length)).toMatch(
-      /^\n {6}- name: Run GoReleaser\n/,
-    );
   });
 });

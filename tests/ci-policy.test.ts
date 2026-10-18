@@ -118,17 +118,6 @@ describe('release supply chain', () => {
     expect(releaseSteps(releaseYml)).not.toMatch(/npm install -g npm@/);
   });
 
-  it('should install the release npm CLI with npm ci in .github/npm-cli', () => {
-    expect(releaseSteps(releaseYml)).toContain('npm ci --ignore-scripts');
-    expect(releaseSteps(releaseYml)).toContain('working-directory: .github/npm-cli');
-  });
-
-  it('should publish with the npm CLI installed in .github/npm-cli', () => {
-    expect(releaseSteps(releaseYml)).toContain(
-      '.github/npm-cli/node_modules/.bin/npm publish --access public',
-    );
-  });
-
   it('should pin the release npm CLI to an exact version at or above 11.5.1', () => {
     const pinned = exactVersion(npmCli.dependencies.npm);
     expect(pinned).not.toBeNull();
@@ -195,16 +184,6 @@ describe('release version selection', () => {
     // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub expression, not a JS template
     const step = '      - run: x\n        env:\n          A: ${{ inputs.other }}\n';
     expect(() => stepEnv(step, {})).toThrow('no value for inputs.other');
-  });
-
-  it('should stamp server.json before the step that publishes it to the MCP Registry', () => {
-    // Both steps are listed in file order, so a missing step fails too, not only a swapped one.
-    const order = [
-      ...releaseSteps(releaseYml).matchAll(
-        /^ {6}- name: (Set version in server\.json|Publish to MCP Registry)$/gm,
-      ),
-    ].map((match) => match[1]);
-    expect(order).toEqual(['Set version in server.json', 'Publish to MCP Registry']);
   });
 });
 

@@ -21,8 +21,8 @@ const workflows = workflowTexts().map(
 );
 
 /**
- * The keys the workflows set at each level. Every one is read by a roster here, in
- * workflow-roster.test.ts or in workflow-security.test.ts, and step name and id are the labels
+ * The keys the workflows set at each level. Every one is read by a roster in this file,
+ * workflow-roster, workflow-steps or workflow-security, and step name and id are the labels
  * the step harnesses find a step by. A key outside this list (timeout-minutes, environment,
  * services, container, strategy, secrets, defaults, shell) is read by no test, so it fails here
  * until a roster reads it.
@@ -69,65 +69,6 @@ const JOBS: Record<string, string[]> = {
 
 // biome-ignore-start lint/suspicious/noTemplateCurlyInString: values are workflow expressions, not JS templates
 /**
- * Each action step by job, in order, with its inputs. A checkout ref, repository, path or
- * sparse-checkout would check, build or publish another tree than the commit that started the run,
- * and the release docker job hands GoReleaser the CHANGELOG.md of its checkout. fetch-depth 0 gives
- * GoReleaser and the public-log range the history they read, and Scorecard's checkout leaves no
- * token in .git/config for the analysis after it. A registry-url, registry, push, tags or
- * publish_results decides where a publish goes. A new, dropped or reordered action fails too.
- */
-const ACTIONS: Record<string, string[]> = {
-  'ci.yml': [
-    'check: actions/checkout {}',
-    'check: pnpm/action-setup {}',
-    'check: actions/setup-node {"node-version":"24","cache":"pnpm"}',
-    'docker: actions/checkout {}',
-    'docker: docker/setup-buildx-action {}',
-    'docker: docker/build-push-action {"context":".","push":false,"tags":"ghcr.io/bitfloo/mailoo:ci"}',
-    'integration: actions/checkout {}',
-    'integration: pnpm/action-setup {}',
-    'integration: actions/setup-node {"node-version":"24","cache":"pnpm"}',
-    'public-log: actions/checkout {"fetch-depth":0}',
-  ],
-  'codeql.yml': [
-    'analyze: actions/checkout {}',
-    'analyze: github/codeql-action/init {"languages":"javascript-typescript","build-mode":"none"}',
-    'analyze: github/codeql-action/analyze {}',
-  ],
-  'docker-rebuild.yml': [
-    'rebuild: actions/checkout {}',
-    'rebuild: docker/setup-qemu-action {}',
-    'rebuild: docker/setup-buildx-action {}',
-    'rebuild: docker/login-action {"registry":"ghcr.io","username":"${{ github.actor }}","password":"${{ secrets.GITHUB_TOKEN }}"}',
-    'rebuild: docker/build-push-action {"context":".","file":"Dockerfile","push":true,"platforms":"linux/amd64,linux/arm64","tags":"${{ steps.meta.outputs.bookworm_tags }}"}',
-    'rebuild: docker/build-push-action {"context":".","file":"Dockerfile.alpine","push":true,"platforms":"linux/amd64,linux/arm64","tags":"${{ steps.meta.outputs.alpine_tags }}"}',
-  ],
-  'docker-sha.yml': [
-    'sha-images: actions/checkout {}',
-    'sha-images: docker/setup-buildx-action {}',
-    'sha-images: docker/login-action {"registry":"ghcr.io","username":"${{ github.actor }}","password":"${{ secrets.GITHUB_TOKEN }}"}',
-    'sha-images: docker/build-push-action {"context":".","push":true,"tags":"ghcr.io/bitfloo/mailoo:sha-${{ github.sha }}"}',
-  ],
-  'release.yml': [
-    'npm: actions/checkout {}',
-    'npm: pnpm/action-setup {}',
-    'npm: actions/setup-node {"node-version":"24","registry-url":"https://registry.npmjs.org","cache":"pnpm"}',
-    'mcp: actions/checkout {}',
-    'docker: actions/checkout {"fetch-depth":0}',
-    'docker: docker/setup-qemu-action {}',
-    'docker: docker/setup-buildx-action {}',
-    'docker: docker/login-action {"registry":"ghcr.io","username":"${{ github.actor }}","password":"${{ secrets.GITHUB_TOKEN }}"}',
-    'docker: goreleaser/goreleaser-action {"version":"~> v2","args":"release --clean --release-notes=${{ runner.temp }}/release-notes.md"}',
-  ],
-  'scorecard.yml': [
-    'analysis: actions/checkout {"persist-credentials":false}',
-    'analysis: ossf/scorecard-action {"results_file":"results.sarif","results_format":"sarif","publish_results":true}',
-    'analysis: actions/upload-artifact {"name":"sarif-results","path":"results.sarif","retention-days":5}',
-    'analysis: github/codeql-action/upload-sarif {"sarif_file":"results.sarif"}',
-  ],
-};
-
-/**
  * Each env: block, the workflow's first, then by job, the job's own before its steps', in order. A run step reads these: a
  * secret moved to a repository variable would print in the public run log, and a token or input
  * swapped would publish under another identity or version.
@@ -171,15 +112,6 @@ describe('workflow keys', () => {
         `${id}: ${JSON.stringify({ name: job.name, 'runs-on': job['runs-on'], needs: job.needs })}`,
     );
     expect([doc.name, ...jobs]).toEqual(JOBS[name]);
-  });
-
-  it.each(workflows)('should hand each action in %s only its pinned inputs', (name, yaml) => {
-    const actions = Object.entries(jobSteps(yaml)).flatMap(([job, steps]) =>
-      steps.flatMap((step) =>
-        step.uses ? [`${job}: ${step.uses.split('@')[0]} ${JSON.stringify(step.with ?? {})}`] : [],
-      ),
-    );
-    expect(actions).toEqual(ACTIONS[name]);
   });
 
   it.each(workflows)('should set only the pinned env: values in %s', (name, yaml, doc) => {
