@@ -148,11 +148,12 @@ describe('retried and delivered sends', () => {
       const record = { ...pendingRecord(id, '2020-01-01T00:00:00Z'), status: 'sent', attempts: 1 };
       await fs.writeFile(pendingPath, JSON.stringify(record));
       const { service, smtp } = createService(queueDir);
-      await service.checkAndSend();
+      const result = await service.checkAndSend();
       const moved = JSON.parse(
         await fs.readFile(path.join(sentDir, `${id}.json`), 'utf8'),
       ) as ScheduledEmail;
-      expect({ status: moved.status, sends: smtp.sendEmail.mock.calls.length }).toEqual({
+      expect({ result, status: moved.status, sends: smtp.sendEmail.mock.calls.length }).toEqual({
+        result: { sent: 0, failed: 0, deferred: 0, errors: [] },
         status: 'sent',
         sends: 0,
       });
@@ -178,10 +179,15 @@ describe('retried and delivered sends', () => {
         const kept = JSON.parse(await fs.readFile(pendingPath, 'utf8')) as ScheduledEmail;
         expect({
           sends: smtp.sendEmail.mock.calls.length,
-          errors: first.errors,
+          first,
           status: kept.status,
           attempts: kept.attempts,
-        }).toEqual({ sends: 0, errors: [], status: 'sent', attempts: 1 });
+        }).toEqual({
+          sends: 0,
+          first: { sent: 0, failed: 0, deferred: 0, errors: [] },
+          status: 'sent',
+          attempts: 1,
+        });
       });
     },
   );
