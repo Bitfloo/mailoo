@@ -76,6 +76,15 @@ describe('sanitizeSearchQuery', () => {
     expect(sanitizeSearchQuery('hello\x00\x01world')).toBe('helloworld');
   });
 
+  // Tab and newline sit inside the stripped range; the characters next to them must still go.
+  it.each([
+    { query: 'a\x08b', char: 'U+0008' },
+    { query: 'a\x0Bb', char: 'U+000B' },
+    { query: 'a\x1Fb', char: 'U+001F' },
+  ])('strips a control character at the edge of a stripped range ($char)', ({ query }) => {
+    expect(sanitizeSearchQuery(query)).toBe('ab');
+  });
+
   it('throws on empty after sanitization', () => {
     expect(() => sanitizeSearchQuery('\x00\x01')).toThrow('must not be empty');
   });
