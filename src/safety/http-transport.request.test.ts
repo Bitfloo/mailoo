@@ -150,6 +150,59 @@ describe('evaluateHttpAccess', () => {
     ).toBe(true);
   });
 
+  // RFC 9110 section 8.3.1: the type and subtype are case-insensitive, and a
+  // client may put whitespace before the ";".
+  it.each(['Application/JSON; charset=utf-8', 'application/json ; charset=utf-8'])(
+    'should allow POST with Content-Type %s',
+    (type) => {
+      const headers = { host: '127.0.0.1:8080', 'content-type': type };
+      expect(evaluateHttpAccess({ method: 'POST', headers }, policy).ok).toBe(true);
+    },
+  );
+
+  it('should refuse POST with a duplicated Content-Type with 415', () => {
+    const headers = { host: '127.0.0.1:8080', 'content-type': ['application/json', 'text/plain'] };
+    expect(deny(evaluateHttpAccess({ method: 'POST', headers }, policy))).toEqual({
+      status: 415,
+      message: 'Unsupported media type',
+    });
+  });
+
+  it('should allow DELETE without a Content-Type', () => {
+    const req = { method: 'DELETE', headers: { host: '127.0.0.1:8080' } };
+    expect(evaluateHttpAccess(req, policy).ok).toBe(true);
+  });
+
+  // A repeated header could hide cross-site behind same-origin, and padding
+  // could hide it from an exact match.
+  it.each([[['same-origin', 'cross-site']], [' cross-site ']])(
+    'should refuse Sec-Fetch-Site %j with 403',
+    (value) => {
+      const headers = { host: '127.0.0.1:8080', 'sec-fetch-site': value };
+      expect(deny(evaluateHttpAccess({ method: 'GET', headers }, policy))).toEqual({
+        status: 403,
+        message: 'Forbidden',
+      });
+    },
+  );
+
+  // Number() reads each of these as a length; only plain digits in the safe
+  // integer range are one.
+  it.each(['1e3', '0x10', '5.0', '9007199254740993'])(
+    'should refuse Content-Length %s with 400',
+    (length) => {
+      const headers = {
+        host: '127.0.0.1:8080',
+        'content-type': 'application/json',
+        'content-length': length,
+      };
+      expect(deny(evaluateHttpAccess({ method: 'POST', headers }, policy))).toEqual({
+        status: 400,
+        message: 'Invalid Content-Length',
+      });
+    },
+  );
+
   it('rejects a method other than GET, POST, or DELETE', () => {
     const req = { method: 'TRACE', url: '/mcp', headers: { host: '127.0.0.1:8080' } };
     expect(deny(evaluateHttpAccess(req, policy)).status).toBe(405);
