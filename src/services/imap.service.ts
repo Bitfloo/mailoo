@@ -1975,15 +1975,8 @@ export default class ImapService {
 
   async getCapabilities(accountName: string): Promise<string[]> {
     const client = await this.connections.getImapClient(accountName);
-    try {
-      // ImapFlow exposes capabilities as a Set on the client
-      const caps = (client as unknown as Record<string, unknown>).capabilities as
-        | Set<string>
-        | undefined;
-      return caps ? Array.from(caps) : [];
-    } catch {
-      return [];
-    }
+    // imapflow maps each capability name to true, or to a number such as APPENDLIMIT's.
+    return [...client.capabilities.keys()];
   }
 
   // -------------------------------------------------------------------------

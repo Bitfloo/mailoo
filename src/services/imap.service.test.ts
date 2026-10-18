@@ -138,6 +138,31 @@ describe('ImapService', () => {
     });
   });
 
+  describe('getCapabilities', () => {
+    // imapflow maps each capability name to true, or to a number such as APPENDLIMIT's.
+    it('should return the capability names the server announced', async () => {
+      Object.assign(client, {
+        capabilities: new Map<string, boolean | number>([
+          ['IMAP4rev1', true],
+          ['IDLE', true],
+          ['APPENDLIMIT', 35651584],
+        ]),
+      });
+
+      await expect(service.getCapabilities('test')).resolves.toEqual([
+        'IMAP4rev1',
+        'IDLE',
+        'APPENDLIMIT',
+      ]);
+    });
+
+    it('should return no names before the server has announced any', async () => {
+      Object.assign(client, { capabilities: new Map() });
+
+      await expect(service.getCapabilities('test')).resolves.toEqual([]);
+    });
+  });
+
   describe('getQuota', () => {
     it('should report the INBOX storage quota in MB', async () => {
       // imapflow's QUOTA answer: storage KB from the wire multiplied into bytes.
