@@ -47,11 +47,6 @@ export default class HttpSessionStore<T extends SessionTransport> {
     this.evict(id);
   }
 
-  touch(id: string): void {
-    const session = this.sessions.get(id);
-    if (session) session.lastUsed = this.now();
-  }
-
   beginRequest(id: string): void {
     const session = this.sessions.get(id);
     if (!session) return;

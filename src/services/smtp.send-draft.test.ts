@@ -61,7 +61,7 @@ describe('SmtpService.sendDraft', () => {
   });
 
   /** The configured account for `name`: "test", or a second account for any other name. */
-  function account(name: string) {
+  function account(name?: string) {
     const [user, fullName] = name === 'test' ? ['test', 'Test User'] : ['other', 'Other Desk'];
     return {
       name: user,

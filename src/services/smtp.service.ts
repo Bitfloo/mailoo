@@ -63,8 +63,25 @@ export default class SmtpService {
   // Send email
   // -------------------------------------------------------------------------
 
+  resolveAccountName(accountName?: string): string {
+    return this.resolveAccount(accountName).name;
+  }
+
+  private resolveAccount(accountName?: string): {
+    name: string;
+    account: ReturnType<IConnectionManager['getAccount']>;
+  } {
+    const account = this.connections.getAccount(accountName ?? '');
+    const fallbackName =
+      accountName !== undefined && accountName.length > 0 ? accountName : account.name;
+    const name = this.connections.resolveAccountName
+      ? this.connections.resolveAccountName(accountName)
+      : fallbackName;
+    return { name, account };
+  }
+
   async sendEmail(
-    accountName: string,
+    accountName: string | undefined,
     options: {
       to: string[];
       subject: string;
@@ -76,10 +93,10 @@ export default class SmtpService {
       messageId?: string;
     },
   ): Promise<SendResult> {
-    this.checkRateLimit(accountName);
+    const { name: resolvedAccount, account } = this.resolveAccount(accountName);
+    this.checkRateLimit(resolvedAccount);
 
-    const account = this.connections.getAccount(accountName);
-    const attachments = await this.resolveAttachments(accountName, options.attachments);
+    const attachments = await this.resolveAttachments(resolvedAccount, options.attachments);
     const mail = {
       from: account.fullName ? `"${account.fullName}" <${account.email}>` : account.email,
       to: options.to.join(', '),
@@ -91,7 +108,7 @@ export default class SmtpService {
       ...(options.html ? { html: options.body } : { text: options.body }),
     };
 
-    return this.sendAndAppend(accountName, mail);
+    return this.sendAndAppend(resolvedAccount, mail);
   }
 
   // -------------------------------------------------------------------------
@@ -99,7 +116,7 @@ export default class SmtpService {
   // -------------------------------------------------------------------------
 
   async replyToEmail(
-    accountName: string,
+    accountName: string | undefined,
     options: {
       emailId: string;
       mailbox?: string;
@@ -109,10 +126,14 @@ export default class SmtpService {
       messageId?: string;
     },
   ): Promise<SendResult> {
-    this.checkRateLimit(accountName);
+    const { name: resolvedAccount, account } = this.resolveAccount(accountName);
+    this.checkRateLimit(resolvedAccount);
 
-    const account = this.connections.getAccount(accountName);
-    const original = await this.imapService.getEmail(accountName, options.emailId, options.mailbox);
+    const original = await this.imapService.getEmail(
+      resolvedAccount,
+      options.emailId,
+      options.mailbox,
+    );
 
     // Build recipient list
     const to = [original.from.address];
@@ -137,7 +158,7 @@ export default class SmtpService {
       ? original.subject
       : `Re: ${original.subject}`;
 
-    return this.sendAndAppend(accountName, {
+    return this.sendAndAppend(resolvedAccount, {
       from: account.fullName ? `"${account.fullName}" <${account.email}>` : account.email,
       to: to.join(', '),
       cc: cc.length > 0 ? cc.join(', ') : undefined,
@@ -154,7 +175,7 @@ export default class SmtpService {
   // -------------------------------------------------------------------------
 
   async forwardEmail(
-    accountName: string,
+    accountName: string | undefined,
     options: {
       emailId: string;
       mailbox?: string;
@@ -166,10 +187,14 @@ export default class SmtpService {
       messageId?: string;
     },
   ): Promise<SendResult> {
-    this.checkRateLimit(accountName);
-    const account = this.connections.getAccount(accountName);
-    const attachments = await this.resolveAttachments(accountName, options.attachments);
-    const original = await this.imapService.getEmail(accountName, options.emailId, options.mailbox);
+    const { name: resolvedAccount, account } = this.resolveAccount(accountName);
+    this.checkRateLimit(resolvedAccount);
+    const attachments = await this.resolveAttachments(resolvedAccount, options.attachments);
+    const original = await this.imapService.getEmail(
+      resolvedAccount,
+      options.emailId,
+      options.mailbox,
+    );
     const fromDisplay = original.from.name
       ? `${original.from.name} <${original.from.address}>`
       : original.from.address;
@@ -191,12 +216,12 @@ export default class SmtpService {
           original.bodyHtml ??
           `<pre style="white-space:pre-wrap;font-family:inherit">${escapeHtml(original.bodyText ?? '')}</pre>`
         }`;
-      return this.sendAndAppend(accountName, { ...mail, html: (options.body ?? '') + quote });
+      return this.sendAndAppend(resolvedAccount, { ...mail, html: (options.body ?? '') + quote });
     }
     const quote =
       `\n---------- Forwarded message ----------\nFrom: ${fromDisplay}\nDate: ${original.date}\n` +
       `Subject: ${original.subject}\nTo: ${toAddresses}\n`;
-    return this.sendAndAppend(accountName, {
+    return this.sendAndAppend(resolvedAccount, {
       ...mail,
       text: (options.body ?? '') + quote + (original.bodyText ?? original.bodyHtml ?? ''),
     });
@@ -219,23 +244,27 @@ export default class SmtpService {
   // Send draft
   // -------------------------------------------------------------------------
 
-  async sendDraft(accountName: string, draftId: number, mailbox?: string): Promise<SendResult> {
-    this.checkRateLimit(accountName);
+  async sendDraft(
+    accountName: string | undefined,
+    draftId: number,
+    mailbox?: string,
+  ): Promise<SendResult> {
+    const { name: resolvedAccount, account } = this.resolveAccount(accountName);
+    this.checkRateLimit(resolvedAccount);
 
     const { email: draft, mailbox: draftsPath } = await this.imapService.fetchDraft(
-      accountName,
+      resolvedAccount,
       draftId,
       mailbox,
     );
 
-    const account = this.connections.getAccount(accountName);
     const to = draft.to.map((a) => a.address).join(', ');
     const cc = draft.cc?.map((a) => a.address).join(', ');
 
     const attachments = await Promise.all(
       draft.attachments.map(async (meta) => {
         const downloaded = await this.imapService.downloadAttachment(
-          accountName,
+          resolvedAccount,
           String(draftId),
           draftsPath,
           meta.filename,
@@ -249,7 +278,7 @@ export default class SmtpService {
       }),
     );
 
-    const result = await this.sendAndAppend(accountName, {
+    const result = await this.sendAndAppend(resolvedAccount, {
       from: account.fullName ? `"${account.fullName}" <${account.email}>` : account.email,
       to,
       cc,
@@ -263,7 +292,7 @@ export default class SmtpService {
     // The mail is already delivered: a failed delete must not read as a failed send,
     // or the caller sends it again.
     try {
-      await this.imapService.deleteDraft(accountName, draftId, draftsPath);
+      await this.imapService.deleteDraft(resolvedAccount, draftId, draftsPath);
       return { ...result, draftDeleted: true };
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);

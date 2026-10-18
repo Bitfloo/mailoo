@@ -13,9 +13,14 @@ const AUDIT_MODULE = path.join(root, 'src', 'safety', 'audit.ts');
  * that write no audit entry. Each must still load it unpinned: pin one, then drop it here.
  */
 const LOADS_AUDIT_WITHOUT_WRITING = new Set([
+  'src/__integration__/http-host.integration.test.ts',
+  'src/__integration__/http-session-eviction.integration.test.ts',
+  'src/__integration__/http-session-ids.integration.test.ts',
+  'src/__integration__/http-session-logging.integration.test.ts',
   'src/__integration__/http-session.integration.test.ts',
   'src/mcp-catalog.test.ts',
   'src/safety/http-session-scope.test.ts',
+  'src/services/tools-doc.test.ts',
   'src/tools/annotations.test.ts',
   'src/tools/register.test.ts',
   'src/tools/scheduler.tool.test.ts',

@@ -159,14 +159,17 @@ describe('add_to_calendar audit log', () => {
     expect((await lastEntry())?.params.attachments_saved).toBe(1);
   });
 
-  it('should record a calendar write that throws as an error and still throw', async () => {
+  it('should record a calendar write that throws as an error and report it', async () => {
     const tools = captureWriteTools({
       addEvent: async () => {
         throw new Error('spawn osascript ENOENT');
       },
     });
 
-    await expect(tools.add_to_calendar(CALENDAR_ARGS)).rejects.toThrow('spawn osascript ENOENT');
+    expect(await tools.add_to_calendar(CALENDAR_ARGS)).toMatchObject({
+      isError: true,
+      content: [{ text: 'Failed to add event to calendar: spawn osascript ENOENT' }],
+    });
     expect(await lastEntry()).toMatchObject({
       tool: 'add_to_calendar',
       result: 'error',

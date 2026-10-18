@@ -1,8 +1,7 @@
 # MCP tools
 
 The [README API tables](../README.md#api) are the index (names and
-one-liners). This page is the SSOT for parameters and behaviour that
-landed with the Mailoo IMAP/SMTP dump. Config keys live in
+one-liners). This page documents parameters and behaviour for the Mailoo IMAP/SMTP tools. Config keys live in
 [configuration.md](configuration.md).
 
 Reporting security issues: [SECURITY.md](../SECURITY.md).
@@ -27,6 +26,20 @@ on a writable server because this path writes disk, and **true** when
 `read_only` is set. A directory `savePath` uses the attachment filename
 (one path segment). An existing file is left unchanged.
 A symlink is rejected.
+
+An attachment is chosen by `filename`. When two or more attachments in the
+message carry that name, the call fails and the error lists their MIME
+parts instead of returning the first one. The same refusal applies to
+`send_email` attachments copied with `emailId` + `filename` and to
+`send_draft` on a draft whose attachments share a name.
+
+`add_to_calendar` with `save_attachments`, and the mail-arrival hook that
+adds events to the calendar, save the non-calendar attachments of the
+message under `$XDG_DATA_HOME/mailoo/calendar-attachments/`, up to 25 MB
+each, as the server reports the part size (base64 adds about a third).
+A part that cannot be downloaded or written is skipped. Each file keeps only
+the last path segment of the attachment name, without leading dots, and
+attachments that share a name are saved as `name.ext`, `name-2.ext`, and so on.
 
 ## `export_email`
 
@@ -74,6 +87,34 @@ Both accept ISO 8601 `since` and `before`.
 (`since` / `before` win if both are set). `query` may be omitted for a
 filter-only search.
 
+## `bulk_action`
+
+Every id must be a single UID (a positive integer up to 4294967295), the
+same rule as the single-message tools; any other id rejects the whole call
+before the server is contacted. `mailbox` and `destination` follow the
+mailbox-name rules of the other tools (no control characters or wildcards).
+
+## `delete_mailbox` / `rename_mailbox` / `delete_label`
+
+`delete_mailbox` and `rename_mailbox` refuse INBOX (any letter case) and
+every special-use folder: `\Trash`, `\Sent`, `\Drafts`, `\Junk`,
+`\Archive`, `\All`, `\Flagged` and `\Important`, whether the server
+announces the role (RFC 6154, and RFC 8457 for \Important) or, for most
+roles, imapflow infers it from a well-known folder name. The server and
+other mail clients file into these folders.
+On Gmail a label is a folder, so `delete_label` applies the same refusal
+(`INBOX`, `[Gmail]/Trash`, `[Gmail]/Sent Mail`, …).
+
+## Calls on one account wait for each other
+
+Tool calls share one IMAP connection per account (the mail watcher has its
+own), and that connection runs one command at a time, so tool calls on the
+same account queue. A call that opens a mailbox waits at most 60 seconds for
+another call's mailbox lock, then fails with `Mailbox "<name>" stayed busy
+for 60 s: an earlier operation on this account has not finished. Try again
+later.` The earlier operation is not cancelled; retry the call once it has
+finished.
+
 ## `get_email_security`
 
 Read-only. Returns SPF/DKIM/DMARC from `Authentication-Results` (and
@@ -102,7 +143,9 @@ Write tools are omitted when `read_only` is true.
 
 `send_email` `attachments[]`: each item needs **`path`**, **`base64`**,
 or **`emailId` + `filename`** (copy from an existing message; `mailbox`
-defaults to INBOX). Optional `contentType`.
+defaults to INBOX). Optional `contentType`. When two attachments of the
+message share the copied `filename`, the item is refused, and so is
+`send_draft` for such a draft; see [`download_attachment`](#download_attachment).
 
 `path` must be a regular file under the process working directory or
 the user's home directory. A path segment that starts with `.` is

@@ -14,6 +14,7 @@ import {
   savePathLimitSentence,
   writeAttachmentFile,
 } from './attachments.tool.js';
+import { accountParam, emailIdValueSchema, resolveEmailId } from './schema-helpers.js';
 
 export { INLINE_MAX_BYTES };
 
@@ -34,8 +35,14 @@ export default function registerExportTools(
           'the .eml file',
         )}`,
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
-        id: z.string().describe('Email ID (UID) from list_emails or get_email'),
+        account: accountParam,
+        id: emailIdValueSchema.optional().describe('Email ID (UID) from list_emails or get_email'),
+        emailId: emailIdValueSchema
+          .optional()
+          .describe('Alias of id — Email ID (UID) from list_emails or get_email'),
+        email_id: emailIdValueSchema
+          .optional()
+          .describe('Alias of id — Email ID (UID) from list_emails or get_email'),
         mailbox: z.string().default('INBOX').describe('Mailbox containing the email'),
         savePath: z
           .string()
@@ -52,9 +59,12 @@ export default function registerExportTools(
         openWorldHint: true,
       },
     },
-    async ({ account, id, mailbox, savePath }) => {
-      const auditParams = { id, mailbox, savePath };
+    async (params) => {
+      const account = params.account ?? '';
+      const { mailbox, savePath } = params;
+      const auditParams = { id: params.emailId ?? params.id ?? params.email_id, mailbox, savePath };
       try {
+        const id = resolveEmailId(params);
         if (readOnly && savePath !== undefined) {
           throw new Error(SAVE_PATH_READ_ONLY_MESSAGE);
         }

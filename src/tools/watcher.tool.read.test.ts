@@ -4,8 +4,8 @@ import NotifierService from '../services/notifier.service.js';
 import { listPresets } from '../services/presets.js';
 import type WatcherService from '../services/watcher.service.js';
 import type { WatcherStatus } from '../services/watcher.service.js';
-import type { Handler } from '../test-support/watcher-harness.js';
-import { hooksConfigFor } from '../test-support/watcher-harness.js';
+import type { Handler } from '../test-support/watcher-tool-harness.js';
+import { hooksConfigFor } from '../test-support/watcher-tool-harness.js';
 import type { HooksConfig } from '../types/index.js';
 import { registerWatcherReadTools, registerWatcherWriteTools } from './watcher.tool.js';
 

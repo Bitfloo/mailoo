@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.Bitfloo/mailoo",
-  "description": "Mailoo — email MCP server for IMAP, SMTP, and ManageSieve. Multi-account, per-folder profiles.",
+  "description": "Email, calendar, reminders & ManageSieve MCP server (IMAP/SMTP, AI triage, scheduling, OAuth2).",
   "repository": {
     "url": "https://github.com/Bitfloo/mailoo.git",
     "source": "github"
   },
-  "version": "0.2.1",
+  "version": "0.2.2",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@bitfloo/mailoo",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "runtimeHint": "npx",
       "runtimeArguments": [
         {
@@ -321,6 +321,18 @@
         {
           "name": "MCP_EMAIL_HTTP_ALLOWED_HOSTS",
           "description": "Comma-separated Host names. Required for 0.0.0.0 and ::.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_DEFAULT_ACCOUNT",
+          "description": "Default account name or email address when the account parameter is omitted.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_EMAIL_TOOLSET",
+          "description": "Toolset profile to register: full, core, or minimal. Defaults to full.",
           "isRequired": false,
           "isSecret": false
         }

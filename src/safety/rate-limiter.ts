@@ -5,8 +5,13 @@
  * Defaults to 10 sends per 60-second window.
  */
 
+interface Bucket {
+  tokens: number;
+  lastRefill: number;
+}
+
 export default class RateLimiter {
-  private buckets = new Map<string, { tokens: number; lastRefill: number }>();
+  private buckets = new Map<string, Bucket>();
 
   private readonly maxTokens: number;
 
@@ -22,21 +27,7 @@ export default class RateLimiter {
    * @returns `true` if allowed, `false` if rate-limited.
    */
   tryConsume(accountName: string): boolean {
-    const now = Date.now();
-    let bucket = this.buckets.get(accountName);
-
-    if (!bucket) {
-      bucket = { tokens: this.maxTokens, lastRefill: now };
-      this.buckets.set(accountName, bucket);
-    }
-
-    // Refill tokens based on elapsed time
-    const elapsed = now - bucket.lastRefill;
-    const refill = Math.floor((elapsed / this.windowMs) * this.maxTokens);
-    if (refill > 0) {
-      bucket.tokens = Math.min(this.maxTokens, bucket.tokens + refill);
-      bucket.lastRefill = now;
-    }
+    const bucket = this.refill(accountName, Date.now());
 
     if (bucket.tokens > 0) {
       bucket.tokens -= 1;
@@ -50,12 +41,28 @@ export default class RateLimiter {
    * Get remaining tokens for an account.
    */
   remaining(accountName: string): number {
-    const bucket = this.buckets.get(accountName);
-    if (!bucket) return this.maxTokens;
+    if (!this.buckets.has(accountName)) return this.maxTokens;
+    return this.refill(accountName, Date.now()).tokens;
+  }
 
-    // Calculate refill
-    const elapsed = Date.now() - bucket.lastRefill;
-    const refill = Math.floor((elapsed / this.windowMs) * this.maxTokens);
-    return Math.min(this.maxTokens, bucket.tokens + refill);
+  /**
+   * Credit whole tokens earned since `lastRefill`. The clock advances only by
+   * the time those tokens cost, so a partial interval carries over; a full
+   * bucket earns nothing, so its clock restarts at `now`.
+   */
+  private refill(accountName: string, now: number): Bucket {
+    const bucket = this.buckets.get(accountName) ?? { tokens: this.maxTokens, lastRefill: now };
+    const earned = Math.floor(((now - bucket.lastRefill) * this.maxTokens) / this.windowMs);
+    let next = bucket;
+    if (bucket.tokens + earned >= this.maxTokens) {
+      next = { tokens: this.maxTokens, lastRefill: now };
+    } else if (earned > 0) {
+      next = {
+        tokens: bucket.tokens + earned,
+        lastRefill: bucket.lastRefill + (earned * this.windowMs) / this.maxTokens,
+      };
+    }
+    this.buckets.set(accountName, next);
+    return next;
   }
 }

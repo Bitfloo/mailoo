@@ -2,6 +2,10 @@
  * Shared TypeScript types for the Mailoo.
  */
 
+import type { ToolsetProfile } from './config.js';
+
+export type { ToolsetProfile } from './config.js';
+
 // ---------------------------------------------------------------------------
 // Address
 // ---------------------------------------------------------------------------
@@ -180,6 +184,8 @@ export interface AppConfig {
   settings: {
     rateLimit: number;
     readOnly: boolean;
+    toolset?: ToolsetProfile;
+    defaultAccount?: string;
     /** After SMTP send, APPEND a copy to the \\Sent mailbox (default true). */
     saveToSent: boolean;
     watcher: WatcherConfig;

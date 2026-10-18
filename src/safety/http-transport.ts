@@ -11,6 +11,8 @@ import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import http from 'node:http';
 
+import LOOPBACK_HOSTNAMES from '../utils/loopback.js';
+
 /** One JSON-RPC POST, including a modest base64 attachment. Larger files use a path. */
 export const DEFAULT_HTTP_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
 
@@ -30,9 +32,13 @@ export const HTTP_MAX_HEADER_COUNT = 100;
 
 const LOOPBACK_BIND_HOSTS = ['127.0.0.1', '::1'] as const;
 
-const LOOPBACK_HOSTNAMES = ['127.0.0.1', 'localhost', '[::1]'] as const;
+/** The guard's method check, the route match and every 405's Allow read this one table. */
+const ROUTE_METHODS = new Map<string, readonly string[]>([
+  ['/mcp', ['GET', 'POST', 'DELETE']],
+  ['/health', ['GET']],
+]);
 
-const METHODS = new Set(['GET', 'POST', 'DELETE']);
+const METHODS = new Set([...ROUTE_METHODS.values()].flat());
 
 const HOST_HEADER_RE =
   /^(?:\[([0-9a-f:]*)\]|([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*))(?::(\d{1,5}))?$/i;
@@ -389,17 +395,27 @@ export function bearerAuthorizationMatches(
 export type HttpRoute = 'health' | 'mcp' | 'missing' | 'method';
 
 export function resolveHttpRoute(method: string | undefined, url: string | undefined): HttpRoute {
-  if (url === '/health') return method === 'GET' ? 'health' : 'method';
-  if (url === '/mcp') return method !== undefined && METHODS.has(method) ? 'mcp' : 'method';
-  return 'missing';
+  const methods = ROUTE_METHODS.get(url ?? '');
+  if (!methods) return 'missing';
+  if (method === undefined || !methods.includes(method)) return 'method';
+  return url === '/health' ? 'health' : 'mcp';
+}
+
+/** The Allow value for a 405 on `url`. Only a path a route serves is answered with 405. */
+export function allowedMethods(url: string | undefined): string {
+  return (ROUTE_METHODS.get(url ?? '') ?? []).join(', ');
 }
 
 export function evaluateHttpAccess(
-  req: { method?: string; headers: HttpRequestHeaders },
+  req: { method?: string; url?: string; headers: HttpRequestHeaders },
   policy: HttpListenPolicy,
 ): HttpAccessDecision {
   const method = req.method ?? '';
-  if (!METHODS.has(method)) return refused(405, 'Method not allowed');
+  if (!METHODS.has(method)) {
+    return ROUTE_METHODS.has(req.url ?? '')
+      ? refused(405, 'Method not allowed')
+      : refused(404, 'Not Found');
+  }
 
   const host = hostDecision(oneHeader(req.headers.host), policy);
   if (host) return host;
@@ -483,10 +499,11 @@ export async function readLimitedBody(req: IncomingMessage, limit: number): Prom
   });
 }
 
-function jsonErrorBody(message: string): string {
+/** A JSON-RPC error the HTTP layer sends itself, before any request id is known. */
+export function rpcErrorBody(code: number, message: string): string {
   return JSON.stringify({
     jsonrpc: '2.0',
-    error: { code: -32000, message },
+    error: { code, message },
     id: null,
   });
 }
@@ -497,7 +514,7 @@ function rejectRequest(
   status: number,
   message: string,
 ): void {
-  const body = jsonErrorBody(message);
+  const body = rpcErrorBody(-32000, message);
   const headers: http.OutgoingHttpHeaders = {
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(body),
@@ -506,6 +523,7 @@ function rejectRequest(
     Connection: 'close',
   };
   if (status === 401) headers['WWW-Authenticate'] = 'Bearer';
+  if (status === 405) headers.Allow = allowedMethods(req.url);
   res.writeHead(status, headers);
   res.end(body, () => {
     req.destroy();
@@ -573,7 +591,7 @@ export async function startGuardedHttpServers(
   let boundPort = policy.port;
 
   const onRequest: http.RequestListener = (req, res) => {
-    const decision = evaluateHttpAccess({ method: req.method, headers: req.headers }, active);
+    const decision = evaluateHttpAccess(req, active);
     if (!decision.ok) {
       rejectRequest(req, res, decision.status, decision.message);
       return;

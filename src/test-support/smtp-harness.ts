@@ -45,6 +45,7 @@ export function createMockConnectionManager(mockTransport: MockTransport): MockC
       smtp: { host: 'smtp.example.com', port: 465, tls: true, starttls: false, verifySsl: true },
     }),
     getAccountNames: vi.fn().mockReturnValue(['test']),
+    resolveAccountName: vi.fn().mockReturnValue('test'),
     getImapClient: vi.fn(),
     getSmtpTransport: vi.fn().mockResolvedValue(mockTransport),
     closeAll: vi.fn(),

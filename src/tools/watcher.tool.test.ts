@@ -1,6 +1,6 @@
 import { AppConfigFileSchema } from '../config/schema.js';
 import NotifierService from '../services/notifier.service.js';
-import { captureConfigureAlerts, hooksConfigFor } from '../test-support/watcher-harness.js';
+import { captureConfigureAlerts, hooksConfigFor } from '../test-support/watcher-tool-harness.js';
 
 const { auditHome } = await vi.hoisted(async () => {
   const { pinAuditHome } = await import('../test-support/audit-home.js');

@@ -5,17 +5,22 @@
  * new emails in real-time. Emits events on the shared event bus.
  *
  * Key design decisions:
- * - Separate ImapFlow connections from ConnectionManager (IDLE holds lock)
- * - Auto-reconnect with exponential backoff on connection failures
+ * - Separate ImapFlow connections from ConnectionManager (an idling connection serves no tools)
+ * - Auto-reconnect with jittered exponential backoff on connection failures
  * - Tracks last-seen UID per folder to detect genuinely new messages
  */
 
+import type { MailboxLockObject } from 'imapflow';
 import { ImapFlow } from 'imapflow';
-import { buildImapFlowOptions } from '../connections/manager.js';
+import { buildImapAuth } from '../connections/auth.js';
+import { INITIAL_BACKOFF_MS, nextBackoff, withJitter } from '../connections/backoff.js';
+import { bindImapLifecycle, buildImapFlowOptions } from '../connections/manager.js';
+import type { AccessTokenSource } from '../connections/types.js';
 import { mcpLog } from '../logging.js';
 import type { AccountConfig, EmailMeta, WatcherConfig } from '../types/index.js';
 import type { EmailEventBus } from './event-bus.js';
 import eventBus from './event-bus.js';
+import OAuthService from './oauth.service.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,7 +31,8 @@ interface IdleState {
   account: AccountConfig;
   folder: string;
   lastSeenUid: number;
-  lock: { release: () => void } | null;
+  /** UIDVALIDITY of the last select; null until the first one succeeds. */
+  uidValidity: bigint | null;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   backoffMs: number;
   stopped: boolean;
@@ -99,8 +105,19 @@ export function buildEmailMeta(msg: WatcherFetchMessage): EmailMeta {
 // WatcherService
 // ---------------------------------------------------------------------------
 
-const MAX_BACKOFF_MS = 60_000;
-const INITIAL_BACKOFF_MS = 1_000;
+/**
+ * These connections only idle, so imapflow's 15 s default would just hold back the notice for
+ * mail that lands right after a fetch.
+ */
+export const AUTO_IDLE_DELAY_MS = 1_000;
+
+function closeQuietly(client: ImapFlow): void {
+  try {
+    client.close();
+  } catch {
+    /* already closed */
+  }
+}
 
 export default class WatcherService {
   private idleStates = new Map<string, IdleState>();
@@ -113,6 +130,7 @@ export default class WatcherService {
     config: WatcherConfig,
     accounts: AccountConfig[],
     private readonly events: EmailEventBus = eventBus,
+    private readonly tokens: AccessTokenSource = new OAuthService(),
   ) {
     this.config = config;
     this.accounts = accounts;
@@ -135,9 +153,11 @@ export default class WatcherService {
     const stopOps = [...this.idleStates.values()].map(async (state) => {
       this.updateState(WatcherService.stateKey(state), { stopped: true });
       if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
+      const { client } = state;
       try {
-        state.lock?.release();
-        if (state.client) await state.client.logout();
+        if (client?.usable) await client.logout();
+        // Still logging in: close the socket instead of waiting for a session to log out of.
+        else if (client) closeQuietly(client);
       } catch {
         /* ignore */
       }
@@ -168,6 +188,12 @@ export default class WatcherService {
     if (state) Object.assign(state, updates);
   }
 
+  private forgetClient(key: string, client: ImapFlow): void {
+    if (this.idleStates.get(key)?.client !== client) return;
+    this.updateState(key, { client: null });
+    this.scheduleReconnect(key);
+  }
+
   // -------------------------------------------------------------------------
   // IDLE connection lifecycle
   // -------------------------------------------------------------------------
@@ -179,7 +205,7 @@ export default class WatcherService {
       account,
       folder,
       lastSeenUid: 0,
-      lock: null,
+      uidValidity: null,
       reconnectTimer: null,
       backoffMs: INITIAL_BACKOFF_MS,
       stopped: false,
@@ -191,58 +217,58 @@ export default class WatcherService {
     const state = this.idleStates.get(key);
     if (!state || state.stopped) return;
 
+    let client: ImapFlow | undefined;
     try {
-      const auth = state.account.oauth2
-        ? { user: state.account.username, accessToken: state.account.password }
-        : { user: state.account.username, pass: state.account.password };
+      const auth = await buildImapAuth(state.account, this.tokens);
+      // stop() cannot close a client that does not exist yet.
+      if (state.stopped) return;
 
-      const client = new ImapFlow({
-        ...buildImapFlowOptions(state.account, { maxIdleTime: this.config.idleTimeout * 1000 }),
+      client = new ImapFlow({
+        ...buildImapFlowOptions(state.account, {
+          maxIdleTime: this.config.idleTimeout * 1000,
+          autoIdleDelay: AUTO_IDLE_DELAY_MS,
+        }),
         auth,
       });
-
-      await client.connect();
-
-      const lock = await client.getMailboxLock(state.folder);
-      const { mailbox } = client;
-      const uidNext =
-        mailbox && typeof mailbox === 'object'
-          ? ((mailbox as { uidNext?: number }).uidNext ?? 1)
-          : 1;
-
-      this.updateState(key, {
-        client,
-        lock,
-        lastSeenUid: uidNext - 1,
-        backoffMs: INITIAL_BACKOFF_MS,
+      const current = client;
+      this.updateState(key, { client: current });
+      // Bound before connect: the client is in the state from here on, so a close during login,
+      // from stop() or from imapflow after a socket error, must reach forgetClient too.
+      bindImapLifecycle(state.account.name, current, () => {
+        this.forgetClient(key, current);
       });
-
-      // Listen for new messages
-      client.on('exists', (data: { path: string; count: number; prevCount: number }) => {
+      current.on('exists', (data: { path: string; count: number; prevCount: number }) => {
         if (data.count > data.prevCount) {
           this.handleNewEmails(key).catch(() => {});
         }
       });
 
-      // Auto-reconnect on close
-      client.on('close', () => {
-        this.updateState(key, { lock: null, client: null });
-        const current = this.idleStates.get(key);
-        if (current && !current.stopped) {
-          this.scheduleReconnect(key);
-        }
-      });
+      await current.connect();
 
-      client.on('error', () => {
-        // Error will be followed by 'close' event
+      // Opened without a lock: imapflow starts IDLE only on a connection no lock is held on.
+      const { uidNext, uidValidity } = await current.mailboxOpen(state.folder);
+      // A reconnect carries on after the last UID it reported, unless the server renumbered.
+      const resumeAfter = state.uidValidity === uidValidity ? state.lastSeenUid : uidNext - 1;
+
+      this.updateState(key, {
+        lastSeenUid: resumeAfter,
+        uidValidity,
+        backoffMs: INITIAL_BACKOFF_MS,
       });
 
       await mcpLog(
         'info',
         'watcher',
-        `IDLE started: ${state.account.name}/${state.folder} (uid > ${uidNext - 1})`,
+        `IDLE started: ${state.account.name}/${state.folder} (uid > ${resumeAfter})`,
       );
+
+      // Mail delivered while the connection was down raises no EXISTS on the new one.
+      if (uidNext - 1 > resumeAfter) {
+        this.handleNewEmails(key).catch(() => {});
+      }
     } catch (err) {
+      // imapflow leaves the socket open when LOGIN or SELECT is refused.
+      if (client) closeQuietly(client);
       const errMsg = err instanceof Error ? err.message : String(err);
       await mcpLog(
         'warning',
@@ -255,19 +281,21 @@ export default class WatcherService {
 
   private scheduleReconnect(key: string): void {
     const state = this.idleStates.get(key);
-    if (!state || state.stopped) return;
+    // Both the close event and the failed connect ask; one pending attempt is enough.
+    if (!state || state.stopped || state.reconnectTimer) return;
 
     const { backoffMs } = state;
+    const delayMs = withJitter(backoffMs);
     mcpLog(
       'info',
       'watcher',
-      `Reconnecting ${state.account.name}/${state.folder} in ${backoffMs}ms`,
+      `Reconnecting ${state.account.name}/${state.folder} in ${delayMs}ms`,
     ).catch(() => {});
 
     const timer = setTimeout(() => {
-      this.updateState(key, { backoffMs: Math.min(backoffMs * 2, MAX_BACKOFF_MS) });
+      this.updateState(key, { reconnectTimer: null, backoffMs: nextBackoff(backoffMs) });
       this.connectIdle(key).catch(() => {});
-    }, backoffMs);
+    }, delayMs);
     timer.unref();
 
     this.updateState(key, { reconnectTimer: timer });
@@ -279,20 +307,25 @@ export default class WatcherService {
 
   private async handleNewEmails(key: string): Promise<void> {
     const state = this.idleStates.get(key);
-    if (!state?.client) return;
+    const client = state?.client;
+    if (!state || !client) return;
 
+    let lock: MailboxLockObject | undefined;
     try {
+      // Held only for the fetch, so IDLE resumes once it is released.
+      lock = await client.getMailboxLock(state.folder);
       const searchRange = `${state.lastSeenUid + 1}:*`;
       const emails: EmailMeta[] = [];
       let maxUid = state.lastSeenUid;
 
       // eslint-disable-next-line no-restricted-syntax -- need sequential async iteration
-      for await (const msg of state.client.fetch(searchRange, {
-        uid: true,
-        envelope: true,
-        flags: true,
-        bodyStructure: true,
-      })) {
+      for await (const msg of client.fetch(
+        searchRange,
+        { uid: true, envelope: true, flags: true, bodyStructure: true },
+        // Without it imapflow reads the range as sequence numbers, which trail UIDs after deletes.
+        { uid: true },
+      )) {
+        // `N:*` still matches the newest message when no UID reaches N.
         if (msg.uid > state.lastSeenUid) {
           emails.push(buildEmailMeta(msg));
           maxUid = Math.max(maxUid, msg.uid);
@@ -319,6 +352,8 @@ export default class WatcherService {
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       await mcpLog('warning', 'watcher', `Failed to fetch new emails: ${errMsg}`);
+    } finally {
+      lock?.release();
     }
   }
 }

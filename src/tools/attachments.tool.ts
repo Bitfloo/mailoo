@@ -21,6 +21,8 @@ import {
   specificRoot,
 } from '../safety/local-paths.js';
 import type ImapService from '../services/imap.service.js';
+import isEnoent from '../utils/fs-errors.js';
+import { accountParam, emailIdInputFields, resolveEmailId } from './schema-helpers.js';
 
 const BYTES_PER_MEBIBYTE = 1024 * 1024;
 
@@ -57,10 +59,6 @@ function errnoOf(err: unknown): string | undefined {
   if (typeof err !== 'object' || err === null || !('code' in err)) return undefined;
   const { code } = err as { code?: unknown };
   return typeof code === 'string' ? code : undefined;
-}
-
-function isEnoent(err: unknown): boolean {
-  return errnoOf(err) === 'ENOENT';
 }
 
 export function attachmentOpenFailure(err: unknown): Error {
@@ -236,8 +234,8 @@ export default function registerAttachmentTools(
         'the file',
       )}`,
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
-        id: z.string().describe('Email ID (UID) from list_emails or get_email'),
+        account: accountParam,
+        ...emailIdInputFields('Email ID (UID) from list_emails or get_email'),
         mailbox: z.string().default('INBOX').describe('Mailbox containing the email'),
         filename: z.string().describe('Exact attachment filename (from get_email metadata)'),
         savePath: z
@@ -255,9 +253,17 @@ export default function registerAttachmentTools(
         openWorldHint: true,
       },
     },
-    async ({ account, id, mailbox, filename, savePath }) => {
-      const auditParams = { id, mailbox, filename, savePath };
+    async (params) => {
+      const account = params.account ?? '';
+      const { mailbox, filename, savePath } = params;
+      const auditParams = {
+        id: params.emailId ?? params.id ?? params.email_id,
+        mailbox,
+        filename,
+        savePath,
+      };
       try {
+        const id = resolveEmailId(params);
         if (readOnly && savePath !== undefined) {
           throw new Error(SAVE_PATH_READ_ONLY_MESSAGE);
         }

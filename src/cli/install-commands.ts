@@ -9,9 +9,7 @@
  * - install remove   — interactively unregister from MCP clients
  */
 
-import fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import os from 'node:os';
 import path from 'node:path';
 
 import {
@@ -26,83 +24,16 @@ import {
   select,
 } from '@clack/prompts';
 
+import {
+  ClientConfigParseError,
+  fileExists,
+  getClients,
+  isRegistered,
+  MCP_SERVER_KEY,
+  readJsonFile,
+  writeJsonFile,
+} from './client-config.js';
 import ensureInteractive from './guard.js';
-
-const MCP_SERVER_KEY = 'mailoo';
-
-// ---------------------------------------------------------------------------
-// MCP client registry
-// ---------------------------------------------------------------------------
-
-interface McpClientDef {
-  /** Human-readable name shown in prompts */
-  name: string;
-  /** Short id used internally */
-  id: string;
-  /** Absolute path to the JSON config file for this client */
-  configPath: string;
-  /** JSON key under which MCP servers live */
-  serversKey: string;
-}
-
-function getClients(): McpClientDef[] {
-  const platform = os.platform();
-  const home = os.homedir();
-
-  const clients: McpClientDef[] = [];
-
-  if (platform === 'darwin') {
-    clients.push({
-      name: 'Claude Desktop',
-      id: 'claude',
-      configPath: path.join(
-        home,
-        'Library',
-        'Application Support',
-        'Claude',
-        'claude_desktop_config.json',
-      ),
-      serversKey: 'mcpServers',
-    });
-  } else if (platform === 'linux') {
-    clients.push({
-      name: 'Claude Desktop',
-      id: 'claude',
-      configPath: path.join(
-        process.env.XDG_CONFIG_HOME ?? path.join(home, '.config'),
-        'Claude',
-        'claude_desktop_config.json',
-      ),
-      serversKey: 'mcpServers',
-    });
-  } else if (platform === 'win32') {
-    const appData = process.env.APPDATA ?? path.join(home, 'AppData', 'Roaming');
-    clients.push({
-      name: 'Claude Desktop',
-      id: 'claude',
-      configPath: path.join(appData, 'Claude', 'claude_desktop_config.json'),
-      serversKey: 'mcpServers',
-    });
-  }
-
-  // Cursor — ~/.cursor/mcp.json (all platforms)
-  clients.push({
-    name: 'Cursor',
-    id: 'cursor',
-    configPath: path.join(home, '.cursor', 'mcp.json'),
-    serversKey: 'mcpServers',
-  });
-
-  // Windsurf / Codeium — ~/.codeium/windsurf/mcp_config.json
-  clients.push({
-    name: 'Windsurf',
-    id: 'windsurf',
-    configPath: path.join(home, '.codeium', 'windsurf', 'mcp_config.json'),
-    serversKey: 'mcpServers',
-  });
-
-  return clients;
-}
 
 // ---------------------------------------------------------------------------
 // Transport helpers
@@ -135,39 +66,6 @@ function buildServerEntry(transport: Transport): ServerEntry {
     default:
       return { command: 'npx', args: [PKG_NPM, 'stdio'] };
   }
-}
-
-// ---------------------------------------------------------------------------
-// File I/O helpers
-// ---------------------------------------------------------------------------
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function readJsonFile(filePath: string): Promise<Record<string, unknown>> {
-  try {
-    const raw = await fs.readFile(filePath, 'utf-8');
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
-async function writeJsonFile(filePath: string, data: Record<string, unknown>): Promise<void> {
-  const dir = path.dirname(filePath);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf-8');
-}
-
-function isRegistered(config: Record<string, unknown>, serversKey: string): boolean {
-  const servers = config[serversKey] as Record<string, unknown> | undefined;
-  return servers != null && MCP_SERVER_KEY in servers;
 }
 
 // ---------------------------------------------------------------------------
@@ -368,7 +266,13 @@ async function runStatus(): Promise<void> {
         return `  ❌ ${client.name} — config not found`;
       }
 
-      const cfg = await readJsonFile(client.configPath);
+      let cfg: Record<string, unknown>;
+      try {
+        cfg = await readJsonFile(client.configPath);
+      } catch (error) {
+        if (!(error instanceof ClientConfigParseError)) throw error;
+        return `  ⚠️  ${client.name} — config is not valid JSON\n     ${client.configPath}`;
+      }
       if (isRegistered(cfg, client.serversKey)) {
         const servers = cfg[client.serversKey] as Record<string, unknown>;
         const entry = servers[MCP_SERVER_KEY] as ServerEntry | undefined;

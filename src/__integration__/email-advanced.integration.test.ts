@@ -1,7 +1,11 @@
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, relative } from 'node:path';
 import type { TestServices } from './helpers/index.js';
 import {
   buildTestAccount,
   createTestServices,
+  seedEmail,
   seedEmailWithAttachment,
   TEST_ACCOUNT_NAME,
   waitForDelivery,
@@ -9,6 +13,17 @@ import {
 
 describe('Advanced Email Operations', () => {
   let services: TestServices;
+
+  async function seedAndFind(
+    subject: string,
+    attachments: { filename: string; content: string; contentType: string }[],
+  ): Promise<string> {
+    await seedEmail({ subject, attachments });
+    await waitForDelivery(subject);
+    const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { subject });
+    expect(list.items).toHaveLength(1);
+    return list.items[0].id;
+  }
 
   beforeAll(async () => {
     services = createTestServices(buildTestAccount());
@@ -25,7 +40,7 @@ describe('Advanced Email Operations', () => {
   describe('downloadAttachment', () => {
     it('should download a text attachment', async () => {
       await seedEmailWithAttachment('readme.txt', 'Hello attachment world');
-      await waitForDelivery();
+      await waitForDelivery('Email with attachment');
 
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Email with attachment',
@@ -56,7 +71,7 @@ describe('Advanced Email Operations', () => {
       await seedEmailWithAttachment('image.png', binaryContent.toString('base64'), {
         subject: 'Binary attachment email',
       });
-      await waitForDelivery();
+      await waitForDelivery('Binary attachment email');
 
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Binary attachment email',
@@ -77,6 +92,179 @@ describe('Advanced Email Operations', () => {
       await expect(
         services.imapService.downloadAttachment(TEST_ACCOUNT_NAME, '1:*', 'INBOX', 'readme.txt'),
       ).rejects.toThrow(/positive integer UID/);
+    });
+
+    it('should refuse a filename two attachments share and name their MIME parts', async () => {
+      const emailId = await seedAndFind('Twin attachments download', [
+        { filename: 'notes.txt', content: 'first-notes', contentType: 'text/plain' },
+        { filename: 'notes.txt', content: 'second-notes', contentType: 'text/plain' },
+      ]);
+
+      await expect(
+        services.imapService.downloadAttachment(TEST_ACCOUNT_NAME, emailId, 'INBOX', 'notes.txt'),
+      ).rejects.toThrow('matches 2 attachments in email');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // saveEmailAttachments (calendar notes and the mail-arrival hook)
+  // ---------------------------------------------------------------------------
+
+  describe('saveEmailAttachments', () => {
+    let root: string;
+
+    beforeEach(async () => {
+      root = await mkdtemp(join(tmpdir(), 'mailoo-save-'));
+    });
+
+    afterEach(async () => {
+      await rm(root, { recursive: true, force: true });
+    });
+
+    it('should save each attachment when two share a filename', async () => {
+      const emailId = await seedAndFind('Twin attachments save', [
+        { filename: 'notes.txt', content: 'first-notes', contentType: 'text/plain' },
+        { filename: 'notes.txt', content: 'second-notes', contentType: 'text/plain' },
+      ]);
+      const destDir = join(root, 'out');
+
+      const saved = await services.imapService.saveEmailAttachments(
+        TEST_ACCOUNT_NAME,
+        emailId,
+        'INBOX',
+        destDir,
+      );
+
+      const contents = await Promise.all(saved.map(async (s) => readFile(s.localPath, 'utf-8')));
+      expect(contents.sort()).toEqual(['first-notes', 'second-notes']);
+    });
+
+    it('should write an attachment named ".." inside the destination directory', async () => {
+      const emailId = await seedAndFind('Dot-dot attachment save', [
+        { filename: '..', content: 'dot-dot-body', contentType: 'text/plain' },
+      ]);
+      const destDir = join(root, 'out');
+
+      const saved = await services.imapService.saveEmailAttachments(
+        TEST_ACCOUNT_NAME,
+        emailId,
+        'INBOX',
+        destDir,
+      );
+
+      expect(saved.map((s) => relative(destDir, s.localPath))).toEqual(['attachment']);
+    });
+
+    it('should strip directories from a traversal filename', async () => {
+      const emailId = await seedAndFind('Traversal attachment save', [
+        { filename: '../../evil.txt', content: 'evil-body', contentType: 'text/plain' },
+      ]);
+      const destDir = join(root, 'a', 'b');
+
+      const saved = await services.imapService.saveEmailAttachments(
+        TEST_ACCOUNT_NAME,
+        emailId,
+        'INBOX',
+        destDir,
+      );
+
+      expect(saved.map((s) => relative(destDir, s.localPath))).toEqual(['evil.txt']);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Part downloads address the message by UID
+  // ---------------------------------------------------------------------------
+
+  // A fresh GreenMail folder numbers messages with sequence number == UID.
+  // Expunging the first of two leaves the second at sequence 1 and UID 2, so
+  // a part read by sequence number asks for a message that does not exist.
+  describe('when the sequence number differs from the UID', () => {
+    const folder = 'Sequence Gap';
+    const eventUid = 'mailoo-sequence-gap@example.test';
+    let emailId: string;
+    let root: string;
+
+    beforeAll(async () => {
+      const subject = 'Sequence number differs from the UID';
+      await services.imapService.createMailbox(TEST_ACCOUNT_NAME, folder);
+      await seedEmail({ subject, text: 'expunged-first' });
+      await seedEmail({
+        subject,
+        text: 'Invitation',
+        attachments: [
+          { filename: 'agenda.txt', content: 'agenda-body', contentType: 'text/plain' },
+        ],
+        icalEvent: {
+          method: 'REQUEST',
+          content: [
+            'BEGIN:VCALENDAR',
+            'VERSION:2.0',
+            'PRODID:-//Mailoo//Integration//EN',
+            'METHOD:REQUEST',
+            'BEGIN:VEVENT',
+            `UID:${eventUid}`,
+            'DTSTAMP:20260101T090000Z',
+            'DTSTART:20260115T100000Z',
+            'DTEND:20260115T110000Z',
+            'SUMMARY:Sequence gap',
+            'END:VEVENT',
+            'END:VCALENDAR',
+            '',
+          ].join('\r\n'),
+        },
+      });
+      await waitForDelivery(subject, { count: 2 });
+      const inbox = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { subject });
+      const byUid = (a: string, b: string) => Number(a) - Number(b);
+      const ids = inbox.items.map((m) => m.id).sort(byUid);
+      await services.imapService.bulkMove(TEST_ACCOUNT_NAME, ids.map(Number), 'INBOX', folder);
+      const moved = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { mailbox: folder });
+      const [first, second] = moved.items.map((m) => m.id).sort(byUid);
+      await services.imapService.deleteEmail(TEST_ACCOUNT_NAME, first, folder, true);
+      emailId = second;
+      if (emailId === '1') throw new Error('fixture expects the remaining message to have UID 2');
+    });
+
+    afterAll(async () => {
+      await services.imapService.deleteMailbox(TEST_ACCOUNT_NAME, folder);
+    });
+
+    beforeEach(async () => {
+      root = await mkdtemp(join(tmpdir(), 'mailoo-seq-'));
+    });
+
+    afterEach(async () => {
+      await rm(root, { recursive: true, force: true });
+    });
+
+    it('should download the attachment of the message the UID names', async () => {
+      const attachment = await services.imapService.downloadAttachment(
+        TEST_ACCOUNT_NAME,
+        emailId,
+        folder,
+        'agenda.txt',
+      );
+
+      expect(Buffer.from(attachment.contentBase64, 'base64').toString('utf-8')).toBe('agenda-body');
+    });
+
+    it('should save the attachments of the message the UID names', async () => {
+      const saved = await services.imapService.saveEmailAttachments(
+        TEST_ACCOUNT_NAME,
+        emailId,
+        folder,
+        root,
+      );
+
+      const contents = await Promise.all(saved.map(async (s) => readFile(s.localPath, 'utf-8')));
+      expect(contents).toEqual(['agenda-body']);
+    });
+
+    it('should read the calendar part of the message the UID names', async () => {
+      const parts = await services.imapService.getCalendarParts(TEST_ACCOUNT_NAME, folder, emailId);
+
+      expect(parts.join('\n')).toContain(`UID:${eventUid}`);
     });
   });
 

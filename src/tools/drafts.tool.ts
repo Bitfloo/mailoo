@@ -9,6 +9,7 @@ import { recipientEmail } from '../safety/validation.js';
 
 import type ImapService from '../services/imap.service.js';
 import type SmtpService from '../services/smtp.service.js';
+import { accountParam, draftIdInputFields, resolveDraftId } from './schema-helpers.js';
 
 export default function registerDraftTools(
   server: McpServer,
@@ -25,7 +26,7 @@ export default function registerDraftTools(
       description:
         'Save an email draft to the Drafts folder. Compose over time, then use send_draft to send it. Use list_emails with the Drafts mailbox to see saved drafts.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
+        account: accountParam,
         to: z
           .array(recipientEmail)
           .default([])
@@ -56,8 +57,9 @@ export default function registerDraftTools(
       },
     },
     async ({ account, to, subject, body, cc, bcc, html, in_reply_to: inReplyTo, attachments }) => {
+      const accountInput = account ?? '';
       try {
-        const result = await imapService.saveDraft(account, {
+        const result = await imapService.saveDraft(accountInput, {
           to,
           subject,
           body,
@@ -68,7 +70,7 @@ export default function registerDraftTools(
           attachments,
         });
 
-        await audit.log('save_draft', account, { to, subject }, 'ok');
+        await audit.log('save_draft', accountInput, { to, subject }, 'ok');
 
         return {
           content: [
@@ -80,7 +82,7 @@ export default function registerDraftTools(
         };
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        await audit.log('save_draft', account, { to, subject }, 'error', errMsg);
+        await audit.log('save_draft', accountInput, { to, subject }, 'error', errMsg);
         return {
           isError: true,
           content: [
@@ -104,8 +106,8 @@ export default function registerDraftTools(
       description:
         'Send an existing draft email and remove it from Drafts. The draft is fetched, sent via SMTP, then deleted. Use list_emails with the Drafts mailbox to find draft IDs.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
-        id: z.number().int().describe('Draft email UID (from list_emails on Drafts mailbox)'),
+        account: accountParam,
+        ...draftIdInputFields('Draft email UID (from list_emails on Drafts mailbox)'),
         mailbox: z.string().optional().describe('Drafts folder path (auto-detected if omitted)'),
       },
       annotations: {
@@ -115,11 +117,16 @@ export default function registerDraftTools(
         openWorldHint: true,
       },
     },
-    async ({ account, id, mailbox }) => {
+    async (params) => {
+      const accountInput = params.account ?? '';
+      let id: number | string = params.id ?? params.emailId ?? params.email_id ?? '';
+      const { mailbox } = params;
       try {
-        const result = await smtpService.sendDraft(account, id, mailbox);
+        const resolvedId = resolveDraftId(params);
+        id = resolvedId;
+        const result = await smtpService.sendDraft(accountInput, resolvedId, mailbox);
 
-        await audit.log('send_draft', account, { id, mailbox }, 'ok');
+        await audit.log('send_draft', accountInput, { id: resolvedId, mailbox }, 'ok');
 
         return {
           content: [
@@ -135,7 +142,7 @@ export default function registerDraftTools(
         };
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        await audit.log('send_draft', account, { id, mailbox }, 'error', errMsg);
+        await audit.log('send_draft', accountInput, { id, mailbox }, 'error', errMsg);
         return {
           isError: true,
           content: [

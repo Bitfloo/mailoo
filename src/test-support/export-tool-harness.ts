@@ -1,4 +1,7 @@
-/** Shared stubs for the export_email unit suites. */
+/**
+ * Stubs the export_email unit suites share, so both register the tool against
+ * the same fake IMAP message, with helpers that pin cwd, home and time zone.
+ */
 
 import fs from 'node:fs/promises';
 import os from 'node:os';

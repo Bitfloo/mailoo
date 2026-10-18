@@ -5,6 +5,9 @@ import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
 import { changelogMd, swapOnce } from './changelog-fixture.js';
+import { requireTools } from './workflow-yaml.js';
+
+requireTools(['bash', 'perl']);
 
 describe('cog changelog entry', () => {
   /** What cog 7.0.0 wrote for v0.2.0 (git show v0.2.0:CHANGELOG.md): a compare link from the range's first commit, one author per co-author line. */
