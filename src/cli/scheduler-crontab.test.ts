@@ -68,7 +68,9 @@ describe('scheduler install commands', () => {
   });
 
   it('should remove a crontab entry through stdin arguments', () => {
-    const { run, calls } = recordRunner();
+    const { run, calls } = recordRunner(
+      '0 0 * * * /usr/bin/true\n* * * * * /opt/mailoo check # mailoo scheduler\n',
+    );
     removeCrontabLine('# mailoo scheduler', run);
     expect(calls[1]?.args).toEqual(['-']);
     expect(calls[1]?.input).toBe('0 0 * * * /usr/bin/true\n');
