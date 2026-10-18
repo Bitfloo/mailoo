@@ -132,7 +132,11 @@ export default function registerDraftTools(
           content: [
             {
               type: 'text' as const,
-              text: `✅ Draft sent (Message-ID: ${result.messageId}). Draft removed from folder.`,
+              text: `✅ Draft sent (Message-ID: ${result.messageId}). ${
+                result.draftDeleted === false
+                  ? 'Removing the draft failed, so it is still in Drafts: delete it instead of sending it again.'
+                  : 'Draft removed from folder.'
+              }`,
             },
           ],
         };

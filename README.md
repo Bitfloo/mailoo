@@ -606,6 +606,9 @@ match = { from = "ceo@example.com|cto@example.test" }
 actions = { flag = true, labels = ["VIP"] }
 ```
 
+Batches run one at a time. At most 500 new emails wait for the next batch; more
+are skipped with a warning in the log and stay in the mailbox unchanged.
+
 #### Presets
 
 | Preset | Focus | Suggested Labels |
@@ -618,7 +621,7 @@ actions = { flag = true, labels = ["VIP"] }
 
 #### Static Rules
 
-Static rules use glob-style patterns (`*@example.com`) with `|` as OR separator (`*@example.com|*@example.test`). All conditions within a match are AND'd. First matching rule wins.
+Static rules use glob-style patterns (`*@example.com`) with `|` as OR separator (`*@example.com|*@example.test`). All conditions within a match are AND'd. A `to` pattern matches when any one recipient matches. An empty pattern counts as no condition, and a rule with no condition matches nothing. First matching rule wins.
 
 Available actions: `labels` (string array), `flag` (boolean), `mark_read` (boolean), `alert` (boolean — forces desktop notification).
 
@@ -632,6 +635,10 @@ Urgency-based multi-channel notification routing — grab attention for importan
 | `high` | ✅ Banner | 🔇 Silent | `warning` | ✅ |
 | `normal` | ❌ | ❌ | `info` | ❌ |
 | `low` | ❌ | ❌ | `debug` | ❌ |
+
+The MCP log entry at the listed level names the account, folder, UID, labels
+and rule. In alert entries, sender and subject appear only at `debug`: in a
+separate entry, or for `low` in the single entry.
 
 ```toml
 [settings.hooks.alerts]
@@ -788,7 +795,7 @@ Outbound calls, child processes, files, and environment variables below are what
 
 | Program | When | Code |
 |---|---|---|
-| `osascript` | macOS notifications, calendar events, reminders | `src/services/notifier.service.ts`, `src/services/local-calendar.service.ts`, `src/services/reminders.service.ts` |
+| `osascript` | macOS notifications, calendar events, reminders | `src/services/notifier.service.ts`, `src/services/osascript.ts` (calendar and reminders) |
 | `notify-send` | Linux desktop notifications | `src/services/notifier.service.ts` |
 | `paplay` | Linux notification sound | `src/services/notifier.service.ts` |
 | `powershell` | Windows balloon notifications | `src/services/notifier.service.ts` |
@@ -803,12 +810,12 @@ Paths follow the XDG defaults in `src/config/xdg.ts` unless `XDG_CONFIG_HOME`, `
 
 | Path | What is written | Code |
 |---|---|---|
-| `$XDG_CONFIG_HOME/mailoo/config.toml` (mode `0600`) | Accounts and settings, including passwords and OAuth secrets | `src/config/loader.ts` |
+| `$XDG_CONFIG_HOME/mailoo/config.toml` (mode `0600`) | Accounts and settings, including passwords and OAuth secrets | `src/config/loader.ts`; `configure_alerts` with `save` through `src/services/alerts-config.ts` |
 | `$XDG_DATA_HOME/mailoo/audit.log` | Append-only audit lines. File and directory modes: [SECURITY.md](SECURITY.md#security-considerations) | `src/safety/audit.ts` |
 | `$XDG_STATE_HOME/mailoo/scheduled/` and `scheduled/sent/` | Scheduled-send JSON records (mode `0600`), replaced through a temp file and rename | `src/services/scheduler.service.ts` |
 | `$XDG_DATA_HOME/mailoo/calendar-attachments/` | Attachment files saved for a calendar event | `src/services/imap.service.ts` |
 | `$XDG_STATE_HOME/mailoo/mailbox-writers.lock` | Which `stdio` server runs hooks, the watcher and the scheduler. The holder refreshes it and deletes it on shutdown; timings in [configuration](docs/configuration.md#one-mailbox-writer-per-machine) | `src/safety/writer-lease.ts` |
-| `$XDG_STATE_HOME/mailoo/calendar-processed.json` (mode `0600`) and `.lock` | Which messages already created an automatic event or reminder, replaced through a temp file and rename. A damaged file stops automatic calendar processing, and makes `analyze_email_for_scheduling` report an error, instead of starting over | `src/utils/calendar-state.ts` |
+| `$XDG_STATE_HOME/mailoo/calendar-processed.json` (mode `0600`) and `.lock` | Which messages already had an automatic event added, found, or declined in the dialog, with each email's subject, replaced through a temp file and rename. A failed or timed-out add is not recorded, so the email stays eligible. A damaged file stops automatic calendar processing, and makes `analyze_email_for_scheduling` report an error, instead of starting over | `src/utils/calendar-state.ts` |
 | `savePath` under the working directory | `download_attachment` or `export_email` when that argument is set | `src/tools/attachments.tool.ts`, `src/tools/export.tool.ts` |
 | OS temp directory, `mailoo-event-*.ics` | Linux calendar file passed to `xdg-open` | `src/services/local-calendar.service.ts` |
 | `~/Library/LaunchAgents/com.bitfloo.mailoo.scheduler.plist` | macOS scheduler agent. Its stdout and stderr are `/tmp/mailoo-scheduler.log` | `src/cli/scheduler-install.ts`, `src/cli/scheduler.ts` |
@@ -980,7 +987,7 @@ src/
 │   ├── test.ts            — Connection tester
 │   ├── config-commands.ts — Config management (show, edit, path, init)
 │   ├── install-commands.ts — MCP client registration (install, status, remove)
-│   ├── providers.ts       — Provider auto-detection + OAuth2 endpoints (experimental)
+│   ├── providers.ts       — Provider auto-detection (IMAP/SMTP presets)
 │   └── scheduler.ts       — Scheduler CLI
 ├── config/                — Configuration layer
 │   ├── xdg.ts             — XDG Base Directory paths
