@@ -1,9 +1,9 @@
-import { access, readdir, readFile } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { pinAuditHome } from './audit-home.js';
+import { pinAuditHome, readAuditEntries } from './audit-home.js';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const AUDIT_MODULE = path.join(root, 'src', 'safety', 'audit.ts');
@@ -124,6 +124,30 @@ describe('pinAuditHome', () => {
       expect('XDG_DATA_HOME' in process.env).toBe(false);
     } finally {
       vi.unstubAllEnvs();
+    }
+  });
+
+  it('should put a previously set XDG_DATA_HOME back on restore', async () => {
+    // CI leaves XDG_DATA_HOME unset, so the restore-the-old-value branch needs its own value.
+    vi.stubEnv('XDG_DATA_HOME', '/previous/data');
+    try {
+      const home = await pinAuditHome();
+      await home.restore();
+      expect(process.env.XDG_DATA_HOME).toBe('/previous/data');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe('readAuditEntries', () => {
+  it('should rethrow a read error that is not ENOENT', async () => {
+    const home = await pinAuditHome();
+    try {
+      await mkdir(path.join(home.dir, 'mailoo', 'audit.log'), { recursive: true });
+      await expect(readAuditEntries(home)).rejects.toMatchObject({ code: 'EISDIR' });
+    } finally {
+      await home.restore();
     }
   });
 });
