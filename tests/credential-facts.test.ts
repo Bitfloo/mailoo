@@ -28,12 +28,14 @@ const account = {
   imap: { host: 'imap.example.com' },
   smtp: { host: 'smtp.example.com' },
 };
+// Mixed case, so a loader or schema that folds case cannot keep these values.
 const oauth2 = {
   provider: 'google',
-  client_id: 'id',
-  client_secret: 'secret',
-  refresh_token: 'refresh',
+  client_id: 'Client-ID-7',
+  client_secret: 'Secret-Ab9',
+  refresh_token: 'Refresh-Xy3',
 };
+const PROVIDERS = OAuth2ConfigSchema.shape.provider.options;
 
 describe('account schema credential', () => {
   it('should accept exactly the google, microsoft and custom providers', () => {
@@ -88,15 +90,15 @@ const NO_VALUE = [
 ] as const;
 const SOME_VALUE = [
   ['blank', '   '],
-  ['padded', ' x '],
-  ['short', 'x'],
+  ['padded', ' Xy '],
+  ['short', 'X'],
 ] as const;
 const VALUES = [...NO_VALUE, ...SOME_VALUE] as const;
 // A set username is the login user as written; only an unset one falls back to the email.
 const SET_USERNAME = [
   ['empty', ''],
   ['blank', '   '],
-  ['padded', ' x '],
+  ['padded', ' Xy '],
 ] as const;
 // A provider must be named exactly, so these near misses are refused, not trimmed.
 const NEAR_MISS_PROVIDER = [
@@ -134,6 +136,17 @@ describe('account schema credential matrix', () => {
     'should keep a %s password (%j) without OAuth2 as given',
     (_kind, password) => {
       expect(parsed({ ...account, password })).toEqual({ password, oauth2: undefined });
+    },
+  );
+
+  it.each(PROVIDERS)(
+    'should accept an empty password beside a complete %s OAuth2 block',
+    (provider) => {
+      const block = { ...oauth2, provider };
+      expect(parsed({ ...account, password: '', oauth2: block })).toEqual({
+        password: '',
+        oauth2: block,
+      });
     },
   );
 
@@ -203,9 +216,9 @@ describe('account schema credential matrix', () => {
 describe('MCP_EMAIL_* credential matrix', () => {
   const fromEnv = {
     provider: 'google',
-    clientId: 'env-client-id',
-    clientSecret: 'env-client-secret',
-    refreshToken: 'env-refresh-token',
+    clientId: 'Env-Client-ID',
+    clientSecret: 'Env-Secret-Q7',
+    refreshToken: 'Env-Refresh-Z4',
   };
   const NO_CONFIG = { refused: ['No configuration found.'] };
   // Written out, so that a weaker refusal message cannot follow the schema unnoticed.
@@ -221,9 +234,9 @@ describe('MCP_EMAIL_* credential matrix', () => {
   };
   const withOAuth2 = (provider: string | undefined): Record<string, string | undefined> => ({
     MCP_EMAIL_OAUTH2_PROVIDER: provider,
-    MCP_EMAIL_OAUTH2_CLIENT_ID: 'env-client-id',
-    MCP_EMAIL_OAUTH2_CLIENT_SECRET: 'env-client-secret',
-    MCP_EMAIL_OAUTH2_REFRESH_TOKEN: 'env-refresh-token',
+    MCP_EMAIL_OAUTH2_CLIENT_ID: 'Env-Client-ID',
+    MCP_EMAIL_OAUTH2_CLIENT_SECRET: 'Env-Secret-Q7',
+    MCP_EMAIL_OAUTH2_REFRESH_TOKEN: 'Env-Refresh-Z4',
   });
   const loaded = async (): Promise<Outcome> => {
     try {
@@ -263,6 +276,14 @@ describe('MCP_EMAIL_* credential matrix', () => {
     async (_kind, password) => {
       stub({ MCP_EMAIL_PASSWORD: password });
       expect(await loaded()).toEqual({ password, oauth2: undefined });
+    },
+  );
+
+  it.each(PROVIDERS)(
+    'should load an empty MCP_EMAIL_PASSWORD beside a complete %s provider',
+    async (provider) => {
+      stub({ ...withOAuth2(provider), MCP_EMAIL_PASSWORD: '' });
+      expect(await loaded()).toEqual({ password: '', oauth2: { ...fromEnv, provider } });
     },
   );
 
