@@ -5,7 +5,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/bitfloo/mailoo/ci.yml?event=pull_request&style=flat-square&label=CI)](https://github.com/bitfloo/mailoo/actions/workflows/ci.yml)
 [![M8ven](https://m8ven.ai/badge/mcp/bitfloo/mailoo?variant=verified)](https://m8ven.ai/mcp/bitfloo/mailoo)
 
-**Mailoo** (`@bitfloo/mailoo`) is a production-grade Model Context Protocol (MCP) server for email (IMAP/SMTP), calendar, reminders, and ManageSieve automation developed and maintained by **Bitfloo**.
+**Mailoo** (`@bitfloo/mailoo`) is a Model Context Protocol (MCP) server for email (IMAP/SMTP), calendar, reminders, and ManageSieve automation developed and maintained by **Bitfloo**.
 
 ![Mailoo Architecture](https://raw.githubusercontent.com/Bitfloo/mailoo/develop/docs/assets/mailoo-architecture.svg)
 
@@ -62,20 +62,20 @@ Mailoo is engineered with defense-in-depth sandboxing so AI agents can safely in
 - **Strict Credential File Permissions (`0600`)** — `config.toml` is written and verified with mode `0600` inside a `0700` config directory (`$XDG_CONFIG_HOME/mailoo/config.toml`). Passwords and message bodies are redacted from the JSONL write audit log (`src/safety/audit.ts`).
 - **TLS & STARTTLS Verification** — `tls` enforces implicit TLS with certificate verification (`verify_ssl = true` by default); `starttls` fails closed if the server does not advertise `STARTTLS`. ManageSieve refuses `AUTHENTICATE PLAIN` over unencrypted sockets without `STARTTLS`.
 - **Operational Guardrails (`MCP_EMAIL_READ_ONLY`, `MCP_EMAIL_TOOLSET`, `dryRun`)** —
-  - `MCP_EMAIL_READ_ONLY=true` disables all write tools, background watchers, hooks, and schedulers at startup, exposing only the 32 read-only tools.
+  - `MCP_EMAIL_READ_ONLY=true` disables all write tools, background watchers, hooks, and schedulers at startup, exposing only the 31 read-only tools.
   - `MCP_EMAIL_TOOLSET=full|core|minimal` scopes the registered tool surface to match the agent's capability tier and context budget.
   - `dryRun: true` on high-risk tools (`send_email`, `reply_email`, `forward_email`, `delete_email`, `bulk_action`, `delete_mailbox`, `sieve_put_script`, `sieve_delete_script`) validates all parameters and account resolution and returns a `[DRY RUN]` preview without modifying server state.
 - **Per-Account Rate Limiting** — `rate_limit` (default 10 sends/minute) enforces an independent token bucket per account (`src/safety/rate-limiter.ts`).
 
 ## LLM Ergonomics & Toolset Profiles
 
-Mailoo is designed to work seamlessly across both frontier models (Claude, GPT, Gemini) and local/small 3B–8B parameter models (`llama.cpp` GBNF grammars, Ollama, vLLM):
+Mailoo is designed to work across both frontier models (Claude, GPT, Gemini) and local/small 3B–8B parameter models (`llama.cpp` GBNF grammars, Ollama, vLLM):
 
 - **Toolset Profiles (`MCP_EMAIL_TOOLSET` / `settings.toolset`)**:
-  - `full` *(default)* — All **57 tools** (**32** in `read_only` mode), including Calendar, Reminders, ManageSieve, Watcher, Scheduler, Templates, Contacts, and Analytics.
-  - `core` — **21 tools** (**10** in `read_only` mode) covering core email workflows (`accounts`, `mailboxes`, `emails`, `threads`, `send`, `drafts`, `manage`, `bulk`, `attachments`, `health`).
+  - `full` *(default)* — All **57 tools** (**31** in `read_only` mode), including Calendar, Reminders, ManageSieve, Watcher, Scheduler, Templates, Contacts, and Analytics.
+  - `core` — **19 tools** (**10** in `read_only` mode) covering core email workflows (`accounts`, `mailboxes`, `emails`, `threads`, `send`, `drafts`, `manage`, `bulk`, `attachments`, `health`).
   - `minimal` — **14 tools** (**8** in `read_only` mode) tailored for 3B–4B models with tight context budgets (`accounts`, `mailboxes`, `emails`, `send`, `manage`, `health`).
-- **Optional `account` & Smart Account Resolution** — When only a single account is configured or `default_account` (`MCP_EMAIL_DEFAULT_ACCOUNT`) is set, the `account` parameter is completely optional across tools. Account lookup also matches case-insensitively by profile name or email address (e.g., passing `"you@example.com"` resolves the matching account), and returns self-healing error messages listing available `name (email)` pairs when ambiguous.
+- **Optional `account` & Smart Account Resolution** — When only a single account is configured or `default_account` (`MCP_EMAIL_DEFAULT_ACCOUNT`) is set, the `account` parameter is completely optional across tools. Account lookup also matches case-insensitively by profile name or email address (e.g., passing `"you@example.com"` resolves the matching account), and returns actionable error messages listing valid accounts (`name (email)` pairs) when ambiguous.
 - **Lossless Parameter Normalization & GBNF Compatibility** — Single-message tools accept `emailId`, `id`, or `email_id` as either string or integer (`42` or `"42"`). Batch tools (`get_emails`, `bulk_action`) accept string or numeric ID arrays (`["42", "43"]` or `[42, 43]`). `list_emails` and `search_emails` accept both `hasAttachment` and `has_attachment`. All Zod schemas avoid regex lookaheads so `llama.cpp` GBNF grammar compilation succeeds without errors.
 - **Context Window Protection** — `get_email` and `get_thread` default to `format="text"` and enforce a default `maxLength` of `20000` characters (appending a clear truncation notice when exceeded) so large HTML newsletters never overflow small context windows.
 - **MCP 2025/2026 `outputSchema` & `structuredContent`** — Tools declare structured `outputSchema` contracts and return machine-readable `structuredContent` alongside human-readable text blocks.
