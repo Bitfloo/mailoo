@@ -54,12 +54,11 @@ export function buildCronLine(nodePath: string, cliPath: string): string {
 export type CommandRunner = (file: string, args: readonly string[], input?: string) => string;
 
 export function runCommandFile(file: string, args: readonly string[], input?: string): string {
-  // crontab reports a missing table on stderr. Discarding it leaves stderr null
-  // and the Error message omits the text, so a permission failure looks empty.
-  const stderr = file === 'crontab' ? 'pipe' : 'ignore';
+  // Piped, not ignored: a failed command's stderr then lands in the Error, which is where
+  // crontab reports a missing table and launchctl names a service it cannot find.
   return execFileSync(file, [...args], {
     encoding: 'utf-8',
-    stdio: input === undefined ? ['ignore', 'pipe', stderr] : ['pipe', 'pipe', stderr],
+    stdio: input === undefined ? ['ignore', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe'],
     ...(input === undefined ? {} : { input }),
   });
 }
@@ -76,10 +75,15 @@ function isNoCrontab(err: unknown): boolean {
   return /no crontab for/i.test(stderrText(err));
 }
 
-function crontabReadError(err: unknown): Error {
+/** The command's stderr, or the error message when it wrote none, as on a failed spawn. */
+function failureReason(err: unknown): string {
   const detail = stderrText(err).trim();
-  const fallback = err instanceof Error ? err.message : String(err);
-  return new Error(`Could not read the crontab: ${detail.length > 0 ? detail : fallback}`);
+  if (detail.length > 0) return detail;
+  return err instanceof Error ? err.message : String(err);
+}
+
+function crontabReadError(err: unknown): Error {
+  return new Error(`Could not read the crontab: ${failureReason(err)}`);
 }
 
 function readCrontab(run: CommandRunner): string | undefined {
@@ -100,13 +104,18 @@ export async function loadLaunchAgent(
   await fs.writeFile(plistPath, plist, { mode: 0o600 });
   await fs.chmod(plistPath, 0o600);
   // launchd keeps running a loaded agent from the plist it read at load time, so a
-  // reinstall unloads it first. Unload fails when no agent is loaded, as on a first install.
-  try {
-    run('launchctl', ['unload', plistPath]);
-  } catch {
-    // Nothing was loaded.
-  }
+  // reinstall unloads it first.
+  run('launchctl', ['unload', plistPath]);
   run('launchctl', ['load', plistPath]);
+  // `load` and `unload` exit 0 even when they fail; only `list` exits non-zero, when the
+  // label is not loaded.
+  try {
+    run('launchctl', ['list', LAUNCHD_LABEL]);
+  } catch (err) {
+    throw new Error(
+      `launchctl does not list ${LAUNCHD_LABEL} after loading ${plistPath}: ${failureReason(err)}`,
+    );
+  }
 }
 
 export function installCrontabLine(

@@ -90,6 +90,7 @@ describe('scheduler install commands', () => {
       expect(calls).toEqual([
         { file: 'launchctl', args: ['unload', plistPath], input: undefined },
         { file: 'launchctl', args: ['load', plistPath], input: undefined },
+        { file: 'launchctl', args: ['list', 'com.bitfloo.mailoo.scheduler'], input: undefined },
       ]);
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
@@ -153,6 +154,7 @@ describe('scheduler install commands', () => {
         calls: [
           { file: 'launchctl', args: ['unload', plistPath], input: undefined },
           { file: 'launchctl', args: ['load', plistPath], input: undefined },
+          { file: 'launchctl', args: ['list', 'com.bitfloo.mailoo.scheduler'], input: undefined },
         ],
         lines: [
           '✅ Installed macOS launchd scheduler',

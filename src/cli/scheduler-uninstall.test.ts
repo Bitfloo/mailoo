@@ -51,6 +51,30 @@ describe('scheduler uninstall command', () => {
     });
   });
 
+  it('should keep the plist and report nothing removed when launchctl cannot run on darwin', async () => {
+    await withPlistPath(async (plistPath) => {
+      await fs.mkdir(path.dirname(plistPath), { recursive: true });
+      await fs.writeFile(plistPath, '<plist version="1.0"></plist>\n');
+      const run = (): string => {
+        throw Object.assign(new Error('spawnSync launchctl ENOENT'), { code: 'ENOENT' });
+      };
+      const { lines, print } = lineSink();
+      const outcome = await runUninstall('darwin', run, print, plistPath).then(
+        () => 'resolved',
+        (err: unknown) => (err instanceof Error ? err.message : String(err)),
+      );
+      const left = await fs.access(plistPath).then(
+        () => true,
+        () => false,
+      );
+      expect({ outcome, left, lines }).toEqual({
+        outcome: 'spawnSync launchctl ENOENT',
+        left: true,
+        lines: [],
+      });
+    });
+  });
+
   it('should say no launchd scheduler was found when the agent is neither loaded nor installed', async () => {
     await withPlistPath(async (plistPath) => {
       const { lines, print } = lineSink();

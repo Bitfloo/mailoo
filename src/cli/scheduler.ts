@@ -205,11 +205,7 @@ export async function runUninstall(
   plistPath: string = LAUNCHD_PLIST,
 ): Promise<void> {
   if (platform === 'darwin') {
-    try {
-      run('launchctl', ['unload', plistPath]);
-    } catch {
-      // May not be loaded
-    }
+    run('launchctl', ['unload', plistPath]);
 
     try {
       await fs.unlink(plistPath);
