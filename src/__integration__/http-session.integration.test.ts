@@ -19,7 +19,9 @@ import ImapService from '../services/imap.service.js';
 import LocalCalendarService from '../services/local-calendar.service.js';
 import RemindersService from '../services/reminders.service.js';
 import TemplateService from '../services/template.service.js';
+import { send } from '../test-support/http-transport-harness.js';
 import {
+  BODY_LIMIT_BYTES,
   initializeBody,
   postInitialize,
   postRpc,
@@ -247,6 +249,31 @@ describe('HTTP request bodies', () => {
         contentType: 'application/json',
         body: { jsonrpc: '2.0', error: { code: -32700, message: 'Parse error' }, id: null },
       });
+    } finally {
+      await running.stop();
+    }
+  });
+
+  it('should answer 400 -32000 when a POST without a session id has an empty body', async () => {
+    const running = await startHost({ now: 1_000 }, 5_000);
+    try {
+      const response = await postRpc(running.port, '');
+      const { error } = JSON.parse(response.body) as { error: { code: number } };
+
+      expect({ status: response.status, code: error.code }).toEqual({ status: 400, code: -32000 });
+    } finally {
+      await running.stop();
+    }
+  });
+
+  it('should answer 413 when a chunked POST body is one byte over the limit', async () => {
+    const running = await startHost({ now: 1_000 }, 5_000);
+    try {
+      const headers = { host: `127.0.0.1:${running.port}`, 'content-type': 'application/json' };
+      const body = Buffer.alloc(BODY_LIMIT_BYTES + 1, 'x');
+      const response = await send(running.port, headers, { method: 'POST', body });
+
+      expect(response.status).toBe(413);
     } finally {
       await running.stop();
     }

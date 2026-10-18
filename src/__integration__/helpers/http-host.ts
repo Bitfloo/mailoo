@@ -176,6 +176,8 @@ export function openEventStream(
   });
 }
 
+export const BODY_LIMIT_BYTES = 1024 * 1024;
+
 export async function startHost(
   clock: { now: number },
   ttlMs: number,
@@ -192,7 +194,7 @@ export async function startHost(
     calendarService: new CalendarService(),
     localCalendarService: new LocalCalendarService(),
     remindersService: new RemindersService(),
-    bodyLimitBytes: 1024 * 1024,
+    bodyLimitBytes: BODY_LIMIT_BYTES,
     scheduledDir: path.join(queueRoot, 'scheduled'),
     ttlMs,
     maxSessions,
