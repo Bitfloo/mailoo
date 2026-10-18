@@ -13,14 +13,24 @@ interface Update {
   directories?: string[];
   schedule?: Record<string, string>;
   'open-pull-requests-limit'?: number;
-  groups?: Record<string, { 'update-types'?: string[]; 'exclude-patterns'?: string[] }>;
+  groups?: Record<
+    string,
+    {
+      'dependency-type'?: string;
+      patterns?: string[];
+      'update-types'?: string[];
+      'exclude-patterns'?: string[];
+    }
+  >;
   ignore?: Record<string, unknown>[];
 }
 
 describe('dependabot groups', () => {
-  const { updates } = parse(readFileSync(join(repoRoot, '.github/dependabot.yml'), 'utf8')) as {
+  const config = parse(readFileSync(join(repoRoot, '.github/dependabot.yml'), 'utf8')) as {
+    version: unknown;
     updates: Update[];
   };
+  const { updates } = config;
   const groups = updates.flatMap((update) => Object.entries(update.groups ?? {}));
 
   function group(name: string): NonNullable<Update['groups']>[string] {
@@ -129,6 +139,72 @@ describe('dependabot groups', () => {
       ['npm', ['/.github/npm-cli', '/docker/pnpm-cli'], weekly, 2],
       ['github-actions', ['/'], weekly, 5],
     ]);
+  });
+
+  it('should set only version and updates at the top of dependabot.yml', () => {
+    // A top-level registries or enable-beta-ecosystems key would change where or what it updates.
+    expect(Object.keys(config).sort()).toEqual(['updates', 'version']);
+  });
+
+  it('should use the version 2 config format', () => {
+    expect(config.version).toBe(2);
+  });
+
+  it('should set only the pinned keys on each dependabot update and group', () => {
+    // Any other key changes what Dependabot opens: target-branch would aim at a branch this
+    // repository does not have, versioning-strategy lockfile-only would stop manifest bumps,
+    // allow would narrow the updates, cooldown would delay them, rebase-strategy disabled would
+    // leave them stale, insecure-external-code-execution would run package code, and applies-to
+    // on a group would move it to security updates.
+    expect(
+      updates.map((update) => ({
+        keys: Object.keys(update).sort(),
+        groups: Object.fromEntries(
+          Object.entries(update.groups ?? {}).map(([name, settings]) => [
+            name,
+            Object.keys(settings).sort(),
+          ]),
+        ),
+      })),
+    ).toEqual([
+      {
+        keys: [
+          'directory',
+          'groups',
+          'ignore',
+          'open-pull-requests-limit',
+          'package-ecosystem',
+          'schedule',
+        ],
+        groups: {
+          'dev-dependencies': ['dependency-type', 'update-types'],
+          'production-dependencies': ['dependency-type', 'exclude-patterns', 'update-types'],
+        },
+      },
+      {
+        keys: ['directories', 'open-pull-requests-limit', 'package-ecosystem', 'schedule'],
+        groups: {},
+      },
+      {
+        keys: ['directory', 'groups', 'open-pull-requests-limit', 'package-ecosystem', 'schedule'],
+        groups: { 'github-actions': ['patterns', 'update-types'] },
+      },
+    ]);
+  });
+
+  it('should split the npm groups by dependency type', () => {
+    // Swapped, the 0.x exclusions would guard the development group and leave the production
+    // 0.x packages in a group.
+    const type = (name: string) => group(name)['dependency-type'];
+    expect([type('dev-dependencies'), type('production-dependencies')]).toEqual([
+      'development',
+      'production',
+    ]);
+  });
+
+  it('should put every action in the github-actions group', () => {
+    // A narrower pattern would leave the other actions out of the group.
+    expect(group('github-actions').patterns).toEqual(['*']);
   });
 
   it('should group only minor and patch updates', () => {
