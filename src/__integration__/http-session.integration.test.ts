@@ -4,117 +4,29 @@
  */
 
 import fs from 'node:fs/promises';
-import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 import ConnectionManager from '../connections/manager.js';
 import { createHttpMcpHost } from '../safety/http-mcp-host.js';
 import { resolveHttpListen, startGuardedHttpServers } from '../safety/http-transport.js';
 import CalendarService from '../services/calendar.service.js';
+import HooksService from '../services/hooks.service.js';
 import ImapService from '../services/imap.service.js';
 import LocalCalendarService from '../services/local-calendar.service.js';
 import RemindersService from '../services/reminders.service.js';
 import TemplateService from '../services/template.service.js';
-import type { AppConfig } from '../types/index.js';
-
-function testConfig(): AppConfig {
-  return {
-    settings: {
-      rateLimit: 2,
-      readOnly: true,
-      saveToSent: false,
-      watcher: { enabled: false, folders: ['INBOX'], idleTimeout: 1740 },
-      systemOne: {
-        enabled: false,
-        model: 'jev-latest',
-        includeBody: false,
-        bodyMaxChars: 6000,
-        autoMove: false,
-        autoFlag: false,
-        folders: [],
-        sourceFolders: ['INBOX'],
-        thresholds: {
-          folderFitMin: 0.85,
-          spamHigh: 0.72,
-          spamUncertainLow: 0.4,
-          spamUncertainHigh: 0.6,
-          injectionHigh: 0.75,
-          importanceFlagMin: 3,
-          importanceMinConfidence: 0.7,
-          isCriticalMin: 0.85,
-        },
-      },
-      hooks: {
-        onNewEmail: 'none',
-        preset: 'priority-focus',
-        autoLabel: false,
-        autoFlag: false,
-        batchDelay: 0,
-        rules: [],
-        alerts: {
-          desktop: false,
-          sound: false,
-          urgencyThreshold: 'high',
-          webhookUrl: '',
-          webhookEvents: [],
-        },
-      },
-    },
-    accounts: [],
-  };
-}
-
-function initializeBody(id: number): string {
-  return JSON.stringify({
-    jsonrpc: '2.0',
-    id,
-    method: 'initialize',
-    params: {
-      protocolVersion: '2025-03-26',
-      capabilities: {},
-      clientInfo: { name: 'mailoo-session-test', version: '0.0.0' },
-    },
-  });
-}
-
-function postInitialize(
-  port: number,
-  id: number,
-): Promise<{ status: number; sessionId: string; body: string }> {
-  const payload = initializeBody(id);
-  return new Promise((resolve, reject) => {
-    const req = http.request(
-      {
-        host: '127.0.0.1',
-        port,
-        method: 'POST',
-        path: '/mcp',
-        headers: {
-          host: `127.0.0.1:${port}`,
-          'content-type': 'application/json',
-          'content-length': Buffer.byteLength(payload),
-          accept: 'application/json, text/event-stream',
-        },
-      },
-      (res) => {
-        const parts: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => parts.push(chunk));
-        res.on('end', () => {
-          const header = res.headers['mcp-session-id'];
-          const sessionId = Array.isArray(header) ? (header[0] ?? '') : (header ?? '');
-          resolve({
-            status: res.statusCode ?? 0,
-            sessionId,
-            body: Buffer.concat(parts).toString('utf8'),
-          });
-        });
-      },
-    );
-    req.on('error', reject);
-    req.end(payload);
-  });
-}
+import { send } from '../test-support/http-transport-harness.js';
+import {
+  BODY_LIMIT_BYTES,
+  postInitialize,
+  postRpc,
+  startHost,
+  testConfig,
+} from './helpers/http-host.js';
 
 describe('HTTP session isolation', () => {
   const ttlMs = 5_000;
@@ -233,6 +145,94 @@ describe('HTTP session isolation', () => {
       await host.close();
       await listener.close();
       await fs.rm(queueRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+// The host parses a POST body before it routes; a body that is not JSON gets
+// the JSON-RPC parse error, not the generic 400 for a missing session id.
+describe('HTTP request bodies', () => {
+  it('should answer 400 with JSON-RPC error -32700 when the POST body is not JSON', async () => {
+    const running = await startHost({ now: 1_000 }, 5_000);
+    try {
+      const response = await postRpc(running.port, '{not json');
+
+      expect({
+        status: response.status,
+        contentType: response.headers['content-type'],
+        body: JSON.parse(response.body),
+      }).toEqual({
+        status: 400,
+        contentType: 'application/json',
+        body: { jsonrpc: '2.0', error: { code: -32700, message: 'Parse error' }, id: null },
+      });
+    } finally {
+      await running.stop();
+    }
+  });
+
+  it('should answer 400 -32000 when a POST without a session id has an empty body', async () => {
+    const running = await startHost({ now: 1_000 }, 5_000);
+    try {
+      const response = await postRpc(running.port, '');
+      const { error } = JSON.parse(response.body) as { error: { code: number } };
+
+      expect({ status: response.status, code: error.code }).toEqual({ status: 400, code: -32000 });
+    } finally {
+      await running.stop();
+    }
+  });
+
+  it('should answer 413 when a chunked POST body is one byte over the limit', async () => {
+    const running = await startHost({ now: 1_000 }, 5_000);
+    try {
+      const headers = { host: `127.0.0.1:${running.port}`, 'content-type': 'application/json' };
+      const body = Buffer.alloc(BODY_LIMIT_BYTES + 1, 'x');
+      const response = await send(running.port, headers, { method: 'POST', body });
+
+      expect(response.status).toBe(413);
+    } finally {
+      await running.stop();
+    }
+  });
+});
+
+// A session dispose that rejected had no handler until host.close(). Node ends
+// the process on an unhandled rejection, so one failed cleanup dropped every
+// session.
+describe('HTTP session dispose', () => {
+  it('should report a failed session dispose on stderr when the session terminates', async () => {
+    const writable = testConfig();
+    writable.settings.readOnly = false;
+    const running = await startHost({ now: 1_000 }, 5_000, writable);
+    const transport = new StreamableHTTPClientTransport(
+      new URL(`http://127.0.0.1:${running.port}/mcp`),
+    );
+    const client = new Client({ name: 'mailoo-dispose', version: '0.0.0' });
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      await client.connect(transport);
+      await running.host.ready;
+      // Refreshing the sampling target is the step of dispose that can throw;
+      // nothing outside the host reaches it otherwise.
+      const refresh = vi
+        .spyOn(HooksService.prototype, 'setSamplingTarget')
+        .mockImplementation(() => {
+          throw new Error('sampling target refresh failed');
+        });
+      await transport.terminateSession();
+
+      await vi.waitFor(() => {
+        expect(stderr.mock.calls.map(([chunk]) => String(chunk))).toContain(
+          '[mailoo] HTTP session dispose failed: sampling target refresh failed\n',
+        );
+      });
+      refresh.mockRestore();
+    } finally {
+      stderr.mockRestore();
+      vi.restoreAllMocks();
+      await client.close().catch(() => undefined);
+      await running.stop();
     }
   });
 });

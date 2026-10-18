@@ -1,172 +1,311 @@
-import { access, readFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import fs from 'node:fs/promises';
 
-import { parse } from 'smol-toml';
+import { parse as parseTOML } from 'smol-toml';
 
-import runAccountCommand from './account-commands.js';
+import { SettingsSchema } from '../config/schema.js';
+import {
+  CONFIG_FAILING_SCHEMA,
+  CONFIG_WITH_PERSONAL,
+  CONFIG_WITH_SYNTAX_ERROR,
+} from '../test-support/account-config-fixtures.js';
+import type { Answer } from '../test-support/cli-wizard.js';
+import { useAccountSandbox } from '../test-support/cli-wizard.js';
 
-// Answers by prompt message, as a user types them into `mailoo account add` for a domain
-// the wizard cannot detect, so it asks for every server setting.
-const answers: Record<string, string | boolean> = {
-  'Account name': 'personal',
-  'Email address': 'me@example.com',
-  'Full name (optional)': '',
-  'IMAP host': 'imap.example.com',
-  'IMAP port': '993',
-  'IMAP use TLS?': true,
-  'SMTP host': 'smtp.example.com',
-  'SMTP port': '465',
-  'SMTP security': 'tls',
-  'Enable SMTP connection pooling?': false,
-  Username: 'me@example.com',
-  'Password / App Password': 'app-password',
+const { wizard, probes } = await vi.hoisted(async () => {
+  const { newWizardState, newProbes } = await import('../test-support/cli-wizard.js');
+  return { wizard: newWizardState(), probes: newProbes() };
+});
+
+// The terminal UI and the network probe are the only boundaries replaced.
+vi.mock('@clack/prompts', async () => {
+  const { clackPromptsMock, ACCOUNT_ANSWERS } = await import('../test-support/cli-wizard.js');
+  return clackPromptsMock(wizard, ACCOUNT_ANSWERS);
+});
+vi.mock('../connections/probe.js', () => probes);
+
+/** Each differs from its default, so a field taken from the wrong answer shows. */
+const CUSTOM_ANSWERS: Record<string, Answer> = {
+  'Full name (optional)': 'Ada Example',
+  'IMAP host': 'mail.example.com',
+  'IMAP port': '143',
+  'IMAP use TLS?': false,
+  'SMTP host': 'relay.example.com',
+  'SMTP port': '587',
+  'SMTP security': 'starttls',
+  'Enable SMTP connection pooling?': true,
+  'SMTP pool max connections': '3',
+  'SMTP pool max messages per connection': '50',
+  Username: 'ada.login',
+  'Password / App Password': 'other-app-password',
 };
-const SAVE_ANYWAY = 'Some connections failed. Save config anyway?';
 
-const h = vi.hoisted(() => ({
-  // What the connection check's spinner settles on, in order.
-  checked: [] as string[],
-  imapRefusal: null as Error | null,
-  smtpRefusal: null as Error | null,
-}));
+describe('mailoo account and setup', () => {
+  const sandbox = useAccountSandbox(wizard, probes);
 
-// The config file path is fixed when the config module loads, so the directory is pinned
-// before the imports run; the wizard must not find the developer's own config.
-const configHome = await vi.hoisted(async () => {
-  const { mkdtemp } = await import('node:fs/promises');
-  const { tmpdir } = await import('node:os');
-  const path = await import('node:path');
-  const dir = await mkdtemp(path.join(tmpdir(), 'mailoo-account-test-'));
-  vi.stubEnv('XDG_CONFIG_HOME', dir);
-  return dir;
-});
+  // The wizard read an unparseable file as "no config" and saved a new one
+  // over it, which dropped every account the file held.
+  it.each(['setup', 'account add'] as const)(
+    'should reject with the TOML error when mailoo %s meets a config that is not valid TOML',
+    async (command) => {
+      await fs.writeFile(sandbox.configFile, CONFIG_WITH_SYNTAX_ERROR, { mode: 0o600 });
+      const run = await sandbox.entryPoint(command);
 
-vi.mock('@clack/prompts', () => {
-  const answer = async ({ message }: { message: string }): Promise<unknown> => {
-    if (!(message in answers)) throw new Error(`unexpected prompt: ${message}`);
-    return answers[message];
-  };
-  return {
-    cancel: () => {},
-    confirm: answer,
-    intro: () => {},
-    isCancel: (value: unknown) => typeof value === 'symbol',
-    log: { error: () => {}, info: () => {}, success: () => {}, warning: () => {} },
-    note: () => {},
-    outro: () => {},
-    password: answer,
-    select: answer,
-    spinner: () => ({
-      start: () => {},
-      stop: (message: string) => {
-        h.checked.push(message);
+      await expect(run()).rejects.toThrow(`Config file ${sandbox.configFile} is not valid TOML`);
+    },
+  );
+
+  it.each(['setup', 'account add'] as const)(
+    'should leave a config that is not valid TOML byte-identical when mailoo %s stops',
+    async (command) => {
+      await fs.writeFile(sandbox.configFile, CONFIG_WITH_SYNTAX_ERROR, { mode: 0o600 });
+      const run = await sandbox.entryPoint(command);
+
+      await run().catch(() => undefined);
+
+      expect(await fs.readFile(sandbox.configFile, 'utf-8')).toBe(CONFIG_WITH_SYNTAX_ERROR);
+    },
+  );
+
+  it.each(['setup', 'account add'] as const)(
+    'should reject with the schema error when mailoo %s meets a config that parses but is not valid',
+    async (command) => {
+      await fs.writeFile(sandbox.configFile, CONFIG_FAILING_SCHEMA, { mode: 0o600 });
+      const run = await sandbox.entryPoint(command);
+
+      await expect(run()).rejects.toThrow('Invalid email address');
+    },
+  );
+
+  it.each(['setup', 'account add'] as const)(
+    'should leave a config that parses but is not valid byte-identical when mailoo %s stops',
+    async (command) => {
+      await fs.writeFile(sandbox.configFile, CONFIG_FAILING_SCHEMA, { mode: 0o600 });
+      const run = await sandbox.entryPoint(command);
+
+      await run().catch(() => undefined);
+
+      expect(await fs.readFile(sandbox.configFile, 'utf-8')).toBe(CONFIG_FAILING_SCHEMA);
+    },
+  );
+
+  it.each(['setup', 'account add'] as const)(
+    'should leave the config byte-identical when mailoo %s meets an account name that already exists',
+    async (command) => {
+      const existing = CONFIG_WITH_PERSONAL.replace('"personal"', '"work"');
+      await fs.writeFile(sandbox.configFile, existing, { mode: 0o600 });
+      const run = await sandbox.entryPoint(command);
+
+      await run();
+
+      expect(await fs.readFile(sandbox.configFile, 'utf-8')).toBe(existing);
+    },
+  );
+
+  it('should append the new account and keep the existing accounts and settings when a valid config exists', async () => {
+    await fs.writeFile(sandbox.configFile, CONFIG_WITH_PERSONAL, { mode: 0o600 });
+    const run = await sandbox.entryPoint('account add');
+
+    await run();
+
+    const saved = parseTOML(await fs.readFile(sandbox.configFile, 'utf-8')) as {
+      settings: { rate_limit: number };
+      accounts: { name: string }[];
+    };
+    expect({
+      rateLimit: saved.settings.rate_limit,
+      names: saved.accounts.map((a) => a.name),
+    }).toEqual({ rateLimit: 3, names: ['personal', 'work'] });
+  });
+
+  it('should write a new config with the schema settings when no config file exists', async () => {
+    const run = await sandbox.entryPoint('account add');
+
+    await run();
+
+    const saved = parseTOML(await fs.readFile(sandbox.configFile, 'utf-8'));
+    // Certificate checks stay on in every account the wizard writes.
+    expect(saved).toEqual({
+      settings: SettingsSchema.parse({}),
+      accounts: [
+        {
+          name: 'work',
+          email: 'user@example.com',
+          username: 'user@example.com',
+          password: 'app-password',
+          imap: {
+            host: 'imap.example.com',
+            port: 993,
+            tls: true,
+            starttls: false,
+            verify_ssl: true,
+            disable_imap4rev2: false,
+          },
+          smtp: {
+            host: 'smtp.example.com',
+            port: 465,
+            tls: true,
+            starttls: false,
+            verify_ssl: true,
+            pool: { enabled: false, max_connections: 1, max_messages: 100 },
+          },
+        },
+      ],
+    });
+  });
+
+  it('should write a new config when mailoo setup runs with no config file', async () => {
+    const run = await sandbox.entryPoint('setup');
+
+    await run();
+
+    const saved = parseTOML(await fs.readFile(sandbox.configFile, 'utf-8')) as {
+      accounts: { name: string }[];
+    };
+    expect(saved.accounts.map((a) => a.name)).toEqual(['work']);
+  });
+
+  it('should print the subcommand usage when mailoo account gets no subcommand', async () => {
+    const stdout = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await (await sandbox.entryPoint('account'))();
+
+    expect(stdout.mock.calls.flat().join('\n')).toContain('Usage: mailoo account <subcommand>');
+  });
+
+  it.each([
+    ['IMAP use TLS?', false, 'imap', { tls: false, starttls: true }],
+    ['SMTP security', 'starttls', 'smtp', { tls: false, starttls: true }],
+    ['SMTP security', 'none', 'smtp', { tls: false, starttls: false }],
+  ] as const)('should write the %s answer %s as %s %o', async (prompt, value, side, flags) => {
+    wizard.overrides.set(prompt, value);
+    const run = await sandbox.entryPoint('account add');
+
+    await run();
+
+    const saved = parseTOML(await fs.readFile(sandbox.configFile, 'utf-8')) as {
+      accounts: Record<'imap' | 'smtp', { tls: boolean; starttls: boolean }>[];
+    };
+    const { tls, starttls } = saved.accounts[0][side];
+    expect({ tls, starttls }).toEqual(flags);
+  });
+
+  it('should hand the connection probe the default answers with certificate checks on', async () => {
+    await (await sandbox.entryPoint('account add'))();
+
+    expect(probes.testImap.mock.lastCall?.[0]).toEqual({
+      name: 'work',
+      email: 'user@example.com',
+      fullName: undefined,
+      username: 'user@example.com',
+      password: 'app-password',
+      imap: { host: 'imap.example.com', port: 993, tls: true, starttls: false, verifySsl: true },
+      smtp: {
+        host: 'smtp.example.com',
+        port: 465,
+        tls: true,
+        starttls: false,
+        verifySsl: true,
+        pool: { enabled: false, maxConnections: 1, maxMessages: 100 },
       },
-    }),
-    text: answer,
-  };
-});
-
-// Stdin is not a terminal under the runner; the guard's own behaviour is not under test here.
-vi.mock('./guard.js', () => ({ default: () => {} }));
-
-vi.mock('imapflow', () => ({
-  ImapFlow: class {
-    on(): this {
-      return this;
-    }
-
-    // eslint-disable-next-line class-methods-use-this
-    async connect(): Promise<void> {
-      if (h.imapRefusal) throw h.imapRefusal;
-    }
-
-    // eslint-disable-next-line class-methods-use-this
-    async list(): Promise<{ path: string }[]> {
-      return [{ path: 'INBOX' }, { path: 'Sent' }];
-    }
-
-    // eslint-disable-next-line class-methods-use-this
-    async status(): Promise<{ messages: number }> {
-      return { messages: 3 };
-    }
-
-    // eslint-disable-next-line class-methods-use-this
-    async logout(): Promise<void> {}
-  },
-}));
-
-vi.mock('nodemailer', () => ({
-  default: {
-    createTransport: () => ({
-      verify: async () => {
-        if (h.smtpRefusal) throw h.smtpRefusal;
-        return true;
-      },
-      close: () => {},
-    }),
-  },
-}));
-
-const configFile = join(configHome, 'mailoo', 'config.toml');
-
-// Node's message for a refused TCP connect; 192.0.2.0/24 is reserved for documentation.
-function refused(port: number): Error {
-  return Object.assign(new Error(`connect ECONNREFUSED 192.0.2.10:${port}`), {
-    code: 'ECONNREFUSED',
-  });
-}
-
-beforeEach(async () => {
-  h.checked.length = 0;
-  h.imapRefusal = null;
-  h.smtpRefusal = null;
-  answers[SAVE_ANYWAY] = false;
-  // A saved account would make the next run stop at its duplicate name.
-  await rm(join(configHome, 'mailoo'), { recursive: true, force: true });
-});
-
-afterAll(async () => {
-  vi.unstubAllEnvs();
-  await rm(configHome, { recursive: true, force: true });
-});
-
-describe('mailoo account add connection check', () => {
-  // An IMAP success and an SMTP refusal: neither line can come from a probe that did not run.
-  it('should report the IMAP probe result and then the SMTP probe result', async () => {
-    h.smtpRefusal = refused(465);
-    await runAccountCommand('add');
-    expect(h.checked).toEqual([
-      'IMAP ✓ imap.example.com:993 — 3 messages, 2 folders',
-      'SMTP ✗ connect ECONNREFUSED 192.0.2.10:465',
-    ]);
+    });
   });
 
-  it('should report a refused IMAP login with its error', async () => {
-    h.imapRefusal = refused(993);
-    await runAccountCommand('add');
-    expect(h.checked).toContain('IMAP ✗ connect ECONNREFUSED 192.0.2.10:993');
-  });
-});
+  it('should leave the config byte-identical when the probe fails and saving anyway is declined', async () => {
+    await fs.writeFile(sandbox.configFile, CONFIG_WITH_PERSONAL, { mode: 0o600 });
+    probes.testImap.mockResolvedValueOnce({ success: false, error: 'Connection refused' });
+    wizard.overrides.set('Some connections failed. Save config anyway?', false);
 
-describe('mailoo account add after a refused probe', () => {
-  it('should not save the account when SMTP is refused and the user declines', async () => {
-    h.smtpRefusal = refused(465);
-    await runAccountCommand('add');
-    await expect(access(configFile)).rejects.toMatchObject({ code: 'ENOENT' });
+    await (await sandbox.entryPoint('account add'))();
+
+    expect(await fs.readFile(sandbox.configFile, 'utf-8')).toBe(CONFIG_WITH_PERSONAL);
   });
 
-  it('should not save the account when IMAP is refused and the user declines', async () => {
-    h.imapRefusal = refused(993);
-    await runAccountCommand('add');
-    await expect(access(configFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  it('should leave the config byte-identical when only the SMTP probe fails and saving anyway is declined', async () => {
+    await fs.writeFile(sandbox.configFile, CONFIG_WITH_PERSONAL, { mode: 0o600 });
+    probes.testSmtp.mockResolvedValueOnce({ success: false, error: 'Authentication failed' });
+    wizard.overrides.set('Some connections failed. Save config anyway?', false);
+
+    await (await sandbox.entryPoint('account add'))();
+
+    expect(await fs.readFile(sandbox.configFile, 'utf-8')).toBe(CONFIG_WITH_PERSONAL);
   });
 
-  it('should save the account the user entered when the user accepts', async () => {
-    h.smtpRefusal = refused(465);
-    answers[SAVE_ANYWAY] = true;
-    await runAccountCommand('add');
-    expect(parse(await readFile(configFile, 'utf8'))).toMatchObject({
-      accounts: [{ name: 'personal', email: 'me@example.com', imap: { host: 'imap.example.com' } }],
+  // Enter on a failed probe must not save settings that did not connect.
+  it('should offer no as the default answer to saving after a failed probe', async () => {
+    probes.testImap.mockResolvedValueOnce({ success: false, error: 'Connection refused' });
+    wizard.overrides.set('Some connections failed. Save config anyway?', false);
+
+    await (await sandbox.entryPoint('account add'))();
+
+    const asked = wizard.asked.find(
+      ({ message }) => message === 'Some connections failed. Save config anyway?',
+    );
+    expect(asked?.options.initialValue).toBe(false);
+  });
+
+  describe('with an answer other than the default at every prompt', () => {
+    beforeEach(() => {
+      Object.entries(CUSTOM_ANSWERS).forEach(([message, value]) => {
+        wizard.overrides.set(message, value);
+      });
+    });
+
+    it('should hand both probes the account those answers describe', async () => {
+      await (await sandbox.entryPoint('account add'))();
+
+      const expected = {
+        name: 'work',
+        email: 'user@example.com',
+        fullName: 'Ada Example',
+        username: 'ada.login',
+        password: 'other-app-password',
+        imap: { host: 'mail.example.com', port: 143, tls: false, starttls: true, verifySsl: true },
+        smtp: {
+          host: 'relay.example.com',
+          port: 587,
+          tls: false,
+          starttls: true,
+          verifySsl: true,
+          pool: { enabled: true, maxConnections: 3, maxMessages: 50 },
+        },
+      };
+      expect({
+        imap: probes.testImap.mock.lastCall?.[0],
+        smtp: probes.testSmtp.mock.lastCall?.[0],
+      }).toEqual({ imap: expected, smtp: expected });
+    });
+
+    it('should save the account those answers describe, full_name included', async () => {
+      await (await sandbox.entryPoint('account add'))();
+
+      const saved = parseTOML(await fs.readFile(sandbox.configFile, 'utf-8')) as {
+        accounts: unknown[];
+      };
+      expect(saved.accounts).toEqual([
+        {
+          name: 'work',
+          email: 'user@example.com',
+          full_name: 'Ada Example',
+          username: 'ada.login',
+          password: 'other-app-password',
+          imap: {
+            host: 'mail.example.com',
+            port: 143,
+            tls: false,
+            starttls: true,
+            verify_ssl: true,
+            disable_imap4rev2: false,
+          },
+          smtp: {
+            host: 'relay.example.com',
+            port: 587,
+            tls: false,
+            starttls: true,
+            verify_ssl: true,
+            pool: { enabled: true, max_connections: 3, max_messages: 50 },
+          },
+        },
+      ]);
     });
   });
 });
