@@ -81,6 +81,17 @@ describe('code scanning workflows', () => {
   });
 });
 
+describe('dependency installs', () => {
+  it('should install from the lockfile wherever a workflow runs pnpm install', () => {
+    const installs = workflowFiles().flatMap((name) =>
+      [...readFileSync(join(workflowDir, name), 'utf8').matchAll(/\bpnpm (?:install|i)\b.*/g)].map(
+        (match) => match[0],
+      ),
+    );
+    expect([...new Set(installs)]).toEqual(['pnpm install --frozen-lockfile']);
+  });
+});
+
 describe('scheduled workflows', () => {
   // Each scheduled run spends runner minutes, so every schedule is one fixed time a week.
   const scheduled = ['codeql.yml', 'scorecard.yml', 'docker-rebuild.yml'].map((name) => [
