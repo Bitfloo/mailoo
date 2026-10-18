@@ -24,8 +24,8 @@ const workflows = workflowTexts().map(
  * The keys the workflows set at each level. Every one is read by a roster in this file,
  * workflow-roster, workflow-steps or workflow-security, and step name and id are the labels
  * the step harnesses find a step by. A key outside this list (timeout-minutes, environment,
- * services, container, strategy, secrets, defaults, shell) is read by no test, so it fails here
- * until a roster reads it.
+ * services, container, strategy, secrets) is read by no test, so it fails here until a roster
+ * reads it.
  */
 const KEYS = {
   workflow: ['concurrency', 'jobs', 'name', 'on', 'permissions'],
@@ -69,9 +69,9 @@ const JOBS: Record<string, string[]> = {
 
 // biome-ignore-start lint/suspicious/noTemplateCurlyInString: values are workflow expressions, not JS templates
 /**
- * Each env: block, the workflow's first, then by job, the job's own before its steps', in order. A run step reads these: a
- * secret moved to a repository variable would print in the public run log, and a token or input
- * swapped would publish under another identity or version.
+ * Each env: block, the workflow's first, then by job, the job's own before its steps', in order.
+ * A run step reads these: a secret moved to a repository variable would print in the public run
+ * log, and a token or input swapped would publish under another identity or version.
  */
 const ENV: Record<string, string[]> = {
   'ci.yml': [

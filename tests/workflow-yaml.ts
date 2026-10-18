@@ -87,7 +87,8 @@ function keyLines(yaml: string, key: string): string[] {
  * value, or an alias anywhere, which repeats keys the text readers see only at the anchor.
  * The regex reader and the parser must agree on every key: a key the runner reads in a form the
  * regex misses would carry a banned key past every check built on keyLines, so readKeyLines
- * refuses the whole text rather than read it without that key.
+ * refuses the whole text rather than read it without that key. No workflow writes a key in such
+ * a form today.
  */
 export function unreadKeys(yaml: string): string[] {
   const lineCounter = new LineCounter();

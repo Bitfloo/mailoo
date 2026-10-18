@@ -84,9 +84,9 @@ const IFS: Record<string, string[]> = {
 
 /**
  * Concurrency by workflow and by job, parsed. cancel-in-progress cancels the older run of a group:
- * on release.yml it would stop a release between the npm and MCP Registry publishes, so release,
- * CodeQL and Scorecard set none, and a ci.yml group shared across refs would cancel another pull
- * request's checks.
+ * on release.yml it would stop a release between the npm and MCP Registry publishes, so release
+ * sets none; CodeQL and Scorecard set none today. A ci.yml group shared across refs would cancel
+ * another pull request's checks.
  */
 const CONCURRENCY: Record<string, Record<string, unknown>> = {
   'ci.yml': {

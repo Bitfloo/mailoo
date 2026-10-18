@@ -43,7 +43,6 @@ const RELEASE_TAG_IN_REBUILD: Record<string, string> = {
 
 const rebuildSteps = jobSteps(rebuildYml).rebuild;
 
-/** The image repository the rebuild tags, as the meta step rows below expect it. */
 const repository = 'ghcr.io/bitfloo/mailoo';
 
 function images(...tags: string[]): string {
@@ -151,7 +150,9 @@ describe('docker rebuild images', () => {
   });
 
   it('should push the release and SHA images to the repository the rebuild tags', () => {
-    // An image pushed anywhere else would sit beside the release tags instead of replacing them.
+    // The rebuild refreshes the tags in this repository, so a release image pushed elsewhere would
+    // never be refreshed. Each release pushes a sha- tag here too, so an on-demand SHA image pushed
+    // elsewhere would split the sha- tags across two packages.
     const shaYml = readFileSync(join(workflowDir, 'docker-sha.yml'), 'utf8');
     const shaRepositories = Object.values(jobSteps(shaYml))
       .flat()
