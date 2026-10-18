@@ -164,6 +164,14 @@ describe('mailoo account and setup', () => {
     expect(saved.accounts.map((a) => a.name)).toEqual(['work']);
   });
 
+  it('should print the subcommand usage when mailoo account gets no subcommand', async () => {
+    const stdout = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await (await sandbox.entryPoint('account'))();
+
+    expect(stdout.mock.calls.flat().join('\n')).toContain('Usage: mailoo account <subcommand>');
+  });
+
   it.each([
     ['IMAP use TLS?', false, 'imap', { tls: false, starttls: true }],
     ['SMTP security', 'starttls', 'smtp', { tls: false, starttls: true }],

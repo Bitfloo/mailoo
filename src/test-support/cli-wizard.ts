@@ -17,7 +17,8 @@ import type { Mock } from 'vitest';
 import type ConnectionManager from '../connections/manager.js';
 import type { ProviderConfig } from '../types/index.js';
 
-export type Answer = string | boolean | symbol | string[];
+/** A select over accounts answers with the account's index. */
+export type Answer = string | number | boolean | symbol | string[];
 
 export interface AskedPrompt {
   message: string;
@@ -123,6 +124,7 @@ export function clackPromptsMock(
 
 export type AccountCommand =
   | 'setup'
+  | 'account'
   | 'account add'
   | 'account edit'
   | 'account delete'
@@ -181,7 +183,7 @@ export function useAccountSandbox(state: WizardState, probes: Probes): AccountSa
       if (provider) (await import('../cli/providers.js')).PROVIDERS.push(provider);
       if (command === 'setup') return (await import('../cli/setup.js')).default;
       const runAccountCommand = (await import('../cli/account-commands.js')).default;
-      return async () => runAccountCommand(command.slice('account '.length), name);
+      return async () => runAccountCommand(command.slice('account '.length) || undefined, name);
     },
   };
 }
