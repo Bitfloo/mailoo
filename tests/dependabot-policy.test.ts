@@ -6,184 +6,47 @@ import { parse } from 'yaml';
 
 import { repoRoot } from './agents/agent-file.js';
 import { lockPeerRange, nextMajor, peerCeiling } from './held-majors.js';
-import { readKeyLines, releaseSteps } from './workflow-yaml.js';
+
+interface Update {
+  'package-ecosystem': string;
+  directory?: string;
+  directories?: string[];
+  groups?: Record<string, { 'update-types'?: string[]; 'exclude-patterns'?: string[] }>;
+  ignore?: Record<string, unknown>[];
+}
 
 describe('dependabot groups', () => {
-  const config = readFileSync(join(repoRoot, '.github/dependabot.yml'), 'utf8');
-  /**
-   * Each group's name and settings, read as text so that a refusal pins each form the reader
-   * accepts: lists stay inline and double-quoted, and a groups block or a group this reader cannot
-   * split is refused, not skipped.
-   */
-  function groupsOf(yaml: string): (readonly [string, string])[] {
-    const blocks = [...releaseSteps(yaml).matchAll(/^ {4}groups:\n((?: {6}.*\n?)+)/gm)].map(
-      ([, block]) => block,
-    );
-    const keys = readKeyLines(yaml, 'groups').length;
-    if (blocks.length !== keys) {
-      throw new Error(`read ${blocks.length} of ${keys} groups blocks`);
-    }
-    const groups = blocks.flatMap((block) =>
-      [...block.matchAll(/^ {6}([\w-]+):\n((?: {8}.*\n?)+)/gm)].map(
-        (match) => [match[1], match[2]] as const,
-      ),
-    );
-    const names = blocks.join('\n').match(/^ {6}\S/gm)?.length ?? 0;
-    if (groups.length !== names) {
-      throw new Error(`read ${groups.length} of ${names} groups`);
-    }
-    return groups;
-  }
+  const { updates } = parse(readFileSync(join(repoRoot, '.github/dependabot.yml'), 'utf8')) as {
+    updates: Update[];
+  };
+  const groups = updates.flatMap((update) => Object.entries(update.groups ?? {}));
 
-  function group(name: string): string {
-    const found = groupsOf(config).find(([key]) => key === name);
+  function group(name: string): NonNullable<Update['groups']>[string] {
+    const found = groups.find(([key]) => key === name);
     if (!found) {
       throw new Error(`missing group ${name}`);
     }
     return found[1];
   }
 
-  /** Each npm update entry. GitHub's own examples quote the ecosystem name, so quoted, bare and commented forms count. */
-  function npmUpdates(yaml: string): string[] {
-    const updates = yaml
-      .split(/\n {2}- package-ecosystem: /)
-      .filter((entry) => /^(["']?)npm\1[ \t]*(?:#.*)?\n/.test(entry));
-    // An update this reader skips holds nothing it can see, so each one must be read as npm or github-actions.
-    const all = readKeyLines(yaml, 'package-ecosystem').length;
-    const actions =
-      yaml.match(/^ {2}- package-ecosystem: (["']?)github-actions\1[ \t]*(?:#.*)?$/gm)?.length ?? 0;
-    if (updates.length + actions !== all) {
-      throw new Error(`read ${updates.length} npm and ${actions} github-actions of ${all} updates`);
-    }
-    return updates;
-  }
-
   const byName = (a: string[], b: string[]) => a[0].localeCompare(b[0]);
 
-  /** Every ignore entry of every npm update, read whole and sorted by name. */
-  function npmHolds(yaml: string): string[][] {
-    const updates = npmUpdates(yaml).join('\n');
-    // A list in flow style, at its key indent or outside an npm update holds packages this reader never sees.
-    const keys = readKeyLines(yaml, 'ignore').length;
-    const lists = updates.match(/^ {4}ignore:\n {6}/gm)?.length ?? 0;
-    if (lists !== keys) {
-      throw new Error(`read ${lists} of ${keys} ignore lists`);
-    }
-    const held = [...updates.matchAll(/^ {4}ignore:\n((?: {6}.*\n?)+)/gm)]
-      .flatMap(([, list]) => list.split(/^(?= {6}- )/m))
-      .map((entry) =>
-        entry
-          .split('\n')
-          .filter((line) => line.trim() && !line.trim().startsWith('#'))
-          .join('\n'),
-      )
-      .filter(Boolean)
+  /** Every ignore entry of every update, read whole and sorted by name. */
+  function holds(): string[][] {
+    return updates
+      .flatMap((update) => update.ignore ?? [])
       .map((entry) => {
-        const plain = entry.match(
-          /^ {6}- dependency-name: "([^"]+)"\n {8}versions: \[">=(\d+\.\d+\.\d+)"\]$/,
-        );
-        return plain ? [plain[1], plain[2]] : [entry.trim(), 'not a lone >= floor'];
+        const { 'dependency-name': name, versions, ...rest } = entry;
+        const floor =
+          Array.isArray(versions) && versions.length === 1
+            ? String(versions[0]).match(/^>=(\d+\.\d+\.\d+)$/)?.[1]
+            : undefined;
+        return typeof name === 'string' && floor && Object.keys(rest).length === 0
+          ? [name, floor]
+          : [JSON.stringify(entry), 'not a lone >= floor'];
       })
       .sort(byName);
-    // A name in a flow mapping or under another key is one this reader never sees, so every name must be read.
-    const names = readKeyLines(yaml, 'dependency-name').length;
-    if (held.length !== names) {
-      throw new Error(`read ${held.length} of ${names} ignore entries`);
-    }
-    return held;
   }
-
-  it('should read an npm update whether its ecosystem name is quoted or followed by a comment', () => {
-    const yaml = [
-      'updates:',
-      '  - package-ecosystem: npm',
-      '    directory: /',
-      '  - package-ecosystem: "npm"',
-      '    directory: /a',
-      "  - package-ecosystem: 'npm'",
-      '    directory: /b',
-      '  - package-ecosystem: npm # tooling',
-      '    directory: /c',
-      '  - package-ecosystem: github-actions',
-      '    directory: /',
-    ].join('\n');
-    expect(npmUpdates(yaml).map((entry) => entry.match(/directory: (\S+)/)?.[1])).toEqual([
-      '/',
-      '/a',
-      '/b',
-      '/c',
-    ]);
-  });
-
-  it.each([
-    ['at a deeper indent', '    - package-ecosystem: npm\n      directory: /'],
-    ['in flow style', '  - { package-ecosystem: npm, directory: / }'],
-  ])('should refuse a config when an update is written %s', (_form, update) => {
-    expect(() => npmUpdates(`updates:\n${update}`)).toThrow(
-      'read 0 npm and 0 github-actions of 1 updates',
-    );
-  });
-
-  it.each([
-    [
-      'a quoted group name',
-      '    groups:\n      "majors": # all\n        patterns: ["*"]',
-      /^read 0 of 1 groups$/,
-    ],
-    [
-      'a group in flow style',
-      '    groups:\n      majors: { patterns: ["*"] }',
-      /^read 0 of 1 groups$/,
-    ],
-    [
-      'groups in flow style',
-      '    groups: { majors: { patterns: ["*"] } }',
-      /^read 0 of 1 groups blocks$/,
-    ],
-  ])('should refuse a config with %s', (_form, groups, error) => {
-    const yaml = `updates:\n  - package-ecosystem: npm\n    directory: /\n${groups}\n`;
-    expect(() => groupsOf(yaml)).toThrow(error);
-  });
-
-  it('should refuse a config when an ignore list sits at its key indent', () => {
-    const yaml = [
-      'updates:',
-      '  - package-ecosystem: npm',
-      '    directory: /',
-      '    ignore:',
-      '    - dependency-name: "pnpm"',
-      '      versions: [">=1.0.0"]',
-    ].join('\n');
-    expect(() => npmHolds(yaml)).toThrow('read 0 of 1 ignore lists');
-  });
-
-  it.each([
-    { block: 'an npm', ecosystem: 'npm', name: 'vite' },
-    { block: 'the github-actions', ecosystem: 'github-actions', name: 'actions/checkout' },
-  ])(
-    'should refuse a config when an ignore list in $block block is written in flow style',
-    ({ ecosystem, name }) => {
-      const yaml = [
-        'updates:',
-        '  - package-ecosystem: npm',
-        '    directory: /a',
-        `  - package-ecosystem: ${ecosystem}`,
-        '    directory: /',
-        `    ignore: [{ dependency-name: "${name}", versions: [">=8.0.0"] }]`,
-      ].join('\n');
-      expect(() => npmHolds(yaml)).toThrow('read 0 of 1 ignore lists');
-    },
-  );
-
-  it('should refuse a config when a dependency name sits in a flow mapping under another key', () => {
-    const yaml = [
-      'updates:',
-      '  - package-ecosystem: npm',
-      '    directory: /',
-      '    allow: [{ dependency-name: "vite" }]',
-    ].join('\n');
-    expect(() => npmHolds(yaml)).toThrow('read 0 of 1 ignore entries');
-  });
 
   it('should keep every dependency still on 0.x out of its update group', () => {
     // Dependabot calls 0.25 → 0.27 a minor update, but on 0.x that can break the API (node-ical 0.27 did).
@@ -195,10 +58,7 @@ describe('dependabot groups', () => {
       Object.keys(deps)
         .filter((name) => /^[\^~]?0\./.test(deps[name]))
         .sort();
-    const excluded = (name: string) => {
-      const list = group(name).match(/^ {8}exclude-patterns: \[(.*)\]$/m)?.[1] ?? '';
-      return [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1]).sort();
-    };
+    const excluded = (name: string) => [...(group(name)['exclude-patterns'] ?? [])].sort();
     expect({
       production: excluded('production-dependencies'),
       development: excluded('dev-dependencies'),
@@ -217,22 +77,20 @@ describe('dependabot groups', () => {
       .split('\n')
       .filter(Boolean)
       .map((file) => `/${dirname(file)}`.replace(/\/\.$/, '/'));
-    const covered = npmUpdates(config).flatMap((entry) => {
-      const list = entry.match(/^ {4}directories: \[(.*)\]$/m)?.[1];
-      const single = entry.match(/^ {4}directory: (\S+)$/m)?.[1];
-      return list ? [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1]) : [single];
-    });
+    const covered = updates
+      .filter((update) => update['package-ecosystem'] === 'npm')
+      .flatMap((update) => update.directories ?? [update.directory]);
     expect(manifests.filter((dir) => !covered.includes(dir))).toEqual([]);
   });
 
   it('should hold each blocked major at the first version its holder rules out', () => {
     // A missing hold lets Dependabot open a major that breaks lint or the build. A hold at the
-    // manifest's own major blocks that major's patches too. Every npm update is read: the
-    // tooling CLI update holds nothing, so a hold added there has to be derived here as well.
+    // manifest's own major blocks that major's patches too. Every update is read: the tooling
+    // CLI update holds nothing, so a hold added there has to be derived here as well.
     // Dependabot applies every entry, so a duplicate with a lower floor or an extra key such as
     // update-types changes what is held. Each entry is read whole and kept, not merged by name.
     const eslintCeiling = peerCeiling(lockPeerRange('eslint-config-airbnb-extended', 'eslint'));
-    expect(npmHolds(config)).toEqual(
+    expect(holds()).toEqual(
       Object.entries({
         eslint: eslintCeiling,
         '@eslint/js': eslintCeiling,
@@ -249,19 +107,15 @@ describe('dependabot groups', () => {
 
   it('should keep a github-actions update at the root so the action SHA pins get bumps', () => {
     // Every uses: is pinned to a commit SHA, so without this update no pin would ever move.
-    const { updates } = parse(config) as {
-      updates: { 'package-ecosystem': string; directory?: string }[];
-    };
     const actions = updates.filter((update) => update['package-ecosystem'] === 'github-actions');
     expect(actions.map((update) => update.directory)).toEqual(['/']);
   });
 
   it('should group only minor and patch updates', () => {
     // A major can break the API, so it gets its own pull request instead of holding back a group.
-    const groups = groupsOf(config);
     expect(groups.length).toBeGreaterThan(0);
-    expect(
-      groups.map(([name, block]) => [name, block.match(/^ {8}update-types: (.*)$/m)?.[1]]),
-    ).toEqual(groups.map(([name]) => [name, '[minor, patch]']));
+    expect(groups.map(([name, settings]) => [name, settings['update-types']])).toEqual(
+      groups.map(([name]) => [name, ['minor', 'patch']]),
+    );
   });
 });
