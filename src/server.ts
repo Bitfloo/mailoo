@@ -51,12 +51,13 @@ export default function createServer(): McpServer {
         res &&
         typeof res === 'object' &&
         'content' in res &&
-        !(res as { isError?: boolean }).isError &&
         !(res as { structuredContent?: unknown }).structuredContent &&
         effectiveConfig?.outputSchema
       ) {
         const contentArr = (res as { content?: { type?: string; text?: string }[] }).content;
         // Every block: download_attachment and export_email put the base64 in the second one.
+        // The whole result, not a digest: Claude Code (2.1.x) hands the model this object in
+        // place of the text blocks, so text left out of summary never reaches the model.
         const summary = (Array.isArray(contentArr) ? contentArr : [])
           .flatMap((c) => (c.type === 'text' && typeof c.text === 'string' ? [c.text] : []))
           .join('\n');
@@ -64,7 +65,7 @@ export default function createServer(): McpServer {
         return {
           ...(res as Record<string, unknown>),
           structuredContent: {
-            ok: true,
+            ok: (res as { isError?: boolean }).isError !== true,
             summary,
             ...(isDryRun ? { dryRun: true } : {}),
           },

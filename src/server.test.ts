@@ -48,4 +48,26 @@ describe('structured output', () => {
       await Promise.allSettled([client.close(), server.close()]);
     }
   });
+
+  // ok was true on every structured result, because a failure carried no structuredContent at all.
+  it('should report ok false with the error text when a handler returns isError', async () => {
+    const server = createServer();
+    server.registerTool('failing_probe', { title: 'Failing Probe', inputSchema: {} }, async () => ({
+      content: [{ type: 'text' as const, text: 'Failed to move email: mailbox unavailable' }],
+      isError: true,
+    }));
+    const client = new Client({ name: 'mailoo-structured', version: '0.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    try {
+      const result = await client.callTool({ name: 'failing_probe', arguments: {} });
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toEqual({
+        ok: false,
+        summary: 'Failed to move email: mailbox unavailable',
+      });
+    } finally {
+      await Promise.allSettled([client.close(), server.close()]);
+    }
+  });
 });
