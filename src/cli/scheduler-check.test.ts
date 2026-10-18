@@ -18,7 +18,9 @@ vi.stubEnv('XDG_STATE_HOME', path.join(xdgRoot, 'state'));
 const { CONFIG_FILE, SCHEDULED_DIR } = await import('../config/xdg.js');
 const { loadConfig } = await import('../config/loader.js');
 const { default: ConnectionManager } = await import('../connections/manager.js');
-const { checkScheduledEmails, formatCheckResult, runCheck } = await import('./scheduler.js');
+const { checkScheduledEmails, formatCheckResult, runCheck, runList } = await import(
+  './scheduler.js'
+);
 
 afterAll(async () => {
   vi.unstubAllEnvs();
@@ -39,6 +41,22 @@ async function waitFor(done: () => boolean, deadline: number): Promise<void> {
 }
 
 const DUE_IDS = ['3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b', '3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6c'];
+
+function queued(id: string, fields: Partial<ScheduledEmail> = {}): ScheduledEmail {
+  return {
+    id,
+    account: 'work',
+    to: ['recipient@example.test'],
+    subject: 'Quarterly numbers',
+    body: 'The figures are below.',
+    html: false,
+    sendAt: new Date(Date.now() - 60_000).toISOString(),
+    createdAt: new Date(Date.now() - 3_600_000).toISOString(),
+    status: 'pending',
+    attempts: 0,
+    ...fields,
+  };
+}
 
 describe('scheduler check command', () => {
   let root: string;
@@ -126,19 +144,9 @@ describe('scheduler check command', () => {
     await fs.mkdir(queueDir, { recursive: true });
     await Promise.all(
       DUE_IDS.slice(0, options.due ?? 1).map(async (id) => {
-        const due: ScheduledEmail = {
-          id,
-          account: 'work',
-          to: ['recipient@example.test'],
-          subject: 'Quarterly numbers',
-          body: 'The figures are below.',
-          html: false,
-          sendAt: new Date(Date.now() - 60_000).toISOString(),
-          createdAt: new Date(Date.now() - 3_600_000).toISOString(),
-          status: 'pending',
-          attempts: 0,
-        };
-        await fs.writeFile(path.join(queueDir, `${id}.json`), JSON.stringify(due), { mode: 0o600 });
+        await fs.writeFile(path.join(queueDir, `${id}.json`), JSON.stringify(queued(id)), {
+          mode: 0o600,
+        });
       }),
     );
     return { config, queueDir };
@@ -174,6 +182,38 @@ describe('scheduler check command', () => {
       await fs.rm(path.dirname(CONFIG_FILE), { recursive: true, force: true });
       await fs.rm(SCHEDULED_DIR, { recursive: true, force: true });
     }
+  });
+
+  it('should print an email that is still sending and one that was sent when the list command runs', async () => {
+    const config = await writeConfig({});
+    const queueDir = path.join(root, 'scheduled');
+    const sendAt = '2030-01-01T09:00:00.000Z';
+    const sentAt = '2030-01-01T09:00:04.000Z';
+    await fs.mkdir(path.join(queueDir, 'sent'), { recursive: true });
+    const [sendingId, sentId] = DUE_IDS;
+    await fs.writeFile(
+      path.join(queueDir, `${sendingId}.json`),
+      JSON.stringify(queued(sendingId, { sendAt, status: 'sending', attempts: 1 })),
+    );
+    await fs.writeFile(
+      path.join(queueDir, 'sent', `${sentId}.json`),
+      JSON.stringify(queued(sentId, { sendAt, status: 'sent', attempts: 1, sentAt })),
+    );
+    const lines: string[] = [];
+    await runList(
+      async () => config,
+      (line) => {
+        lines.push(line);
+      },
+      queueDir,
+    );
+    const row = `  3f2b8c1e | work → recipient@example.test | "Quarterly numbers" |`;
+    expect(lines).toEqual([
+      '\n📤 Sending (1):',
+      `${row} ${sendAt}`,
+      '\n✅ Sent (1):',
+      `${row} sent ${sentAt}`,
+    ]);
   });
 
   it('should send with the access token from the OAuth endpoint when the account uses oauth2', async () => {

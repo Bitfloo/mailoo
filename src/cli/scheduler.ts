@@ -77,9 +77,13 @@ export function formatCheckResult(result: CheckResult): string[] {
   return lines;
 }
 
-async function listScheduled(status: 'all' | 'pending'): Promise<ScheduledEmail[]> {
+async function listScheduled(
+  status: 'all' | 'pending',
+  load: () => Promise<AppConfig> = loadConfig,
+  queueDir?: string,
+): Promise<ScheduledEmail[]> {
   const list = async (scheduler: SchedulerService) => scheduler.list({ status });
-  return withScheduler(await loadConfig(), list);
+  return withScheduler(await load(), list, queueDir);
 }
 
 // ---------------------------------------------------------------------------
@@ -149,9 +153,14 @@ export function formatScheduledList(emails: ScheduledEmail[]): string[] {
   return lines;
 }
 
-async function runList(): Promise<void> {
-  formatScheduledList(await listScheduled('all')).forEach((line) => {
-    console.log(line);
+/** `mailoo scheduler list`. A test passes a temp config, a line sink and a temp queue. */
+export async function runList(
+  load: () => Promise<AppConfig> = loadConfig,
+  print: (line: string) => void = console.log,
+  queueDir?: string,
+): Promise<void> {
+  formatScheduledList(await listScheduled('all', load, queueDir)).forEach((line) => {
+    print(line);
   });
 }
 
