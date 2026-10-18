@@ -16,7 +16,12 @@ export default async function withFullDisk(
   matches: (data: string) => boolean,
   body: () => Promise<void>,
 ): Promise<void> {
-  const hit = (data: unknown): data is string => typeof data === 'string' && matches(data);
+  let filled = false;
+  const hit = (data: unknown): data is string => {
+    if (typeof data !== 'string' || !matches(data)) return false;
+    filled = true;
+    return true;
+  };
   const original = fs.writeFile.bind(fs);
   const writeSpy = vi.spyOn(fs, 'writeFile').mockImplementation(async (file, data, options) => {
     if (!hit(data)) return original(file, data, options);
@@ -42,4 +47,7 @@ export default async function withFullDisk(
     writeSpy.mockRestore();
     handleSpy.mockRestore();
   }
+  // A predicate that matches nothing leaves the disk empty, and the test would then
+  // pass on writes that all succeeded.
+  if (!filled) throw new Error('no write matched the full-disk predicate');
 }
