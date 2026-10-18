@@ -57,9 +57,9 @@ async function onLinux<T>(fn: (service: LocalCalendarService) => Promise<T>): Pr
   }
 }
 
-/** Adds `review` on Linux and returns the calendar file xdg-open was given. */
-async function addedFile(): Promise<string> {
-  await onLinux(async (service) => service.addEvent(review));
+/** Adds the event on Linux and returns the calendar file xdg-open was given. */
+async function addedFile(event: LocalCalendarEventInput = review): Promise<string> {
+  await onLinux(async (service) => service.addEvent(event));
   return readFile(execFileImpl.mock.calls[0]?.[1][0] ?? '', 'utf8');
 }
 
@@ -118,6 +118,14 @@ describe('LocalCalendarService on Linux', () => {
       'DESCRIPTION:Agenda\\; Q4\\nFiles: C:\\\\budget\\\\q4.xlsx',
       'DESCRIPTION:Budget review',
     ]);
+  });
+
+  it('should write a carriage return in the notes as a line break a calendar app reads back', async () => {
+    const file = await addedFile({ ...review, notes: 'Line one\r\nLine two\rLine three' });
+    const [event] = Object.values(ical.sync.parseICS(file)).filter(
+      (component) => component?.type === 'VEVENT',
+    ) as unknown as Record<string, unknown>[];
+    expect(event?.description).toBe('Line one\nLine two\nLine three');
   });
 
   it('should end every line of the calendar file with CRLF', async () => {
