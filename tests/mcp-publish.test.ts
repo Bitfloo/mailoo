@@ -7,21 +7,22 @@ import { releaseStep, releaseYml, runBlock, runStep } from './workflow-yaml.js';
 const installStep = releaseStep(releaseYml, 'Install mcp-publisher');
 const publishStep = releaseStep(releaseYml, 'Publish to MCP Registry');
 
-/** The workflow's grep -F operand is the only copy of the npm retry sentence. */
-function npmRetryMarker(step: string): string {
-  const match = step.match(/grep -F -q "([^"]+)"/);
-  if (!match?.[1]) {
-    throw new Error('Publish to MCP Registry has no npm retry marker');
-  }
-  return match[1];
-}
+/**
+ * The registry's reply when npm 404s a version it has just published, worded as npmVersion404Error
+ * in https://github.com/modelcontextprotocol/registry/blob/v1.8.1/internal/validators/registries/npm.go
+ * A literal, not the workflow's grep operand, so a typo in that operand fails here, not in a release.
+ */
+const npmNotShownYet =
+  "NPM package '@bitfloo/mailoo' exists, but version '1.4.2' was not found (status: 404). " +
+  'A newly published release can take a moment to appear on the registry. ' +
+  "Wait and retry, or publish version '1.4.2' before registering it";
 
 function script(path: string, lines: string[]): void {
   writeFileSync(path, `#!/bin/bash\n${lines.join('\n')}\n`, { mode: 0o755 });
 }
 
 interface Publisher {
-  /** What every failed call prints: the npm retry sentence or another error. */
+  /** What every failed call prints: the registry's npm 404 reply or another error. */
   error: 'npm' | 'other';
   /** The exit status of every failed call. */
   status: number;
@@ -34,8 +35,8 @@ interface Publisher {
 function publish(publisher: Publisher): { status: number | null; calls: number; pauses: string[] } {
   const temp = mkdtempSync(join(tmpdir(), 'mailoo-mcp-publish-'));
   try {
-    const message = publisher.error === 'npm' ? npmRetryMarker(publishStep) : 'unauthorized';
-    writeFileSync(join(temp, 'message'), `Error: ${message}.\n`);
+    const message = publisher.error === 'npm' ? npmNotShownYet : 'unauthorized';
+    writeFileSync(join(temp, 'message'), `Error: ${message}\n`);
     writeFileSync(join(temp, 'calls'), '0');
     writeFileSync(join(temp, 'pauses'), '');
     script(join(temp, 'mcp-publisher'), [
