@@ -51,7 +51,7 @@ Commands:
   stdio       Run as MCP server over stdio (default)
   http [port] [host]  Streamable HTTP (default: port 8080 on 127.0.0.1 and ::1)
   account     Account management (list, add, edit, delete)
-  setup       Alias for 'account add'
+  setup       Deprecated alias for 'account add'
   test        Test connections for all or a specific account
   install     Register/unregister with MCP clients (Claude, Cursor, …)
   config      Config management (show, edit, path, init)
@@ -67,7 +67,7 @@ Examples:
   mailoo account add              # Add a new email account
   mailoo account edit personal    # Edit an account
   mailoo account delete work      # Delete an account
-  mailoo setup                    # Alias for account add
+  mailoo setup                    # Deprecated alias for account add
   mailoo test                     # Test all accounts
   mailoo test personal            # Test specific account
   mailoo install                  # Register with detected MCP clients
@@ -87,7 +87,11 @@ async function runServer(): Promise<void> {
   const config = await loadConfig();
 
   const oauthService = new OAuthService();
-  const connections = new ConnectionManager(config.accounts, oauthService);
+  const connections = new ConnectionManager(
+    config.accounts,
+    oauthService,
+    config.settings.defaultAccount,
+  );
   const rateLimiter = new RateLimiter(config.settings.rateLimit);
   const imapService = new ImapService(connections);
   const smtpService = new SmtpService(
@@ -240,7 +244,11 @@ async function runHttpServer(policy: ReturnType<typeof readHttpLaunchOptions>): 
   // queue, watcher, and hooks process-wide, as on stdio. Each HTTP session only
   // owns an McpServer and its transport.
   const oauthService = new OAuthService();
-  const connections = new ConnectionManager(config.accounts, oauthService);
+  const connections = new ConnectionManager(
+    config.accounts,
+    oauthService,
+    config.settings.defaultAccount,
+  );
   const imapService = new ImapService(connections);
   const templateService = new TemplateService();
   const calendarService = new CalendarService();

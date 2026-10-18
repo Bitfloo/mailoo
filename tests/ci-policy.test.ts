@@ -1,5 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
 import { jobSections, releaseStep, releaseSteps, releaseYml } from './workflow-yaml.js';
@@ -41,6 +42,23 @@ describe('CI spend policy', () => {
     const claude = readFileSync(join(repoRoot, 'CLAUDE.md'), 'utf8');
     expect(ciYml).toContain('include-unit');
     expect(claude).toContain('include-unit');
+  });
+
+  it('should name every ci.yml job in the CONTRIBUTING pull request list', () => {
+    const contributing = readFileSync(join(repoRoot, 'CONTRIBUTING.md'), 'utf8');
+    const names = jobSections(ciYml).map((job) => job.match(/^ {4}name: (.+)$/m)?.[1]);
+    expect(names).not.toContain(undefined);
+    for (const name of names) {
+      expect(contributing).toContain(`\`${name}\``);
+    }
+  });
+
+  it('should describe CodeQL push and weekly runs only while codeql.yml has those triggers', () => {
+    const contributing = readFileSync(join(repoRoot, 'CONTRIBUTING.md'), 'utf8');
+    const codeqlOn = onBlock(readFileSync(join(repoRoot, '.github/workflows/codeql.yml'), 'utf8'));
+    expect(contributing).toContain('CodeQL also runs on pushes to `develop` and weekly');
+    expect(codeqlOn).toMatch(/^ {2}push:\n {4}branches: \[develop\]$/m);
+    expect(codeqlOn).toMatch(/^ {2}schedule:$/m);
   });
 });
 
@@ -110,17 +128,24 @@ describe('release supply chain', () => {
     expect(shrink.packages['node_modules/pnpm']?.integrity).toMatch(/^sha512-/);
   });
 
-  it('prepares the packageManager pnpm in the alpine image and the Cursor install', () => {
+  it('prepares the packageManager pnpm by its tarball hash in the alpine image and the Cursor install', () => {
+    // Corepack checks the download against a +sha512.<hex> suffix. The hash is the
+    // shrinkwrap integrity the Debian image installs, so all three move together.
     const root = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
       packageManager: string;
     };
+    const shrink = JSON.parse(
+      readFileSync(join(repoRoot, 'docker/pnpm-cli/npm-shrinkwrap.json'), 'utf8'),
+    ) as { packages: Record<string, { integrity?: string }> };
+    const integrity = shrink.packages['node_modules/pnpm']?.integrity ?? '';
+    const hex = Buffer.from(integrity.replace(/^sha512-/, ''), 'base64').toString('hex');
     const pins = ['Dockerfile.alpine', '.cursor/environment.json'].map((file) => [
       file,
-      readFileSync(join(repoRoot, file), 'utf8').match(/corepack prepare (pnpm@\S+)/)?.[1],
+      readFileSync(join(repoRoot, file), 'utf8').match(/corepack prepare (pnpm@[^\s"]+)/)?.[1],
     ]);
     expect(pins).toEqual([
-      ['Dockerfile.alpine', root.packageManager],
-      ['.cursor/environment.json', root.packageManager],
+      ['Dockerfile.alpine', `${root.packageManager}+sha512.${hex}`],
+      ['.cursor/environment.json', `${root.packageManager}+sha512.${hex}`],
     ]);
   });
 
@@ -172,6 +197,27 @@ describe('pinned GitHub Actions', () => {
       }
     }
     expect(unpinned).toEqual([]);
+  });
+});
+
+describe('workflow shell input', () => {
+  it('should expand dispatch inputs and event fields only in if: and env: lines', () => {
+    // An expression inside run: is pasted into the script before bash parses it,
+    // so a crafted value runs as code. An env: value reaches bash as data.
+    const files = readdirSync(workflowDir).filter((name) => name.endsWith('.yml'));
+    expect(files.length).toBeGreaterThan(0);
+    const untrusted = /\$\{\{[^}]*\b(?:inputs\.|github\.event\.|github\.head_ref\b)/;
+    const allowed = /^\s*(?:if|[A-Z][A-Z0-9_]*):\s/;
+    const inline: string[] = [];
+    for (const name of files) {
+      const lines = readFileSync(join(workflowDir, name), 'utf8').split('\n');
+      for (const line of lines) {
+        if (untrusted.test(line) && !allowed.test(line)) {
+          inline.push(`${name}: ${line.trim()}`);
+        }
+      }
+    }
+    expect(inline).toEqual([]);
   });
 });
 
@@ -369,6 +415,26 @@ describe('dependabot groups', () => {
       production: onZero(manifest.dependencies),
       development: onZero(manifest.devDependencies),
     });
+  });
+
+  it('should update every npm manifest the repository tracks', () => {
+    // With only / listed, the release npm CLI and the image pnpm CLI never got an update.
+    const manifests = execFileSync('git', ['ls-files', '--', 'package.json', '**/package.json'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    })
+      .split('\n')
+      .filter(Boolean)
+      .map((file) => `/${dirname(file)}`.replace(/\/\.$/, '/'));
+    const covered = config
+      .split(/\n {2}- package-ecosystem: /)
+      .filter((entry) => entry.startsWith('npm\n'))
+      .flatMap((entry) => {
+        const list = entry.match(/^ {4}directories: \[(.*)\]$/m)?.[1];
+        const single = entry.match(/^ {4}directory: (\S+)$/m)?.[1];
+        return list ? [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1]) : [single];
+      });
+    expect(manifests.filter((dir) => !covered.includes(dir))).toEqual([]);
   });
 
   it('groups only minor and patch updates', () => {

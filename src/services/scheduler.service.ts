@@ -341,6 +341,16 @@ export default class SchedulerService {
     this.sentDir = path.join(queueDir, 'sent');
   }
 
+  resolveAccountName(accountName?: string): string {
+    const imapWithResolver = this.imapService as ImapService & {
+      resolveAccountName?: (name?: string) => string;
+    };
+    if (typeof imapWithResolver.resolveAccountName === 'function') {
+      return imapWithResolver.resolveAccountName(accountName);
+    }
+    return accountName ?? '';
+  }
+
   // -------------------------------------------------------------------------
   // Schedule a new email
   // -------------------------------------------------------------------------

@@ -8,6 +8,13 @@ import audit from '../safety/audit.js';
 import { recipientEmail, validateInputLength } from '../safety/validation.js';
 
 import type SmtpService from '../services/smtp.service.js';
+import {
+  accountParam,
+  dryRunParam,
+  emailIdInputFields,
+  resolveEmailId,
+  structuredToolResult,
+} from './schema-helpers.js';
 
 const outgoingAttachment = z
   .object({
@@ -34,7 +41,7 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
         'Send a new email. Supports plain text or HTML body, CC, BCC, and attachments. ' +
         'Optional messageId lets a retried call reuse the same Message-ID.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
+        account: accountParam,
         to: z.array(recipientEmail).min(1).describe('Recipient email addresses'),
         subject: z.string().describe('Email subject'),
         body: z.string().describe('Email body content'),
@@ -46,6 +53,7 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
           .string()
           .optional()
           .describe('Stable RFC 5322 Message-ID for retries (receivers can dedupe)'),
+        dryRun: dryRunParam,
       },
       annotations: {
         readOnlyHint: false,
@@ -55,13 +63,32 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
       },
     },
     async (params) => {
+      const accountInput = params.account ?? '';
       try {
         validateInputLength(params.subject, 998, 'Subject');
         validateInputLength(params.body, 5_000_000, 'Body');
-        const result = await smtpService.sendEmail(params.account, params);
+        if (params.dryRun) {
+          const resolvedAccount =
+            typeof smtpService.resolveAccountName === 'function'
+              ? smtpService.resolveAccountName(params.account)
+              : accountInput;
+          return structuredToolResult(
+            `[DRY RUN] Would send email from account "${resolvedAccount}" to ${params.to.join(', ')} with subject "${params.subject}".`,
+            {
+              action: 'send_email',
+              account: resolvedAccount,
+              to: params.to,
+              cc: params.cc,
+              bcc: params.bcc,
+              subject: params.subject,
+            },
+            true,
+          );
+        }
+        const result = await smtpService.sendEmail(accountInput, params);
         await audit.log(
           'send_email',
-          params.account,
+          accountInput,
           { to: params.to, subject: params.subject, messageId: params.messageId },
           'ok',
         );
@@ -77,7 +104,7 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
         const errMsg = err instanceof Error ? err.message : String(err);
         await audit.log(
           'send_email',
-          params.account,
+          accountInput,
           { to: params.to, subject: params.subject },
           'error',
           errMsg,
@@ -105,13 +132,14 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
       description:
         'Reply to an email with proper threading (In-Reply-To & References headers). Use get_email first to read the original.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
-        emailId: z.string().describe('Email ID to reply to (from list_emails or get_email)'),
+        account: accountParam,
+        ...emailIdInputFields('Email ID to reply to (from list_emails or get_email)'),
         mailbox: z.string().default('INBOX').describe('Mailbox where the original email is'),
         body: z.string().describe('Reply body content'),
         replyAll: z.boolean().default(false).describe('Reply to all recipients'),
         html: z.boolean().default(false).describe('Send as HTML'),
         messageId: z.string().optional().describe('Stable RFC 5322 Message-ID for retries'),
+        dryRun: dryRunParam,
       },
       annotations: {
         readOnlyHint: false,
@@ -121,14 +149,33 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
       },
     },
     async (params) => {
+      const accountInput = params.account ?? '';
+      let emailId = params.emailId ?? params.id ?? params.email_id ?? '';
       try {
-        const result = await smtpService.replyToEmail(params.account, params);
-        await audit.log(
-          'reply_email',
-          params.account,
-          { emailId: params.emailId, mailbox: params.mailbox },
-          'ok',
-        );
+        emailId = resolveEmailId(params);
+        if (params.dryRun) {
+          validateInputLength(params.body, 5_000_000, 'Body');
+          const resolvedAccount =
+            typeof smtpService.resolveAccountName === 'function'
+              ? smtpService.resolveAccountName(params.account)
+              : accountInput;
+          return structuredToolResult(
+            `[DRY RUN] Would reply to email ${emailId} in "${params.mailbox}" on account "${resolvedAccount}" (replyAll=${params.replyAll}).`,
+            {
+              action: 'reply_email',
+              account: resolvedAccount,
+              emailId,
+              mailbox: params.mailbox,
+              replyAll: params.replyAll,
+            },
+            true,
+          );
+        }
+        const result = await smtpService.replyToEmail(accountInput, {
+          ...params,
+          emailId,
+        });
+        await audit.log('reply_email', accountInput, { emailId, mailbox: params.mailbox }, 'ok');
         return {
           content: [
             {
@@ -141,8 +188,8 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
         const errMsg = err instanceof Error ? err.message : String(err);
         await audit.log(
           'reply_email',
-          params.account,
-          { emailId: params.emailId, mailbox: params.mailbox },
+          accountInput,
+          { emailId, mailbox: params.mailbox },
           'error',
           errMsg,
         );
@@ -169,8 +216,8 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
       description:
         'Forward an email to new recipients with optional additional message. Original email is quoted below. Original attachments are not included.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
-        emailId: z.string().describe('Email ID to forward (from list_emails or get_email)'),
+        account: accountParam,
+        ...emailIdInputFields('Email ID to forward (from list_emails or get_email)'),
         mailbox: z.string().default('INBOX').describe('Mailbox where the original email is'),
         to: z.array(recipientEmail).min(1).describe('Forward to these recipients'),
         body: z.string().optional().describe('Additional message above the forwarded content'),
@@ -181,6 +228,7 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
           .describe('Send the additional message + forwarded quote as HTML (default: plain text)'),
         attachments: z.array(outgoingAttachment).optional().describe('Extra file attachments'),
         messageId: z.string().optional().describe('Stable RFC 5322 Message-ID for retries'),
+        dryRun: dryRunParam,
       },
       annotations: {
         readOnlyHint: false,
@@ -190,14 +238,33 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
       },
     },
     async (params) => {
+      const accountInput = params.account ?? '';
+      let emailId = params.emailId ?? params.id ?? params.email_id ?? '';
       try {
-        const result = await smtpService.forwardEmail(params.account, params);
-        await audit.log(
-          'forward_email',
-          params.account,
-          { to: params.to, emailId: params.emailId },
-          'ok',
-        );
+        emailId = resolveEmailId(params);
+        if (params.dryRun) {
+          const resolvedAccount =
+            typeof smtpService.resolveAccountName === 'function'
+              ? smtpService.resolveAccountName(params.account)
+              : accountInput;
+          return structuredToolResult(
+            `[DRY RUN] Would forward email ${emailId} in "${params.mailbox}" on account "${resolvedAccount}" to ${params.to.join(', ')}.`,
+            {
+              action: 'forward_email',
+              account: resolvedAccount,
+              emailId,
+              mailbox: params.mailbox,
+              to: params.to,
+              cc: params.cc,
+            },
+            true,
+          );
+        }
+        const result = await smtpService.forwardEmail(accountInput, {
+          ...params,
+          emailId,
+        });
+        await audit.log('forward_email', accountInput, { to: params.to, emailId }, 'ok');
         return {
           content: [
             {
@@ -208,13 +275,7 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
         };
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        await audit.log(
-          'forward_email',
-          params.account,
-          { to: params.to, emailId: params.emailId },
-          'error',
-          errMsg,
-        );
+        await audit.log('forward_email', accountInput, { to: params.to, emailId }, 'error', errMsg);
         return {
           isError: true,
           content: [

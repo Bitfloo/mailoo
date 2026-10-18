@@ -8,6 +8,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 import type ImapService from '../services/imap.service.js';
+import { accountParam } from './schema-helpers.js';
 
 export default function registerAnalyticsTools(server: McpServer, imapService: ImapService): void {
   server.registerTool(
@@ -17,7 +18,7 @@ export default function registerAnalyticsTools(server: McpServer, imapService: I
       description:
         'Get email statistics and analytics for a mailbox. Shows volume, top senders, daily trends, and read/flagged counts.',
       inputSchema: {
-        account: z.string().describe('Account name'),
+        account: accountParam,
         period: z
           .enum(['day', 'week', 'month'])
           .default('week')
@@ -32,16 +33,28 @@ export default function registerAnalyticsTools(server: McpServer, imapService: I
       },
     },
     async ({ account, period, mailbox }) => {
-      const stats = await imapService.getEmailStats(account, mailbox, period);
+      try {
+        const stats = await imapService.getEmailStats(account ?? '', mailbox, period);
 
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(stats, null, 2),
-          },
-        ],
-      };
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(stats, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text' as const,
+              text: `Failed to get email statistics: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
     },
   );
 }

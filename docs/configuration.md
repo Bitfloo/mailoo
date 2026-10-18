@@ -193,6 +193,8 @@ These supplement the table in the README (single-account env overlay).
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MCP_EMAIL_READ_ONLY` | `false` | Skip write tools and mailbox writers |
+| `MCP_EMAIL_TOOLSET` | `full` | Toolset profile to register (`full`, `core`, or `minimal`) |
+| `MCP_EMAIL_DEFAULT_ACCOUNT` | unset | Default account name or email when `account` is omitted |
 | `MCP_EMAIL_SAVE_TO_SENT` | `true` | IMAP APPEND after SMTP, to the account's `sent_mailbox` or else the `\Sent` special-use folder |
 | `MCP_EMAIL_IMAP_DISABLE_IMAP4REV2` | `false` | Force IMAP4rev1 SEARCH |
 | `MCP_EMAIL_SIEVE_HOST` | IMAP host | ManageSieve hostname |

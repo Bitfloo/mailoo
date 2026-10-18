@@ -5,13 +5,11 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/bitfloo/mailoo/ci.yml?event=pull_request&style=flat-square&label=CI)](https://github.com/bitfloo/mailoo/actions/workflows/ci.yml)
 [![M8ven](https://m8ven.ai/badge/mcp/bitfloo/mailoo?variant=verified)](https://m8ven.ai/mcp/bitfloo/mailoo)
 
-**Mailoo** is Bitfloo's IMAP, SMTP, and ManageSieve [MCP](https://modelcontextprotocol.io) server:
-multi-mailbox, with profiles per account and per folder.
+**Mailoo** (`@bitfloo/mailoo`) is a Model Context Protocol (MCP) server for email (IMAP/SMTP), calendar, reminders, and ManageSieve automation developed and maintained by **Bitfloo**.
 
-This is a public **LGPL-3.0-or-later fork** of [email-mcp](https://github.com/codefuturist/email-mcp).
-It is **not** an official codefuturist project. See [Upstream / Attribution](#upstream--attribution).
+![Mailoo Architecture](https://raw.githubusercontent.com/Bitfloo/mailoo/develop/docs/assets/mailoo-architecture.svg)
 
-Enables AI assistants to read, search, send, manage, schedule, and analyze emails across multiple accounts. Exposes 57 tools, 7 prompts, and 6 resources over the MCP protocol with OAuth2 support _(experimental)_, email scheduling, calendar extraction, analytics, provider-aware label management, real-time IMAP IDLE watcher with AI-powered triage, customizable presets and static rules, ManageSieve filters, and a guided setup wizard.
+Enables AI assistants and autonomous agents to read, search, send, manage, schedule, and analyze emails, calendars, Reminders, and ManageSieve filter scripts across multiple accounts. Exposes up to 57 tools (with `full`, `core`, and `minimal` toolset profiles), 7 prompts, and 6 resources over the MCP 2025/2026 protocol with `outputSchema` / `structuredContent`, OAuth2 support _(experimental)_, email scheduling, calendar extraction, analytics, provider-aware label management, real-time IMAP IDLE watcher with AI-powered triage, customizable presets and static rules, ManageSieve filters, and a guided setup wizard.
 
 Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, read-only side effects, and reconnect backoff is documented in [`docs/configuration.md`](docs/configuration.md) and [`docs/tools.md`](docs/tools.md).
 
@@ -20,24 +18,27 @@ Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, read-only si
 | Feature | In this tree |
 |---------|:------------:|
 | Multi-account IMAP/SMTP | ✅ |
-| Send / reply / forward | ✅ |
+| Send / reply / forward (with `dryRun` preview) | ✅ |
 | Drafts & templates | ✅ |
 | Provider-aware labels & bulk ops | ✅ |
 | Schedule future emails | ✅ |
 | Real-time IMAP IDLE watcher | ✅ |
 | AI triage with presets | ✅ |
 | Desktop & webhook alerts | ✅ |
-| Calendar (ICS) extraction | ✅ |
+| Calendar (ICS, CalDAV & Apple Calendar/Reminders) | ✅ |
 | Email analytics | ✅ |
 | OAuth2 (Gmail / M365) | ✅ _experimental_ |
 | Guided setup wizard | ✅ |
 | ManageSieve (server-side filters) | ✅ |
 | Sender auth headers (SPF/DKIM/DMARC) | ✅ |
+| Toolset profiles (`full` / `core` / `minimal`) & GBNF small-LLM ergonomics | ✅ |
+| MCP 2025/2026 `outputSchema` & `structuredContent` | ✅ |
 
 ## Table of Contents
 
 - [Highlights](#highlights)
-- [Security](#security)
+- [Security & Sandboxing Architecture](#security--sandboxing-architecture)
+- [LLM Ergonomics & Toolset Profiles](#llm-ergonomics--toolset-profiles)
 - [Docs](#docs)
 - [Background](#background)
 - [Install](#install)
@@ -45,19 +46,39 @@ Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, read-only si
 - [Capabilities & data flows](#capabilities--data-flows)
 - [API](#api)
 - [Maintainers](#maintainers)
-- [Upstream / Attribution](#upstream--attribution)
 - [Contributing](#contributing)
-- [License](#license)
+- [Attribution & License](#attribution--license)
 
-## Security
+## Security & Sandboxing Architecture
 
 Policy and how to report a vulnerability: **[SECURITY.md](SECURITY.md)**.
 
-- `tls` is implicit TLS; `starttls` fails the connection when the server offers no STARTTLS. With both false, IMAP and SMTP differ — see [Security considerations](SECURITY.md#security-considerations).
-- The audit log redacts passwords and message bodies. It records send, draft, folder, label, bulk, manage, sieve, template, and schedule writes, not every local write (`src/safety/audit.ts`) — [SECURITY.md](SECURITY.md)
-- One global `rate_limit` (default 10 per minute) sizes a separate send bucket for each account (`src/config/schema.ts`)
-- OAuth2 XOAUTH2 authentication for Gmail and Microsoft 365 _(experimental)_
-- `savePath` writes a new file only under a specific working directory — [Security considerations](SECURITY.md#security-considerations)
+Mailoo is engineered with defense-in-depth sandboxing so AI agents can safely interact with untrusted mail and external servers:
+
+- **Zero Shell Execution (`execFile` only)** — Native OS integrations (macOS `osascript` for EventKit/Reminders/notifications, Linux `notify-send`, Windows `powershell`, and crontab installation) invoke `child_process.execFile` with strict argument arrays (`shell: false`), eliminating command injection vectors.
+- **SSRF & DNS-Rebinding Protection (`net.BlockList`)** — Outbound alert webhooks validate URLs against an IPv4/IPv6 `net.BlockList` covering loopback, RFC 1918 private ranges, link-local/cloud metadata (`169.254.169.254`, `100.100.100.200`), CGNAT, NAT64, 6to4, and reserved prefixes both at configuration time and at socket connection time (`createWebhookConnectLookup`), preventing DNS-rebinding attacks (`src/safety/validation.ts`).
+- **Symlink-Free Write Containment (`savePath`)** — Attachment and `.eml` exports via `savePath` are strictly confined to the working directory, walk every path segment with `lstat`, refuse hidden dotfiles and OS persistence directories (`Library/LaunchAgents`, `.ssh`, `.gnupg`), and open targets with `O_CREAT | O_EXCL | O_NOFOLLOW` under a **50 MiB** file size cap (**5 MiB** inline base64 cap).
+- **Prompt Injection Fencing (`<<<UNTRUSTED_EXTERNAL_CONTENT>>>`)** — Untrusted email subjects, sender headers, message bodies, previews, and authentication results are wrapped in `<<<UNTRUSTED_EXTERNAL_CONTENT>>>` … `<<<END_UNTRUSTED_EXTERNAL_CONTENT>>>` delimiters (stripping any forged markers inside the payload) so LLMs treat external mail as data, not instructions.
+- **Strict Credential File Permissions (`0600`)** — `config.toml` is written and verified with mode `0600` inside a `0700` config directory (`$XDG_CONFIG_HOME/mailoo/config.toml`). Passwords and message bodies are redacted from the JSONL write audit log (`src/safety/audit.ts`).
+- **TLS & STARTTLS Verification** — `tls` enforces implicit TLS with certificate verification (`verify_ssl = true` by default); `starttls` fails closed if the server does not advertise `STARTTLS`. ManageSieve refuses `AUTHENTICATE PLAIN` over unencrypted sockets without `STARTTLS`.
+- **Operational Guardrails (`MCP_EMAIL_READ_ONLY`, `MCP_EMAIL_TOOLSET`, `dryRun`)** —
+  - `MCP_EMAIL_READ_ONLY=true` disables all write tools, background watchers, hooks, and schedulers at startup, exposing only the 31 read-only tools.
+  - `MCP_EMAIL_TOOLSET=full|core|minimal` scopes the registered tool surface to match the agent's capability tier and context budget.
+  - `dryRun: true` on high-risk tools (`send_email`, `reply_email`, `forward_email`, `delete_email`, `bulk_action`, `delete_mailbox`, `sieve_put_script`, `sieve_delete_script`) validates all parameters and account resolution and returns a `[DRY RUN]` preview without modifying server state.
+- **Per-Account Rate Limiting** — `rate_limit` (default 10 sends/minute) enforces an independent token bucket per account (`src/safety/rate-limiter.ts`).
+
+## LLM Ergonomics & Toolset Profiles
+
+Mailoo is designed to work across both frontier models (Claude, GPT, Gemini) and local/small 3B–8B parameter models (`llama.cpp` GBNF grammars, Ollama, vLLM):
+
+- **Toolset Profiles (`MCP_EMAIL_TOOLSET` / `settings.toolset`)**:
+  - `full` *(default)* — All **57 tools** (**31** in `read_only` mode), including Calendar, Reminders, ManageSieve, Watcher, Scheduler, Templates, Contacts, and Analytics.
+  - `core` — **19 tools** (**10** in `read_only` mode) covering core email workflows (`accounts`, `mailboxes`, `emails`, `threads`, `send`, `drafts`, `manage`, `bulk`, `attachments`, `health`).
+  - `minimal` — **14 tools** (**8** in `read_only` mode) tailored for 3B–4B models with tight context budgets (`accounts`, `mailboxes`, `emails`, `send`, `manage`, `health`).
+- **Optional `account` & Smart Account Resolution** — When only a single account is configured or `default_account` (`MCP_EMAIL_DEFAULT_ACCOUNT`) is set, the `account` parameter is completely optional across tools. Account lookup also matches case-insensitively by profile name or email address (e.g., passing `"you@example.com"` resolves the matching account), and returns actionable error messages listing valid accounts (`name (email)` pairs) when ambiguous.
+- **Lossless Parameter Normalization & GBNF Compatibility** — Single-message tools accept `emailId`, `id`, or `email_id` as either string or integer (`42` or `"42"`). Batch tools (`get_emails`, `bulk_action`) accept string or numeric ID arrays (`["42", "43"]` or `[42, 43]`). `list_emails` and `search_emails` accept both `hasAttachment` and `has_attachment`. All Zod schemas avoid regex lookaheads so `llama.cpp` GBNF grammar compilation succeeds without errors.
+- **Context Window Protection** — `get_email` and `get_thread` default to `format="text"` and enforce a default `maxLength` of `20000` characters (appending a clear truncation notice when exceeded) so large HTML newsletters never overflow small context windows.
+- **MCP 2025/2026 `outputSchema` & `structuredContent`** — Tools declare structured `outputSchema` contracts and return machine-readable `structuredContent` alongside human-readable text blocks.
 - Outgoing attachment paths must be regular files under the working directory or home — [Security considerations](SECURITY.md#security-considerations)
 
 ## Docs
@@ -84,14 +105,13 @@ Key design decisions:
 Requires [Node.js](https://nodejs.org/) ≥ 24.
 
 ```bash
-npx -y @bitfloo/mailoo setup
+npx -y @bitfloo/mailoo account add
 ```
 
 That writes the local config and prints an MCP client snippet. The same package runs the server and the other commands:
 
 ```bash
 npx -y @bitfloo/mailoo
-npx -y @bitfloo/mailoo account add
 npx -y @bitfloo/mailoo test
 ```
 
@@ -102,23 +122,23 @@ npm install -g @bitfloo/mailoo
 # or
 pnpm add -g @bitfloo/mailoo
 # or, without a global install:
-pnpm dlx @bitfloo/mailoo setup
+pnpm dlx @bitfloo/mailoo account add
 ```
 
 ### From a clone
 
-Building this repository needs [pnpm](https://pnpm.io) 9:
+Building this repository needs [pnpm](https://pnpm.io) 10 (the `packageManager` version in `package.json`):
 
 ```bash
 git clone https://github.com/Bitfloo/mailoo.git
 cd mailoo
 pnpm install && pnpm build
-node dist/main.js setup
+node dist/main.js account add
 ```
 
 ### Docker
 
-The running image needs Docker, not Node on the host. Create the config first with `npx -y @bitfloo/mailoo setup` (or write the TOML by hand), then mount that directory into the container.
+The running image needs Docker, not Node on the host. Create the config first with `npx -y @bitfloo/mailoo account add` (or write the TOML by hand), then mount that directory into the container.
 
 The image is `ghcr.io/bitfloo/mailoo`, built for linux/amd64 and linux/arm64. Tags are bare semver (no `v` prefix). The `0.2` tag follows the newest 0.2.x release. Production setups should pin the full version from the release (it matches the npm version) or the image digest.
 
@@ -133,7 +153,7 @@ docker build -t ghcr.io/bitfloo/mailoo .
 ```
 
 > **Note:** The server uses stdio transport. Config is created on the host
-> (`npx -y @bitfloo/mailoo setup`, or a hand-written TOML) and mounted into the container.
+> (`npx -y @bitfloo/mailoo account add`, or a hand-written TOML) and mounted into the container.
 
 ## Usage
 
@@ -145,7 +165,7 @@ Commands below use `npx -y @bitfloo/mailoo`. A global install accepts the same s
 # Add an email account interactively (recommended)
 npx -y @bitfloo/mailoo account add
 
-# Or use the legacy alias
+# Or use the deprecated alias (same wizard)
 npx -y @bitfloo/mailoo setup
 
 # Or create a template config manually
@@ -371,7 +391,7 @@ Commands:
   account add               Add a new email account interactively
   account edit [name]       Edit an existing account
   account delete [name]     Remove an account
-  setup                     Alias for 'account add'
+  setup                     Deprecated alias for 'account add'
   test                      Test connections for all or a specific account
   install                   Register mailoo with MCP clients interactively
   install status            Show registration status for detected clients
@@ -385,6 +405,8 @@ Commands:
   scheduler install         Install OS-level scheduler (launchd/crontab)
   scheduler uninstall       Remove OS-level scheduler
   scheduler status          Show scheduler installation status
+  notify test               Send a test desktop notification
+  notify status             Check platform notification support
   --version, -v             Print the package version
   help                      Show help
 ```
@@ -408,6 +430,8 @@ Located at `$XDG_CONFIG_HOME/mailoo/config.toml` (default: `~/.config/mailoo/con
 [settings]
 rate_limit = 10  # max emails per minute per account
 read_only = false
+toolset = "full"  # "full" | "core" | "minimal"
+default_account = "personal"  # optional when only one account is configured
 save_to_sent = true  # see docs/configuration.md — Gmail already files Sent
 
 [[accounts]]
@@ -478,7 +502,7 @@ For single-account setups (overrides config file):
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MCP_EMAIL_ADDRESS` | *required* | Email address |
-| `MCP_EMAIL_PASSWORD` | *required* | Password or app password |
+| `MCP_EMAIL_PASSWORD` | *required* without OAuth2 | Password or app password. Not needed when `MCP_EMAIL_OAUTH2_PROVIDER` is set |
 | `MCP_EMAIL_IMAP_HOST` | *required* | IMAP server hostname |
 | `MCP_EMAIL_SMTP_HOST` | *required* | SMTP server hostname |
 | `MCP_EMAIL_ACCOUNT_NAME` | `default` | Account name |
@@ -494,6 +518,9 @@ For single-account setups (overrides config file):
 | `MCP_EMAIL_SMTP_POOL_MAX_CONNECTIONS` | `1` | Max pooled SMTP connections |
 | `MCP_EMAIL_SMTP_POOL_MAX_MESSAGES` | `100` | Max messages per pooled connection |
 | `MCP_EMAIL_RATE_LIMIT` | `10` | Max sends per minute |
+| `MCP_EMAIL_READ_ONLY` | `false` | Disable all write tools, background watchers, and schedulers |
+| `MCP_EMAIL_TOOLSET` | `full` | Toolset profile to expose (`full`, `core`, or `minimal`) |
+| `MCP_EMAIL_DEFAULT_ACCOUNT` | — | Default account name or email when `account` is omitted |
 
 Sent copies, IMAP4rev2, Sieve host/port, and `read_only` env vars:
 [docs/configuration.md](docs/configuration.md#extra-environment-variables).
@@ -800,7 +827,7 @@ Single-account setup reads `MCP_EMAIL_*` (`src/config/loader.ts`). HTTP listens 
 | `MCP_EMAIL_IMAP_PORT`, `MCP_EMAIL_IMAP_TLS`, `MCP_EMAIL_IMAP_STARTTLS`, `MCP_EMAIL_IMAP_VERIFY_SSL`, `MCP_EMAIL_IMAP_DISABLE_IMAP4REV2`, `MCP_EMAIL_SIEVE_HOST`, `MCP_EMAIL_SIEVE_PORT` | IMAP and ManageSieve |
 | `MCP_EMAIL_SMTP_PORT`, `MCP_EMAIL_SMTP_TLS`, `MCP_EMAIL_SMTP_STARTTLS`, `MCP_EMAIL_SMTP_VERIFY_SSL`, `MCP_EMAIL_SMTP_POOL_ENABLED`, `MCP_EMAIL_SMTP_POOL_MAX_CONNECTIONS`, `MCP_EMAIL_SMTP_POOL_MAX_MESSAGES` | SMTP |
 | `MCP_EMAIL_OAUTH2_PROVIDER`, `MCP_EMAIL_OAUTH2_CLIENT_ID`, `MCP_EMAIL_OAUTH2_CLIENT_SECRET`, `MCP_EMAIL_OAUTH2_REFRESH_TOKEN` | OAuth2 |
-| `MCP_EMAIL_RATE_LIMIT`, `MCP_EMAIL_READ_ONLY`, `MCP_EMAIL_SAVE_TO_SENT` | Settings |
+| `MCP_EMAIL_RATE_LIMIT`, `MCP_EMAIL_READ_ONLY`, `MCP_EMAIL_TOOLSET`, `MCP_EMAIL_DEFAULT_ACCOUNT`, `MCP_EMAIL_SAVE_TO_SENT` | Settings |
 | `MCP_EMAIL_WATCHER_ENABLED`, `MCP_EMAIL_WATCHER_FOLDERS`, `MCP_EMAIL_WATCHER_IDLE_TIMEOUT` | IDLE watcher |
 | `MCP_EMAIL_HOOK_ON_NEW_EMAIL`, `MCP_EMAIL_HOOK_PRESET`, `MCP_EMAIL_HOOK_AUTO_LABEL`, `MCP_EMAIL_HOOK_AUTO_FLAG`, `MCP_EMAIL_HOOK_BATCH_DELAY`, `MCP_EMAIL_HOOK_CUSTOM_INSTRUCTIONS` | Hooks |
 | `MCP_EMAIL_ALERT_DESKTOP`, `MCP_EMAIL_ALERT_SOUND`, `MCP_EMAIL_ALERT_URGENCY_THRESHOLD`, `MCP_EMAIL_ALERT_WEBHOOK_URL`, `MCP_EMAIL_ALERT_WEBHOOK_ALLOW_PRIVATE` | Alerts |
@@ -990,14 +1017,6 @@ src/
 
 [Bitfloo](https://github.com/bitfloo)
 
-## Upstream / Attribution
-
-Mailoo is a fork of [email-mcp](https://github.com/codefuturist/email-mcp) by
-[codefuturist](https://github.com/codefuturist), licensed under LGPL-3.0-or-later.
-Original copyright remains with the original authors. Mailoo branding, Bitfloo
-trademarks, and new code are Copyright (c) 2026 Bitfloo. This is not an official
-codefuturist project. See [NOTICE](NOTICE).
-
 ## Contributing
 
 PRs accepted against **`develop`** (GitHub default). `develop` is the release
@@ -1018,9 +1037,14 @@ pnpm build              # build
 pnpm start              # run
 ```
 
-`pnpm test:integration` and `pnpm test:all` need Docker. `pnpm ci:local` skips GreenMail when Docker is down. GitHub runs linux GreenMail and an image build on pull requests, not on every push. `mailoo test` / `npx -y @bitfloo/mailoo test` is a live-account connection probe, not Vitest.
+`pnpm test:integration` and `pnpm test:all` need Docker. `pnpm ci:local` skips GreenMail when Docker is down. What GitHub runs on a pull request is listed in [CONTRIBUTING.md](CONTRIBUTING.md#commands). `mailoo test` / `npx -y @bitfloo/mailoo test` is a live-account connection probe, not Vitest.
 
-## License
+## Attribution & License
 
-[LGPL-3.0-or-later](LICENSE). The GNU GPL-3 text required by LGPL-3 is in [COPYING](COPYING).
+This is a public **LGPL-3.0-or-later fork** of [email-mcp](https://github.com/codefuturist/email-mcp) by
+[codefuturist](https://github.com/codefuturist). It is **not** an official
+codefuturist project. Original copyright remains with the original authors.
+Mailoo branding, Bitfloo trademarks, and new code are Copyright (c) 2026 Bitfloo.
+
+Licensed under [LGPL-3.0-or-later](LICENSE). The GNU GPL-3 text required by LGPL-3 is in [COPYING](COPYING).
 Attribution is recorded in [NOTICE](NOTICE).

@@ -78,7 +78,7 @@ function mapAnswers(
 
 interface SystemOneClient {
   systemOne: (input: {
-    state: EntryType;
+    state: NonNullable<EntryType>;
     questions: Questions;
     model: string;
   }) => Promise<{ answers?: Record<string, unknown> }>;
@@ -93,7 +93,7 @@ async function classify(
 ): Promise<MailAnswers | null> {
   try {
     const result = await client.systemOne({
-      state: state as unknown as EntryType,
+      state: state as unknown as NonNullable<EntryType>,
       questions,
       model,
     });
