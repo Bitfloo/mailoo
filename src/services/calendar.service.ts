@@ -18,13 +18,10 @@ export default class CalendarService {
     const parsed = ical.sync.parseICS(content);
     const events: CalendarEvent[] = [];
 
-    // Extract the VCALENDAR METHOD if present
-    let calendarMethod: string | undefined;
-    Object.values(parsed).forEach((comp: IcalComponent | undefined) => {
-      if (comp?.type === 'VCALENDAR') {
-        calendarMethod = (comp as unknown as Record<string, unknown>).method as string | undefined;
-      }
-    });
+    // node-ical moves a plain METHOD into `vcalendar` but leaves one with a parameter on the root.
+    const root = parsed as unknown as Record<string, unknown>;
+    const vcalendar = root.vcalendar as Record<string, unknown> | undefined;
+    const calendarMethod = CalendarService.text(vcalendar?.method ?? root.method);
 
     Object.values(parsed).forEach((comp: IcalComponent | undefined) => {
       if (comp?.type !== 'VEVENT') return;

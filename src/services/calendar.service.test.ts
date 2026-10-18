@@ -100,6 +100,14 @@ describe('CalendarService.parseIcs', () => {
     });
   });
 
+  it.each(['REQUEST', 'CANCEL'])('should read a METHOD:%s that carries a parameter', (method) => {
+    const ics = invite(...vevent('method-1', '20261005T080000Z')).replace(
+      'METHOD:REQUEST',
+      `METHOD;X-PARAM=1:${method}`,
+    );
+    expect(CalendarService.parseIcs(ics)[0]?.method).toBe(method);
+  });
+
   it('should leave summary, description and location at their defaults when the invitation has none', () => {
     const [event] = CalendarService.parseIcs(
       invite('UID:bare-1', 'DTSTART:20261005T080000Z', 'DTEND:20261005T083000Z'),
