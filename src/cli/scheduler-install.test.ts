@@ -73,9 +73,9 @@ describe('scheduler install commands', () => {
   });
 
   it('should quote the node and CLI paths in the crontab command', () => {
-    const line = buildCronLine('/usr/bin/node', "/opt/it's/main.js");
+    const line = buildCronLine('/usr/bin/node', "/opt/it's/bob's/main.js");
     expect(line.split(' ').slice(5).join(' ')).toBe(
-      "'/usr/bin/node' '/opt/it'\\''s/main.js' scheduler check # mailoo scheduler",
+      "'/usr/bin/node' '/opt/it'\\''s/bob'\\''s/main.js' scheduler check # mailoo scheduler",
     );
   });
 

@@ -5,6 +5,14 @@ import path from 'node:path';
 import { recordRunner, shQuote } from '../test-support/scheduler-cli.js';
 import { installCrontabLine, removeCrontabLine } from './scheduler-install.js';
 
+// The shape execFileSync throws: a failed exit carries the stderr text in its message
+// and on `stderr`; a failed spawn has only the message.
+function listFailure(stderr: string): Error {
+  const message =
+    stderr === '' ? 'spawnSync crontab EACCES' : `Command failed: crontab -l\n${stderr}`;
+  return Object.assign(new Error(message), { stderr });
+}
+
 // A mocked execFileSync keeps every call, so the next test reads the previous stdio mode.
 async function withFakeCrontab(
   list: { stdout: string } | { stderr: string },
@@ -83,6 +91,42 @@ describe('scheduler install commands', () => {
       removed: removeCrontabLine('# mailoo scheduler', run),
       writes: calls.filter(({ args }) => args[0] === '-'),
     }).toEqual({ removed: false, writes: [] });
+  });
+
+  it('should end the written crontab with a newline when the last line carried the marker', () => {
+    const { run, calls } = recordRunner(
+      '0 0 * * * /usr/bin/true\n* * * * * /opt/mailoo # mailoo scheduler',
+    );
+    removeCrontabLine('# mailoo scheduler', run);
+    expect(calls[1]?.input).toBe('0 0 * * * /usr/bin/true\n');
+  });
+
+  it('should report no removal and write nothing when the user has no crontab', () => {
+    const writes: string[] = [];
+    const removed = removeCrontabLine('# mailoo scheduler', (_file, args, input) => {
+      if (args[0] === '-l') throw listFailure('crontab: no crontab for user\n');
+      writes.push(input ?? '');
+      return '';
+    });
+    expect({ removed, writes }).toEqual({ removed: false, writes: [] });
+  });
+
+  it('should name the crontab stderr when listing fails', () => {
+    const run = () => {
+      throw listFailure('crontab: permission denied\n');
+    };
+    expect(() =>
+      installCrontabLine('* * * * * /usr/bin/true # mailoo scheduler', '# mailoo scheduler', run),
+    ).toThrow(/^Could not read the crontab: crontab: permission denied$/);
+  });
+
+  it('should name the underlying error when listing fails with empty stderr', () => {
+    const run = () => {
+      throw listFailure('');
+    };
+    expect(() =>
+      installCrontabLine('* * * * * /usr/bin/true # mailoo scheduler', '# mailoo scheduler', run),
+    ).toThrow(/^Could not read the crontab: spawnSync crontab EACCES$/);
   });
 
   it.runIf(process.platform !== 'win32')(
