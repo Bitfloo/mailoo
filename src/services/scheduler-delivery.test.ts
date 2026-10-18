@@ -11,6 +11,24 @@ import {
 } from '../test-support/scheduler-fixtures.js';
 import type { ScheduledEmail } from '../types/index.js';
 
+/** Fails the next rename into sentDir. Unlike a read-only sent/, this holds when the tests run as root. */
+async function withNextMoveFailing(sentDir: string, body: () => Promise<void>): Promise<void> {
+  const original = fs.rename.bind(fs);
+  let armed = true;
+  const spy = vi.spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+    if (armed && path.dirname(String(to)) === sentDir) {
+      armed = false;
+      throw Object.assign(new Error('EACCES: permission denied, rename'), { code: 'EACCES' });
+    }
+    return original(from, to);
+  });
+  try {
+    await body();
+  } finally {
+    spy.mockRestore();
+  }
+}
+
 describe('retried and delivered sends', () => {
   // `mailoo scheduler list` prints sentAt for every delivered email.
   it('should record when SMTP accepted the email and the Message-ID it returned', async () => {
@@ -105,15 +123,12 @@ describe('retried and delivered sends', () => {
     },
   );
 
-  it.skipIf(process.getuid?.() === 0)(
-    'should not send again when a check that read the record before delivery claims it after',
-    async () => {
-      await withDueQueue(async ({ queueDir, pendingPath, sentDir }) => {
-        // The move into sent/ fails, so the delivered record stays in the queue directory.
-        await fs.mkdir(sentDir, { recursive: true });
-        await fs.chmod(sentDir, 0o500);
-        const late = createService(queueDir);
-        const early = createService(queueDir);
+  it('should not send again when a check that read the record before delivery claims it after', async () => {
+    await withDueQueue(async ({ queueDir, pendingPath, sentDir }) => {
+      const late = createService(queueDir);
+      const early = createService(queueDir);
+      // The move into sent/ fails, so the delivered record stays in the queue directory.
+      await withNextMoveFailing(sentDir, async () => {
         await withHeldFirstRead(pendingPath, async (held, resume) => {
           const stale = late.service.checkAndSend();
           await held;
@@ -121,12 +136,15 @@ describe('retried and delivered sends', () => {
           resume();
           await stale;
         });
-        const sends =
-          late.smtp.sendEmail.mock.calls.length + early.smtp.sendEmail.mock.calls.length;
-        expect(sends).toBe(1);
       });
-    },
-  );
+      const sends = late.smtp.sendEmail.mock.calls.length + early.smtp.sendEmail.mock.calls.length;
+      const leftInQueue = await fs.readFile(pendingPath, 'utf8').then(
+        (text) => (JSON.parse(text) as ScheduledEmail).status,
+        () => 'moved into sent/',
+      );
+      expect({ sends, leftInQueue }).toEqual({ sends: 1, leftInQueue: 'sent' });
+    });
+  });
 
   it('should not send again when the disk fills while recording a delivered email', async () => {
     await withDueQueue(async ({ queueDir }) => {
