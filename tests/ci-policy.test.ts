@@ -87,6 +87,13 @@ describe('CI spend policy', () => {
     });
   });
 
+  it('should build the ci.yml Docker image without pushing it', () => {
+    const builds = Object.values(jobSteps(ciYml))
+      .flat()
+      .filter((step) => step.uses?.startsWith('docker/build-push-action@'));
+    expect(builds.map((step) => step.with?.push)).toEqual([false]);
+  });
+
   it('should describe CodeQL push and weekly runs only while codeql.yml has those triggers', () => {
     const contributing = readFileSync(join(repoRoot, 'CONTRIBUTING.md'), 'utf8');
     const codeqlOn = onBlock(readFileSync(join(repoRoot, '.github/workflows/codeql.yml'), 'utf8'));
