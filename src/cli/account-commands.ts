@@ -305,6 +305,16 @@ async function resolveServerSettings(
 }
 
 /**
+ * Whether default_account picks this account. The server matches it against the
+ * name or the address, ignoring case (ConnectionManager.getAccount).
+ */
+function isDefaultAccount(defaultAccount: string | undefined, account: RawAccountConfig): boolean {
+  const key = defaultAccount?.trim().toLowerCase();
+  if (!key) return false;
+  return account.name.toLowerCase() === key || account.email.toLowerCase() === key;
+}
+
+/**
  * Build a normalized AccountConfig for connection testing.
  */
 function buildTestAccount(
@@ -662,6 +672,10 @@ async function editAccount(nameArg?: string): Promise<void> {
 
   const updatedConfig: RawAppConfig = {
     ...config,
+    // A rename or a new address would leave default_account naming no account.
+    ...(isDefaultAccount(config.settings.default_account, current)
+      ? { settings: { ...config.settings, default_account: updatedAccount.name } }
+      : {}),
     accounts: updatedAccounts,
   };
 
@@ -739,8 +753,11 @@ async function deleteAccount(nameArg?: string): Promise<void> {
   }
 
   const updatedAccounts = accounts.filter((_, i) => i !== accountIndex);
+  const { default_account: defaultAccount, ...otherSettings } = config.settings;
   const updatedConfig: RawAppConfig = {
     ...config,
+    // A default naming the deleted account would fail every call that leaves account out.
+    settings: isDefaultAccount(defaultAccount, target) ? otherSettings : config.settings,
     accounts: updatedAccounts,
   };
 

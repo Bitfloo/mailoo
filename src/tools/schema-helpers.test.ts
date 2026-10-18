@@ -166,6 +166,25 @@ describe('context window protection (default 20,000 char cap)', () => {
 });
 
 describe('dryRun mode for high-risk operations', () => {
+  // send_draft sends mail like send_email; a dryRun flag it did not declare was dropped and the draft went out.
+  it('previews send_draft without sending the draft', async () => {
+    const server = createServer();
+    const mockSmtp = { resolveAccountName: vi.fn().mockReturnValue('work'), sendDraft: vi.fn() };
+    registerDraftTools(server, {} as never, mockSmtp as never);
+
+    const res = await callTool(server, 'send_draft', { id: 42, dryRun: true });
+
+    expect({
+      text: res.content[0]?.text,
+      structured: res.structuredContent,
+      sends: mockSmtp.sendDraft.mock.calls.length,
+    }).toEqual({
+      text: '[DRY RUN] Would send draft 42 from the Drafts folder on account "work" and remove it from Drafts.',
+      structured: expect.objectContaining({ ok: true, dryRun: true }),
+      sends: 0,
+    });
+  });
+
   it('previews send_email, reply_email, forward_email, delete_email, bulk_action, delete_mailbox, sieve_put_script, and sieve_delete_script without mutating server state', async () => {
     const server = createServer();
     const mockSmtp = {

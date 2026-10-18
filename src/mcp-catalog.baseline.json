@@ -3767,6 +3767,11 @@
           "mailbox": {
             "description": "Drafts folder path (auto-detected if omitted)",
             "type": "string"
+          },
+          "dryRun": {
+            "default": false,
+            "description": "Validate parameters and preview the effect without executing the action",
+            "type": "boolean"
           }
         },
         "$schema": "http://json-schema.org/draft-07/schema#"

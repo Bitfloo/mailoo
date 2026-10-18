@@ -335,6 +335,21 @@ describe('ConnectionManager.getAccount smart resolution', () => {
     expect(manager.getAccount('default')).toBe(personalAccount);
   });
 
+  // Two entries may share an address (the same mailbox set up twice), and names may differ only in
+  // case; the first entry in the file used to win without a word.
+  it('should refuse an address or a case-folded name that matches more than one account', () => {
+    const sameAddress: AccountConfig = { ...workAccount, name: 'work-oauth' };
+    const otherCase: AccountConfig = { ...account, name: 'Work', email: 'desk@firma.example.com' };
+    const manager = new ConnectionManager([workAccount, sameAddress, otherCase]);
+    expect(() => manager.getAccount('jan@firma.example.com')).toThrow(
+      'Account "jan@firma.example.com" matches more than one account: work (jan@firma.example.com), work-oauth (jan@firma.example.com). Pass the account name.',
+    );
+    expect(() => manager.getAccount('WORK')).toThrow(
+      'Account "WORK" matches more than one account: work (jan@firma.example.com), Work (desk@firma.example.com). Pass the account name.',
+    );
+    expect(manager.getAccount('Work')).toBe(otherCase);
+  });
+
   it('throws a self-healing error listing available accounts with emails when not found', () => {
     const manager = new ConnectionManager([workAccount, personalAccount]);
     expect(() => manager.getAccount('unknown')).toThrow(

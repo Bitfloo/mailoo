@@ -147,7 +147,7 @@ These improvements reduce AI context window consumption — the true bottleneck.
 **Impact**: Medium | **Effort**: Low
 
 **Current behavior**: Implemented in `src/utils/email-body.ts` (`applyBodyFormatWithDefaultCap`, `DEFAULT_BODY_MAX_LENGTH = 20_000`):
-- `get_email` and `get_thread` enforce a default 20,000-character limit when `maxLength` is omitted, appending `\n\n[Truncated at 20000 characters — pass a larger maxLength or format="full" if needed]` when truncated.
+- `get_email` and `get_thread` enforce a default 20,000-character limit when `maxLength` is omitted, appending `\n\n[Truncated at 20000 characters — pass a larger maxLength for the complete body]` when truncated. The cap applies to every `format`, `full` included.
 - Operators can also configure a hard ceiling via `settings.body_max_chars`.
 
 #### P2.4 — Structured Thread Summaries (Partially Implemented)

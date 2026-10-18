@@ -7,6 +7,7 @@
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type ConnectionManager from '../connections/manager.js';
+import audit from '../safety/audit.js';
 import type CalendarService from '../services/calendar.service.js';
 import type HooksService from '../services/hooks.service.js';
 import type ImapService from '../services/imap.service.js';
@@ -55,6 +56,7 @@ export default function registerAllTools(
   watcherService: WatcherService,
   hooksService: HooksService,
 ): void {
+  audit.setAccountResolver((key) => connections.resolveAccountName(key));
   const { readOnly, toolset = 'full' } = config.settings;
   const includeCore = toolset === 'core' || toolset === 'full';
   const includeFull = toolset === 'full';

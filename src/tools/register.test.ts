@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import audit from '../safety/audit.js';
 import type { AppConfig } from '../types/index.js';
 import registerAllTools from './register.js';
 
@@ -124,6 +125,29 @@ function createConfig(readOnly: boolean, toolset: 'full' | 'core' | 'minimal' = 
 describe('registerAllTools', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  // Tools audit the account argument as given; the entry must name the account the connections used.
+  it('resolves audited account names through the connections it registers tools with', () => {
+    const setResolver = vi.spyOn(audit, 'setAccountResolver');
+    const connections = { resolveAccountName: vi.fn().mockReturnValue('work') };
+    registerAllTools(
+      {} as never,
+      connections as never,
+      {} as never,
+      {} as never,
+      createConfig(false),
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const [resolver] = setResolver.mock.calls[0] ?? [];
+    expect(resolver?.('Work@Example.com')).toBe('work');
+    expect(connections.resolveAccountName).toHaveBeenCalledWith('Work@Example.com');
   });
 
   it('registers all tools when readOnly is false', () => {

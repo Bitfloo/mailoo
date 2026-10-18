@@ -53,6 +53,22 @@ describe('Audit Logger', () => {
     });
   });
 
+  it('should record the account the resolver names when the tool passed an alias or nothing', async () => {
+    auditLogger.setAccountResolver((key) => (key === '' ? 'personal' : key.toLowerCase()));
+    await auditLogger.log('send_email', '', {}, 'ok');
+    await auditLogger.log('send_email', 'WORK', {}, 'ok');
+    expect((await readEntries()).map((entry) => entry.account)).toEqual(['personal', 'work']);
+  });
+
+  it('should keep the account as given when the resolver cannot name it', async () => {
+    auditLogger.setAccountResolver(() => {
+      throw new Error('Account "ghost" not found');
+    });
+    await auditLogger.log('send_email', 'ghost', {}, 'error', 'Account "ghost" not found');
+    const [entry] = await readEntries();
+    expect(entry?.account).toBe('ghost');
+  });
+
   it('redacts password field', async () => {
     await auditLogger.log(
       'send_email',

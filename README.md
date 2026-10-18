@@ -64,7 +64,7 @@ Mailoo is engineered with defense-in-depth sandboxing so AI agents can safely in
 - **Operational Guardrails (`MCP_EMAIL_READ_ONLY`, `MCP_EMAIL_TOOLSET`, `dryRun`)** —
   - `MCP_EMAIL_READ_ONLY=true` disables all write tools, background watchers, hooks, and schedulers at startup, exposing only the 31 read-only tools.
   - `MCP_EMAIL_TOOLSET=full|core|minimal` scopes the registered tool surface to match the agent's capability tier and context budget.
-  - `dryRun: true` on high-risk tools (`send_email`, `reply_email`, `forward_email`, `delete_email`, `bulk_action`, `delete_mailbox`, `sieve_put_script`, `sieve_delete_script`) validates all parameters and account resolution and returns a `[DRY RUN]` preview without modifying server state.
+  - `dryRun: true` on high-risk tools (`send_email`, `reply_email`, `forward_email`, `send_draft`, `delete_email`, `bulk_action`, `delete_mailbox`, `sieve_put_script`, `sieve_delete_script`) validates all parameters and account resolution and returns a `[DRY RUN]` preview without modifying server state.
 - **Per-Account Rate Limiting** — `rate_limit` (default 10 sends/minute) enforces an independent token bucket per account (`src/safety/rate-limiter.ts`). Buckets live in memory, so each server process and each `mailoo scheduler check` run counts on its own.
 
 ## LLM Ergonomics & Toolset Profiles
