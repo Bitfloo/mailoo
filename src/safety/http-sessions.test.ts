@@ -1,6 +1,11 @@
+import { readFile } from 'node:fs/promises';
+
 import seededRandom from '../test-support/seeded-random.js';
 import type { SessionTransport } from './http-sessions.js';
-import HttpSessionStore from './http-sessions.js';
+import HttpSessionStore, {
+  DEFAULT_HTTP_MAX_SESSIONS,
+  DEFAULT_HTTP_SESSION_TTL_MS,
+} from './http-sessions.js';
 
 function fakeTransport() {
   return { close: vi.fn().mockResolvedValue(undefined) };
@@ -194,6 +199,18 @@ describe('HttpSessionStore', () => {
     store.evict();
 
     expect({ atTtl, afterTtl: store.get('a') }).toEqual({ atTtl: a, afterTtl: undefined });
+  });
+
+  // Operators size clients by the documented numbers; the defaults are what the host uses.
+  it('should state the default idle TTL and session cap in docs/configuration.md', async () => {
+    const doc = await readFile(new URL('../../docs/configuration.md', import.meta.url), 'utf8');
+    const limits = /idle for more than \*\*(\d+) minutes\*\*.* past \*\*(\d+)\*\* sessions/;
+    const stated = limits.exec(doc);
+
+    expect({ minutes: Number(stated?.[1]), cap: Number(stated?.[2]) }).toEqual({
+      minutes: DEFAULT_HTTP_SESSION_TTL_MS / 60_000,
+      cap: DEFAULT_HTTP_MAX_SESSIONS,
+    });
   });
 
   it('should still expire a session after endRequest is called without a matching beginRequest', () => {

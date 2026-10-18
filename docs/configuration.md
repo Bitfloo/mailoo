@@ -178,6 +178,8 @@ Inside a container, loopback is the container's own loopback. Publishing the por
 
 Server log notifications (`notifications/message`) go to every session that has finished its handshake, not only to the newest one.
 
+A session idle for more than **30 minutes** is dropped, and past **32** sessions the oldest idle one is dropped first. A session with a request in flight is never dropped.
+
 A request whose `mcp-session-id` the server does not hold (never issued, closed, or dropped after it sat idle) gets **404** with JSON-RPC error `-32001` `Session not found`. The client starts a new session with `initialize`. A non-initialize request with no `mcp-session-id` still gets **400**.
 
 | Variable | Default | Description |
