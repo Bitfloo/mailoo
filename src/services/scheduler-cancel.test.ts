@@ -6,6 +6,7 @@ import queueId from '../test-support/queue-id.js';
 import {
   createService,
   fillQueue,
+  jsonNames,
   SCHEDULE_CLAIM_SUFFIX,
 } from '../test-support/scheduler-fixtures.js';
 
@@ -135,5 +136,35 @@ describe('cancel under the claim', () => {
     const { service } = createService(queueDir);
     await service.cancel(id).catch(() => undefined);
     expect(await lockNames()).toEqual([]);
+  });
+
+  /** The IMAP draft schedule() mirrors the email into, when that save succeeded. */
+  async function addDraft(): Promise<void> {
+    const filePath = path.join(queueDir, `${id}.json`);
+    const record = JSON.parse(await fs.readFile(filePath, 'utf8')) as Record<string, unknown>;
+    const withDraft = { ...record, draftMessageId: '42', draftMailbox: 'Drafts' };
+    await fs.writeFile(filePath, JSON.stringify(withDraft));
+  }
+
+  // cancel_scheduled returns draftDeleted as draft_deleted.
+  it('should report the draft as deleted when its IMAP delete succeeds', async () => {
+    await addDraft();
+    const { service, imap } = createService(queueDir);
+    const result = await service.cancel(id);
+    expect({ result, deletes: imap.deleteEmail.mock.calls }).toEqual({
+      result: { cancelled: true, draftDeleted: true },
+      deletes: [['personal', '42', 'Drafts']],
+    });
+  });
+
+  it('should cancel and report the draft as kept when its IMAP delete fails', async () => {
+    await addDraft();
+    const { service, imap } = createService(queueDir);
+    imap.deleteEmail.mockRejectedValueOnce(new Error('IMAP unavailable'));
+    const result = await service.cancel(id);
+    expect({ result, queued: await jsonNames(queueDir) }).toEqual({
+      result: { cancelled: true, draftDeleted: false },
+      queued: [],
+    });
   });
 });
