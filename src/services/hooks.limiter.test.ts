@@ -82,6 +82,17 @@ describe('HooksService sampling limiter', () => {
     expect(createMessage.mock.calls).toHaveLength(10);
   });
 
+  it('should sample an eleventh batch that flushes exactly at the 60 s reset', async () => {
+    const createMessage = startTriage();
+    await flushEach(Array.from({ length: 10 }, (_, i) => String(i + 1)));
+
+    // Emitted at 59 000 ms, the batch flushes at 60 000 ms; the reset interval, armed first, runs first.
+    await vi.advanceTimersByTimeAsync(59_000 - 10_000);
+    await flushEach(['11']);
+
+    expect(createMessage.mock.calls).toHaveLength(11);
+  });
+
   it('should reset the sampling limit every minute, not once', async () => {
     const createMessage = startTriage();
     const perMinute: number[] = [];
