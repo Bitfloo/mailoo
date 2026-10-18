@@ -19,6 +19,13 @@ export function workflowFiles(dir = workflowDir): string[] {
   return files;
 }
 
+/** Each workflow file name with its text, for checks that run over every workflow. */
+export function workflowTexts(): (readonly [string, string])[] {
+  return workflowFiles().map(
+    (name) => [name, readFileSync(join(workflowDir, name), 'utf8')] as const,
+  );
+}
+
 export const releaseYml = readFileSync(join(workflowDir, 'release.yml'), 'utf8');
 
 interface WorkflowStep {
@@ -28,6 +35,7 @@ interface WorkflowStep {
   run?: string;
   'working-directory'?: string;
   with?: Record<string, unknown>;
+  env?: Record<string, unknown>;
 }
 
 /**

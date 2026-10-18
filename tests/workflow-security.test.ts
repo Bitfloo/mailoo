@@ -17,14 +17,6 @@ import {
 
 const ciYml = readFileSync(join(workflowDir, 'ci.yml'), 'utf8');
 
-function workflowName(yaml: string): string {
-  const match = yaml.match(/^name:\s*(\S+)\s*$/m);
-  if (!match) {
-    throw new Error('missing name');
-  }
-  return match[1];
-}
-
 function weeklyCron(yaml: string): string[] {
   const match = yaml.match(/cron:\s*"([^"]+)"/);
   if (!match) {
@@ -37,17 +29,6 @@ const codeqlYml = readFileSync(join(workflowDir, 'codeql.yml'), 'utf8');
 const scorecardYml = readFileSync(join(workflowDir, 'scorecard.yml'), 'utf8');
 
 describe('code scanning workflows', () => {
-  it('should name the CodeQL workflow in lowercase kebab-case', () => {
-    expect(workflowName(codeqlYml)).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
-  });
-
-  it('should run CodeQL analysis in exactly one job', () => {
-    const jobs = jobSections(codeqlYml).filter((job) =>
-      job.includes('github/codeql-action/analyze@'),
-    );
-    expect(jobs).toHaveLength(1);
-  });
-
   it('should run CodeQL on develop pull requests', () => {
     expect(onBlock(codeqlYml)).toMatch(/^ {2}pull_request:\n {4}branches: \[develop\]$/m);
   });
@@ -58,21 +39,6 @@ describe('code scanning workflows', () => {
 
   it('should let a maintainer start CodeQL by hand', () => {
     expect(onBlock(codeqlYml)).toContain('workflow_dispatch:');
-  });
-
-  it('should analyze javascript-typescript with the CodeQL init and analyze actions', () => {
-    expect(codeqlYml).toContain('languages: javascript-typescript');
-    expect(codeqlYml).toContain('github/codeql-action/init@');
-    expect(codeqlYml).toContain('github/codeql-action/analyze@');
-  });
-
-  it('should name the Scorecard workflow in lowercase kebab-case', () => {
-    expect(workflowName(scorecardYml)).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
-  });
-
-  it('should run the Scorecard action in exactly one job', () => {
-    const jobs = jobSections(scorecardYml).filter((job) => job.includes('ossf/scorecard-action@'));
-    expect(jobs).toHaveLength(1);
   });
 
   it('should run Scorecard only on its schedule and when branch protection changes', () => {
