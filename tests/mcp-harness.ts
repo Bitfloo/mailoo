@@ -26,7 +26,7 @@ const publishStep = harnessedStep(mcpHarness, 'Publish to MCP Registry');
  * in https://github.com/modelcontextprotocol/registry/blob/v1.8.1/internal/validators/registries/npm.go
  * A literal, not the workflow's grep operand, so a typo in that operand fails here, not in a release.
  */
-const npmNotShownYet =
+export const npmNotShownYet =
   "NPM package '@bitfloo/mailoo' exists, but version '1.4.2' was not found (status: 404). " +
   'A newly published release can take a moment to appear on the registry. ' +
   "Wait and retry, or publish version '1.4.2' before registering it";
@@ -36,8 +36,8 @@ function script(path: string, lines: string[]): void {
 }
 
 export interface Publisher {
-  /** What every failed call prints: the registry's npm 404 reply or another error. */
-  error: 'npm' | 'other';
+  /** What every failed call prints after `Error: `. */
+  reply: string;
   /** The exit status of every failed call. */
   status: number;
   stream?: 'stdout' | 'stderr';
@@ -58,8 +58,7 @@ export function publish(publisher: Publisher): {
 } {
   const temp = mkdtempSync(join(tmpdir(), 'mailoo-mcp-publish-'));
   try {
-    const message = publisher.error === 'npm' ? npmNotShownYet : 'unauthorized';
-    writeFileSync(join(temp, 'message'), `Error: ${message}\n`);
+    writeFileSync(join(temp, 'message'), `Error: ${publisher.reply}\n`);
     writeFileSync(join(temp, 'calls'), '0');
     writeFileSync(join(temp, 'args'), '');
     writeFileSync(join(temp, 'pauses'), '');

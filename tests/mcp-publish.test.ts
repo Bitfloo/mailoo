@@ -1,4 +1,4 @@
-import { install, installStep, type Publisher, publish } from './mcp-harness.js';
+import { install, installStep, npmNotShownYet, type Publisher, publish } from './mcp-harness.js';
 import { requireTools } from './workflow-yaml.js';
 
 requireTools(['bash', 'grep', 'sha256sum', 'tar']);
@@ -11,7 +11,7 @@ function retries(publisher: Publisher) {
 
 describe('MCP Registry publish', () => {
   it('should exit 0 after one call when mcp-publisher succeeds', () => {
-    expect(retries({ error: 'other', status: 1, succeedsOn: 1 })).toEqual({
+    expect(retries({ reply: 'unauthorized', status: 1, succeedsOn: 1 })).toEqual({
       status: 0,
       calls: 1,
       pauses: [],
@@ -19,11 +19,24 @@ describe('MCP Registry publish', () => {
   });
 
   it("should exit with the publisher's status after one call when the error is not npm's", () => {
-    expect(retries({ error: 'other', status: 3 })).toEqual({ status: 3, calls: 1, pauses: [] });
+    expect(retries({ reply: 'unauthorized', status: 3 })).toEqual({
+      status: 3,
+      calls: 1,
+      pauses: [],
+    });
+  });
+
+  it('should exit after one call when the registry 404s something other than the npm version', () => {
+    // The step greps for the whole propagation message, not the status, so this is not retried.
+    expect(retries({ reply: 'server.json not found (status: 404)', status: 1 })).toEqual({
+      status: 1,
+      calls: 1,
+      pauses: [],
+    });
   });
 
   it('should call mcp-publisher six times, 20 seconds apart, and fail when npm never shows the version', () => {
-    expect(retries({ error: 'npm', status: 7 })).toEqual({
+    expect(retries({ reply: npmNotShownYet, status: 7 })).toEqual({
       status: 7,
       calls: 6,
       pauses: ['20', '20', '20', '20', '20'],
@@ -31,7 +44,7 @@ describe('MCP Registry publish', () => {
   });
 
   it('should retry when the npm message arrives on stderr', () => {
-    expect(retries({ error: 'npm', status: 7, stream: 'stderr', succeedsOn: 3 })).toEqual({
+    expect(retries({ reply: npmNotShownYet, status: 7, stream: 'stderr', succeedsOn: 3 })).toEqual({
       status: 0,
       calls: 3,
       pauses: ['20', '20'],
@@ -40,7 +53,7 @@ describe('MCP Registry publish', () => {
 
   it('should call mcp-publisher with the publish command and no other argument', () => {
     // Another argument, such as --dry-run, or another command would register nothing.
-    expect(publish({ error: 'npm', status: 7, succeedsOn: 3 }).args).toEqual([
+    expect(publish({ reply: npmNotShownYet, status: 7, succeedsOn: 3 }).args).toEqual([
       '[publish]',
       '[publish]',
       '[publish]',
@@ -49,7 +62,7 @@ describe('MCP Registry publish', () => {
 
   it("should print the registry's reply when a publish call fails", () => {
     // The reply is the only record of why the registry refused the server.json.
-    expect(publish({ error: 'other', status: 3 }).stdout).toBe('Error: unauthorized\n');
+    expect(publish({ reply: 'unauthorized', status: 3 }).stdout).toBe('Error: unauthorized\n');
   });
 
   it('should pin the mcp-publisher archive hash in the install step', () => {
