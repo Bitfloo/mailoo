@@ -102,7 +102,8 @@ describe('account schema credential', () => {
     expect(AccountConfigSchema.safeParse({ ...account, oauth2 }).success).toBe(true);
   });
 
-  // A form that leaves the password field blank can pass an empty string.
+  // A JSON client config or `docker -e MCP_EMAIL_PASSWORD=` can pass an empty string;
+  // Smithery drops blank fields before launch.
   it('should accept an empty password beside OAuth2', () => {
     expect(AccountConfigSchema.safeParse({ ...account, password: '', oauth2 }).success).toBe(true);
   });
@@ -119,35 +120,42 @@ describe('account schema credential', () => {
     expect(AccountConfigSchema.safeParse({ ...account, password: '   ' }).success).toBe(true);
   });
 
-  it('should reject OAuth2 without a provider', () => {
+  it('should reject OAuth2 without a provider, at oauth2.provider', () => {
     const { provider: _provider, ...rest } = oauth2;
-    expect(AccountConfigSchema.safeParse({ ...account, oauth2: rest }).success).toBe(false);
+    const issues = AccountConfigSchema.safeParse({ ...account, oauth2: rest }).error?.issues ?? [];
+    expect(issues.map((issue) => issue.path.join('.'))).toEqual(['oauth2.provider']);
   });
 
   it.each(['token_url', 'auth_url'])('should reject an OAuth2 %s that is not a URL', (field) => {
     const partial = { ...oauth2, [field]: 'not a url' };
-    expect(AccountConfigSchema.safeParse({ ...account, oauth2: partial }).success).toBe(false);
+    const issues =
+      AccountConfigSchema.safeParse({ ...account, oauth2: partial }).error?.issues ?? [];
+    expect(issues.map((issue) => issue.path.join('.'))).toEqual([`oauth2.${field}`]);
   });
 
   describe.each(['client_id', 'client_secret', 'refresh_token'])('OAuth2 %s', (field) => {
-    // Like the password, these go to the provider as given.
-    it('should be kept as given when padded', () => {
+    // Like the password, these go to the provider as given: padded, blank or one character.
+    it.each(['  v  ', '   ', 'x'])('should be kept as given when it is %j', (value) => {
       const parsed = AccountConfigSchema.parse({
         ...account,
-        oauth2: { ...oauth2, [field]: '  v  ' },
+        oauth2: { ...oauth2, [field]: value },
       });
-      expect(parsed.oauth2?.[field as 'client_id']).toBe('  v  ');
+      expect(parsed.oauth2?.[field as 'client_id']).toBe(value);
     });
 
-    it('should be rejected when empty', () => {
+    it('should be rejected at its own path when empty', () => {
       const partial = { ...oauth2, [field]: '' };
-      expect(AccountConfigSchema.safeParse({ ...account, oauth2: partial }).success).toBe(false);
+      const issues =
+        AccountConfigSchema.safeParse({ ...account, oauth2: partial }).error?.issues ?? [];
+      expect(issues.map((issue) => issue.path.join('.'))).toEqual([`oauth2.${field}`]);
     });
 
-    it('should be rejected when absent', () => {
+    it('should be rejected at its own path when absent', () => {
       const partial: Record<string, string> = { ...oauth2 };
       delete partial[field];
-      expect(AccountConfigSchema.safeParse({ ...account, oauth2: partial }).success).toBe(false);
+      const issues =
+        AccountConfigSchema.safeParse({ ...account, oauth2: partial }).error?.issues ?? [];
+      expect(issues.map((issue) => issue.path.join('.'))).toEqual([`oauth2.${field}`]);
     });
   });
 });
@@ -179,14 +187,16 @@ describe('MCP_EMAIL_* OAuth2 account from the environment', () => {
     expect(config.accounts[0]?.oauth2?.[key as 'clientId']).toBe(value);
   });
 
-  it.each([
-    ['clientId', 'MCP_EMAIL_OAUTH2_CLIENT_ID'],
-    ['clientSecret', 'MCP_EMAIL_OAUTH2_CLIENT_SECRET'],
-    ['refreshToken', 'MCP_EMAIL_OAUTH2_REFRESH_TOKEN'],
-  ])('should read a padded oauth2.%s from %s verbatim', async (key, name) => {
-    vi.stubEnv(name, '  padded  ');
+  it.each(
+    [
+      ['clientId', 'MCP_EMAIL_OAUTH2_CLIENT_ID'],
+      ['clientSecret', 'MCP_EMAIL_OAUTH2_CLIENT_SECRET'],
+      ['refreshToken', 'MCP_EMAIL_OAUTH2_REFRESH_TOKEN'],
+    ].flatMap(([key, name]) => ['  padded  ', '   ', 'x'].map((value) => [key, name, value])),
+  )('should read oauth2.%s from %s verbatim when it is %j', async (key, name, value) => {
+    vi.stubEnv(name, value);
     const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
-    expect(config.accounts[0]?.oauth2?.[key as 'clientId']).toBe('  padded  ');
+    expect(config.accounts[0]?.oauth2?.[key as 'clientId']).toBe(value);
   });
 
   it.each(OAuth2ConfigSchema.shape.provider.options)(
@@ -232,7 +242,7 @@ describe('MCP_EMAIL_* OAuth2 account from the environment', () => {
     expect(config.accounts[0]?.oauth2?.provider).toBe('google');
   });
 
-  // The mirror of the empty password: a form that leaves the provider blank can pass ''.
+  // The mirror of the empty password: a launcher that keeps blank fields can pass ''.
   it('should load a password account with no OAuth2 when the provider variable is set but empty', async () => {
     vi.stubEnv('MCP_EMAIL_PASSWORD', 'app-password');
     vi.stubEnv('MCP_EMAIL_OAUTH2_PROVIDER', '');
@@ -311,7 +321,7 @@ describe('MCP_EMAIL_* account with no credential', () => {
     return file;
   };
 
-  // A blank form field arrives as '', which is no credential either.
+  // A launcher that keeps blank fields passes '', which is no credential either.
   describe.each([
     ['the password variable unset', 'MCP_EMAIL_PASSWORD', undefined],
     ['the password variable set but empty', 'MCP_EMAIL_PASSWORD', ''],
