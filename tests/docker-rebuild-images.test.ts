@@ -166,6 +166,22 @@ describe('docker rebuild images', () => {
     });
   });
 
+  it('should set only the pinned keys on each GoReleaser image', () => {
+    // skip_push or disable would let a release build an image and push none.
+    expect(goreleaserImages.map((image) => Object.keys(image).sort())).toEqual(
+      Array(2).fill([
+        'annotations',
+        'dockerfile',
+        'extra_files',
+        'id',
+        'images',
+        'labels',
+        'platforms',
+        'tags',
+      ]),
+    );
+  });
+
   it('should use the GoReleaser tag names, Dockerfiles and architectures', () => {
     for (const id of ['mailoo-debian', 'mailoo-alpine']) {
       const image = goreleaserImages.find((entry) => entry.id === id);
