@@ -8,6 +8,7 @@ import type { CommandRunner } from './scheduler-install.js';
 import {
   buildCronLine,
   buildLaunchdPlist,
+  CHECK_INTERVAL_SECONDS,
   installCrontabLine,
   loadLaunchAgent,
   removeCrontabLine,
@@ -26,17 +27,27 @@ function unclosedTags(xml: string): string[] {
   return [...problems, ...open.map((name) => `<${name}>`)];
 }
 
-function recordRunner(): {
+function recordRunner(crontab = '0 0 * * * /usr/bin/true\n'): {
   run: CommandRunner;
   calls: { file: string; args: string[]; input?: string }[];
 } {
   const calls: { file: string; args: string[]; input?: string }[] = [];
   const run: CommandRunner = (file, args, input) => {
     calls.push({ file, args: [...args], input });
-    if (file === 'crontab' && args[0] === '-l') return '0 0 * * * /usr/bin/true\n';
+    if (file === 'crontab' && args[0] === '-l') return crontab;
     return '';
   };
   return { run, calls };
+}
+
+function lineSink(): { lines: string[]; print: (line: string) => void } {
+  const lines: string[] = [];
+  return {
+    lines,
+    print: (line) => {
+      lines.push(line);
+    },
+  };
 }
 
 function shQuote(value: string): string {
@@ -187,6 +198,47 @@ describe('scheduler install commands', () => {
     expect(installed.split(' ').slice(5).join(' ')).toBe(
       `${shQuote(process.execPath)} ${shQuote(cli)} scheduler check # mailoo scheduler`,
     );
+  });
+
+  it('should print the installed message and the interval in seconds when the crontab has no line yet', async () => {
+    const { run } = recordRunner();
+    const { lines, print } = lineSink();
+    await runInstall('linux', run, print);
+    expect(lines).toEqual([
+      '✅ Installed Linux crontab scheduler',
+      `   Runs every ${CHECK_INTERVAL_SECONDS} seconds`,
+    ]);
+  });
+
+  it('should leave the crontab alone and warn when the installed line is already there', async () => {
+    const { run, calls } = recordRunner(
+      `${buildCronLine(process.execPath, process.argv[1] ?? 'mailoo')}\n`,
+    );
+    const { lines, print } = lineSink();
+    await runInstall('linux', run, print);
+    expect({ lines, writes: calls.filter(({ args }) => args[0] === '-') }).toEqual({
+      lines: ['⚠️  Scheduler crontab entry already exists'],
+      writes: [],
+    });
+  });
+
+  it('should install nothing on an unsupported platform', async () => {
+    const { run, calls } = recordRunner();
+    const { lines, print } = lineSink();
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await runInstall('win32', run, print);
+      expect({ calls, lines, stderr: stderr.mock.calls.flat() }).toEqual({
+        calls: [],
+        lines: [],
+        stderr: [
+          '❌ Unsupported platform: win32',
+          "   Manually run 'mailoo scheduler check' on a schedule.",
+        ],
+      });
+    } finally {
+      stderr.mockRestore();
+    }
   });
 
   it.runIf(process.platform !== 'win32')(
