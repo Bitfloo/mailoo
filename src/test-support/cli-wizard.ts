@@ -1,7 +1,8 @@
 /**
  * What the CLI wizard suites share: a stand-in for @clack/prompts that answers
  * each prompt by its message and records what it asked, the add wizard's
- * answers, a temp config home per test, and the prompt roster of a source file.
+ * answers, a temp config home or HOME per test, and the prompt roster of a
+ * source file.
  *
  * A suite creates its state and probes in vi.hoisted and passes them in:
  * entryPoint resets the module registry, and state kept in this module would
@@ -140,19 +141,69 @@ export interface AccountSandbox {
   ) => Promise<() => Promise<void>>;
 }
 
+/** A TTY on stdin for each test, so the interactive commands do not refuse to run. */
+export function useStdinTty(): void {
+  let descriptor: PropertyDescriptor | undefined;
+
+  beforeEach(() => {
+    descriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+  });
+
+  afterEach(() => {
+    if (descriptor) Object.defineProperty(process.stdin, 'isTTY', descriptor);
+    else Reflect.deleteProperty(process.stdin, 'isTTY');
+  });
+}
+
+export interface InstallHome {
+  readonly home: string;
+  /** Cursor's MCP config; its directory exists, so install offers Cursor. */
+  readonly cursorConfig: string;
+}
+
+/**
+ * A temp HOME, with the config roots Claude Desktop reads on Linux and Windows
+ * under it, and a TTY on stdin.
+ */
+export function useInstallHome(): InstallHome {
+  let home = '';
+  useStdinTty();
+
+  beforeEach(async () => {
+    home = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-install-'));
+    await fs.mkdir(path.join(home, '.cursor'));
+    vi.stubEnv('HOME', home);
+    vi.stubEnv('XDG_CONFIG_HOME', path.join(home, '.config'));
+    vi.stubEnv('APPDATA', path.join(home, 'AppData'));
+  });
+
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await fs.rm(home, { recursive: true, force: true });
+  });
+
+  return {
+    get home() {
+      return home;
+    },
+    get cursorConfig() {
+      return path.join(home, '.cursor', 'mcp.json');
+    },
+  };
+}
+
 /**
  * A temp XDG config home with an empty mailoo directory, a TTY on stdin, and
  * probes that pass unless a test says otherwise.
  */
 export function useAccountSandbox(state: WizardState, probes: Probes): AccountSandbox {
   let home = '';
-  let ttyDescriptor: PropertyDescriptor | undefined;
+  useStdinTty();
 
   beforeEach(async () => {
     home = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-account-'));
     await fs.mkdir(path.join(home, 'mailoo'), { mode: 0o700 });
-    ttyDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
-    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     probes.testImap.mockImplementation(async () => ({
       success: true,
       details: { messages: 0, folders: 1 },
@@ -161,8 +212,6 @@ export function useAccountSandbox(state: WizardState, probes: Probes): AccountSa
   });
 
   afterEach(async () => {
-    if (ttyDescriptor) Object.defineProperty(process.stdin, 'isTTY', ttyDescriptor);
-    else Reflect.deleteProperty(process.stdin, 'isTTY');
     state.overrides.clear();
     state.asked.splice(0);
     state.cancelAt.clear();
