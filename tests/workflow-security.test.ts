@@ -74,7 +74,6 @@ describe('code scanning workflows', () => {
   it('should run the Scorecard action in exactly one job', () => {
     const jobs = jobSections(scorecardYml).filter((job) => job.includes('ossf/scorecard-action@'));
     expect(jobs).toHaveLength(1);
-    expect(scorecardYml).toContain('ossf/scorecard-action@');
   });
 
   it('should check out the Scorecard workflow without persisting credentials', () => {
