@@ -77,6 +77,14 @@ describe('scheduler install commands', () => {
     expect(calls[1]?.input).not.toContain('mailoo scheduler');
   });
 
+  it('should report no removal and write nothing when no crontab line carries the marker', () => {
+    const { run, calls } = recordRunner('0 0 * * * /usr/bin/true\n');
+    expect({
+      removed: removeCrontabLine('# mailoo scheduler', run),
+      writes: calls.filter(({ args }) => args[0] === '-'),
+    }).toEqual({ removed: false, writes: [] });
+  });
+
   it.runIf(process.platform !== 'win32')(
     'should install one crontab line when the user has no crontab',
     async () => {

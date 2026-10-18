@@ -119,10 +119,10 @@ export function installCrontabLine(
 }
 
 export function removeCrontabLine(marker: string, run: CommandRunner = runCommandFile): boolean {
-  const existing = readCrontab(run);
-  if (existing === undefined) return false;
-  const lines = existing.split('\n').filter((entry) => !entry.includes(marker));
-  const body = lines.join('\n');
+  const lines = (readCrontab(run) ?? '').split('\n');
+  const kept = lines.filter((entry) => !entry.includes(marker));
+  if (kept.length === lines.length) return false;
+  const body = kept.join('\n');
   run('crontab', ['-'], body.endsWith('\n') ? body : `${body}\n`);
   return true;
 }
