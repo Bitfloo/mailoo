@@ -1,13 +1,5 @@
 import { jobGate, runsJob } from './workflow-gates.js';
-import { jobSections, onBlock, readKeyLines, releaseSteps, releaseYml } from './workflow-yaml.js';
-
-function releaseJob(marker: string): string {
-  const job = jobSections(releaseYml).find((section) => section.includes(marker));
-  if (!job) {
-    throw new Error(`no release job holds ${marker.trim()}`);
-  }
-  return job;
-}
+import { onBlock, readKeyLines, releaseJob, releaseSteps, releaseYml } from './workflow-yaml.js';
 
 const npmJob = () => releaseJob('npm publish --access public');
 const stampJob = () => releaseJob('- name: Set version in server.json\n');

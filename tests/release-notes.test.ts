@@ -5,11 +5,10 @@ import { join } from 'node:path';
 import { repoRoot } from './agents/agent-file.js';
 import { changelogMd, swapOnce } from './changelog-fixture.js';
 import {
-  jobSections,
   readKeyLines,
   refEnv,
+  releaseJob,
   releaseStep,
-  releaseSteps,
   releaseYml,
   runBlock,
   runStep,
@@ -167,15 +166,7 @@ describe('release notes', () => {
     expect(goreleaser).toMatch(/^release:\n(?: {2}.*\n)*? {2}mode: replace$/m);
   });
 
-  const dockerJob = () => {
-    const job = jobSections(releaseSteps(releaseYml)).find((section) =>
-      section.includes('goreleaser/goreleaser-action@'),
-    );
-    if (!job) {
-      throw new Error('release.yml has no GoReleaser job');
-    }
-    return job;
-  };
+  const dockerJob = () => releaseJob('goreleaser/goreleaser-action@');
 
   it('should run only the docker setup actions between the checkout and the release notes', () => {
     // Another checkout or a run step there could hand the notes step another CHANGELOG.md or none.

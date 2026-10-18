@@ -106,6 +106,15 @@ export function readKeyLines(yaml: string, key: string): string[] {
   return keyLines(yaml, key);
 }
 
+/** The release.yml job that holds `marker`, comment lines stripped. */
+export function releaseJob(marker: string): string {
+  const job = jobSections(releaseSteps(releaseYml)).find((section) => section.includes(marker));
+  if (!job) {
+    throw new Error(`no release job holds ${marker.trim()}`);
+  }
+  return job;
+}
+
 /** Isolate one step so a hash elsewhere cannot satisfy the install check. */
 export function releaseStep(yaml: string, name: string): string {
   const steps = releaseSteps(yaml);
