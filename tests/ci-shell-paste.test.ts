@@ -31,6 +31,7 @@ describe('workflow shell input', () => {
     "run: echo '${{ toJSON(github) }}'",
     "run: echo '${{ toJSON(inputs) }}'",
     'env:\n  B: ${{ github.head_ref }}\nrun: echo "${{ env.B }}"',
+    'env:\n  "B": ${{ github.head_ref }}\nrun: echo "${{ env.B }}"',
     'env:\n  B: ${{ inputs.version }}\nwith:\n  script: core.info("${{ env[\'B\'] }}")',
     'run: echo "${{ GitHub.Head_Ref }}"',
     'run: echo "${{ github . head_ref }}"',
@@ -59,6 +60,8 @@ describe('workflow shell input', () => {
     'env:\n  B: ${{ github.head_ref }}\ngroup: ${{ env.B }}',
     'env:\n  B: >-\n    ${{ github.head_ref }}',
     'env:\n  B: ${{\n    github.head_ref }}',
+    'env:\n  "B": ${{ github.head_ref }}',
+    "env:\n  'B': ${{ github.head_ref }}",
   ])('should pass %j as a value no shell or script parses', (yaml) => {
     expect(shellPastes(yaml)).toEqual([]);
   });
