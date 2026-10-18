@@ -56,23 +56,6 @@ describe('code scanning workflows', () => {
     expect(onBlock(codeqlYml)).toMatch(/push:\n\s+branches:\s*\[develop\]/);
   });
 
-  it.each([
-    ['codeql.yml', codeqlYml],
-    ['scorecard.yml', scorecardYml],
-  ])('should run %s on a weekly schedule', (_, yaml) => {
-    expect(onBlock(yaml)).toContain('schedule:');
-    const weekday = expect.stringMatching(/^[0-6]$/);
-    expect(weeklyCron(yaml)).toEqual([expect.any(String), expect.any(String), '*', '*', weekday]);
-  });
-
-  it.each([
-    ['codeql.yml', codeqlYml],
-    ['scorecard.yml', scorecardYml],
-  ])('should schedule %s exactly once', (_, yaml) => {
-    // The weekly checks read the first cron only, so a second one would run unchecked.
-    expect(readKeyLines(yaml, 'cron')).toHaveLength(1);
-  });
-
   it('should let a maintainer start CodeQL by hand', () => {
     expect(onBlock(codeqlYml)).toContain('workflow_dispatch:');
   });
@@ -95,6 +78,25 @@ describe('code scanning workflows', () => {
 
   it('should run Scorecard only on its schedule and when branch protection changes', () => {
     expect(triggers(scorecardYml)).toEqual(['  schedule:', '  branch_protection_rule:']);
+  });
+});
+
+describe('scheduled workflows', () => {
+  // Each scheduled run spends runner minutes, so every schedule is one fixed time a week.
+  const scheduled = ['codeql.yml', 'scorecard.yml', 'docker-rebuild.yml'].map((name) => [
+    name,
+    readFileSync(join(workflowDir, name), 'utf8'),
+  ]);
+
+  it.each(scheduled)('should run %s on a weekly schedule', (_, yaml) => {
+    expect(onBlock(yaml)).toContain('schedule:');
+    const [digits, weekday] = [expect.stringMatching(/^\d+$/), expect.stringMatching(/^[0-6]$/)];
+    expect(weeklyCron(yaml)).toEqual([digits, digits, '*', '*', weekday]);
+  });
+
+  it.each(scheduled)('should schedule %s exactly once', (_, yaml) => {
+    // The weekly check reads the first cron only, so a second one would run unchecked.
+    expect(readKeyLines(yaml, 'cron')).toHaveLength(1);
   });
 });
 

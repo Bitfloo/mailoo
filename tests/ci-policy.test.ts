@@ -35,6 +35,10 @@ describe('CI spend policy', () => {
     expect(triggers(ciYml)).toEqual(['  pull_request:', '  workflow_dispatch:']);
   });
 
+  it('should run ci.yml on pull requests to develop', () => {
+    expect(onBlock(ciYml)).toMatch(/^ {2}pull_request:\n {4}branches: \[develop\]$/m);
+  });
+
   it('should publish a SHA image only when a maintainer starts it by hand', () => {
     expect(triggers(dockerSha)).toEqual(['  workflow_dispatch:']);
   });
