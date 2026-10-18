@@ -962,7 +962,7 @@ src/
 │   ├── auth.ts            — IMAP/SMTP credentials (password or OAuth2)
 │   ├── backoff.ts         — Reconnect delays with jitter after a failed connect
 │   ├── manager.ts         — Lazy persistent IMAP/SMTP with OAuth2 (experimental)
-│   └── probe.ts           — One-shot IMAP/SMTP login checks (account wizard, mailoo test)
+│   └── probe.ts           — One-shot IMAP/SMTP login checks (setup wizard, mailoo test)
 ├── services/              — Business logic
 │   ├── imap.service.ts    — IMAP operations
 │   ├── label-strategy.ts  — Provider-aware label strategy (ProtonMail/Gmail/IMAP keywords)
