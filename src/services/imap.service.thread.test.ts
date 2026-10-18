@@ -253,6 +253,19 @@ describe('ImapService', () => {
       expect(result.messageCount).toBe(3);
     });
 
+    it('should return an empty thread when no message names the id', async () => {
+      serveThread(thread);
+
+      const result = await service.getThread('test', '<unknown@example.test>');
+
+      expect(result).toEqual({
+        threadId: '<unknown@example.test>',
+        messages: [],
+        participants: [],
+        messageCount: 0,
+      });
+    });
+
     it('should return the Message-ID it was asked for as the thread id', async () => {
       serveThread(thread);
 
