@@ -143,6 +143,29 @@ describe('LocalCalendarService on Linux', () => {
     ]);
   });
 
+  it('should escape a title with a semicolon, comma and line break in the summary and alarm text', async () => {
+    const lines = (await addedFile({ ...review, title: 'Q4; budget, review\nfinal' })).split(
+      '\r\n',
+    );
+    expect(lines.filter((line) => /^(SUMMARY|DESCRIPTION):Q4/.test(line))).toEqual([
+      'SUMMARY:Q4\\; budget\\, review\\nfinal',
+      'DESCRIPTION:Q4\\; budget\\, review\\nfinal',
+    ]);
+  });
+
+  it('should write no alarm when alarmMinutes is 0', async () => {
+    const lines = (await addedFile({ ...review, alarmMinutes: 0 })).split('\r\n');
+    expect(lines.filter((line) => /^(BEGIN:VALARM|TRIGGER:)/.test(line))).toEqual([]);
+  });
+
+  it('should publish the event and show its alarm as a display alarm', async () => {
+    const lines = (await addedFile()).split('\r\n');
+    expect(lines.filter((line) => /^(METHOD|ACTION):/.test(line))).toEqual([
+      'METHOD:PUBLISH',
+      'ACTION:DISPLAY',
+    ]);
+  });
+
   it('should report calendar access as granted without instructions', async () => {
     await expect(onLinux(async (service) => service.checkPermissions())).resolves.toEqual({
       granted: true,

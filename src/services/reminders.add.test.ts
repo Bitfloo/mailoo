@@ -124,6 +124,11 @@ describe('addReminder script', () => {
     }).toEqual({ title: invoice.title, notes: invoice.notes, list: invoice.listName });
   });
 
+  it('should add a reminder without a dialog when confirm is false', async () => {
+    const script = await addScript();
+    expect(script.split('\n').filter((line) => line.includes('display dialog'))).toEqual([]);
+  });
+
   it('should give the add reminder script a 90 s budget', async () => {
     // The confirm dialog alone may wait CONFIRM_DIALOG_WAIT_S; a shorter budget would cut off
     // a confirmed add.

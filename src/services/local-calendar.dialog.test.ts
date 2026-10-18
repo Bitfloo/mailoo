@@ -174,4 +174,16 @@ describe('addEvent confirm dialog', () => {
       dismissed: statusAfter('on error'),
     }).toEqual({ givenUp: 'timed_out', dismissed: 'cancelled' });
   });
+
+  it('should add without a dialog when addEvent gets confirm false', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"added"}', stderr: '' });
+    await onDarwin(async () =>
+      new LocalCalendarService().addEvent(review, 'Work', {
+        confirm: false,
+        skipDuplicateCheck: true,
+      }),
+    );
+    const script = osascriptImpl.mock.calls[0]?.[1][1] ?? '';
+    expect(script.split('\n').filter((line) => line.includes('display dialog'))).toEqual([]);
+  });
 });
