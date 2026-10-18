@@ -101,6 +101,31 @@ describe('RemindersService osascript results', () => {
     });
   });
 
+  it.each([
+    ['cancelled', '\u{1F6AB} Cancelled \u2014 reminder was not added.'],
+    [
+      'no_display',
+      '\u26A0\uFE0F Cannot add reminder: run check_calendar_permissions to verify access.',
+    ],
+  ])('should word a %s reply from the add script', async (status, message) => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: `{"status":"${status}"}\n`, stderr: '' });
+    const result = await withReminders(async (svc) => svc.addReminder({ title: 'Call the bank' }));
+    expect(result).toEqual({ status, message });
+  });
+
+  it('should name the Reminders list when the add script reports no list', async () => {
+    osascriptImpl.mockResolvedValueOnce({
+      stdout: '{"status":"added","reminderId":"x-apple-reminder://R3"}\n',
+      stderr: '',
+    });
+    const result = await withReminders(async (svc) =>
+      svc.addReminder({ title: 'Call the bank' }, { confirm: false }),
+    );
+    expect(result.message).toBe(
+      `\u2705 Reminder added: "${delimitUntrusted('Call the bank')}" \u2192 Reminders.`,
+    );
+  });
+
   it('should pass every listed reminder field and the added ids through jsonString', async () => {
     await withReminders(async (svc) => svc.listReminders());
     osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"added"}', stderr: '' });
@@ -141,9 +166,15 @@ describe('RemindersService checkPermissions', () => {
       }),
     );
     const result = await withReminders(async (svc) => svc.checkPermissions());
-    expect({ granted: result.granted, first: result.instructions[0] }).toEqual({
+    expect(result).toEqual({
       granted: false,
-      first: 'Reminders access was denied or unavailable.',
+      platform: 'darwin',
+      instructions: [
+        'Reminders access was denied or unavailable.',
+        '1. Open System Settings \u2192 Privacy & Security \u2192 Reminders',
+        '2. Enable access for Terminal (or your terminal emulator)',
+        '3. Quit and restart the terminal, then try again.',
+      ],
     });
   });
 });
@@ -160,13 +191,34 @@ describe('listReminders script', () => {
   });
 });
 
-describe('listReminders defaults', () => {
+describe('listReminders options', () => {
   it('should list 20 incomplete reminders by default', async () => {
     await withReminders(async (svc) => svc.listReminders());
     const script = osascriptImpl.mock.calls[0]?.[1][1] ?? '';
     expect(
       script.split('\n').filter((line) => /^set (maxResults|includeCompleted) to /.test(line)),
     ).toEqual(['set maxResults to 20', 'set includeCompleted to false']);
+  });
+
+  it('should pass limit and includeCompleted into the list script', async () => {
+    await withReminders(async (svc) => svc.listReminders({ limit: 5, includeCompleted: true }));
+    const script = osascriptImpl.mock.calls[0]?.[1][1] ?? '';
+    expect(
+      script.split('\n').filter((line) => /^set (maxResults|includeCompleted) to /.test(line)),
+    ).toEqual(['set maxResults to 5', 'set includeCompleted to true']);
+  });
+
+  it('should map the priorities 1, 5 and 9 and the completion flag in the list script', async () => {
+    await withReminders(async (svc) => svc.listReminders());
+    const lines = (osascriptImpl.mock.calls[0]?.[1][1] ?? '')
+      .split('\n')
+      .map((line) => line.trim());
+    expect(lines.filter((line) => /^if (rPriority is|isComp then)/.test(line))).toEqual([
+      'if rPriority is 1 then set pLabel to "high"',
+      'if rPriority is 5 then set pLabel to "medium"',
+      'if rPriority is 9 then set pLabel to "low"',
+      'if isComp then set compStr to "true"',
+    ]);
   });
 });
 

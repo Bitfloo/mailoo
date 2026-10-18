@@ -53,6 +53,38 @@ describe('addReminder confirm dialog', () => {
   });
 });
 
+describe('addReminder due date line and properties', () => {
+  it('should show the due date in the dialog', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"cancelled"}', stderr: '' });
+    await withReminders(async (svc) =>
+      svc.addReminder({ title: 'Call the bank', dueDate: '2026-10-05T09:00:00' }),
+    );
+    expect(dialogLinesOf(osascriptImpl.mock.calls[0]?.[1][1] ?? '')[1]).toBe(
+      '\u{1F550} Due: 2026-10-05T09:00:00',
+    );
+  });
+
+  it('should make the reminder not completed and set its due date property', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"added"}', stderr: '' });
+    await withReminders(async (svc) =>
+      svc.addReminder(
+        { title: 'Call the bank', dueDate: '2026-10-05T09:00:00' },
+        { confirm: false },
+      ),
+    );
+    const lines = (osascriptImpl.mock.calls[0]?.[1][1] ?? '')
+      .split('\n')
+      .map((line) => line.trim());
+    expect({
+      make: lines.find((line) => line.startsWith('set newReminder to make new reminder')),
+      due: lines.filter((line) => line.endsWith('of newReminder to dueD')),
+    }).toEqual({
+      make: 'set newReminder to make new reminder at end of reminders of targetList with properties {name:"Call the bank", completed:false}',
+      due: ['set due date of newReminder to dueD'],
+    });
+  });
+});
+
 describe('addReminder due date', () => {
   it('should be due on 28 February when the script runs on 31 January', async () => {
     // Setting month 2 on 31 January lands on 3 March before the day is set.
