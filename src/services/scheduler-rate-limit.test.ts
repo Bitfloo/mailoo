@@ -95,6 +95,47 @@ describe('rate-limited sends', () => {
   });
 });
 
+describe('scheduled email content', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('should deliver the stored recipients, subject, body, html flag, cc and bcc', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-content-'));
+    const sent: SendMailOptions[] = [];
+    try {
+      const service = smtpBackedScheduler(queueDir, { sent });
+      await service.schedule('personal', {
+        to: ['to@example.com'],
+        cc: ['cc@example.com'],
+        bcc: ['bcc@example.com'],
+        subject: 'Quarterly numbers',
+        body: '<p>The figures are attached.</p>',
+        html: true,
+        sendAt: '2028-01-16T00:00:00.000Z',
+      });
+      vi.setSystemTime(new Date('2028-01-17T00:00:00.000Z'));
+      await service.checkAndSend();
+      expect(
+        sent.map(({ to, cc, bcc, subject, html, text }) => ({ to, cc, bcc, subject, html, text })),
+      ).toEqual([
+        {
+          to: 'to@example.com',
+          cc: 'cc@example.com',
+          bcc: 'bcc@example.com',
+          subject: 'Quarterly numbers',
+          html: '<p>The figures are attached.</p>',
+          text: undefined,
+        },
+      ]);
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('scheduled replies', () => {
   it('should send the stored In-Reply-To and References headers', async () => {
     const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-reply-'));

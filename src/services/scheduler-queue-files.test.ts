@@ -77,6 +77,29 @@ describe('SchedulerService queue files', () => {
     expect(path.relative(scheduledDir, filePath).startsWith('..')).toBe(false);
   });
 
+  it('should store the cc and bcc recipients in the queue record', async () => {
+    const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-copies-'));
+    try {
+      const { service } = createService(queueDir);
+      const scheduled = await service.schedule('personal', {
+        to: ['user@example.com'],
+        cc: ['cc@example.com'],
+        bcc: ['bcc@example.com'],
+        subject: 'Hello',
+        body: 'Body',
+        sendAt: daysFromNow(2),
+      });
+      const filePath = path.join(queueDir, `${scheduled.id}.json`);
+      const saved = JSON.parse(await fs.readFile(filePath, 'utf8')) as ScheduledEmail;
+      expect({ cc: saved.cc, bcc: saved.bcc }).toEqual({
+        cc: ['cc@example.com'],
+        bcc: ['bcc@example.com'],
+      });
+    } finally {
+      await fs.rm(queueDir, { recursive: true, force: true });
+    }
+  });
+
   it('rejects a schedule when the queue already holds 100 messages', async () => {
     const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-pending-'));
     try {
