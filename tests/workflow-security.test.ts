@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { YAMLParseError } from 'yaml';
+import { parse, YAMLParseError } from 'yaml';
 
 import {
   jobSections,
@@ -59,14 +59,13 @@ describe('dependency installs', () => {
 });
 
 describe('scheduled workflows', () => {
-  // Each scheduled run spends runner minutes, so every schedule is one fixed time a week.
-  const scheduled = ['codeql.yml', 'scorecard.yml', 'docker-rebuild.yml'].map((name) => [
-    name,
-    readFileSync(join(workflowDir, name), 'utf8'),
-  ]);
+  // Each scheduled run spends runner minutes, so every schedule is one fixed time a week. Read
+  // from the tree, so a schedule added to any workflow is checked here.
+  const scheduled = workflowTexts().filter(
+    ([, yaml]) => (parse(yaml) as { on?: { schedule?: unknown } }).on?.schedule !== undefined,
+  );
 
   it.each(scheduled)('should run %s on a weekly schedule', (_, yaml) => {
-    expect(onBlock(yaml)).toContain('schedule:');
     const [digits, weekday] = [expect.stringMatching(/^\d+$/), expect.stringMatching(/^[0-6]$/)];
     expect(weeklyCron(yaml)).toEqual([digits, digits, '*', '*', weekday]);
   });
