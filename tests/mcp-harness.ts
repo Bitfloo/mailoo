@@ -121,15 +121,22 @@ export function install(hash: 'checked' | 'shimmed'): {
   }
 }
 
-/** Run the server.json stamp step with a stamp script that prints the version it is handed. */
+/**
+ * Run the server.json stamp step with a stamp script that prints the version it is handed, or one
+ * that refuses it and exits 1.
+ */
 export function stamp(
   ref: string,
   inputVersion: string,
+  stampScript: 'prints' | 'refuses' = 'prints',
 ): { status: number | null; stdout: string } {
   const temp = mkdtempSync(join(tmpdir(), 'mailoo-server-json-step-'));
   try {
     mkdirSync(join(temp, 'scripts'));
-    writeFileSync(join(temp, 'scripts/bump-server-json-version.sh'), 'printf "%s\\n" "$1"\n');
+    writeFileSync(
+      join(temp, 'scripts/bump-server-json-version.sh'),
+      stampScript === 'prints' ? 'printf "%s\\n" "$1"\n' : 'echo "refused $1" >&2\nexit 1\n',
+    );
     const { status, stdout } = runStep(runBlock(stampStep), temp, {
       PATH: process.env.PATH,
       ...refEnv(ref),

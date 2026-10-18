@@ -180,6 +180,11 @@ describe('release version selection', () => {
     expect(stamp(ref, inputVersion)).toEqual({ status: 0, stdout: `${version}\n` });
   });
 
+  it('should stop the release when the server.json stamp refuses the version', () => {
+    // Otherwise the publish step would hand the registry server.json as committed, unstamped.
+    expect(stamp('refs/tags/v1.4.2', '', 'refuses').status).toBe(1);
+  });
+
   it('should refuse a step env value the harness has no context for', () => {
     // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub expression, not a JS template
     const step = '      - run: x\n        env:\n          A: ${{ inputs.other }}\n';
