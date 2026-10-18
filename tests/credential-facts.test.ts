@@ -81,14 +81,21 @@ describe('server.json credential requirement', () => {
 });
 
 describe('account schema credential', () => {
-  it('should reject an account with neither a password nor OAuth2', () => {
-    expect(AccountConfigSchema.safeParse(account).success).toBe(false);
+  it('should reject an account with neither a password nor OAuth2, naming the missing credential', () => {
+    const issues = AccountConfigSchema.safeParse(account).error?.issues ?? [];
+    expect(issues.map((issue) => issue.message)).toEqual([
+      'Either password or oauth2 config is required',
+    ]);
   });
 
   it('should accept an account with only a password', () => {
     expect(AccountConfigSchema.safeParse({ ...account, password: 'app-password' }).success).toBe(
       true,
     );
+  });
+
+  it('should accept a one-character password', () => {
+    expect(AccountConfigSchema.safeParse({ ...account, password: 'x' }).success).toBe(true);
   });
 
   it('should accept an account with only OAuth2', () => {
@@ -100,8 +107,11 @@ describe('account schema credential', () => {
     expect(AccountConfigSchema.safeParse({ ...account, password: '', oauth2 }).success).toBe(true);
   });
 
-  it('should reject an empty password without OAuth2', () => {
-    expect(AccountConfigSchema.safeParse({ ...account, password: '' }).success).toBe(false);
+  it('should reject an empty password without OAuth2, naming the missing credential', () => {
+    const issues = AccountConfigSchema.safeParse({ ...account, password: '' }).error?.issues ?? [];
+    expect(issues.map((issue) => issue.message)).toEqual([
+      'Either password or oauth2 config is required',
+    ]);
   });
 
   // The password goes to the server verbatim; only the server can say it is wrong.
@@ -109,7 +119,26 @@ describe('account schema credential', () => {
     expect(AccountConfigSchema.safeParse({ ...account, password: '   ' }).success).toBe(true);
   });
 
+  it('should reject OAuth2 without a provider', () => {
+    const { provider: _provider, ...rest } = oauth2;
+    expect(AccountConfigSchema.safeParse({ ...account, oauth2: rest }).success).toBe(false);
+  });
+
+  it.each(['token_url', 'auth_url'])('should reject an OAuth2 %s that is not a URL', (field) => {
+    const partial = { ...oauth2, [field]: 'not a url' };
+    expect(AccountConfigSchema.safeParse({ ...account, oauth2: partial }).success).toBe(false);
+  });
+
   describe.each(['client_id', 'client_secret', 'refresh_token'])('OAuth2 %s', (field) => {
+    // Like the password, these go to the provider as given.
+    it('should be kept as given when padded', () => {
+      const parsed = AccountConfigSchema.parse({
+        ...account,
+        oauth2: { ...oauth2, [field]: '  v  ' },
+      });
+      expect(parsed.oauth2?.[field as 'client_id']).toBe('  v  ');
+    });
+
     it('should be rejected when empty', () => {
       const partial = { ...oauth2, [field]: '' };
       expect(AccountConfigSchema.safeParse({ ...account, oauth2: partial }).success).toBe(false);
@@ -148,6 +177,16 @@ describe('MCP_EMAIL_* OAuth2 account from the environment', () => {
   ])('should read oauth2.%s from its own variable', async (key, value) => {
     const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
     expect(config.accounts[0]?.oauth2?.[key as 'clientId']).toBe(value);
+  });
+
+  it.each([
+    ['clientId', 'MCP_EMAIL_OAUTH2_CLIENT_ID'],
+    ['clientSecret', 'MCP_EMAIL_OAUTH2_CLIENT_SECRET'],
+    ['refreshToken', 'MCP_EMAIL_OAUTH2_REFRESH_TOKEN'],
+  ])('should read a padded oauth2.%s from %s verbatim', async (key, name) => {
+    vi.stubEnv(name, '  padded  ');
+    const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
+    expect(config.accounts[0]?.oauth2?.[key as 'clientId']).toBe('  padded  ');
   });
 
   it.each(OAuth2ConfigSchema.shape.provider.options)(
@@ -203,6 +242,15 @@ describe('MCP_EMAIL_* OAuth2 account from the environment', () => {
     const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
     expect(config.accounts[0]?.oauth2).toBeUndefined();
   });
+
+  it.each(['  pass  ', '   '])(
+    'should keep the padded password %j set beside the provider verbatim',
+    async (password) => {
+      vi.stubEnv('MCP_EMAIL_PASSWORD', password);
+      const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
+      expect(config.accounts[0]?.password).toBe(password);
+    },
+  );
 
   it('should keep a password set beside the provider as given', async () => {
     vi.stubEnv('MCP_EMAIL_PASSWORD', 'app-password');
@@ -280,6 +328,61 @@ describe('MCP_EMAIL_* account with no credential', () => {
 
     it('should report that no configuration was found when there is no config file', async () => {
       await expect(loadConfig(join(dir, 'missing.toml'))).rejects.toThrow('No configuration found');
+    });
+  });
+});
+
+describe('OAuth2 account from the config file', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    server.packages[0]?.environmentVariables.forEach((item) => {
+      vi.stubEnv(item.name, undefined);
+    });
+    dir = await mkdtemp(join(tmpdir(), 'credential-facts-'));
+  });
+
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('should map every OAuth2 field of a custom provider', async () => {
+    const file = join(dir, 'config.toml');
+    await writeFile(
+      file,
+      [
+        '[[accounts]]',
+        'name = "file"',
+        'email = "file@example.com"',
+        '',
+        '[accounts.oauth2]',
+        'provider = "custom"',
+        'client_id = "file-id"',
+        'client_secret = "file-secret"',
+        'refresh_token = "file-refresh"',
+        'token_url = "https://auth.example.com/token"',
+        'auth_url = "https://auth.example.com/authorize"',
+        'scopes = ["mail", "offline"]',
+        '',
+        '[accounts.imap]',
+        'host = "imap.example.com"',
+        '',
+        '[accounts.smtp]',
+        'host = "smtp.example.com"',
+        '',
+      ].join('\n'),
+      { mode: 0o600 },
+    );
+    const config = await loadConfig(file);
+    expect(config.accounts[0]?.oauth2).toEqual({
+      provider: 'custom',
+      clientId: 'file-id',
+      clientSecret: 'file-secret',
+      refreshToken: 'file-refresh',
+      tokenUrl: 'https://auth.example.com/token',
+      authUrl: 'https://auth.example.com/authorize',
+      scopes: ['mail', 'offline'],
     });
   });
 });
