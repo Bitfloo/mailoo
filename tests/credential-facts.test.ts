@@ -62,6 +62,25 @@ describe('server.json credential requirement', () => {
     );
   });
 
+  it('should name exactly the OAuth2 providers the config accepts', () => {
+    const named = /^OAuth2 provider: ([a-z, ]+)./
+      .exec(envVar('MCP_EMAIL_OAUTH2_PROVIDER').description)?.[1]
+      ?.split(/, (?:or )?/);
+    expect(named).toEqual(OAuth2ConfigSchema.shape.provider.options);
+  });
+
+  it.each([
+    'MCP_EMAIL_OAUTH2_CLIENT_ID',
+    'MCP_EMAIL_OAUTH2_CLIENT_SECRET',
+    'MCP_EMAIL_OAUTH2_REFRESH_TOKEN',
+  ])('should describe %s as required once a provider is set', (name) => {
+    expect(envVar(name).description).toMatch(
+      /\. Required when MCP_EMAIL_OAUTH2_PROVIDER is set\.$/,
+    );
+  });
+});
+
+describe('account schema credential', () => {
   it('should reject an account with neither a password nor OAuth2', () => {
     expect(AccountConfigSchema.safeParse(account).success).toBe(false);
   });
@@ -76,7 +95,7 @@ describe('server.json credential requirement', () => {
     expect(AccountConfigSchema.safeParse({ ...account, oauth2 }).success).toBe(true);
   });
 
-  // A listing that leaves the password field blank passes an empty string.
+  // A form that leaves the password field blank can pass an empty string.
   it('should accept an empty password beside OAuth2, which replaces it', () => {
     expect(AccountConfigSchema.safeParse({ ...account, password: '', oauth2 }).success).toBe(true);
   });
@@ -85,32 +104,18 @@ describe('server.json credential requirement', () => {
     expect(AccountConfigSchema.safeParse({ ...account, password: '' }).success).toBe(false);
   });
 
-  it('should name exactly the OAuth2 providers the config accepts', () => {
-    const named = /^OAuth2 provider: ([a-z, ]+)./
-      .exec(envVar('MCP_EMAIL_OAUTH2_PROVIDER').description)?.[1]
-      ?.split(/, (?:or )?/);
-    expect(named).toEqual(OAuth2ConfigSchema.shape.provider.options);
+  // The password goes to the server verbatim; only the server can say it is wrong.
+  it('should accept a whitespace-only password as a credential, since passwords are not trimmed', () => {
+    expect(AccountConfigSchema.safeParse({ ...account, password: '   ' }).success).toBe(true);
   });
 
-  // Each row pairs a schema field with the variable that feeds it; the
-  // description and the schema must agree that it is required.
-  describe.each([
-    ['client_id', 'MCP_EMAIL_OAUTH2_CLIENT_ID'],
-    ['client_secret', 'MCP_EMAIL_OAUTH2_CLIENT_SECRET'],
-    ['refresh_token', 'MCP_EMAIL_OAUTH2_REFRESH_TOKEN'],
-  ])('OAuth2 %s (%s)', (field, name) => {
-    it('should be described as required once a provider is set', () => {
-      expect(envVar(name).description).toMatch(
-        /\. Required when MCP_EMAIL_OAUTH2_PROVIDER is set\.$/,
-      );
-    });
-
-    it('should be rejected by the account schema when empty', () => {
+  describe.each(['client_id', 'client_secret', 'refresh_token'])('OAuth2 %s', (field) => {
+    it('should be rejected when empty', () => {
       const partial = { ...oauth2, [field]: '' };
       expect(AccountConfigSchema.safeParse({ ...account, oauth2: partial }).success).toBe(false);
     });
 
-    it('should be rejected by the account schema when absent', () => {
+    it('should be rejected when absent', () => {
       const partial: Record<string, string> = { ...oauth2 };
       delete partial[field];
       expect(AccountConfigSchema.safeParse({ ...account, oauth2: partial }).success).toBe(false);
@@ -155,12 +160,12 @@ describe('MCP_EMAIL_* OAuth2 account from the environment', () => {
   );
 
   it.each([
-    'MCP_EMAIL_OAUTH2_CLIENT_ID',
-    'MCP_EMAIL_OAUTH2_CLIENT_SECRET',
-    'MCP_EMAIL_OAUTH2_REFRESH_TOKEN',
-  ])('should refuse to load when the provider is set and %s is not', async (name) => {
+    ['MCP_EMAIL_OAUTH2_CLIENT_ID', 'OAuth2 client_id is required'],
+    ['MCP_EMAIL_OAUTH2_CLIENT_SECRET', 'OAuth2 client_secret is required'],
+    ['MCP_EMAIL_OAUTH2_REFRESH_TOKEN', 'OAuth2 refresh_token is required'],
+  ])('should refuse to load when the provider is set and %s is not', async (name, message) => {
     vi.stubEnv(name, undefined);
-    await expect(loadConfig(join(repoRoot, 'no-such-config.toml'))).rejects.toThrow();
+    await expect(loadConfig(join(repoRoot, 'no-such-config.toml'))).rejects.toThrow(message);
   });
 
   it('should carry the password of a password-only account', async () => {
@@ -168,6 +173,13 @@ describe('MCP_EMAIL_* OAuth2 account from the environment', () => {
     vi.stubEnv('MCP_EMAIL_OAUTH2_PROVIDER', undefined);
     const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
     expect(config.accounts[0]?.password).toBe('app-password');
+  });
+
+  it('should load a whitespace-only password verbatim as the credential', async () => {
+    vi.stubEnv('MCP_EMAIL_PASSWORD', '   ');
+    vi.stubEnv('MCP_EMAIL_OAUTH2_PROVIDER', undefined);
+    const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
+    expect(config.accounts[0]?.password).toBe('   ');
   });
 
   it('should load the account with no password set', async () => {
@@ -181,7 +193,7 @@ describe('MCP_EMAIL_* OAuth2 account from the environment', () => {
     expect(config.accounts[0]?.oauth2?.provider).toBe('google');
   });
 
-  // The mirror of the empty password: a listing that leaves the provider blank passes ''.
+  // The mirror of the empty password: a form that leaves the provider blank can pass ''.
   it('should load a password account with no OAuth2 when the provider variable is set but empty', async () => {
     vi.stubEnv('MCP_EMAIL_PASSWORD', 'app-password');
     vi.stubEnv('MCP_EMAIL_OAUTH2_PROVIDER', '');
