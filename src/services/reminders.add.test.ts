@@ -15,17 +15,12 @@ vi.mock('node:child_process', () => ({
 }));
 
 import { dateSetBy, dialogLinesOf, literalAfter } from '../test-support/applescript.js';
+import onDarwin from '../test-support/platform.js';
 import { CONFIRM_DIALOG_WAIT_S } from './osascript.js';
 import RemindersService, { ADD_REMINDER_TIMEOUT_MS } from './reminders.service.js';
 
-/** Builds the service while it believes it is on macOS, where osascript is used. */
-async function onDarwin<T>(fn: (svc: RemindersService) => Promise<T>): Promise<T> {
-  const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
-  try {
-    return await fn(new RemindersService());
-  } finally {
-    platform.mockRestore();
-  }
+async function withReminders<T>(fn: (svc: RemindersService) => Promise<T>): Promise<T> {
+  return onDarwin(async () => fn(new RemindersService()));
 }
 
 beforeEach(() => {
@@ -36,7 +31,7 @@ beforeEach(() => {
 describe('addReminder confirm dialog', () => {
   it('should show a quoted title, notes and list name in the dialog as written', async () => {
     osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"cancelled"}', stderr: '' });
-    await onDarwin(async (svc) =>
+    await withReminders(async (svc) =>
       svc.addReminder({
         title: 'Pay "Acme" invoice',
         notes: 'Ref C:\\billing\\"Q4"',
@@ -52,7 +47,7 @@ describe('addReminder confirm dialog', () => {
 
   it('should give up the dialog after CONFIRM_DIALOG_WAIT_S seconds', async () => {
     osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"cancelled"}', stderr: '' });
-    await onDarwin(async (svc) => svc.addReminder({ title: 'Call the bank' }));
+    await withReminders(async (svc) => svc.addReminder({ title: 'Call the bank' }));
     const script = osascriptImpl.mock.calls[0]?.[1][1] ?? '';
     expect(/giving up after (\d+)/.exec(script)?.[1]).toBe(String(CONFIRM_DIALOG_WAIT_S));
   });
@@ -62,7 +57,7 @@ describe('addReminder due date', () => {
   it('should be due on 28 February when the script runs on 31 January', async () => {
     // Setting month 2 on 31 January lands on 3 March before the day is set.
     osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"added"}', stderr: '' });
-    await onDarwin(async (svc) =>
+    await withReminders(async (svc) =>
       svc.addReminder(
         { title: 'File VAT return', dueDate: '2026-02-28T09:30:00' },
         { confirm: false },
@@ -84,7 +79,7 @@ describe('addReminder script', () => {
 
   async function addScript(): Promise<string> {
     osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"added"}', stderr: '' });
-    await onDarwin(async (svc) => svc.addReminder(invoice, { confirm: false }));
+    await withReminders(async (svc) => svc.addReminder(invoice, { confirm: false }));
     return osascriptImpl.mock.calls[0]?.[1][1] ?? '';
   }
 
@@ -119,7 +114,9 @@ describe('addReminder failures', () => {
         stderr,
       }),
     );
-    return onDarwin(async (svc) => svc.addReminder({ title: 'Call the bank' }, { confirm: false }));
+    return withReminders(async (svc) =>
+      svc.addReminder({ title: 'Call the bank' }, { confirm: false }),
+    );
   }
 
   it('should report an add the user cancelled (-128) as cancelled', async () => {
@@ -148,7 +145,7 @@ describe('addReminder priority and notes', () => {
     notes?: string;
   }): Promise<string> {
     osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"cancelled"}', stderr: '' });
-    await onDarwin(async (svc) => svc.addReminder({ title: 'Call the bank', ...input }));
+    await withReminders(async (svc) => svc.addReminder({ title: 'Call the bank', ...input }));
     return osascriptImpl.mock.calls.at(-1)?.[1][1] ?? '';
   }
 

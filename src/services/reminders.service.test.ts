@@ -16,16 +16,11 @@ vi.mock('node:child_process', () => ({
 
 import { delimitUntrusted } from '../safety/untrusted-content.js';
 import { literalAfter } from '../test-support/applescript.js';
+import onDarwin from '../test-support/platform.js';
 import RemindersService from './reminders.service.js';
 
-/** Builds the service while it believes it is on macOS, where osascript is used. */
-async function onDarwin<T>(fn: (svc: RemindersService) => Promise<T>): Promise<T> {
-  const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
-  try {
-    return await fn(new RemindersService());
-  } finally {
-    platform.mockRestore();
-  }
+async function withReminders<T>(fn: (svc: RemindersService) => Promise<T>): Promise<T> {
+  return onDarwin(async () => fn(new RemindersService()));
 }
 
 beforeEach(() => {
@@ -43,7 +38,7 @@ describe('RemindersService osascript results', () => {
         stderr: '',
       }),
     );
-    await expect(onDarwin(async (svc) => svc.listReminders())).rejects.toThrow(
+    await expect(withReminders(async (svc) => svc.listReminders())).rejects.toThrow(
       'osascript timed out after 15 s',
     );
   });
@@ -55,7 +50,7 @@ describe('RemindersService osascript results', () => {
         '[{"id":"x-apple-reminder://R1","title":"Pay \\"Acme\\"\tinvoice","dueDate":"","completed":false,"priority":"high","list":"Work"}]\n',
       stderr: '',
     });
-    const reminders = await onDarwin(async (svc) => svc.listReminders());
+    const reminders = await withReminders(async (svc) => svc.listReminders());
     expect(reminders.map((r) => r.title)).toEqual(['Pay "Acme"\tinvoice']);
   });
 
@@ -70,7 +65,7 @@ describe('RemindersService osascript results', () => {
         },
       ),
     );
-    const result = await onDarwin(async (svc) =>
+    const result = await withReminders(async (svc) =>
       svc.addReminder({ title: 'Renew passport for Jane' }, { confirm: false }),
     );
     expect(result).toEqual({
@@ -86,7 +81,7 @@ describe('RemindersService osascript results', () => {
         '{"status":"added","reminderId":"x-apple-reminder://R2","listName":"Home \\"Q4\\""}\n',
       stderr: '',
     });
-    const result = await onDarwin(async (svc) =>
+    const result = await withReminders(async (svc) =>
       svc.addReminder({ title: 'Call the bank', listName: 'Work' }, { confirm: false }),
     );
     expect(result).toEqual({
@@ -99,7 +94,7 @@ describe('RemindersService osascript results', () => {
 
   it('should report a timed-out dialog as timed_out with a try-again message', async () => {
     osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"timed_out"}\n', stderr: '' });
-    const result = await onDarwin(async (svc) => svc.addReminder({ title: 'Call the bank' }));
+    const result = await withReminders(async (svc) => svc.addReminder({ title: 'Call the bank' }));
     expect(result).toEqual({
       status: 'timed_out',
       message: '⏱️ Dialog timed out — reminder was not added. Try again.',
@@ -107,9 +102,11 @@ describe('RemindersService osascript results', () => {
   });
 
   it('should pass every listed reminder field and the added ids through jsonString', async () => {
-    await onDarwin(async (svc) => svc.listReminders());
+    await withReminders(async (svc) => svc.listReminders());
     osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"added"}', stderr: '' });
-    await onDarwin(async (svc) => svc.addReminder({ title: 'Call the bank' }, { confirm: false }));
+    await withReminders(async (svc) =>
+      svc.addReminder({ title: 'Call the bank' }, { confirm: false }),
+    );
     const listScript = osascriptImpl.mock.calls[0]?.[1][1] ?? '';
     const addScript = osascriptImpl.mock.calls[1]?.[1][1] ?? '';
     expect({
@@ -124,13 +121,13 @@ describe('RemindersService osascript results', () => {
 describe('RemindersService checkPermissions', () => {
   it('should report Reminders access granted when Reminders returns its list count', async () => {
     osascriptImpl.mockResolvedValueOnce({ stdout: '3\n', stderr: '' });
-    const result = await onDarwin(async (svc) => svc.checkPermissions());
+    const result = await withReminders(async (svc) => svc.checkPermissions());
     expect(result).toEqual({ granted: true, platform: 'darwin', instructions: [] });
   });
 
   it('should report Reminders access granted when Reminders has no lists', async () => {
     osascriptImpl.mockResolvedValueOnce({ stdout: '0\n', stderr: '' });
-    const result = await onDarwin(async (svc) => svc.checkPermissions());
+    const result = await withReminders(async (svc) => svc.checkPermissions());
     expect(result.granted).toBe(true);
   });
 
@@ -143,7 +140,7 @@ describe('RemindersService checkPermissions', () => {
           '0:46: execution error: Not authorized to send Apple events to Reminders. (-1743)\n',
       }),
     );
-    const result = await onDarwin(async (svc) => svc.checkPermissions());
+    const result = await withReminders(async (svc) => svc.checkPermissions());
     expect({ granted: result.granted, first: result.instructions[0] }).toEqual({
       granted: false,
       first: 'Reminders access was denied or unavailable.',
@@ -154,7 +151,7 @@ describe('RemindersService checkPermissions', () => {
 describe('listReminders script', () => {
   it('should keep a quoted title and list filter intact in the list_reminders script', async () => {
     const opts = { title: 'Pay "Acme" \\ invoice', listName: 'Home "Q4"' };
-    await onDarwin(async (svc) => svc.listReminders(opts));
+    await withReminders(async (svc) => svc.listReminders(opts));
     const script = osascriptImpl.mock.calls[0]?.[1][1] ?? '';
     expect({
       title: literalAfter(script, 'set titleFilter to '),
@@ -165,7 +162,7 @@ describe('listReminders script', () => {
 
 describe('listReminders defaults', () => {
   it('should list 20 incomplete reminders by default', async () => {
-    await onDarwin(async (svc) => svc.listReminders());
+    await withReminders(async (svc) => svc.listReminders());
     const script = osascriptImpl.mock.calls[0]?.[1][1] ?? '';
     expect(
       script.split('\n').filter((line) => /^set (maxResults|includeCompleted) to /.test(line)),
