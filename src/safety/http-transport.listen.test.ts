@@ -1,6 +1,7 @@
 import { TOKEN } from '../test-support/http-transport-harness.js';
 import {
   DEFAULT_HTTP_BODY_LIMIT_BYTES,
+  formatHttpListenLines,
   readHttpLaunchOptions,
   resolveHttpListen,
   resolveHttpRoute,
@@ -232,5 +233,24 @@ describe('resolveHttpRoute', () => {
 
   it.each(['PUT', undefined])('should refuse method %s on /mcp', (method) => {
     expect(resolveHttpRoute(method, '/mcp')).toBe('method');
+  });
+});
+
+describe('formatHttpListenLines', () => {
+  // "::1:8080" is not an address a client can open; the URL form needs brackets.
+  it('should print three lines per address and bracket an IPv6 address', () => {
+    const addresses = [
+      { address: '127.0.0.1', port: 8080 },
+      { address: '::1', port: 8080 },
+    ];
+
+    expect(formatHttpListenLines(addresses).split('\n')).toEqual([
+      'mailoo HTTP server listening on 127.0.0.1:8080',
+      '  Endpoint : http://127.0.0.1:8080/mcp',
+      '  Health   : http://127.0.0.1:8080/health',
+      'mailoo HTTP server listening on [::1]:8080',
+      '  Endpoint : http://[::1]:8080/mcp',
+      '  Health   : http://[::1]:8080/health',
+    ]);
   });
 });
