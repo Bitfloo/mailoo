@@ -222,6 +222,27 @@ describe('scheduler install commands', () => {
     });
   });
 
+  it('should write the plist for this node binary and CLI script and load it on darwin', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-launchd-'));
+    try {
+      const plistPath = path.join(dir, 'LaunchAgents', 'agent.plist');
+      const { run, calls } = recordRunner();
+      const { lines, print } = lineSink();
+      await runInstall('darwin', run, print, plistPath);
+      expect({ plist: await fs.readFile(plistPath, 'utf8'), calls, lines }).toEqual({
+        plist: buildLaunchdPlist(process.execPath, process.argv[1] ?? 'mailoo'),
+        calls: [{ file: 'launchctl', args: ['load', plistPath], input: undefined }],
+        lines: [
+          '✅ Installed macOS launchd scheduler',
+          `   Plist: ${plistPath}`,
+          `   Runs every ${CHECK_INTERVAL_SECONDS} seconds`,
+        ],
+      });
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('should install nothing on an unsupported platform', async () => {
     const { run, calls } = recordRunner();
     const { lines, print } = lineSink();

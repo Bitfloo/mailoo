@@ -164,20 +164,24 @@ export async function runList(
   });
 }
 
-/** `mailoo scheduler install`. A test passes the platform, a command runner and a line sink. */
+/**
+ * `mailoo scheduler install`. A test passes the platform, a command runner, a line sink
+ * and a temp plist path.
+ */
 export async function runInstall(
   platform: NodeJS.Platform = os.platform(),
   run: CommandRunner = runCommandFile,
   print: (line: string) => void = console.log,
+  plistPath: string = LAUNCHD_PLIST,
 ): Promise<void> {
   const execPath = getExecutablePath();
 
   if (platform === 'darwin') {
     // macOS: launchd plist
-    await loadLaunchAgent(LAUNCHD_PLIST, buildLaunchdPlist(process.execPath, execPath), run);
+    await loadLaunchAgent(plistPath, buildLaunchdPlist(process.execPath, execPath), run);
 
     print('✅ Installed macOS launchd scheduler');
-    print(`   Plist: ${LAUNCHD_PLIST}`);
+    print(`   Plist: ${plistPath}`);
     print(`   Runs every ${CHECK_INTERVAL_SECONDS} seconds`);
   } else if (platform === 'linux') {
     // Linux: crontab
