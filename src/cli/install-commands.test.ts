@@ -8,12 +8,13 @@ import { permissionBits } from '../test-support/config-sandbox.js';
 import runInstallCommand from './install-commands.js';
 
 // The terminal UI is the only boundary replaced: answers pick Cursor and npx.
+// Clack reports Ctrl-C as a symbol, which isCancel recognises.
 vi.mock('@clack/prompts', () => ({
   intro: vi.fn(),
   outro: vi.fn(),
   note: vi.fn(),
   cancel: vi.fn(),
-  isCancel: () => false,
+  isCancel: (value: unknown) => typeof value === 'symbol',
   confirm: vi.fn(async () => true),
   multiselect: vi.fn(async () => ['cursor']),
   select: vi.fn(async () => 'npx'),
@@ -239,14 +240,21 @@ describe('mailoo install', () => {
     expect(JSON.parse(await fs.readFile(cursorConfig, 'utf-8'))).toEqual({});
   });
 
-  it('should leave the client config byte-identical when the remove confirmation is declined', async () => {
-    await fs.writeFile(cursorConfig, CURSOR_CONFIG_REGISTERED);
-    vi.mocked(confirm).mockResolvedValueOnce(false);
+  it.each([
+    ['declined', false],
+    ['cancelled with Ctrl-C', Symbol('clack:cancel')],
+  ])(
+    'should leave the client config byte-identical when the remove confirmation is %s',
+    async (_, reply) => {
+      await fs.writeFile(cursorConfig, CURSOR_CONFIG_REGISTERED);
+      // The real cancel value is clack's own unique symbol; the mock checks any symbol.
+      vi.mocked(confirm).mockResolvedValueOnce(reply as Awaited<ReturnType<typeof confirm>>);
 
-    await runInstallCommand('remove');
+      await runInstallCommand('remove');
 
-    expect(await fs.readFile(cursorConfig, 'utf-8')).toBe(CURSOR_CONFIG_REGISTERED);
-  });
+      expect(await fs.readFile(cursorConfig, 'utf-8')).toBe(CURSOR_CONFIG_REGISTERED);
+    },
+  );
 
   // Read as {}, an unparseable file looked like "nothing registered" and the
   // command ended quietly instead of saying the file needs fixing.

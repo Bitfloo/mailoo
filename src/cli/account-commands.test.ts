@@ -26,21 +26,22 @@ const ANSWERS: Record<string, string | boolean> = {
 };
 
 /** Answers one test sets in place of the ones above; cleared after each test. */
-const OVERRIDES = new Map<string, string | boolean>();
+const OVERRIDES = new Map<string, string | boolean | symbol>();
 
-function answer({ message }: { message: string }): string | boolean {
+function answer({ message }: { message: string }): string | boolean | symbol {
   const value = OVERRIDES.get(message) ?? ANSWERS[message];
   if (value === undefined) throw new Error(`unexpected prompt: ${message}`);
   return value;
 }
 
 // The terminal UI and the network probe are the only boundaries replaced.
+// Clack reports Ctrl-C as a symbol, which isCancel recognises.
 vi.mock('@clack/prompts', () => ({
   intro: vi.fn(),
   outro: vi.fn(),
   note: vi.fn(),
   cancel: vi.fn(),
-  isCancel: () => false,
+  isCancel: (value: unknown) => typeof value === 'symbol',
   text: vi.fn(async (options: { message: string }) => answer(options)),
   password: vi.fn(async (options: { message: string }) => answer(options)),
   confirm: vi.fn(async (options: { message: string }) => answer(options)),
@@ -295,9 +296,12 @@ describe('mailoo account and setup', () => {
     expect(saved.accounts.map((a) => a.name)).toEqual(['work']);
   });
 
-  it('should keep both accounts byte-identical when delete is declined', async () => {
+  it.each([
+    ['declined', false],
+    ['cancelled with Ctrl-C', Symbol('clack:cancel')],
+  ])('should keep both accounts byte-identical when delete is %s', async (_, reply) => {
     await fs.writeFile(configFile, CONFIG_WITH_PERSONAL_AND_WORK, { mode: 0o600 });
-    OVERRIDES.set('Delete account "personal" (me@example.com)? This cannot be undone.', false);
+    OVERRIDES.set('Delete account "personal" (me@example.com)? This cannot be undone.', reply);
     const run = await entryPoint('account delete', 'personal');
 
     await run();
