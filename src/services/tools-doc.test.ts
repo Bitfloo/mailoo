@@ -1,15 +1,18 @@
 import { readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ImapFlow } from 'imapflow';
 
+import { CALENDAR_ATTACHMENTS_DIR, xdg } from '../config/xdg.js';
 import { MAX_MESSAGE_UID } from '../safety/validation.js';
 import { INLINE_MAX_BYTES, SAVE_PATH_MAX_BYTES } from '../tools/attachments.tool.js';
-import { SAVED_ATTACHMENT_MAX_BYTES } from './imap.service.js';
+import { MAX_THREAD_MESSAGES, SAVED_ATTACHMENT_MAX_BYTES } from './imap.service.js';
 import lockMailbox, { MAILBOX_LOCK_TIMEOUT_MS } from './mailbox-lock.js';
+import { MAX_OUTGOING_ATTACHMENT_BYTES } from './outgoing-attachments.js';
 import { PROTECTED_SPECIAL_USE } from './protected-mailboxes.js';
 
-const toolsDoc = join(dirname(fileURLToPath(import.meta.url)), '../../docs/tools.md');
+const docsDir = join(dirname(fileURLToPath(import.meta.url)), '../../docs');
+const toolsDoc = join(docsDir, 'tools.md');
 
 /** The text under one `## ` heading of docs/tools.md, line breaks folded to spaces. */
 async function docSection(heading: string): Promise<string> {
@@ -70,5 +73,28 @@ describe('docs/tools.md', () => {
     const text = await docSection('`download_attachment`');
 
     expect(text).toContain(`Cap is **${SAVE_PATH_MAX_BYTES / 1024 / 1024} MB**`);
+  });
+
+  it('should name the directory calendar attachments are saved in', async () => {
+    const text = await docSection('`download_attachment`');
+    const underDataHome = relative(dirname(xdg.data), CALENDAR_ATTACHMENTS_DIR)
+      .split(sep)
+      .join('/');
+
+    expect(text).toContain(`\`$XDG_DATA_HOME/${underDataHome}/\``);
+  });
+
+  it('should state the size limit of an outgoing attachment', async () => {
+    const text = await docSection('Attachments on send and drafts');
+
+    expect(text).toContain(`at most **${MAX_OUTGOING_ATTACHMENT_BYTES / 1024 / 1024} MB**`);
+  });
+});
+
+describe('docs/performance-roadmap.md', () => {
+  it('should state the get_thread message cap', async () => {
+    const doc = await readFile(join(docsDir, 'performance-roadmap.md'), 'utf-8');
+
+    expect(doc).toContain(`Thread reconstruction capped at ${MAX_THREAD_MESSAGES} messages`);
   });
 });
