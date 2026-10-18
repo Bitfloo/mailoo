@@ -619,8 +619,11 @@ export default class HooksService {
         if (icsContents.length > 0) {
           const events = calSvc.extractFromParts(icsContents);
           if (events.length > 0) {
-            start = new Date(events[0].start);
-            end = new Date(events[0].end);
+            // An invitation without DTSTART has an empty start: keep the mail date.
+            if (events[0].start !== '') {
+              start = new Date(events[0].start);
+              end = new Date(events[0].end);
+            }
             location = events[0].location;
             icsUid = events[0].uid;
           }

@@ -1,3 +1,4 @@
+import CalendarService from '../services/calendar.service.js';
 import type { AddEventResult, AddEventStatus } from '../services/local-calendar.service.js';
 import type { AddReminderResult } from '../services/reminders.service.js';
 import { readAuditEntries } from '../test-support/audit-home.js';
@@ -74,7 +75,8 @@ const ACCESS_DENIED =
 
 interface Fakes {
   email?: Email;
-  addEvent?: () => Promise<AddEventResult>;
+  ics?: string[];
+  addEvent?: (event: { start: Date; end: Date }) => Promise<AddEventResult>;
   addReminder?: () => Promise<AddReminderResult>;
 }
 
@@ -89,10 +91,10 @@ function captureWriteTools(fakes: Fakes): Record<string, Handler> {
     server as never,
     {
       getEmail: async () => fakes.email ?? EMAIL,
-      getCalendarParts: async () => [],
+      getCalendarParts: async () => fakes.ics ?? [],
       saveEmailAttachments: async () => [SAVED_AGENDA],
     } as never,
-    { extractFromParts: () => [] },
+    new CalendarService(),
     { addEvent: fakes.addEvent } as never,
     { addReminder: fakes.addReminder } as never,
   );
@@ -169,6 +171,36 @@ describe('add_to_calendar audit log', () => {
       tool: 'add_to_calendar',
       result: 'error',
       error: 'spawn osascript ENOENT',
+    });
+  });
+});
+
+describe('add_to_calendar event dates', () => {
+  it.each([
+    ['a DTEND only', ['DTEND:20260302T103000Z']],
+    ['neither DTSTART nor DTEND', []],
+  ])('should add the event at the mail date when the invitation has %s', async (_, dates) => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'METHOD:REQUEST',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      'UID:undated-1@example.com',
+      ...dates,
+      'SUMMARY:Quarterly review',
+      'END:VEVENT',
+      'END:VCALENDAR',
+      '',
+    ].join('\r\n');
+    const addEvent = vi.fn().mockResolvedValue({ status: 'added', message: 'done' });
+    const tools = captureWriteTools({ ics: [ics], addEvent });
+
+    await tools.add_to_calendar(CALENDAR_ARGS);
+
+    const event = addEvent.mock.calls[0]?.[0];
+    expect({ start: event?.start, end: event?.end }).toEqual({
+      start: new Date('2026-03-02T09:00:00.000Z'),
+      end: new Date('2026-03-02T10:00:00.000Z'),
     });
   });
 });

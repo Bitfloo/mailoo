@@ -213,8 +213,11 @@ function registerCalendarGroup(
           const events = calendarService.extractFromParts(icsContents);
           if (events.length > 0) {
             const ev = events[0];
-            eventStart = new Date(ev.start);
-            eventEnd = new Date(ev.end);
+            // An invitation without DTSTART has an empty start: keep the mail date.
+            if (ev.start !== '') {
+              eventStart = new Date(ev.start);
+              eventEnd = new Date(ev.end);
+            }
             eventLocation = ev.location;
             icsUid = ev.uid;
             if (ev.organizer) {

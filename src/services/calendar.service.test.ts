@@ -143,6 +143,11 @@ describe('CalendarService.parseIcs', () => {
     });
   });
 
+  it('should leave start and end empty when the invitation has neither DTSTART nor DTEND', () => {
+    const [event] = CalendarService.parseIcs(invite('UID:undated-1', 'SUMMARY:Planning sync'));
+    expect({ start: event?.start, end: event?.end }).toEqual({ start: '', end: '' });
+  });
+
   it('should strip mailto: from an organizer without parameters', () => {
     const [event] = CalendarService.parseIcs(
       invite(...vevent('org-1', '20261005T080000Z'), 'ORGANIZER:mailto:alice@example.com'),

@@ -119,6 +119,29 @@ describe('HooksService calendar auto-add', () => {
     });
   });
 
+  it.each([
+    ['a DTEND only', '13', ['DTEND:20261005T083000Z']],
+    ['neither DTSTART nor DTEND', '14', []],
+  ])('should add the event at the mail date when the invitation has %s', async (_, id, dates) => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'METHOD:REQUEST',
+      'VERSION:2.0',
+      'BEGIN:VEVENT',
+      `UID:undated-${id}@example.com`,
+      ...dates,
+      'SUMMARY:Planning sync',
+      'END:VEVENT',
+      'END:VCALENDAR',
+      '',
+    ].join('\r\n');
+    await autoAdd(invitation(id), (imap) => imap.getCalendarParts.mockResolvedValue([ics]));
+    expect({ start: added()?.start, end: added()?.end }).toEqual({
+      start: new Date('2026-09-21T00:00:00.000Z'),
+      end: new Date('2026-09-21T01:00:00.000Z'),
+    });
+  });
+
   it('should read the conference details and the notes excerpt from the HTML part of an HTML-only mail', async () => {
     const htmlOnly = {
       ...invitation('9'),

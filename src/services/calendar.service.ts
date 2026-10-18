@@ -37,8 +37,8 @@ export default class CalendarService {
         uid: CalendarService.text(event.uid) ?? '',
         summary: CalendarService.text(event.summary) ?? '(No title)',
         description: CalendarService.text(event.description),
-        start: start ? start.toISOString() : '',
-        end: end ? end.toISOString() : '',
+        start: CalendarService.iso(start),
+        end: CalendarService.iso(end),
         location: CalendarService.text(event.location),
         organizer,
         attendees,
@@ -87,6 +87,11 @@ export default class CalendarService {
     if (typeof value === 'string') return value;
     const val = (value as { val?: unknown } | undefined)?.val;
     return typeof val === 'string' ? val : undefined;
+  }
+
+  /** node-ical gives an invalid `end` when an event has neither DTSTART nor DTEND. */
+  private static iso(date: Date | undefined): string {
+    return date && !Number.isNaN(date.getTime()) ? date.toISOString() : '';
   }
 
   private static parseOrganizer(organizer: unknown): EmailAddress | undefined {
