@@ -1,5 +1,5 @@
 import { meta } from '../test-support/hooks-harness.js';
-import type { HookRule } from '../types/index.js';
+import type { EmailMeta, HookRule } from '../types/index.js';
 import HooksService from './hooks.service.js';
 
 describe('HooksService.matchStaticRules from.address', () => {
@@ -94,5 +94,50 @@ describe('HooksService.matchStaticRules conditions', () => {
       [{ name: 'anyone', match: { to: '*' }, actions: {} }],
     );
     expect(outcome.matched).toBe(false);
+  });
+});
+
+describe('HooksService.matchStaticRules patterns', () => {
+  type Row = [string, HookRule['match'], Partial<EmailMeta>];
+
+  function matches(match: HookRule['match'], overrides: Partial<EmailMeta>): boolean {
+    return HooksService.matchStaticRules(
+      { account: 'personal', mailbox: 'INBOX', meta: meta(overrides) },
+      [{ name: 'rule', match, actions: {} }],
+    ).matched;
+  }
+
+  const sender = (address: string): Partial<EmailMeta> => ({ from: { address } });
+
+  it.each<Row>([
+    ['one of several | alternatives', { from: 'ceo@example.com|alice@example.com' }, {}],
+    ['alternatives with spaces around them', { from: ' ceo@example.com | alice@example.com ' }, {}],
+    ['the address written in another case', { from: 'ALICE@Example.COM' }, {}],
+    [
+      'a plus-addressed sender taken literally',
+      { from: 'alice+news@example.com' },
+      sender('alice+news@example.com'),
+    ],
+    ['a subject pattern', { subject: 'Invoice*' }, { subject: 'Invoice 42' }],
+  ])('should match %s', (_case, match, overrides) => {
+    expect(matches(match, overrides)).toBe(true);
+  });
+
+  it.each<Row>([
+    ['a pattern that is only the end of the address', { from: 'example.com' }, {}],
+    ['a pattern that is only the start of the address', { from: 'alice@example' }, {}],
+    [
+      'a dot in the pattern against another character',
+      { from: 'alice@example.com' },
+      sender('alice@exampleXcom'),
+    ],
+    [
+      'a plus read as a regex quantifier',
+      { from: 'alice+news@example.com' },
+      sender('alicenews@example.com'),
+    ],
+    ['a different subject', { subject: 'Invoice*' }, { subject: 'Re: lunch' }],
+  ])('should not match %s', (_case, match, overrides) => {
+    expect(matches(match, overrides)).toBe(false);
   });
 });
