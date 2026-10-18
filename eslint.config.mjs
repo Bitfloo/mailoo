@@ -70,8 +70,10 @@ export default defineConfig([
   },
   {
     name: 'test/relaxed-rules',
-    files: ['src/**/*.test.ts'],
+    files: ['src/**/*.test.ts', 'src/test-support/**/*.ts'],
     rules: {
+      // Fixture builders return inferred shapes that their suites edit in place.
+      '@typescript-eslint/explicit-module-boundary-types': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unsafe-argument': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',
