@@ -7,36 +7,18 @@ import { parse } from 'yaml';
 import { repoRoot } from './agents/agent-file.js';
 import { runStep, workflowDir } from './workflow-yaml.js';
 
-function goreleaserImage(yaml: string, id: string): string {
-  const match = yaml.match(new RegExp(`- id: ${id}\\n[\\s\\S]*?(?=\\n  - id: |\\nrelease:)`));
-  if (!match) {
-    throw new Error(`missing goreleaser image ${id}`);
-  }
-  return match[0];
+interface GoreleaserImage {
+  id: string;
+  dockerfile: string;
+  platforms: string[];
+  tags: string[];
 }
 
-function yamlList(section: string, key: string): string[] {
-  const match = section.match(new RegExp(`\\n {4}${key}:\\n((?: {6}- .+\\n)+)`));
-  if (!match) {
-    throw new Error(`missing ${key}`);
+const goreleaserImages = (
+  parse(readFileSync(join(repoRoot, '.goreleaser.yaml'), 'utf8')) as {
+    dockers_v2: GoreleaserImage[];
   }
-  return match[1]
-    .trimEnd()
-    .split('\n')
-    .map((line) => {
-      const raw = line.replace(/^\s*- /, '');
-      return raw.startsWith('"') ? raw.slice(1, -1) : raw;
-    });
-}
-
-function yamlScalar(section: string, key: string): string {
-  const match = section.match(new RegExp(`\\n {4}${key}: (\\S+)`));
-  if (!match) {
-    throw new Error(`missing ${key}`);
-  }
-  const raw = match[1];
-  return raw.startsWith('"') ? raw.slice(1, -1) : raw;
-}
+).dockers_v2;
 
 /** Shell fragment in docker-rebuild.yml for one GoReleaser tag template. sha-* is release-only. */
 // biome-ignore-start lint/suspicious/noTemplateCurlyInString: values are shell fragments from docker-rebuild.yml, not JS templates
@@ -170,13 +152,15 @@ describe('docker rebuild images', () => {
   });
 
   it('should use the GoReleaser tag names, Dockerfiles and architectures', () => {
-    const goreleaser = readFileSync(join(repoRoot, '.goreleaser.yaml'), 'utf8');
     const workflow = readFileSync(join(workflowDir, 'docker-rebuild.yml'), 'utf8');
     for (const id of ['mailoo-debian', 'mailoo-alpine']) {
-      const image = goreleaserImage(goreleaser, id);
-      expect(workflow, id).toContain(`file: ${yamlScalar(image, 'dockerfile')}\n`);
-      expect(yamlList(image, 'platforms')).toEqual(['linux/amd64', 'linux/arm64']);
-      for (const template of yamlList(image, 'tags')) {
+      const image = goreleaserImages.find((entry) => entry.id === id);
+      if (!image) {
+        throw new Error(`missing goreleaser image ${id}`);
+      }
+      expect(workflow, id).toContain(`file: ${image.dockerfile}\n`);
+      expect(image.platforms).toEqual(['linux/amd64', 'linux/arm64']);
+      for (const template of image.tags) {
         if (template.includes('ShortCommit')) {
           expect(workflow).not.toContain('sha-${{');
           continue;
