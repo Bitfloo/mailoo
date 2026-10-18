@@ -50,6 +50,27 @@ describe('calendar state file', () => {
   it('should read a missing state file as no processed emails', async () => {
     expect(await isCalendarProcessed('personal', '1')).toBe(false);
   });
+
+  // The file outlives the process. A changed key would let the hooks add every calendar event again.
+  it('should store an entry under the account with spaces as one underscore, with its action and title', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
+    try {
+      await markCalendarProcessed('Work  Account', '7', 'both', 'Lunch');
+    } finally {
+      vi.useRealTimers();
+    }
+    const saved = JSON.parse(await fs.readFile(CALENDAR_STATE_FILE, 'utf8')) as unknown;
+    expect(saved).toEqual({
+      processedEmails: {
+        Work_Account__7: {
+          processedAt: '2028-01-15T00:00:00.000Z',
+          action: 'both',
+          title: 'Lunch',
+        },
+      },
+    });
+  });
 });
 
 /**
