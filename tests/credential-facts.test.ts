@@ -56,9 +56,9 @@ describe('server.json credential requirement', () => {
     );
   });
 
-  it('should say that the OAuth2 provider replaces the password and needs the three OAuth2 values', () => {
+  it('should say that the OAuth2 provider takes precedence over the password, which stays as a fallback', () => {
     expect(envVar('MCP_EMAIL_OAUTH2_PROVIDER').description).toBe(
-      'OAuth2 provider: google, microsoft, or custom. Replaces MCP_EMAIL_PASSWORD; the OAuth2 client id, client secret, and refresh token are then required.',
+      'OAuth2 provider: google, microsoft, or custom. Takes precedence over MCP_EMAIL_PASSWORD, which is then used only as a fallback; the OAuth2 client id, client secret, and refresh token are then required.',
     );
   });
 
@@ -187,7 +187,8 @@ describe('MCP_EMAIL_* OAuth2 account from the environment', () => {
     expect(config.accounts[0]?.password).toBeUndefined();
   });
 
-  it('should keep OAuth2 when a password is set beside the provider, since the provider replaces it', async () => {
+  // The connection manager uses OAuth2 when it can get a token and falls back to the password otherwise.
+  it('should keep OAuth2 when a password is set beside the provider, since OAuth2 takes precedence', async () => {
     vi.stubEnv('MCP_EMAIL_PASSWORD', 'app-password');
     const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
     expect(config.accounts[0]?.oauth2?.provider).toBe('google');
@@ -202,6 +203,18 @@ describe('MCP_EMAIL_* OAuth2 account from the environment', () => {
     vi.stubEnv('MCP_EMAIL_OAUTH2_REFRESH_TOKEN', undefined);
     const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
     expect(config.accounts[0]?.oauth2).toBeUndefined();
+  });
+
+  it('should keep a password set beside the provider as given, for the fallback', async () => {
+    vi.stubEnv('MCP_EMAIL_PASSWORD', 'app-password');
+    const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
+    expect(config.accounts[0]?.password).toBe('app-password');
+  });
+
+  it('should keep an empty password set beside the provider as given', async () => {
+    vi.stubEnv('MCP_EMAIL_PASSWORD', '');
+    const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
+    expect(config.accounts[0]?.password).toBe('');
   });
 
   it('should load the account when the password variable is set but empty', async () => {

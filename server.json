@@ -152,7 +152,7 @@
         },
         {
           "name": "MCP_EMAIL_OAUTH2_PROVIDER",
-          "description": "OAuth2 provider: google, microsoft, or custom. Replaces MCP_EMAIL_PASSWORD; the OAuth2 client id, client secret, and refresh token are then required.",
+          "description": "OAuth2 provider: google, microsoft, or custom. Takes precedence over MCP_EMAIL_PASSWORD, which is then used only as a fallback; the OAuth2 client id, client secret, and refresh token are then required.",
           "isRequired": false,
           "isSecret": false
         },
