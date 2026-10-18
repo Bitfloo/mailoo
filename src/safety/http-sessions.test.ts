@@ -102,6 +102,7 @@ function checkInvariants(run: Run, step: Step, at: number): string[] {
 describe('HttpSessionStore', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it('evicts the oldest idle session when over max', () => {
@@ -159,6 +160,36 @@ describe('HttpSessionStore', () => {
     store.evict();
     const atTtl = store.get('a');
     now = 1_001;
+    store.evict();
+
+    expect({ atTtl, afterTtl: store.get('a') }).toEqual({ atTtl: a, afterTtl: undefined });
+  });
+
+  it('should hold 32 sessions by default and evict the oldest idle one for the 33rd', () => {
+    vi.useFakeTimers({ now: 0 });
+    const store = new HttpSessionStore<SessionTransport>();
+    Array.from({ length: 33 }).forEach((_, i) => {
+      store.set(`s${i}`, fakeTransport());
+      vi.advanceTimersByTime(1);
+    });
+
+    expect({
+      size: store.size,
+      oldest: store.get('s0'),
+      kept: store.get('s1') !== undefined,
+    }).toEqual({ size: 32, oldest: undefined, kept: true });
+  });
+
+  it('should keep a session idle for 30 minutes by default and evict it one millisecond later', () => {
+    vi.useFakeTimers({ now: 0 });
+    const store = new HttpSessionStore<SessionTransport>();
+    const a = fakeTransport();
+    store.set('a', a);
+
+    vi.advanceTimersByTime(30 * 60_000);
+    store.evict();
+    const atTtl = store.get('a');
+    vi.advanceTimersByTime(1);
     store.evict();
 
     expect({ atTtl, afterTtl: store.get('a') }).toEqual({ atTtl: a, afterTtl: undefined });
