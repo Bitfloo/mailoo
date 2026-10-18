@@ -276,7 +276,7 @@ export function applyBodyFormatWithDefaultCap(
   }
   const formatted = applyBodyFormat(bodyText, bodyHtml, format);
   if (formatted.length > DEFAULT_BODY_MAX_LENGTH) {
-    return `${formatted.slice(0, DEFAULT_BODY_MAX_LENGTH)}\n\n[Truncated at ${DEFAULT_BODY_MAX_LENGTH} characters — pass a larger maxLength or format="full" for the complete body]`;
+    return `${formatted.slice(0, DEFAULT_BODY_MAX_LENGTH)}\n\n[Truncated at ${DEFAULT_BODY_MAX_LENGTH} characters — pass a larger maxLength for the complete body]`;
   }
   return formatted;
 }
