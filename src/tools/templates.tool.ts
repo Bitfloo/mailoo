@@ -8,10 +8,12 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { TEMPLATES_DIR } from '../config/xdg.js';
 import audit from '../safety/audit.js';
+import { recipientEmail } from '../safety/validation.js';
 
 import type ImapService from '../services/imap.service.js';
 import type SmtpService from '../services/smtp.service.js';
 import type TemplateService from '../services/template.service.js';
+import { accountParam } from './schema-helpers.js';
 
 export function registerTemplateReadTools(
   server: McpServer,
@@ -87,7 +89,7 @@ export function registerTemplateWriteTools(
       description:
         'Apply an email template with variable substitution. Use action "preview" to see the result, "draft" to save as draft, or "send" to send immediately.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
+        account: accountParam,
         template: z.string().describe('Template name from list_templates'),
         variables: z
           .record(z.string(), z.string())
@@ -97,9 +99,17 @@ export function registerTemplateWriteTools(
           .default('preview')
           .describe('What to do with the composed email'),
         to: z
-          .array(z.string())
+          .array(recipientEmail)
           .optional()
           .describe('Recipient addresses (required for send, optional for draft)'),
+        cc: z
+          .array(recipientEmail)
+          .optional()
+          .describe('CC recipient addresses (optional for draft or send)'),
+        bcc: z
+          .array(recipientEmail)
+          .optional()
+          .describe('BCC recipient addresses (optional for draft or send)'),
       },
       annotations: {
         readOnlyHint: false,
@@ -108,7 +118,8 @@ export function registerTemplateWriteTools(
         openWorldHint: true,
       },
     },
-    async ({ account, template, variables, action, to }) => {
+    async ({ account, template, variables, action, to, cc, bcc }) => {
+      const accountInput = account ?? '';
       try {
         const composed = await templateService.applyTemplate(template, variables);
 
@@ -124,15 +135,17 @@ export function registerTemplateWriteTools(
         }
 
         if (action === 'draft') {
-          const draftResult = await imapService.saveDraft(account, {
+          const draftResult = await imapService.saveDraft(accountInput, {
             to: to ?? [],
+            ...(cc ? { cc } : {}),
+            ...(bcc ? { bcc } : {}),
             subject: composed.subject,
             body: composed.body,
           });
 
           await audit.log(
             'apply_template',
-            account,
+            accountInput,
             {
               template,
               action: 'draft',
@@ -163,15 +176,17 @@ export function registerTemplateWriteTools(
           };
         }
 
-        const sendResult = await smtpService.sendEmail(account, {
+        const sendResult = await smtpService.sendEmail(accountInput, {
           to,
+          ...(cc ? { cc } : {}),
+          ...(bcc ? { bcc } : {}),
           subject: composed.subject,
           body: composed.body,
         });
 
         await audit.log(
           'apply_template',
-          account,
+          accountInput,
           {
             template,
             action: 'send',

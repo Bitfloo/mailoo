@@ -86,25 +86,68 @@ export default class ConnectionManager implements IConnectionManager {
 
   private oauthService?: OAuthService;
 
-  constructor(accounts: AccountConfig[], oauthService?: OAuthService) {
+  private defaultAccount?: string;
+
+  constructor(accounts: AccountConfig[], oauthService?: OAuthService, defaultAccount?: string) {
     accounts.forEach((account) => {
       this.accounts.set(account.name, account);
     });
     this.oauthService = oauthService;
+    this.defaultAccount = defaultAccount;
   }
 
   // -------------------------------------------------------------------------
   // Account lookup
   // -------------------------------------------------------------------------
 
-  getAccount(name: string): AccountConfig {
-    const account = this.accounts.get(name);
-    if (!account) {
+  private findAccountByKey(key: string): AccountConfig | undefined {
+    const exact = this.accounts.get(key);
+    if (exact) return exact;
+    const lower = key.toLowerCase();
+    const values = [...this.accounts.values()];
+    const byName = values.find((account) => account.name.toLowerCase() === lower);
+    if (byName) return byName;
+    return values.find((account) => account.email.toLowerCase() === lower);
+  }
+
+  private formatAvailableAccounts(): string {
+    if (this.accounts.size === 0) return 'none';
+    return [...this.accounts.values()].map((a) => `${a.name} (${a.email})`).join(', ');
+  }
+
+  getAccount(name?: string): AccountConfig {
+    const trimmed = name?.trim() ?? '';
+    if (trimmed.length > 0) {
+      const direct = this.findAccountByKey(trimmed);
+      if (direct) return direct;
+      if (trimmed.toLowerCase() !== 'default') {
+        throw new Error(
+          `Account "${trimmed}" not found. Available accounts: ${this.formatAvailableAccounts()}`,
+        );
+      }
+    }
+
+    const configuredDefault = this.defaultAccount?.trim();
+    if (configuredDefault) {
+      const fromDefault = this.findAccountByKey(configuredDefault);
+      if (fromDefault) return fromDefault;
       throw new Error(
-        `Account "${name}" not found. Available: ${[...this.accounts.keys()].join(', ')}`,
+        `Configured default account not found. Available accounts: ${this.formatAvailableAccounts()}`,
       );
     }
-    return account;
+
+    if (this.accounts.size === 1) {
+      const [onlyAccount] = this.accounts.values();
+      if (onlyAccount) return onlyAccount;
+    }
+
+    throw new Error(
+      `Account "${trimmed}" not found. Available accounts: ${this.formatAvailableAccounts()}`,
+    );
+  }
+
+  resolveAccountName(name?: string): string {
+    return this.getAccount(name).name;
   }
 
   getAccountNames(): string[] {
@@ -115,23 +158,23 @@ export default class ConnectionManager implements IConnectionManager {
   // IMAP
   // -------------------------------------------------------------------------
 
-  async getImapClient(accountName: string): Promise<ImapFlow> {
-    const existing = this.imapClients.get(accountName);
+  async getImapClient(accountName?: string): Promise<ImapFlow> {
+    const account = this.getAccount(accountName);
+    const resolvedName = account.name;
+    const existing = this.imapClients.get(resolvedName);
     if (existing?.usable) {
       return existing;
     }
 
     // Clean up stale connection
     if (existing) {
-      this.imapClients.delete(accountName);
+      this.imapClients.delete(resolvedName);
       try {
         existing.close();
       } catch {
         /* ignore */
       }
     }
-
-    const account = this.getAccount(accountName);
 
     // Build auth config based on auth type
     let auth: { user: string; pass?: string; accessToken?: string };
@@ -146,9 +189,9 @@ export default class ConnectionManager implements IConnectionManager {
       ...buildImapFlowOptions(account),
       auth,
     });
-    bindImapLifecycle(accountName, client, () => {
-      if (this.imapClients.get(accountName) === client) {
-        this.imapClients.delete(accountName);
+    bindImapLifecycle(resolvedName, client, () => {
+      if (this.imapClients.get(resolvedName) === client) {
+        this.imapClients.delete(resolvedName);
       }
     });
 
@@ -156,9 +199,9 @@ export default class ConnectionManager implements IConnectionManager {
     await mcpLog(
       'info',
       'imap',
-      `Connected to ${account.imap.host}:${account.imap.port} for "${accountName}"`,
+      `Connected to ${account.imap.host}:${account.imap.port} for "${resolvedName}"`,
     );
-    this.imapClients.set(accountName, client);
+    this.imapClients.set(resolvedName, client);
     return client;
   }
 
@@ -197,11 +240,13 @@ export default class ConnectionManager implements IConnectionManager {
   }
 
   async getSmtpTransport(
-    accountName: string,
+    accountName?: string,
     options?: { verify?: boolean },
   ): Promise<Transporter> {
+    const account = this.getAccount(accountName);
+    const resolvedName = account.name;
     const verify = options?.verify ?? false;
-    const existing = this.smtpTransports.get(accountName);
+    const existing = this.smtpTransports.get(resolvedName);
     if (existing) {
       if (!verify) {
         return existing;
@@ -210,7 +255,7 @@ export default class ConnectionManager implements IConnectionManager {
         await existing.verify();
         return existing;
       } catch {
-        this.smtpTransports.delete(accountName);
+        this.smtpTransports.delete(resolvedName);
         try {
           existing.close();
         } catch {
@@ -218,8 +263,6 @@ export default class ConnectionManager implements IConnectionManager {
         }
       }
     }
-
-    const account = this.getAccount(accountName);
 
     // Build auth config based on auth type
     let auth: SmtpAuth;
@@ -238,13 +281,13 @@ export default class ConnectionManager implements IConnectionManager {
     await mcpLog(
       'info',
       'smtp',
-      `Connected to ${account.smtp.host}:${account.smtp.port} for "${accountName}"`,
+      `Connected to ${account.smtp.host}:${account.smtp.port} for "${resolvedName}"`,
     );
-    this.smtpTransports.set(accountName, transport);
+    this.smtpTransports.set(resolvedName, transport);
     return transport;
   }
 
-  async verifySmtpTransport(accountName: string): Promise<void> {
+  async verifySmtpTransport(accountName?: string): Promise<void> {
     await this.getSmtpTransport(accountName, { verify: true });
   }
 

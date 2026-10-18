@@ -33,6 +33,7 @@ interface ListedTool {
   title?: string;
   description?: string;
   inputSchema: unknown;
+  outputSchema?: unknown;
   annotations?: unknown;
 }
 
@@ -248,6 +249,7 @@ function toContract(live: LiveCatalog): unknown {
         name: tool.name,
         description: tool.description ?? null,
         inputSchema: tool.inputSchema,
+        outputSchema: tool.outputSchema ?? null,
         annotations: tool.annotations ?? null,
       }))
       .sort((left, right) => compareText(left.name, right.name)),
@@ -371,6 +373,13 @@ describe('MCP registration catalog', () => {
         .sort(),
     );
     expect(missingTitles(live.tools)).toEqual([]);
+  });
+
+  it('should expose an outputSchema for every tool declared in src/tools', () => {
+    const missingOutputSchema = live.tools
+      .filter((tool) => !tool.outputSchema)
+      .map((tool) => tool.name);
+    expect(missingOutputSchema).toEqual([]);
   });
 
   it('should expose a human-readable title for every prompt declared in src/prompts', () => {

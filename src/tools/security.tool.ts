@@ -7,6 +7,7 @@ import { z } from 'zod';
 
 import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
+import { accountParam, emailIdInputFields, resolveEmailId } from './schema-helpers.js';
 
 export default function registerSecurityTools(server: McpServer, imapService: ImapService): void {
   server.registerTool(
@@ -17,8 +18,8 @@ export default function registerSecurityTools(server: McpServer, imapService: Im
         'Read-only SPF/DKIM/DMARC and From/Reply-To/Return-Path domain signals for an email. ' +
         'Does not change flags. Does not return unsubscribe or tracking URLs.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
-        emailId: z.string().describe('Email ID (UID) from list_emails or get_email'),
+        account: accountParam,
+        ...emailIdInputFields('Email ID (UID) from list_emails or get_email'),
         mailbox: z.string().default('INBOX').describe('Mailbox containing the email'),
       },
       annotations: {
@@ -28,9 +29,14 @@ export default function registerSecurityTools(server: McpServer, imapService: Im
         openWorldHint: true,
       },
     },
-    async ({ account, emailId, mailbox }) => {
+    async (params) => {
       try {
-        const signals = await imapService.getEmailSecurity(account, emailId, mailbox);
+        const emailId = resolveEmailId(params);
+        const signals = await imapService.getEmailSecurity(
+          params.account ?? '',
+          emailId,
+          params.mailbox,
+        );
         return {
           content: [
             {

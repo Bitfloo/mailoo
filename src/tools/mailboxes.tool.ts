@@ -3,9 +3,9 @@
  */
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
 
 import type ImapService from '../services/imap.service.js';
+import { accountParam } from './schema-helpers.js';
 
 export default function registerMailboxesTools(server: McpServer, imapService: ImapService): void {
   server.registerTool(
@@ -15,7 +15,7 @@ export default function registerMailboxesTools(server: McpServer, imapService: I
       description:
         'List all mailbox folders for an account with unread counts and special-use flags. Use list_accounts first to get the account name.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
+        account: accountParam,
       },
       annotations: {
         readOnlyHint: true,
@@ -26,7 +26,7 @@ export default function registerMailboxesTools(server: McpServer, imapService: I
     },
     async ({ account }) => {
       try {
-        const mailboxes = await imapService.listMailboxes(account);
+        const mailboxes = await imapService.listMailboxes(account ?? '');
 
         const lines = mailboxes.map((mb) => {
           const badge = mb.unseenMessages > 0 ? ` (${mb.unseenMessages} unread)` : '';

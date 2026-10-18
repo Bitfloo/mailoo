@@ -44,26 +44,31 @@ vi.mock('./watcher.tool.js', () => ({
 }));
 
 import registerAccountsTools from './accounts.tool.js';
+import registerAttachmentTools from './attachments.tool.js';
 import registerBulkTools from './bulk.tool.js';
 import { registerCalendarReadTools, registerCalendarWriteTools } from './calendar.tool.js';
 import registerDraftTools from './drafts.tool.js';
 import registerEmailsTools from './emails.tool.js';
 import registerExportTools from './export.tool.js';
 import registerFolderTools from './folders.tool.js';
+import registerHealthTools from './health.tool.js';
 import { registerLabelReadTools, registerLabelWriteTools } from './label.tool.js';
+import registerMailboxesTools from './mailboxes.tool.js';
 import registerManageTools from './manage.tool.js';
 import { registerSchedulerReadTools, registerSchedulerWriteTools } from './scheduler.tool.js';
 import registerSecurityTools from './security.tool.js';
 import registerSendTools from './send.tool.js';
 import { registerSieveReadTools, registerSieveWriteTools } from './sieve.tool.js';
 import { registerTemplateWriteTools } from './templates.tool.js';
+import registerThreadTools from './thread.tool.js';
 import { registerWatcherReadTools, registerWatcherWriteTools } from './watcher.tool.js';
 
-function createConfig(readOnly: boolean): AppConfig {
+function createConfig(readOnly: boolean, toolset: 'full' | 'core' | 'minimal' = 'full'): AppConfig {
   return {
     settings: {
       rateLimit: 10,
       readOnly,
+      toolset,
       saveToSent: true,
       watcher: { enabled: false, folders: ['INBOX'], idleTimeout: 1740 },
       systemOne: {
@@ -188,5 +193,71 @@ describe('registerAllTools', () => {
     expect(registerCalendarWriteTools).not.toHaveBeenCalled();
     expect(registerWatcherWriteTools).not.toHaveBeenCalled();
     expect(registerSieveWriteTools).not.toHaveBeenCalled();
+  });
+
+  it('registers only core email, thread, draft, bulk, attachment, and health modules when toolset is core', () => {
+    registerAllTools(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      createConfig(false, 'core'),
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    expect(registerAccountsTools).toHaveBeenCalled();
+    expect(registerMailboxesTools).toHaveBeenCalled();
+    expect(registerEmailsTools).toHaveBeenCalled();
+    expect(registerThreadTools).toHaveBeenCalled();
+    expect(registerSendTools).toHaveBeenCalled();
+    expect(registerDraftTools).toHaveBeenCalled();
+    expect(registerManageTools).toHaveBeenCalled();
+    expect(registerBulkTools).toHaveBeenCalled();
+    expect(registerAttachmentTools).toHaveBeenCalled();
+    expect(registerHealthTools).toHaveBeenCalled();
+
+    expect(registerExportTools).not.toHaveBeenCalled();
+    expect(registerCalendarReadTools).not.toHaveBeenCalled();
+    expect(registerCalendarWriteTools).not.toHaveBeenCalled();
+    expect(registerSieveReadTools).not.toHaveBeenCalled();
+    expect(registerSieveWriteTools).not.toHaveBeenCalled();
+    expect(registerSchedulerReadTools).not.toHaveBeenCalled();
+    expect(registerSchedulerWriteTools).not.toHaveBeenCalled();
+  });
+
+  it('registers only minimal modules when toolset is minimal', () => {
+    registerAllTools(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      createConfig(false, 'minimal'),
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    expect(registerAccountsTools).toHaveBeenCalled();
+    expect(registerMailboxesTools).toHaveBeenCalled();
+    expect(registerEmailsTools).toHaveBeenCalled();
+    expect(registerSendTools).toHaveBeenCalled();
+    expect(registerManageTools).toHaveBeenCalled();
+    expect(registerHealthTools).toHaveBeenCalled();
+
+    expect(registerThreadTools).not.toHaveBeenCalled();
+    expect(registerDraftTools).not.toHaveBeenCalled();
+    expect(registerBulkTools).not.toHaveBeenCalled();
+    expect(registerAttachmentTools).not.toHaveBeenCalled();
+    expect(registerExportTools).not.toHaveBeenCalled();
   });
 });
