@@ -69,11 +69,11 @@ describe('OAuthService.exchangeCode', () => {
 
   it('should return the access token, refresh token and lifetime the endpoint sent', async () => {
     fakeTokenEndpoint(() =>
-      Response.json({ access_token: 'tok', refresh_token: 'refresh', expires_in: 3600 }),
+      Response.json({ access_token: 'tok', refresh_token: 'refresh', expires_in: 120 }),
     );
     await expect(
       OAuthService.exchangeCode(googleConfig(), 'auth-code', 'http://localhost:3000/cb'),
-    ).resolves.toEqual({ accessToken: 'tok', refreshToken: 'refresh', expiresIn: 3600 });
+    ).resolves.toEqual({ accessToken: 'tok', refreshToken: 'refresh', expiresIn: 120 });
   });
 });
 
@@ -112,4 +112,15 @@ describe('OAuthService.generateAuthUrl', () => {
       });
     },
   );
+
+  it("should put a custom provider's scopes in the consent URL", () => {
+    const oauth2 = googleConfig({
+      provider: 'custom',
+      tokenUrl: 'https://auth.example.com/token',
+      authUrl: 'https://auth.example.com/authorize',
+      scopes: ['mail.read', 'mail.send'],
+    });
+    const url = new URL(OAuthService.generateAuthUrl(oauth2, 'http://localhost:3000/cb'));
+    expect(url.searchParams.get('scope')).toBe('mail.read mail.send');
+  });
 });
