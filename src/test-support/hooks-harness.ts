@@ -93,7 +93,11 @@ export function calendarImap(email: Email | Error): CalendarImap {
 }
 
 /** Awaits flushBatch directly: the batch timer gives no promise to await before the state write. */
-export async function runBatch(service: HooksService, emails: EmailMeta[]): Promise<void> {
-  eventBus.emit('email:new', { account: 'personal', mailbox: 'INBOX', emails });
+export async function runBatch(
+  service: HooksService,
+  emails: EmailMeta[],
+  account = 'personal',
+): Promise<void> {
+  eventBus.emit('email:new', { account, mailbox: 'INBOX', emails });
   await (service as unknown as { flushBatch: () => Promise<void> }).flushBatch();
 }

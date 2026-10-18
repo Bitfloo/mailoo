@@ -1,5 +1,7 @@
 import { rm } from 'node:fs/promises';
+import path from 'node:path';
 import type { MockInstance } from 'vitest';
+import { CALENDAR_ATTACHMENTS_DIR } from '../config/xdg.js';
 import {
   calendarImap,
   hooksConfig,
@@ -61,6 +63,22 @@ const INVITE_ICS = [
   'END:VCALENDAR',
   '',
 ].join('\r\n');
+
+/** The text part of a Zoom invitation as Zoom writes it. */
+const ZOOM_TEXT = [
+  'Alice is inviting you to a scheduled Zoom meeting.',
+  '',
+  'Join Zoom Meeting',
+  'https://example.zoom.us/j/8812345678?pwd=abc',
+  '',
+  'Meeting ID: 881 2345 678',
+  'Passcode: 9921',
+  '',
+  'Dial by your location',
+  '        +1 555 010 0199 US',
+].join('\n');
+
+const AGENDA = { filename: 'agenda.pdf', mimeType: 'application/pdf', size: 2048 };
 
 describe('HooksService calendar add arguments', () => {
   let hooks: HooksService | undefined;
@@ -183,5 +201,73 @@ describe('HooksService calendar add arguments', () => {
     };
     const args = await addArgs({ ...invitation('159'), attachments: [agenda] }, { saved: [saved] });
     expect(args?.[0].savedAttachments).toEqual([saved]);
+  });
+
+  it('should pass the meeting link and its provider label found in the HTML part', async () => {
+    const email = {
+      ...invitation('180'),
+      bodyText: '',
+      bodyHtml:
+        '<p><a href="https://example.zoom.us/j/8812345678?pwd=abc">Join Zoom Meeting</a></p>',
+    };
+    const args = await addArgs(email);
+    expect({ url: args?.[0].url, urlLabel: args?.[0].urlLabel }).toEqual({
+      url: 'https://example.zoom.us/j/8812345678?pwd=abc',
+      urlLabel: 'Zoom',
+    });
+  });
+
+  it('should pass the dial-in, meeting ID and passcode from the text part', async () => {
+    // With both parts present only the text part is read; this HTML part names another meeting.
+    const email = {
+      ...invitation('181'),
+      bodyText: ZOOM_TEXT,
+      bodyHtml: '<p>Meeting ID: 999 0000 111</p><p>Passcode: 1234</p>',
+    };
+    const args = await addArgs(email);
+    expect({
+      dialIn: args?.[0].dialIn,
+      meetingId: args?.[0].meetingId,
+      passcode: args?.[0].passcode,
+    }).toEqual({ dialIn: '+1 555 010 0199', meetingId: '881 2345 678', passcode: '9921' });
+  });
+
+  it('should name the sender by display name and address in the notes', async () => {
+    const args = await addArgs(invitation('182'));
+    expect(args?.[0].notes?.split('\n')[0]).toBe('\u{1F4E7} From: Alice <alice@example.com>');
+  });
+
+  it('should take the notes excerpt from the text part when the mail has both', async () => {
+    const args = await addArgs({ ...invitation('183'), bodyHtml: '<p>Agenda in HTML</p>' });
+    const notes = args?.[0].notes ?? '';
+    expect(notes.slice(notes.indexOf('\u{1F4DD}'))).toBe(
+      '\u{1F4DD} Details:\nJoin us Monday at 10:00. https://meet.example.com/abc-defg-hij',
+    );
+  });
+
+  it('should set no alarm when calendar_alarm_minutes is 0', async () => {
+    const args = await addArgs(invitation('184'), { config: { calendarAlarmMinutes: 0 } });
+    expect(args?.[0].alarmMinutes).toBe(0);
+  });
+
+  it('should not save attachments when the email has none', async () => {
+    const saved = { ...AGENDA, localPath: '/tmp/agenda.pdf', fileUrl: 'file:///tmp/agenda.pdf' };
+    const args = await addArgs(invitation('185'), { saved: [saved] });
+    expect(args?.[0].savedAttachments).toEqual([]);
+  });
+
+  it('should save attachments in a folder named after the account and id, unsafe characters replaced', async () => {
+    const imap = calendarImap({ ...invitation('8'), attachments: [AGENDA] });
+    hooks = new HooksService(
+      hooksConfig({ batchDelay: 3600, rules: [inviteRule] }),
+      imap as unknown as ImapService,
+    );
+    hooks.start({} as never, { sampling: false });
+
+    await runBatch(hooks, [meta({ id: '8' })], 'a/b..');
+
+    expect(imap.saveEmailAttachments.mock.calls[0]?.[3]).toBe(
+      path.join(CALENDAR_ATTACHMENTS_DIR, 'a_b__-8'),
+    );
   });
 });
