@@ -1,7 +1,16 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { repoRoot } from './agents/agent-file.js';
 import { type Harness, harnessedStep, runBlock, runStep, stepEnv } from './workflow-yaml.js';
 
 export const mcpHarness: Harness = {
@@ -127,28 +136,45 @@ export function install(hash: 'checked' | 'shimmed'): {
   }
 }
 
+interface ServerJson {
+  version: string;
+  packages: { version: string }[];
+}
+
 /**
- * Run the server.json stamp step with a stamp script that prints the version it is handed, or one
- * that refuses it and exits 1.
+ * Run the server.json stamp step through copies of the real stamp scripts, on the repository's
+ * server.json with every version set to 0.0.0. Return the exit status and the version, then each
+ * packages[].version, the step leaves in server.json.
  */
 export function stamp(
   ref: string,
   inputVersion: string,
-  stampScript: 'prints' | 'refuses' = 'prints',
-): { status: number | null; stdout: string } {
+): { status: number | null; versions: string[] } {
   const temp = mkdtempSync(join(tmpdir(), 'mailoo-server-json-step-'));
   try {
     mkdirSync(join(temp, 'scripts'));
-    writeFileSync(
-      join(temp, 'scripts/bump-server-json-version.sh'),
-      stampScript === 'prints' ? 'printf "%s\\n" "$1"\n' : 'echo "refused $1" >&2\nexit 1\n',
-    );
-    const { status, stdout } = runStep(runBlock(stampStep), temp, {
-      PATH: process.env.PATH,
+    for (const name of ['bump-server-json-version.sh', 'release-version.sh']) {
+      copyFileSync(join(repoRoot, 'scripts', name), join(temp, 'scripts', name));
+    }
+    const server = JSON.parse(readFileSync(join(repoRoot, 'server.json'), 'utf8')) as ServerJson;
+    server.version = '0.0.0';
+    for (const entry of server.packages) {
+      entry.version = '0.0.0';
+    }
+    writeFileSync(join(temp, 'server.json'), JSON.stringify(server));
+    mkdirSync(join(temp, 'bin'));
+    // ubuntu-latest runs sh as dash, which has neither source nor [[, so the shim does the same.
+    script(join(temp, 'bin/sh'), ['exec dash "$@"']);
+    const { status } = runStep(runBlock(stampStep), temp, {
+      PATH: `${join(temp, 'bin')}:${process.env.PATH}`,
       GITHUB_REF: ref,
       ...stepEnv(stampStep, { 'inputs.version': inputVersion }),
     });
-    return { status, stdout };
+    const stamped = JSON.parse(readFileSync(join(temp, 'server.json'), 'utf8')) as ServerJson;
+    return {
+      status,
+      versions: [stamped.version, ...stamped.packages.map((entry) => entry.version)],
+    };
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }

@@ -19,7 +19,7 @@ import {
   workflowTexts,
 } from './workflow-yaml.js';
 
-requireTools(['bash']);
+requireTools(['bash', 'dash', 'dirname', 'jq', 'mv']);
 
 const ciYml = readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8');
 const dockerSha = readFileSync(join(repoRoot, '.github/workflows/docker-sha.yml'), 'utf8');
@@ -170,14 +170,24 @@ describe('release version selection', () => {
   it.each([
     { event: 'tag push', ref: 'refs/tags/v1.4.2', inputVersion: '', version: '1.4.2' },
     { event: 'manual run', ref: 'refs/heads/develop', inputVersion: '2.0.0', version: '2.0.0' },
-  ])('should hand the server.json stamp $version on a $event', ({ ref, inputVersion, version }) => {
-    expect(stamp(ref, inputVersion)).toEqual({ status: 0, stdout: `${version}\n` });
+  ])('should stamp server.json with $version on a $event', ({ ref, inputVersion, version }) => {
+    expect(stamp(ref, inputVersion)).toEqual({ status: 0, versions: [version, version] });
   });
 
-  it('should stop the release when the server.json stamp refuses the version', () => {
-    // Otherwise the publish step would hand the registry server.json as committed, unstamped.
-    expect(stamp('refs/tags/v1.4.2', '', 'refuses').status).toBe(1);
-  });
+  it.each([
+    { input: 'no version on a branch run', ref: 'refs/heads/develop', inputVersion: '' },
+    {
+      input: 'a version with a trailing word',
+      ref: 'refs/heads/develop',
+      inputVersion: '1.2.3 extra',
+    },
+  ])(
+    'should stop the release and leave server.json as it was on $input',
+    ({ ref, inputVersion }) => {
+      // Otherwise the publish step would hand the registry server.json as committed, unstamped.
+      expect(stamp(ref, inputVersion)).toEqual({ status: 1, versions: ['0.0.0', '0.0.0'] });
+    },
+  );
 
   it('should refuse a step env value the harness has no context for', () => {
     // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub expression, not a JS template
