@@ -1,22 +1,16 @@
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
-import { lineSink, recordRunner } from '../test-support/scheduler-cli.js';
+import {
+  fakeLaunchctl,
+  lineSink,
+  recordRunner,
+  withPlistPath,
+} from '../test-support/scheduler-cli.js';
 import { runUninstall } from '../test-support/scheduler-home.js';
-import type { CommandRunner } from './scheduler-install.js';
 import { buildCronLine } from './scheduler-install.js';
 
 const INSTALLED_CRONTAB = `0 0 * * * /usr/bin/true\n${buildCronLine('/usr/bin/node', '/opt/mailoo/main.js')}\n`;
-
-async function withPlistPath(body: (plistPath: string) => Promise<void>): Promise<void> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-uninstall-'));
-  try {
-    await body(path.join(dir, 'agent.plist'));
-  } finally {
-    await fs.rm(dir, { recursive: true, force: true });
-  }
-}
 
 describe('scheduler uninstall command', () => {
   it('should remove the scheduler crontab line and say it was removed on linux', async () => {
@@ -36,18 +30,21 @@ describe('scheduler uninstall command', () => {
     expect(lines).toEqual(['ℹ️  No crontab scheduler found']);
   });
 
-  it('should unload the launchd agent, delete its plist and say it was removed on darwin', async () => {
+  it('should unload the launchd agent before deleting its plist and say it was removed on darwin', async () => {
     await withPlistPath(async (plistPath) => {
-      await fs.writeFile(plistPath, '<plist version="1.0"></plist>\n');
-      const { run, calls } = recordRunner();
+      const plist = '<plist version="1.0"></plist>\n';
+      await fs.mkdir(path.dirname(plistPath), { recursive: true });
+      await fs.writeFile(plistPath, plist);
+      const { run, agent, reads } = fakeLaunchctl({ loaded: plist });
       const { lines, print } = lineSink();
       await runUninstall('darwin', run, print, plistPath);
       const left = await fs.access(plistPath).then(
         () => true,
         () => false,
       );
-      expect({ calls, left, lines }).toEqual({
-        calls: [{ file: 'launchctl', args: ['unload', plistPath], input: undefined }],
+      expect({ reads, loaded: agent.loaded, left, lines }).toEqual({
+        reads: [{ subcommand: 'unload', plist }],
+        loaded: undefined,
         left: false,
         lines: ['✅ Removed macOS launchd scheduler'],
       });
@@ -56,11 +53,8 @@ describe('scheduler uninstall command', () => {
 
   it('should say no launchd scheduler was found when the agent is neither loaded nor installed', async () => {
     await withPlistPath(async (plistPath) => {
-      const run: CommandRunner = () => {
-        throw new Error(`Command failed: launchctl unload ${plistPath}`);
-      };
       const { lines, print } = lineSink();
-      await runUninstall('darwin', run, print, plistPath);
+      await runUninstall('darwin', fakeLaunchctl().run, print, plistPath);
       expect(lines).toEqual(['ℹ️  No launchd scheduler found']);
     });
   });
