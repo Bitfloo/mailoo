@@ -63,6 +63,34 @@ function publish(publisher: Publisher): { status: number | null; calls: number; 
   }
 }
 
+/**
+ * Run the install step against a fake download of a real archive. With `hash: 'shimmed'` a
+ * sha256sum shim passes any archive, so the step goes on to extract it.
+ */
+function install(hash: 'checked' | 'shimmed'): { status: number | null; extracted: boolean } {
+  const temp = mkdtempSync(join(tmpdir(), 'mailoo-mcp-install-'));
+  try {
+    // A valid archive with the wrong hash, so only the hash check can stop the step.
+    mkdirSync(join(temp, 'payload'));
+    script(join(temp, 'payload/mcp-publisher'), ['exit 0']);
+    runStep('tar -czf archive.tar.gz -C payload mcp-publisher', temp, { PATH: process.env.PATH });
+    mkdirSync(join(temp, 'bin'));
+    script(join(temp, 'bin/curl'), [
+      'while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done',
+      'cp archive.tar.gz "$out"',
+    ]);
+    if (hash === 'shimmed') {
+      script(join(temp, 'bin/sha256sum'), ['cat > /dev/null']);
+    }
+    const { status } = runStep(runBlock(installStep), temp, {
+      PATH: `${join(temp, 'bin')}:${process.env.PATH}`,
+    });
+    return { status, extracted: existsSync(join(temp, 'mcp-publisher')) };
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+}
+
 describe('MCP Registry publish', () => {
   it('should exit 0 after one call when mcp-publisher succeeds', () => {
     expect(publish({ error: 'other', status: 1, succeedsOn: 1 })).toEqual({
@@ -98,26 +126,10 @@ describe('MCP Registry publish', () => {
   });
 
   it('should stop the release when the mcp-publisher archive hash does not match', () => {
-    const temp = mkdtempSync(join(tmpdir(), 'mailoo-mcp-install-'));
-    try {
-      // A valid archive with the wrong hash, so only the hash check can stop the step.
-      mkdirSync(join(temp, 'payload'));
-      script(join(temp, 'payload/mcp-publisher'), ['exit 0']);
-      runStep('tar -czf wrong.tar.gz -C payload mcp-publisher', temp, { PATH: process.env.PATH });
-      mkdirSync(join(temp, 'bin'));
-      script(join(temp, 'bin/curl'), [
-        'while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done',
-        'cp wrong.tar.gz "$out"',
-      ]);
-      const { status } = runStep(runBlock(installStep), temp, {
-        PATH: `${join(temp, 'bin')}:${process.env.PATH}`,
-      });
-      expect({ status, extracted: existsSync(join(temp, 'mcp-publisher')) }).toEqual({
-        status: 1,
-        extracted: false,
-      });
-    } finally {
-      rmSync(temp, { recursive: true, force: true });
-    }
+    expect(install('checked')).toEqual({ status: 1, extracted: false });
+  });
+
+  it('should extract mcp-publisher when the archive hash matches', () => {
+    expect(install('shimmed')).toEqual({ status: 0, extracted: true });
   });
 });
