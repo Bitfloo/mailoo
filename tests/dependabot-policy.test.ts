@@ -11,6 +11,8 @@ interface Update {
   'package-ecosystem': string;
   directory?: string;
   directories?: string[];
+  schedule?: Record<string, string>;
+  'open-pull-requests-limit'?: number;
   groups?: Record<string, { 'update-types'?: string[]; 'exclude-patterns'?: string[] }>;
   ignore?: Record<string, unknown>[];
 }
@@ -109,6 +111,24 @@ describe('dependabot groups', () => {
     // Every uses: is pinned to a commit SHA, so without this update no pin would ever move.
     const actions = updates.filter((update) => update['package-ecosystem'] === 'github-actions');
     expect(actions.map((update) => update.directory)).toEqual(['/']);
+  });
+
+  it('should run each update weekly on Monday with its pinned pull request limit', () => {
+    // A limit of 0 would stop that entry's version updates; a higher limit or a shorter interval
+    // would open more update pull requests at once.
+    const weekly = { interval: 'weekly', day: 'monday' };
+    expect(
+      updates.map((update) => [
+        update['package-ecosystem'],
+        update.directories ?? [update.directory],
+        update.schedule,
+        update['open-pull-requests-limit'],
+      ]),
+    ).toEqual([
+      ['npm', ['/'], weekly, 10],
+      ['npm', ['/.github/npm-cli', '/docker/pnpm-cli'], weekly, 2],
+      ['github-actions', ['/'], weekly, 5],
+    ]);
   });
 
   it('should group only minor and patch updates', () => {
