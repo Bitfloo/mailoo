@@ -99,11 +99,14 @@ export async function loadLaunchAgent(
   await fs.mkdir(path.dirname(plistPath), { recursive: true });
   await fs.writeFile(plistPath, plist, { mode: 0o600 });
   await fs.chmod(plistPath, 0o600);
+  // launchd keeps running a loaded agent from the plist it read at load time, so a
+  // reinstall unloads it first. Unload fails when no agent is loaded, as on a first install.
   try {
-    run('launchctl', ['load', plistPath]);
+    run('launchctl', ['unload', plistPath]);
   } catch {
-    // May already be loaded
+    // Nothing was loaded.
   }
+  run('launchctl', ['load', plistPath]);
 }
 
 export function installCrontabLine(

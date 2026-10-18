@@ -87,7 +87,10 @@ describe('scheduler install commands', () => {
       await loadLaunchAgent(plistPath, '<plist version="1.0"></plist>\n', run);
       const stat = await fs.stat(plistPath);
       expect(stat.mode % 0o1000).toBe(0o600);
-      expect(calls).toEqual([{ file: 'launchctl', args: ['load', plistPath], input: undefined }]);
+      expect(calls).toEqual([
+        { file: 'launchctl', args: ['unload', plistPath], input: undefined },
+        { file: 'launchctl', args: ['load', plistPath], input: undefined },
+      ]);
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }
@@ -147,7 +150,10 @@ describe('scheduler install commands', () => {
       await runInstall('darwin', run, print, plistPath);
       expect({ plist: await fs.readFile(plistPath, 'utf8'), calls, lines }).toEqual({
         plist: buildLaunchdPlist(process.execPath, process.argv[1] ?? 'mailoo'),
-        calls: [{ file: 'launchctl', args: ['load', plistPath], input: undefined }],
+        calls: [
+          { file: 'launchctl', args: ['unload', plistPath], input: undefined },
+          { file: 'launchctl', args: ['load', plistPath], input: undefined },
+        ],
         lines: [
           '✅ Installed macOS launchd scheduler',
           `   Plist: ${plistPath}`,
