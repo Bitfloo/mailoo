@@ -40,17 +40,18 @@ describe('HooksService triage', () => {
   async function triageOne(
     config: Partial<HooksConfig>,
     createMessage: Mock,
-    sampling = true,
+    { sampling = true, emails = [meta({ id: '1' })], imap = mockImap() } = {},
   ): Promise<MockImap> {
-    const imap = mockImap();
     hooks = new HooksService(
       hooksConfig({ onNewEmail: 'triage', ...config }),
       imap as unknown as ImapService,
     );
     hooks.start({ createMessage } as never, { sampling });
-    await flushHooks([meta({ id: '1' })]);
+    await flushHooks(emails);
     return imap;
   }
+
+  const two = [meta({ id: '1' }), meta({ id: '2', subject: 'Second' })];
 
   function logged(prefix: string): unknown[][] {
     return vi
@@ -61,7 +62,7 @@ describe('HooksService triage', () => {
   const urgent = [{ priority: 'urgent' }];
 
   it('should alert at normal priority without sampling when the client cannot sample', async () => {
-    await triageOne({}, client(urgent), false);
+    await triageOne({}, client(urgent), { sampling: false });
     expect(alert.mock.calls.map(([payload]) => payload.priority)).toEqual(['normal']);
   });
 
@@ -146,4 +147,77 @@ describe('HooksService triage', () => {
     await triageOne({}, client([{ action: 'Reply by Friday' }]));
     expect(logged('   Action')).toEqual([['info', 'hooks', '   Action: Reply by Friday']]);
   });
+
+  it('should log no action when the triage suggests none', async () => {
+    await triageOne({}, client([{ priority: 'low' }]));
+    expect(logged('   Action')).toEqual([]);
+  });
+
+  it('should send the emails as a user message with the fast model hint and priorities', async () => {
+    const createMessage = client(urgent);
+    await triageOne({}, createMessage);
+    const request = createMessage.mock.calls[0]?.[0];
+    expect({ role: request?.messages[0].role, preferences: request?.modelPreferences }).toEqual({
+      role: 'user',
+      preferences: { hints: [{ name: 'fast' }], speedPriority: 0.8, intelligencePriority: 0.5 },
+    });
+  });
+
+  it('should separate the summaries of two emails by a blank line', async () => {
+    const createMessage = client([{}, {}]);
+    await triageOne({}, createMessage, { emails: two });
+    const summary = (index: number, subject: string) =>
+      delimitUntrusted(
+        `[${index}] From: Alice\n    Subject: ${subject}\n    Date: 2026-09-21T00:00:00.000Z\n    Flags: \u{1F195}`,
+      );
+    expect(createMessage.mock.calls[0]?.[0].messages[0].content.text).toBe(
+      `Analyze these 2 new email(s):\n\n${summary(1, 'Hello')}\n\n${summary(2, 'Second')}`,
+    );
+  });
+
+  it('should not ask the client when the custom system prompt is empty', async () => {
+    const createMessage = client(urgent);
+    await triageOne({ preset: 'custom', systemPrompt: '' }, createMessage);
+    expect(createMessage.mock.calls).toEqual([]);
+  });
+
+  it('should alert every email when the reply holds fewer results than emails', async () => {
+    await triageOne({}, client([{ priority: 'high' }]), { emails: two });
+    expect(alert.mock.calls.map(([payload]) => [payload.uid, payload.priority])).toEqual([
+      ['1', 'high'],
+      ['2', 'normal'],
+    ]);
+  });
+
+  it('should flag only the emails triage flags when auto_flag is on', async () => {
+    const createMessage = client([{ flag: true }, { flag: false }]);
+    const imap = await triageOne({ autoFlag: true }, createMessage, { emails: two });
+    expect(imap.setFlags.mock.calls).toEqual([['personal', '1', 'INBOX', 'flag']]);
+  });
+
+  it('should add every triage label when auto_label is on', async () => {
+    const imap = await triageOne({ autoLabel: true }, client([{ labels: ['Work', 'Q4'] }]));
+    expect(imap.addLabel.mock.calls).toEqual([
+      ['personal', '1', 'INBOX', 'Work'],
+      ['personal', '1', 'INBOX', 'Q4'],
+    ]);
+  });
+
+  it.each<['addLabel' | 'setFlags', Partial<HooksConfig>, unknown[], string]>([
+    [
+      'addLabel',
+      { autoLabel: true },
+      [{ labels: ['Work'] }],
+      'Could not add label "Work" to email 1',
+    ],
+    ['setFlags', { autoFlag: true }, [{ flag: true }], 'Could not flag email 1'],
+  ])(
+    'should log a warning when %s fails for a triaged email',
+    async (method, config, reply, text) => {
+      const imap = mockImap();
+      imap[method].mockRejectedValue(new Error('NO [CANNOT] refused'));
+      await triageOne(config, client(reply), { imap });
+      expect(logged('Could not')).toEqual([['warning', 'hooks', text]]);
+    },
+  );
 });
