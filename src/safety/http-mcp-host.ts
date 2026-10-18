@@ -283,17 +283,17 @@ export async function createHttpMcpHost(options: HttpMcpHostOptions): Promise<Ht
     let transport: StreamableHTTPServerTransport;
     let opened: OpenedSession | undefined;
 
-    const existing = sessionId ? sessions.get(sessionId) : undefined;
-    if (sessionId && !existing) {
-      // Streamable HTTP: 404 tells the client its session is gone and it must
-      // initialize again. A 400 left a client evicted by the idle TTL stuck.
-      sendRpcError(res, 404, -32001, 'Session not found');
-      return;
-    }
-    if (existing && sessionId) {
+    if (sessionId) {
+      const existing = sessions.get(sessionId);
+      if (!existing) {
+        // Streamable HTTP: 404 tells the client its session is gone and it must
+        // initialize again. A 400 left a client evicted by the idle TTL stuck.
+        sendRpcError(res, 404, -32001, 'Session not found');
+        return;
+      }
       transport = existing;
       sessions.beginRequest(sessionId);
-    } else if (!sessionId && req.method === 'POST' && isInitializeRequest(body)) {
+    } else if (req.method === 'POST' && isInitializeRequest(body)) {
       opened = await openSession(services, lifecycle);
       transport = opened.transport;
     } else {
