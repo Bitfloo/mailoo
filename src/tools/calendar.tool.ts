@@ -21,6 +21,10 @@ import audit from '../safety/audit.js';
 import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type CalendarService from '../services/calendar.service.js';
 import type ImapService from '../services/imap.service.js';
+import {
+  LIST_EVENTS_DAYS_AHEAD,
+  LIST_EVENTS_DAYS_BACK,
+} from '../services/local-calendar.macos-read.js';
 import type LocalCalendarService from '../services/local-calendar.service.js';
 import type { AddEventStatus } from '../services/local-calendar.service.js';
 import { ADD_EVENT_STATUSES, isSettledAddStatus } from '../services/local-calendar.service.js';
@@ -464,13 +468,13 @@ function registerCalendarGroup(
             .string()
             .optional()
             .describe(
-              'Show events on or after this date (ISO 8601, e.g. 2026-02-19). Defaults to 7 days ago.',
+              `Show events on or after this date (ISO 8601, e.g. 2026-02-19). Defaults to ${LIST_EVENTS_DAYS_BACK} days ago.`,
             ),
           to: z
             .string()
             .optional()
             .describe(
-              'Show events on or before this date (ISO 8601, e.g. 2026-02-28). Defaults to 30 days from now.',
+              `Show events on or before this date (ISO 8601, e.g. 2026-02-28). Defaults to ${LIST_EVENTS_DAYS_AHEAD} days from now.`,
             ),
           calendar_name: z.string().optional().describe('Restrict to a specific calendar by name'),
           limit: z

@@ -19,6 +19,9 @@ import {
 
 export const LIST_CALENDARS_TIMEOUT_MS = 10_000;
 export const LIST_EVENTS_TIMEOUT_MS = 90_000;
+// The list_events schema states this range in its from/to descriptions.
+export const LIST_EVENTS_DAYS_BACK = 7;
+export const LIST_EVENTS_DAYS_AHEAD = 30;
 
 export async function checkPermissionsMacOS(): Promise<PermissionResult> {
   const script = 'tell application "Calendar" to return count of calendars';
@@ -63,12 +66,11 @@ export async function listEventsMacOS(opts: ListEventsOptions): Promise<Calendar
   const titleFilter = opts.title ? escapeAS(opts.title) : '';
   const calFilter = opts.calendarName ? escapeAS(opts.calendarName) : '';
 
-  // Default range: 7 days back to 30 days ahead, as the list_events schema says
   const now = new Date();
   const defaultFrom = new Date(now);
-  defaultFrom.setDate(defaultFrom.getDate() - 7);
+  defaultFrom.setDate(defaultFrom.getDate() - LIST_EVENTS_DAYS_BACK);
   const defaultTo = new Date(now);
-  defaultTo.setDate(defaultTo.getDate() + 30);
+  defaultTo.setDate(defaultTo.getDate() + LIST_EVENTS_DAYS_AHEAD);
 
   const fromDate = opts.from ? new Date(opts.from) : defaultFrom;
   const toDate = opts.to ? new Date(opts.to) : defaultTo;
