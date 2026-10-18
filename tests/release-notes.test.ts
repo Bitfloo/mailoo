@@ -210,16 +210,6 @@ describe('release notes', () => {
     ]);
   });
 
-  it('should read CHANGELOG.md from a full, unconditional checkout of the release commit', () => {
-    const job = dockerJob();
-    const checkout = job.slice(job.indexOf('- uses: actions/checkout@'));
-    // ref, repository, path or sparse-checkout would hand the step another CHANGELOG.md or none.
-    expect(checkout.slice(0, checkout.indexOf('\n      - ')).split('\n').slice(1)).toEqual([
-      '        with:',
-      '          fetch-depth: 0',
-    ]);
-  });
-
   it('should write the release notes right before GoReleaser reads them', () => {
     // A step in between could rewrite the file GoReleaser publishes as the release body.
     const written = releaseStep(releaseYml, 'Write release notes');

@@ -167,6 +167,22 @@ const CONCURRENCY: Record<string, Record<string, unknown>> = {
 };
 // biome-ignore-end lint/suspicious/noTemplateCurlyInString: end of workflow values
 
+/**
+ * Each checkout's with:, by job. A ref, repository, path or sparse-checkout would check, build or
+ * publish another tree than the commit that started the run, and the release docker job hands
+ * GoReleaser the CHANGELOG.md of its checkout. fetch-depth 0 gives GoReleaser and the public-log
+ * range the history they read. Scorecard's checkout leaves no token in .git/config for the
+ * analysis that runs after it.
+ */
+const CHECKOUTS: Record<string, string[]> = {
+  'ci.yml': ['check: {}', 'docker: {}', 'integration: {}', 'public-log: {"fetch-depth":0}'],
+  'codeql.yml': ['analyze: {}'],
+  'docker-rebuild.yml': ['rebuild: {}'],
+  'docker-sha.yml': ['sha-images: {}'],
+  'release.yml': ['npm: {}', 'mcp: {}', 'docker: {"fetch-depth":0}'],
+  'scorecard.yml': ['analysis: {"persist-credentials":false}'],
+};
+
 function concurrency(yaml: string): Record<string, unknown> {
   const { concurrency: workflow, jobs } = parse(yaml) as {
     concurrency?: unknown;
@@ -197,6 +213,15 @@ describe('workflow rosters', () => {
 
   it.each(workflows)('should group runs of %s only by its pinned concurrency', (name, yaml) => {
     expect(concurrency(yaml)).toEqual(CONCURRENCY[name]);
+  });
+
+  it.each(workflows)('should check out %s only with its pinned inputs', (name, yaml) => {
+    const checkouts = Object.entries(jobSteps(yaml)).flatMap(([job, steps]) =>
+      steps
+        .filter((step) => step.uses?.startsWith('actions/checkout@'))
+        .map((step) => `${job}: ${JSON.stringify(step.with ?? {})}`),
+    );
+    expect(checkouts).toEqual(CHECKOUTS[name]);
   });
 
   it.each(workflows)('should keep continue-on-error off every job and step of %s', (_, yaml) => {
