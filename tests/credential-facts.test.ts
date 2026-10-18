@@ -56,9 +56,9 @@ describe('server.json credential requirement', () => {
     );
   });
 
-  it('should say that the OAuth2 provider takes precedence over the password, which stays as a fallback', () => {
+  it('should say that the OAuth2 provider takes precedence over the password and needs the three OAuth2 values', () => {
     expect(envVar('MCP_EMAIL_OAUTH2_PROVIDER').description).toBe(
-      'OAuth2 provider: google, microsoft, or custom. Takes precedence over MCP_EMAIL_PASSWORD, which is then used only as a fallback; the OAuth2 client id, client secret, and refresh token are then required.',
+      'OAuth2 provider: google, microsoft, or custom. Takes precedence over MCP_EMAIL_PASSWORD. The OAuth2 client id, client secret, and refresh token are then required.',
     );
   });
 
@@ -96,7 +96,7 @@ describe('account schema credential', () => {
   });
 
   // A form that leaves the password field blank can pass an empty string.
-  it('should accept an empty password beside OAuth2, which replaces it', () => {
+  it('should accept an empty password beside OAuth2', () => {
     expect(AccountConfigSchema.safeParse({ ...account, password: '', oauth2 }).success).toBe(true);
   });
 
@@ -187,8 +187,7 @@ describe('MCP_EMAIL_* OAuth2 account from the environment', () => {
     expect(config.accounts[0]?.password).toBeUndefined();
   });
 
-  // The connection manager uses OAuth2 when it can get a token and falls back to the password otherwise.
-  it('should keep OAuth2 when a password is set beside the provider, since OAuth2 takes precedence', async () => {
+  it('should pass the OAuth2 account through when a password is set beside the provider', async () => {
     vi.stubEnv('MCP_EMAIL_PASSWORD', 'app-password');
     const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
     expect(config.accounts[0]?.oauth2?.provider).toBe('google');
@@ -205,7 +204,7 @@ describe('MCP_EMAIL_* OAuth2 account from the environment', () => {
     expect(config.accounts[0]?.oauth2).toBeUndefined();
   });
 
-  it('should keep a password set beside the provider as given, for the fallback', async () => {
+  it('should keep a password set beside the provider as given', async () => {
     vi.stubEnv('MCP_EMAIL_PASSWORD', 'app-password');
     const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
     expect(config.accounts[0]?.password).toBe('app-password');
@@ -264,13 +263,14 @@ describe('MCP_EMAIL_* account with no credential', () => {
     return file;
   };
 
-  // A blank password field arrives as '', which is no credential either.
+  // A blank form field arrives as '', which is no credential either.
   describe.each([
-    ['unset', undefined],
-    ['set but empty', ''],
-  ])('with the password variable %s', (_label, password) => {
+    ['the password variable unset', 'MCP_EMAIL_PASSWORD', undefined],
+    ['the password variable set but empty', 'MCP_EMAIL_PASSWORD', ''],
+    ['no password and the provider variable set but empty', 'MCP_EMAIL_OAUTH2_PROVIDER', ''],
+  ])('with %s', (_label, name, value) => {
     beforeEach(() => {
-      vi.stubEnv('MCP_EMAIL_PASSWORD', password);
+      vi.stubEnv(name, value);
     });
 
     it('should fall through to the config file', async () => {
