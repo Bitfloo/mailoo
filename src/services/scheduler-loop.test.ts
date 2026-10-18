@@ -169,14 +169,26 @@ describe('scheduler loop', () => {
 });
 
 describe('check interval in README.md', () => {
-  it('should state the check interval wherever the scheduling section names an interval', async () => {
+  const INTERVAL = /\bevery (?:(\d+) )?(second|minute|hour)s?\b/g;
+
+  async function schedulingSection(): Promise<string> {
     const readme = await fs.readFile(new URL('../../README.md', import.meta.url), 'utf8');
-    const section = readme.split('\n### ').find((part) => part.startsWith('Email Scheduling\n'));
+    return readme.split('\n### ').find((part) => part.startsWith('Email Scheduling\n')) ?? '';
+  }
+
+  it('should state the check interval wherever the scheduling section names an interval', async () => {
     const unitMs = { second: 1000, minute: 60_000, hour: 3_600_000 };
     // Every interval the section names, so a new "every N minutes" line is checked too.
-    const stated = [
-      ...(section ?? '').matchAll(/\bevery (?:(\d+) )?(second|minute|hour)s?\b/g),
-    ].map(([, count = '1', unit]) => Number(count) * unitMs[unit as keyof typeof unitMs]);
+    const stated = [...(await schedulingSection()).matchAll(INTERVAL)].map(
+      ([, count = '1', unit]) => Number(count) * unitMs[unit as keyof typeof unitMs],
+    );
     expect([...new Set(stated)]).toEqual([SCHEDULER_INTERVAL_MS]);
+  });
+
+  // INTERVAL reads digits only, so "every five minutes" would slip past the test above.
+  it('should read every interval the scheduling section names', async () => {
+    const section = await schedulingSection();
+    const named = section.match(/\bevery(?:\s+\S+){0,2}?\s+(?:second|minute|hour)s?\b/gi);
+    expect(named).toEqual(section.match(INTERVAL));
   });
 });
