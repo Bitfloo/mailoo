@@ -328,14 +328,14 @@ export default class HooksService {
   private static emailMatchesRule(email: BatchEmail, rule: HookRule): boolean {
     const { match } = rule;
     const fromAddr = email.meta.from.address;
-    const toAddrs = email.meta.to.map((t) => t.address).join(', ');
+    const toPattern = match.to;
     const { subject } = email.meta;
 
     // All specified match conditions must pass (AND logic)
     if (match.from && !matchesPattern(match.from, fromAddr)) {
       return false;
     }
-    if (match.to && !matchesPattern(match.to, toAddrs)) {
+    if (toPattern && !email.meta.to.some((t) => matchesPattern(toPattern, t.address))) {
       return false;
     }
     if (match.subject && !matchesPattern(match.subject, subject)) {

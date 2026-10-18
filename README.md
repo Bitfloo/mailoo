@@ -592,7 +592,7 @@ are skipped with a warning in the log and stay in the mailbox unchanged.
 
 #### Static Rules
 
-Static rules use glob-style patterns (`*@example.com`) with `|` as OR separator (`*@example.com|*@example.test`). All conditions within a match are AND'd. First matching rule wins.
+Static rules use glob-style patterns (`*@example.com`) with `|` as OR separator (`*@example.com|*@example.test`). All conditions within a match are AND'd. A `to` pattern matches when any one recipient matches. First matching rule wins.
 
 Available actions: `labels` (string array), `flag` (boolean), `mark_read` (boolean), `alert` (boolean — forces desktop notification).
 

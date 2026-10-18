@@ -59,4 +59,24 @@ describe('HooksService.matchStaticRules conditions', () => {
     );
     expect(outcome.matched).toBe(true);
   });
+
+  it('should match an exact to address when it is one of several recipients', () => {
+    const outcome = HooksService.matchStaticRules(
+      {
+        account: 'personal',
+        mailbox: 'INBOX',
+        meta: meta({ to: [{ address: 'me@example.com' }, { address: 'team@example.com' }] }),
+      },
+      [{ name: 'team', match: { to: 'team@example.com' }, actions: {} }],
+    );
+    expect(outcome.matched).toBe(true);
+  });
+
+  it('should not match a to pattern when the mail has no recipients', () => {
+    const outcome = HooksService.matchStaticRules(
+      { account: 'personal', mailbox: 'INBOX', meta: meta({ to: [] }) },
+      [{ name: 'anyone', match: { to: '*' }, actions: {} }],
+    );
+    expect(outcome.matched).toBe(false);
+  });
 });
