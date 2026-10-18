@@ -8,6 +8,7 @@ import { repoRoot } from './agents/agent-file.js';
 import { unpinnedUses } from './workflow-scan.js';
 import {
   jobSections,
+  jobSteps,
   onBlock,
   readKeyLines,
   refEnv,
@@ -74,6 +75,15 @@ describe('CI spend policy', () => {
       docker: null,
       integration: null,
       'public-log': "github.event_name == 'pull_request'",
+    });
+  });
+
+  it('should run the commands CONTRIBUTING names in the ci.yml check and integration jobs', () => {
+    const steps = jobSteps(ciYml);
+    const runs = (job: string) => steps[job].flatMap((step) => (step.run ? [step.run] : []));
+    expect({ check: runs('check'), integration: runs('integration') }).toEqual({
+      check: ['pnpm install --frozen-lockfile', 'pnpm check', 'pnpm typecheck', 'pnpm test'],
+      integration: ['pnpm install --frozen-lockfile', 'pnpm test:integration'],
     });
   });
 

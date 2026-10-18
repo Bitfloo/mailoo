@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { isNode, isScalar, LineCounter, parseDocument, visit } from 'yaml';
+import { isNode, isScalar, LineCounter, parse, parseDocument, visit } from 'yaml';
 
 import { repoRoot } from './agents/agent-file.js';
 
@@ -20,6 +20,18 @@ export function workflowFiles(dir = workflowDir): string[] {
 }
 
 export const releaseYml = readFileSync(join(workflowDir, 'release.yml'), 'utf8');
+
+interface WorkflowStep {
+  uses?: string;
+  run?: string;
+  with?: Record<string, unknown>;
+}
+
+/** Each job's steps, read from the parsed workflow. */
+export function jobSteps(yaml: string): Record<string, WorkflowStep[]> {
+  const { jobs } = parse(yaml) as { jobs: Record<string, { steps?: WorkflowStep[] }> };
+  return Object.fromEntries(Object.entries(jobs).map(([id, job]) => [id, job.steps ?? []]));
+}
 
 export function onBlock(yaml: string): string {
   const match = yaml.match(/^on:\n([\s\S]*?)\n(?:concurrency|permissions|jobs):/m);
