@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import queueId from '../test-support/queue-id.js';
-import { lineSink } from '../test-support/scheduler-cli.js';
+import { launchctlListing, lineSink } from '../test-support/scheduler-cli.js';
 import type { AppConfig, ScheduledEmail } from '../types/index.js';
 import type { CommandRunner } from './scheduler-install.js';
 
@@ -39,18 +39,7 @@ const CONFIG_TOML = [
   '',
 ].join('\n');
 
-// The shape `launchctl list <label>` prints for a loaded agent.
-const LAUNCHCTL_LIST = [
-  '{',
-  '\t"LimitLoadToSessionType" = "Aqua";',
-  '\t"Label" = "com.bitfloo.mailoo.scheduler";',
-  '\t"OnDemand" = true;',
-  '\t"LastExitStatus" = 0;',
-  '\t"PID" = 4242;',
-  '\t"Program" = "/usr/local/bin/node";',
-  '};',
-  '',
-].join('\n');
+const LAUNCHCTL_LIST = launchctlListing('com.bitfloo.mailoo.scheduler', 4242);
 
 const EMPTY_QUEUE = '\n📬 Queue: 0 pending, 0 overdue';
 
@@ -109,6 +98,27 @@ describe('scheduler status command', () => {
           EMPTY_QUEUE,
         ],
       });
+    });
+  });
+
+  it('should say the agent is installed and print no PID when launchctl lists it idle', async () => {
+    await withStatusEnv(async ({ plistPath, queueDir, load }) => {
+      await fs.writeFile(plistPath, '<plist version="1.0"></plist>\n');
+      const idle = launchctlListing('com.bitfloo.mailoo.scheduler');
+      const { lines, print } = lineSink();
+      await runStatus({
+        platform: 'darwin',
+        run: outputRunner({ launchctl: idle }).run,
+        print,
+        plistPath,
+        load,
+        queueDir,
+      });
+      expect(lines).toEqual([
+        '✅ macOS launchd scheduler: INSTALLED',
+        `   Plist: ${plistPath}`,
+        EMPTY_QUEUE,
+      ]);
     });
   });
 
@@ -185,6 +195,15 @@ describe('scheduler status command', () => {
         queueDir,
       });
       expect(lines).toEqual(['❌ Linux crontab scheduler: NOT INSTALLED', EMPTY_QUEUE]);
+    });
+  });
+
+  it('should print only the queue line and run no command on an unsupported platform', async () => {
+    await withStatusEnv(async ({ plistPath, queueDir, load }) => {
+      const { run, calls } = outputRunner({ launchctl: LAUNCHCTL_LIST, crontab: '' });
+      const { lines, print } = lineSink();
+      await runStatus({ platform: 'win32', run, print, plistPath, load, queueDir });
+      expect({ calls, lines }).toEqual({ calls: [], lines: [EMPTY_QUEUE] });
     });
   });
 
