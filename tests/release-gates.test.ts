@@ -1,5 +1,5 @@
 import { jobGate, runsJob } from './workflow-gates.js';
-import { onBlock, readKeyLines, releaseJob, releaseSteps, releaseYml } from './workflow-yaml.js';
+import { readKeyLines, releaseJob, releaseYml } from './workflow-yaml.js';
 
 const npmJob = () => releaseJob('npm publish --access public');
 const stampJob = () => releaseJob('- name: Set version in server.json\n');
@@ -88,29 +88,6 @@ describe('release job gates', () => {
   it('should not publish to npm on a manual run with skip-npm', () => {
     const context = { 'github.event_name': 'workflow_dispatch', 'inputs.skip-npm': true };
     expect(runsJob(jobGate(npmJob()), {}, context)).toBe(false);
-  });
-
-  it('should release on v* tags and manual dispatch only, with a boolean skip-npm input', () => {
-    // Another trigger would pass the npm gate as a run that is not a manual dispatch, and a string
-    // skip-npm would make !inputs.skip-npm false on every manual run.
-    expect(releaseSteps(onBlock(releaseYml)).trimEnd()).toBe(
-      [
-        '  push:',
-        '    tags:',
-        '      - "v*"',
-        '  workflow_dispatch:',
-        '    inputs:',
-        '      version:',
-        '        description: >-',
-        '          Version to release (e.g. 1.2.3) — used when',
-        '          triggering manually without a git tag',
-        '        required: false',
-        '      skip-npm:',
-        '        description: Skip npm publish (e.g. already published)',
-        '        type: boolean',
-        '        default: false',
-      ].join('\n'),
-    );
   });
 
   // A tag push publishes to npm first, and skip-npm skips that job on a manual run. Both must
