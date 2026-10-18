@@ -7,16 +7,18 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import registerAllPrompts from '../prompts/register.js';
 import registerAllResources from '../resources/register.js';
-import createServer from '../server.js';
+import createServer, { registeredToolNames } from '../server.js';
 import registerAllTools from '../tools/register.js';
-import type { AppConfig } from '../types/index.js';
+import type { AppConfig, ToolsetProfile } from '../types/index.js';
 
 export default function buildCatalog({
   readOnly,
   accounts,
+  toolset,
 }: {
   readOnly: boolean;
   accounts: readonly string[];
+  toolset?: ToolsetProfile;
 }): McpServer {
   const server = createServer();
   const connections = {
@@ -39,7 +41,7 @@ export default function buildCatalog({
       alerts: {},
     }),
   };
-  const config = { settings: { readOnly } } as AppConfig;
+  const config = { settings: { readOnly, toolset } } as AppConfig;
   const unused = {} as never;
   registerAllTools(
     server,
@@ -56,6 +58,6 @@ export default function buildCatalog({
     hooksService as never,
   );
   registerAllResources(server, connections as never, unused, templateService as never, unused);
-  registerAllPrompts(server);
+  registerAllPrompts(server, registeredToolNames(server));
   return server;
 }

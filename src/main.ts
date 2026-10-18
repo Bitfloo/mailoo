@@ -27,7 +27,7 @@ import createShutdown from './safety/shutdown.js';
 import attachStdioShutdown from './safety/stdio-lifecycle.js';
 import createStdioWriters from './safety/stdio-writers.js';
 import { WRITER_LEASE_FILE } from './safety/writer-lease.js';
-import createServer, { PKG_VERSION } from './server.js';
+import createServer, { PKG_VERSION, registeredToolNames } from './server.js';
 import CalendarService from './services/calendar.service.js';
 import HooksService from './services/hooks.service.js';
 import LocalCalendarService from './services/local-calendar.service.js';
@@ -119,7 +119,7 @@ async function runServer(): Promise<void> {
     hooksService,
   );
   registerAllResources(server, connections, imapService, templateService, schedulerService);
-  registerAllPrompts(server);
+  registerAllPrompts(server, registeredToolNames(server));
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
