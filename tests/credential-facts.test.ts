@@ -111,6 +111,21 @@ describe('account schema credential', () => {
     ]);
   });
 
+  // The rest of the account block, beside the credential: each field is refused at its own path.
+  it.each([
+    ['an empty name', { name: '' }, 'name: Account name is required'],
+    ['an email that is not an address', { email: 'owner' }, 'email: Invalid email address'],
+    [
+      'an empty sent mailbox',
+      { sent_mailbox: '' },
+      'sent_mailbox: Too small: expected string to have >=1 characters',
+    ],
+  ])('should refuse %s beside a password, at that field', (_label, field, issue) => {
+    const issues =
+      AccountConfigSchema.safeParse({ ...account, password: 'pw', ...field }).error?.issues ?? [];
+    expect(issues.map((item) => `${item.path.join('.')}: ${item.message}`)).toEqual([issue]);
+  });
+
   it.each(['token_url', 'auth_url'])('should reject an OAuth2 %s that is not a URL', (field) => {
     const partial = { ...oauth2, [field]: 'not a url' };
     const issues =
@@ -134,6 +149,12 @@ const SOME_VALUE = [
   ['short', 'x'],
 ] as const;
 const VALUES = [...NO_VALUE, ...SOME_VALUE] as const;
+// A set username is the login user as written; only an unset one falls back to the email.
+const SET_USERNAME = [
+  ['empty', ''],
+  ['blank', '   '],
+  ['padded', ' x '],
+] as const;
 // A provider must be named exactly, so these near misses are refused, not trimmed.
 const NEAR_MISS_PROVIDER = [
   ['blank', '   '],
@@ -188,6 +209,26 @@ describe('account schema credential matrix', () => {
       });
     },
   );
+
+  it('should leave an unset username unset in the schema', () => {
+    expect(AccountConfigSchema.parse({ ...account, password: 'pw' }).username).toBeUndefined();
+  });
+
+  it.each(SET_USERNAME)('should keep a %s username (%j) as given', (_kind, username) => {
+    expect(AccountConfigSchema.parse({ ...account, password: 'pw', username }).username).toBe(
+      username,
+    );
+  });
+
+  it('should keep padded OAuth2 scopes as given, not trimmed', () => {
+    const block = { ...oauth2, scopes: [' mail ', 'offline'] };
+    expect(parsed({ ...account, oauth2: block })).toEqual({ password: undefined, oauth2: block });
+  });
+
+  it('should accept an empty OAuth2 scopes list as given', () => {
+    const block = { ...oauth2, scopes: [] };
+    expect(parsed({ ...account, oauth2: block })).toEqual({ password: undefined, oauth2: block });
+  });
 
   it('should accept every provider the schema names', () => {
     const { options } = OAuth2ConfigSchema.shape.provider;
@@ -375,11 +416,14 @@ describe('MCP_EMAIL_* credential matrix', () => {
     expect(config.accounts[0]?.username).toBe('owner@example.com');
   });
 
-  it('should keep an empty MCP_EMAIL_USERNAME as the login user, not the email address', async () => {
-    stub({ MCP_EMAIL_PASSWORD: 'app-password', MCP_EMAIL_USERNAME: '' });
-    const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
-    expect(config.accounts[0]?.username).toBe('');
-  });
+  it.each(SET_USERNAME)(
+    'should keep a %s MCP_EMAIL_USERNAME (%j) as the login user, not the email address',
+    async (_kind, username) => {
+      stub({ MCP_EMAIL_PASSWORD: 'app-password', MCP_EMAIL_USERNAME: username });
+      const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
+      expect(config.accounts[0]?.username).toBe(username);
+    },
+  );
 
   it.each(eachField(NO_VALUE))(
     'should refuse to load when oauth2.%s is %s (%j), naming the field',
@@ -619,28 +663,36 @@ describe('credential values in the config file', () => {
     expect(await loadedFile('   ', [])).toEqual({ password: '   ', oauth2: undefined });
   });
 
-  it('should keep an empty username from the file as the login user, not the email address', async () => {
-    const file = join(dir, 'config.toml');
-    await writeFile(
-      file,
-      [
-        '[[accounts]]',
-        'name = "file"',
-        'email = "file@example.com"',
-        'username = ""',
-        'password = "file-password"',
-        '',
-        '[accounts.imap]',
-        'host = "imap.example.com"',
-        '',
-        '[accounts.smtp]',
-        'host = "smtp.example.com"',
-        '',
-      ].join('\n'),
-      { mode: 0o600 },
-    );
-    const config = await loadConfig(file);
-    expect(config.accounts[0]?.username).toBe('');
+  it.each(SET_USERNAME)(
+    'should keep a %s username (%j) from the file as the login user, as written',
+    async (_kind, username) => {
+      const file = join(dir, 'config.toml');
+      await writeFile(
+        file,
+        [
+          '[[accounts]]',
+          'name = "file"',
+          'email = "file@example.com"',
+          `username = ${JSON.stringify(username)}`,
+          'password = "file-password"',
+          '',
+          '[accounts.imap]',
+          'host = "imap.example.com"',
+          '',
+          '[accounts.smtp]',
+          'host = "smtp.example.com"',
+          '',
+        ].join('\n'),
+        { mode: 0o600 },
+      );
+      const config = await loadConfig(file);
+      expect(config.accounts[0]?.username).toBe(username);
+    },
+  );
+
+  it('should load an empty scopes list from the file as written', async () => {
+    const outcome = await loadedFile('', [...OAUTH2_LINES.slice(0, -1), 'scopes = []', '']);
+    expect(outcome).toEqual({ password: '', oauth2: { ...fileOAuth2, scopes: [] } });
   });
 
   it('should refuse an empty password without OAuth2, naming the missing credential', async () => {
