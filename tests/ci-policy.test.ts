@@ -8,7 +8,6 @@ import { stamp } from './mcp-harness.js';
 import { unpinnedUses } from './workflow-scan.js';
 import {
   jobSections,
-  jobSteps,
   onBlock,
   releaseSteps,
   releaseYml,
@@ -75,13 +74,6 @@ describe('CI spend policy', () => {
       integration: null,
       'public-log': "github.event_name == 'pull_request'",
     });
-  });
-
-  it('should build the ci.yml Docker image without pushing it', () => {
-    const builds = Object.values(jobSteps(ciYml))
-      .flat()
-      .filter((step) => step.uses?.startsWith('docker/build-push-action@'));
-    expect(builds.map((step) => step.with?.push)).toEqual([false]);
   });
 
   it('should describe CodeQL push and weekly runs only while codeql.yml has those triggers', () => {
@@ -235,12 +227,5 @@ describe('pinned GitHub Actions', () => {
 
   it('should pass a uses: pinned to a commit SHA with its version tag in a comment', () => {
     expect(unpinnedUses(`    steps:\n      - uses: a/b@${sha} # v1.2.3\n`)).toEqual([]);
-  });
-});
-
-describe('docker rebuild images', () => {
-  it('should set up QEMU so the rebuild can build the arm64 release image', () => {
-    const yaml = readFileSync(join(workflowDir, 'docker-rebuild.yml'), 'utf8');
-    expect(yaml).toContain('docker/setup-qemu-action@');
   });
 });

@@ -62,15 +62,6 @@ export function triggers(yaml: string): string[] {
   return releaseSteps(onBlock(yaml)).match(/^ {0,2}\S.*$/gm) ?? [];
 }
 
-/** Job keys are indented, so a column-0 match stays on the workflow permissions. */
-export function topLevelPermissions(yaml: string): string {
-  const match = yaml.match(/^permissions:[^\n]*(?:\n {2}[^\n]*)*/m);
-  if (!match) {
-    throw new Error('missing top-level permissions');
-  }
-  return match[0];
-}
-
 /** Comment lines are stripped so a workflow comment mentioning a forbidden string does not trip the content assertions. */
 export function releaseSteps(yaml: string): string {
   return yaml

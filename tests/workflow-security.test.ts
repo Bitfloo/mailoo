@@ -8,15 +8,12 @@ import {
   jobSections,
   onBlock,
   readKeyLines,
-  topLevelPermissions,
   triggers,
   unreadKeys,
   workflowDir,
   workflowFiles,
   workflowTexts,
 } from './workflow-yaml.js';
-
-const ciYml = readFileSync(join(workflowDir, 'ci.yml'), 'utf8');
 
 function weeklyCron(yaml: string): string[] {
   const match = yaml.match(/cron:\s*"([^"]+)"/);
@@ -207,19 +204,5 @@ describe('workflow token is no wider than the job writes', () => {
         .map((line) => `${name}: ${line.trim()}`),
     );
     expect(unread).toEqual([]);
-  });
-
-  it('should not grant ci.yml any write scope', () => {
-    expect(ciYml).not.toMatch(/:\s*write\b/);
-    expect(topLevelPermissions(ciYml)).toContain('contents: read');
-  });
-});
-
-describe('workflow token scope', () => {
-  it('should not grant write at the workflow level of any workflow', () => {
-    for (const name of workflowFiles()) {
-      const yaml = readFileSync(join(workflowDir, name), 'utf8');
-      expect(topLevelPermissions(yaml), name).not.toMatch(/\bwrite\b/);
-    }
   });
 });

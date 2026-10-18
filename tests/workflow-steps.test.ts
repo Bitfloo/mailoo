@@ -82,7 +82,7 @@ const STEPS: Record<string, Record<string, string[]>> = {
       'github/codeql-action/analyze',
     ],
   },
-  // meta writes the tag lists both builds push.
+  // QEMU lets the rebuild build the arm64 release image; meta writes the tag lists both builds push.
   'docker-rebuild.yml': {
     rebuild: [
       'actions/checkout',
