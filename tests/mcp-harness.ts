@@ -2,14 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  type Harness,
-  harnessedStep,
-  refEnv,
-  runBlock,
-  runStep,
-  stepEnv,
-} from './workflow-yaml.js';
+import { type Harness, harnessedStep, runBlock, runStep, stepEnv } from './workflow-yaml.js';
 
 export const mcpHarness: Harness = {
   workflow: 'release.yml',
@@ -138,7 +131,7 @@ export function stamp(
     );
     const { status, stdout } = runStep(runBlock(stampStep), temp, {
       PATH: process.env.PATH,
-      ...refEnv(ref),
+      GITHUB_REF: ref,
       ...stepEnv(stampStep, { 'inputs.version': inputVersion }),
     });
     return { status, stdout };

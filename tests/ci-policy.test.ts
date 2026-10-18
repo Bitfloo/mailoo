@@ -66,8 +66,9 @@ describe('CI spend policy', () => {
   it('should run every ci.yml job on a pull request, as the CONTRIBUTING job list says', () => {
     // Each gate below is true on pull_request; a new or changed one fails until it is shown to be.
     const { jobs } = parse(ciYml) as { jobs: Record<string, { if?: string }> };
-    const gates = Object.entries(jobs).map(([id, job]) => [id, job.if ?? null]);
-    expect(Object.fromEntries(gates)).toEqual({
+    expect(
+      Object.fromEntries(Object.entries(jobs).map(([id, job]) => [id, job.if ?? null])),
+    ).toEqual({
       // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub expression, not a JS template
       check: "${{ github.event_name == 'pull_request' || inputs.include-unit }}",
       docker: null,

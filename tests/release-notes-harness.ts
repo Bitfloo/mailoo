@@ -3,14 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
-import {
-  type Harness,
-  harnessedStep,
-  refEnv,
-  runBlock,
-  runStep,
-  stepEnv,
-} from './workflow-yaml.js';
+import { type Harness, harnessedStep, runBlock, runStep, stepEnv } from './workflow-yaml.js';
 
 export const notesHarness: Harness = {
   workflow: 'release.yml',
@@ -41,7 +34,7 @@ export function releaseNotes(run: ReleaseRun): string {
       {
         PATH: process.env.PATH,
         RUNNER_TEMP: temp,
-        ...refEnv(run.ref),
+        GITHUB_REF: run.ref,
         ...stepEnv(step, { 'inputs.version': run.inputVersion ?? '' }),
       },
     );

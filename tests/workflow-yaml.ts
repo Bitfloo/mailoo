@@ -19,7 +19,6 @@ export function workflowFiles(dir = workflowDir): string[] {
   return files;
 }
 
-/** Each workflow file name with its text, for checks that run over every workflow. */
 export function workflowTexts(): (readonly [string, string])[] {
   return workflowFiles().map(
     (name) => [name, readFileSync(join(workflowDir, name), 'utf8')] as const,
@@ -239,11 +238,6 @@ export function requireTools(tools: string[], path = process.env.PATH ?? ''): vo
   if (missing.length > 0) {
     throw new Error(`these tests need ${missing.join(', ')} on PATH`);
   }
-}
-
-/** The ref variables the runner sets together, so a step may read either form. */
-export function refEnv(ref: string): { GITHUB_REF: string; GITHUB_REF_NAME: string } {
-  return { GITHUB_REF: ref, GITHUB_REF_NAME: ref.replace(/^refs\/(?:heads|tags)\//, '') };
 }
 
 /**
