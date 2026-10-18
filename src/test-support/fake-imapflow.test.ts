@@ -90,4 +90,19 @@ describe('FakeImapFlow fetch', () => {
       ],
     });
   });
+
+  // imap-flow.js 1.7.8, fetch(): "no mailbox selected, nothing to do".
+  it('should yield nothing when no mailbox is selected', async () => {
+    seedFolder('INBOX', [5, 9]);
+    const client = new FakeImapFlow(options({ port: 993 }));
+    await client.connect();
+    expect(await fetchAll(client, '1:*', { uid: true })).toEqual([]);
+  });
+
+  it('should put the Message-ID in the envelope', async () => {
+    seedFolder('INBOX', [5]);
+    const client = await openInbox();
+    const [message] = await fetchAll(client, '1:*', { uid: true, envelope: true });
+    expect(message).toMatchObject({ envelope: { messageId: '<5@example.com>' } });
+  });
 });

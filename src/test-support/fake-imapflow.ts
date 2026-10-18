@@ -34,7 +34,7 @@ interface FakeFetchedMessage {
   seq: number;
   uid: number;
   flags?: Set<string>;
-  envelope?: { subject: string; from: { address: string }[]; date: Date };
+  envelope?: { subject: string; messageId: string; from: { address: string }[]; date: Date };
   bodyStructure?: Record<string, unknown>;
 }
 
@@ -174,14 +174,17 @@ export class FakeImapFlow extends EventEmitter {
     options?: { uid?: boolean },
   ): AsyncGenerator<FakeFetchedMessage> {
     this.fetchCount += 1;
+    // Like imapflow 1.7.8, a fetch with no mailbox selected sends no command and yields nothing.
+    if (!this.mailbox) return;
+    const { path } = this.mailbox;
     await this.command();
     const error = fake.fetchErrors.shift();
     if (error) {
       if ((error as { code?: string }).code === 'NoConnection') this.shutdown();
       throw error;
     }
-    const folder = this.mailbox ? fake.folders.get(this.mailbox.path) : undefined;
-    if (!folder) throw new Error('No mailbox selected');
+    const folder = fake.folders.get(path);
+    if (!folder) throw new Error(`no folder ${path}`);
     const field = options?.uid === true ? 'uid' : 'seq';
     const numbered = folder.messages.map((message, index) => ({ ...message, seq: index + 1 }));
     const highest = numbered.at(-1)?.[field] ?? 0;
@@ -198,6 +201,7 @@ export class FakeImapFlow extends EventEmitter {
         ? {
             envelope: {
               subject: message.subject,
+              messageId: `<${message.uid}@example.com>`,
               from: [{ address: 'sender@example.com' }],
               date: new Date('2026-10-01T08:00:00.000Z'),
             },
