@@ -42,7 +42,6 @@ function plural(count: number, noun: string): string {
   return `${count} ${noun}${count > 1 ? 's' : ''}`;
 }
 
-/** Where and how to join: location, meeting link, dial-in and meeting ID. */
 function meetingDialogLines(event: LocalCalendarEventInput): string[] {
   const lines: string[] = [];
   if (event.location) {

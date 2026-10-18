@@ -227,7 +227,6 @@ describe('HooksService batch queue', () => {
     expect(handled).toEqual(['2']);
   });
 
-  /** A MailArrival that records the id of each email it handles. */
   function recorder(handled: string[]): { mailArrival: MailArrival } {
     return {
       mailArrival: {

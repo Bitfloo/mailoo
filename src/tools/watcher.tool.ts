@@ -80,7 +80,6 @@ function updatedAlertsText(updated: AlertsConfig, saveNote: string): string {
   ].join('\n');
 }
 
-/** A failed save leaves the new settings active for this session only. */
 async function saveAlertsToConfig(
   updated: AlertsConfig,
 ): Promise<{ note: string; error?: string }> {
