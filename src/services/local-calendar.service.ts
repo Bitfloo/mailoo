@@ -29,12 +29,6 @@ import {
   listEventsMacOS,
 } from './local-calendar.macos-read.js';
 
-export { ADD_EVENT_TIMEOUT_MS, DUPLICATE_START_WINDOW_MS } from './local-calendar.macos.js';
-export {
-  LIST_CALENDARS_TIMEOUT_MS,
-  LIST_EVENTS_TIMEOUT_MS,
-} from './local-calendar.macos-read.js';
-
 const execFile = promisify(execFileCb);
 
 // ---------------------------------------------------------------------------

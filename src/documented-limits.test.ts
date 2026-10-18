@@ -7,11 +7,11 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 import HooksService from './services/hooks.service.js';
+import { DUPLICATE_START_WINDOW_MS } from './services/local-calendar.macos.js';
 import {
-  DUPLICATE_START_WINDOW_MS,
   LIST_CALENDARS_TIMEOUT_MS,
   LIST_EVENTS_TIMEOUT_MS,
-} from './services/local-calendar.service.js';
+} from './services/local-calendar.macos-read.js';
 import { LIST_REMINDERS_TIMEOUT_MS } from './services/reminders.service.js';
 import { MAX_HTML_INPUT_CHARS } from './utils/email-body.js';
 

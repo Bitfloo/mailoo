@@ -16,7 +16,8 @@ vi.mock('node:child_process', () => ({
 
 import { dateSetBy, literalAfter } from '../test-support/applescript.js';
 import onDarwin from '../test-support/platform.js';
-import LocalCalendarService, { LIST_EVENTS_TIMEOUT_MS } from './local-calendar.service.js';
+import { LIST_EVENTS_TIMEOUT_MS } from './local-calendar.macos-read.js';
+import LocalCalendarService from './local-calendar.service.js';
 
 beforeEach(() => {
   osascriptImpl.mockReset();

@@ -17,8 +17,9 @@ vi.mock('node:child_process', () => ({
 import { delimitUntrusted } from '../safety/untrusted-content.js';
 import { dateSetBy, literalAfter } from '../test-support/applescript.js';
 import onDarwin from '../test-support/platform.js';
+import { ADD_EVENT_TIMEOUT_MS } from './local-calendar.macos.js';
 import type { LocalCalendarEventInput } from './local-calendar.service.js';
-import LocalCalendarService, { ADD_EVENT_TIMEOUT_MS } from './local-calendar.service.js';
+import LocalCalendarService from './local-calendar.service.js';
 import { CONFIRM_DIALOG_WAIT_S } from './osascript.js';
 
 beforeEach(() => {
