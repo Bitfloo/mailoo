@@ -173,6 +173,21 @@ export function createMockConnectionManager(mockClient: MockImapClient): MockCon
   } satisfies IConnectionManager;
 }
 
+/** client.fetch as a UID FETCH answers: only the rows in the requested UID set, in UID order. */
+export function fetchServesRows(
+  client: MockImapClient,
+  rows: ({ uid: number } & Record<string, unknown>)[],
+) {
+  client.fetch.mockImplementation((range: string, _query: unknown, options?: { uid?: boolean }) => {
+    requireUidRange('fetch', range, options);
+    const uids = new Set(range.split(',').map(Number));
+    async function* uidFetch() {
+      yield* rows.filter((row) => uids.has(row.uid)).sort((a, b) => a.uid - b.uid);
+    }
+    return uidFetch();
+  });
+}
+
 /** client.fetchOne as imapflow answers a UID FETCH: false for a UID the mailbox does not hold. */
 export function fetchOneByUid(
   client: MockImapClient,
