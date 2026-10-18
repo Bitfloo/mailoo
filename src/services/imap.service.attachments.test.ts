@@ -67,6 +67,23 @@ describe('ImapService', () => {
 
       expect(attachments).toEqual([{ filename: 'report.pdf', mime: 'application/pdf' }]);
     });
+
+    it('should name an attachment unnamed when neither header carries a name', async () => {
+      fetchOneByUid(client, {
+        uid: 9,
+        bodyStructure: mixedStructure(
+          attachmentNode('2', 'a.pdf', {
+            type: 'application/pdf',
+            parameters: undefined,
+            dispositionParameters: undefined,
+          }),
+        ),
+      });
+
+      const attachments = await service.peekAttachments('test', '9', 'INBOX');
+
+      expect(attachments).toEqual([{ filename: 'unnamed', mime: 'application/pdf' }]);
+    });
   });
 
   describe('downloadAttachment', () => {

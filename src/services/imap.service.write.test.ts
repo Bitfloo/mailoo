@@ -60,6 +60,25 @@ describe('ImapService', () => {
       );
       expect(client.messageMove).not.toHaveBeenCalled();
     });
+
+    // imapflow gives the role to one folder per role and may infer it from a name,
+    // so a virtual folder can carry the LIST flag alone or the role alone.
+    it.each([
+      ['\\All', { name: 'All', path: 'Archive/All', flags: new Set(['\\All']) }],
+      [
+        '\\Flagged',
+        { name: 'Starred', path: 'Starred', specialUse: '\\Flagged', flags: new Set() },
+      ],
+    ])(
+      'should refuse to move out of a folder marked %s in one place only',
+      async (role, folder) => {
+        client.list.mockResolvedValue([...gmailMailboxes(), folder]);
+
+        await expect(service.moveEmail('test', '42', folder.path, 'Archive')).rejects.toThrow(
+          `"${folder.path}" is a virtual folder (${role}).`,
+        );
+      },
+    );
   });
 
   // -----------------------------------------------------------------------
@@ -73,6 +92,14 @@ describe('ImapService', () => {
       expect(client.messageDelete).toHaveBeenCalledWith('99', { uid: true });
       expect(client.messageMove).not.toHaveBeenCalled();
       expect(client._releaseFn).toHaveBeenCalledTimes(1);
+    });
+
+    it('should reject when the server refuses the permanent delete', async () => {
+      client.messageDelete.mockResolvedValue(false);
+
+      await expect(service.deleteEmail('test', '99', 'INBOX', true)).rejects.toThrow(
+        'IMAP server rejected the delete operation.',
+      );
     });
 
     // The folder names differ from the 'Trash' fallback, so a lookup that

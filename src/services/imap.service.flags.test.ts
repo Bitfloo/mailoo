@@ -1,6 +1,7 @@
 import {
   createMockConnectionManager,
   createMockImapClient,
+  fetchOneByUid,
 } from '../test-support/imap-client-fake.js';
 import ImapService from './imap.service.js';
 
@@ -74,6 +75,72 @@ describe('ImapService', () => {
       await service.setFlags('test', '10', 'INBOX', 'flag');
 
       expect(client.messageFlagsAdd).toHaveBeenCalledWith('10', ['\\Flagged'], { uid: true });
+    });
+
+    // imapflow resolves a refused STORE to false instead of rejecting.
+    it.each([
+      ['read', 'messageFlagsAdd'],
+      ['unflag', 'messageFlagsRemove'],
+    ] as const)('should reject when the server refuses the %s change', async (action, command) => {
+      client[command].mockResolvedValue(false);
+
+      await expect(service.setFlags('test', '10', 'INBOX', action)).rejects.toThrow(
+        `IMAP server rejected the ${action} flag operation.`,
+      );
+    });
+  });
+
+  describe('getEmailFlags', () => {
+    it('should report the flags, keywords, subject, sender and date of the message', async () => {
+      fetchOneByUid(client, {
+        uid: 9,
+        envelope: {
+          subject: 'Invoice',
+          from: [{ name: 'Alice Example', address: 'alice@example.com' }],
+          date: new Date('2026-03-01T10:00:00Z'),
+        },
+        flags: new Set(['\\Seen', '\\Answered', '$Work']),
+      });
+
+      const flags = await service.getEmailFlags('test', '9', 'INBOX');
+
+      expect(flags).toEqual({
+        seen: true,
+        flagged: false,
+        answered: true,
+        labels: ['$Work'],
+        subject: 'Invoice',
+        from: 'Alice Example <alice@example.com>',
+        date: '2026-03-01T10:00:00.000Z',
+      });
+    });
+
+    it('should fall back for a message with no subject, no sender name and no date', async () => {
+      fetchOneByUid(client, {
+        uid: 9,
+        envelope: { from: [{ address: 'bob@example.com' }] },
+        flags: new Set(['\\Flagged']),
+      });
+
+      const flags = await service.getEmailFlags('test', '9', 'INBOX');
+
+      expect(flags).toEqual({
+        seen: false,
+        flagged: true,
+        answered: false,
+        labels: [],
+        subject: '(no subject)',
+        from: 'bob@example.com',
+        date: '',
+      });
+    });
+
+    it('should report a UID the mailbox does not hold as not found', async () => {
+      fetchOneByUid(client, { uid: 9, envelope: {}, flags: new Set<string>() });
+
+      await expect(service.getEmailFlags('test', '8', 'Archive')).rejects.toThrow(
+        'Email 8 not found in Archive',
+      );
     });
   });
 });

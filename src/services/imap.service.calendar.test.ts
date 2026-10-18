@@ -111,6 +111,20 @@ describe('ImapService', () => {
       },
     );
 
+    it('should return an .ics attachment whose name is in upper case', async () => {
+      fetchOneByUid(client, {
+        uid: 9,
+        bodyStructure: mixedStructure(
+          attachmentNode('2', 'INVITE.ICS', { type: 'application/octet-stream', size: 434 }),
+        ),
+      });
+      downloadReturnsPartName(client);
+
+      const parts = await service.getCalendarParts('test', 'INBOX', '9');
+
+      expect(parts).toEqual(['body-of-part-2']);
+    });
+
     it('should number calendar parts by position when the structure has none', async () => {
       fetchOneByUid(client, {
         uid: 9,

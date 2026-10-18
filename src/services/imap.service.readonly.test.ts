@@ -1,6 +1,7 @@
 import {
   createMockConnectionManager,
   createMockImapClient,
+  fetchOneByUid,
   rejectCommandsDuringFetch,
 } from '../test-support/imap-client-fake.js';
 import ImapService from './imap.service.js';
@@ -43,9 +44,31 @@ describe('ImapService', () => {
       const query = client.fetchOne.mock.calls[0][1];
       expect(query).not.toHaveProperty('source');
     });
+
+    it('should return the text of a message that has only an HTML body', async () => {
+      fetchOneByUid(client, { uid: 10, bodyStructure: { type: 'text/html' } });
+      async function* chunksOf(text: string) {
+        yield Buffer.from(text);
+      }
+      client.download.mockResolvedValue({ content: chunksOf('<p>Hello <b>there</b></p>') });
+
+      await expect(service.peekText('test', '10', 'INBOX')).resolves.toBe('Hello there');
+    });
+
+    it('should return an empty text when the mailbox has no message with the UID', async () => {
+      fetchOneByUid(client, { uid: 10, bodyStructure: { type: 'text/plain' } });
+
+      await expect(service.peekText('test', '11', 'INBOX')).resolves.toBe('');
+    });
   });
 
   describe('peekAttachments', () => {
+    it('should return no attachments when the mailbox has no message with the UID', async () => {
+      fetchOneByUid(client, { uid: 10, bodyStructure: { type: 'text/plain' } });
+
+      await expect(service.peekAttachments('test', '11', 'INBOX')).resolves.toEqual([]);
+    });
+
     it('uses a readOnly lock and does not fetch source', async () => {
       client.fetchOne.mockResolvedValue({
         uid: 10,

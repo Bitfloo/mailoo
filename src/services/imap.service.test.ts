@@ -83,6 +83,40 @@ describe('ImapService', () => {
       expect(parts.plain).toBe('1');
       expect(parts.html).toBeUndefined();
     });
+
+    it('should skip a text/plain attachment that comes before the body', () => {
+      const parts = findTextMimeParts({
+        type: 'multipart/mixed',
+        childNodes: [
+          {
+            part: '1',
+            type: 'text/plain',
+            disposition: 'attachment',
+            dispositionParameters: { filename: 'notes.txt' },
+          },
+          { part: '2', type: 'text/plain' },
+        ],
+      });
+      expect(parts).toEqual({ plain: '2' });
+    });
+
+    it('should keep the first text/plain and the first text/html part', () => {
+      const parts = findTextMimeParts({
+        type: 'multipart/mixed',
+        childNodes: [
+          { part: '1', type: 'text/plain' },
+          { part: '2', type: 'text/html' },
+          { part: '3', type: 'text/plain' },
+          { part: '4', type: 'text/html' },
+        ],
+      });
+      expect(parts).toEqual({ plain: '1', html: '2' });
+    });
+
+    // RFC 3501: a non-multipart message has only part 1; imapflow gives its root no part number.
+    it('should read a message that is one text/plain part as part 1', () => {
+      expect(findTextMimeParts({ type: 'text/plain' })).toEqual({ plain: '1' });
+    });
   });
 
   describe('getEmail', () => {
