@@ -307,6 +307,14 @@ describe('Gmail labels', () => {
     expect(client.mailboxDelete).toHaveBeenCalledWith('Receipts');
   });
 
+  it('should create a label as a folder with the bare name', async () => {
+    const { client, strategy } = await gmailStrategy();
+
+    await strategy.createLabel(client as unknown as ImapFlow, 'Receipts');
+
+    expect(client.mailboxCreate.mock.calls).toEqual([['Receipts']]);
+  });
+
   // imapflow gives no role to [Gmail]/Important, and names a role from the folder
   // name alone, so a user label called Archive arrives as \Archive.
   it('should list only user labels, each named by its last path segment', async () => {

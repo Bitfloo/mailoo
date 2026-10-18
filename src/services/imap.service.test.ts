@@ -50,6 +50,25 @@ describe('ImapService', () => {
 
       expect(client.list).toHaveBeenCalledTimes(1);
     });
+
+    // A UID names a message only in the mailbox it came from.
+    it.each([
+      ['addLabel', 'messageFlagsAdd'],
+      ['removeLabel', 'messageFlagsRemove'],
+    ] as const)(
+      'should run %s in the given mailbox with the trimmed label',
+      async (method, command) => {
+        await service.listLabels('test'); // detects the keyword strategy, which reads INBOX
+        client.getMailboxLock.mockClear();
+
+        await service[method]('test', '5', 'Archive', '  Work  ');
+
+        expect([
+          client.getMailboxLock.mock.calls.map((call) => call[0]),
+          client[command].mock.calls,
+        ]).toEqual([['Archive'], [['5', ['Work'], { uid: true }]]]);
+      },
+    );
   });
 
   describe('findTextMimeParts', () => {

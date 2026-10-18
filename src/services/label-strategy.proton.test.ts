@@ -96,6 +96,21 @@ describe('ProtonMail labels', () => {
     ).rejects.toThrow(error);
   });
 
+  // Two messages can share a Message-ID, and the header search matches both.
+  it('should delete every copy the label folder holds', async () => {
+    const { client, strategy } = await protonStrategy();
+    client.fetchOne.mockResolvedValue(MESSAGE);
+    client.search.mockResolvedValue([12, 13]);
+    client.messageDelete.mockResolvedValue(true);
+
+    await strategy.removeLabel(client as unknown as ImapFlow, '5', 'Archive', 'Work');
+
+    expect(client.messageDelete.mock.calls).toEqual([
+      ['12', { uid: true }],
+      ['13', { uid: true }],
+    ]);
+  });
+
   it('should fail removing a label when the server refuses to delete the copy', async () => {
     const { client, strategy } = await protonStrategy();
     client.fetchOne.mockResolvedValue(MESSAGE);
