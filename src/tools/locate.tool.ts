@@ -11,6 +11,7 @@ import { z } from 'zod';
 
 import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
+import { accountParam, emailIdInputFields, resolveEmailId } from './schema-helpers.js';
 
 export default function registerLocateTools(server: McpServer, imapService: ImapService): void {
   server.registerTool(
@@ -22,8 +23,8 @@ export default function registerLocateTools(server: McpServer, imapService: Imap
         'Required before move_email or delete_email when the email was found in a virtual folder ' +
         '(e.g., "All Mail", "Starred"). Returns the real folder path to use as sourceMailbox.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
-        emailId: z.string().describe('Email ID (UID) from list_emails'),
+        account: accountParam,
+        ...emailIdInputFields('Email ID (UID) from list_emails'),
         sourceMailbox: z
           .string()
           .default('INBOX')
@@ -36,8 +37,11 @@ export default function registerLocateTools(server: McpServer, imapService: Imap
         openWorldHint: true,
       },
     },
-    async ({ account, emailId, sourceMailbox }) => {
+    async (params) => {
       try {
+        const account = params.account ?? '';
+        const emailId = resolveEmailId(params);
+        const { sourceMailbox } = params;
         const { folders, messageId } = await imapService.findEmailFolder(
           account,
           emailId,

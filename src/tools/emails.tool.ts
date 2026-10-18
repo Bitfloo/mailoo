@@ -8,7 +8,16 @@ import { z } from 'zod';
 import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
 import type { Email, EmailMeta } from '../types/index.js';
-import { applyBodyFormat } from '../utils/email-body.js';
+import { applyBodyFormatWithDefaultCap } from '../utils/email-body.js';
+import {
+  accountParam,
+  attachmentFilterFields,
+  emailIdInputFields,
+  idArraySchema,
+  normalizeStringIds,
+  resolveEmailId,
+  resolveHasAttachment,
+} from './schema-helpers.js';
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -68,7 +77,7 @@ export default function registerEmailsTools(
         'ProtonMail note: labels are represented as IMAP folders — use list_labels to discover them, ' +
         'then list_emails with mailbox="Labels/X" to find labeled emails.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
+        account: accountParam,
         mailbox: z.string().default('INBOX').describe('Mailbox path (default: INBOX)'),
         page: z.number().int().min(1).default(1).describe('Page number'),
         pageSize: z.number().int().min(1).max(100).default(20).describe('Results per page'),
@@ -78,10 +87,7 @@ export default function registerEmailsTools(
         subject: z.string().optional().describe('Filter by subject keyword'),
         seen: z.boolean().optional().describe('Filter: true=read only, false=unread only'),
         flagged: z.boolean().optional().describe('Filter: true=flagged only, false=unflagged only'),
-        has_attachment: z
-          .boolean()
-          .optional()
-          .describe('Filter: true=has attachments, false=no attachments'),
+        ...attachmentFilterFields,
         answered: z.boolean().optional().describe('Filter: true=replied, false=not yet replied'),
       },
       annotations: {
@@ -93,7 +99,7 @@ export default function registerEmailsTools(
     },
     async (params) => {
       try {
-        const result = await imapService.listEmails(params.account, {
+        const result = await imapService.listEmails(params.account ?? '', {
           mailbox: params.mailbox,
           page: params.page,
           pageSize: params.pageSize,
@@ -103,7 +109,7 @@ export default function registerEmailsTools(
           subject: params.subject,
           seen: params.seen,
           flagged: params.flagged,
-          hasAttachment: params.has_attachment,
+          hasAttachment: resolveHasAttachment(params),
           answered: params.answered,
         });
 
@@ -150,14 +156,14 @@ export default function registerEmailsTools(
         'Use maxLength to cap the body size for large emails. ' +
         'Set markRead=true only when you want to explicitly mark the email as read.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
-        emailId: z.string().describe('Email ID from list_emails or search_emails'),
+        account: accountParam,
+        ...emailIdInputFields('Email ID from list_emails or search_emails'),
         mailbox: z.string().default('INBOX').describe('Mailbox path (default: INBOX)'),
         format: z
           .enum(['full', 'text', 'stripped'])
-          .default('full')
+          .default('text')
           .describe(
-            'Body format: full=raw (default), text=plain text (strips HTML), stripped=plain text without quoted replies or signatures',
+            'Body format: text=plain text (strips HTML, default), full=raw, stripped=plain text without quoted replies or signatures',
           ),
         maxLength: z
           .number()
@@ -165,7 +171,7 @@ export default function registerEmailsTools(
           .min(100)
           .optional()
           .describe(
-            'Truncate body at this many characters. A hint shows how many characters remain.',
+            'Truncate body at this many characters (default: 20000). A hint shows how many characters remain.',
           ),
         markRead: z
           .boolean()
@@ -182,8 +188,11 @@ export default function registerEmailsTools(
         openWorldHint: true,
       },
     },
-    async ({ account, emailId, mailbox, format, maxLength, markRead }) => {
+    async (params) => {
       try {
+        const account = params.account ?? '';
+        const emailId = resolveEmailId(params);
+        const { mailbox, format, maxLength, markRead } = params;
         const email = await imapService.getEmail(account, emailId, mailbox);
 
         const parts: string[] = [
@@ -211,7 +220,9 @@ export default function registerEmailsTools(
         }
 
         parts.push('', '--- Body ---', '');
-        parts.push(applyBodyFormat(email.bodyText, email.bodyHtml, format, maxLength));
+        parts.push(
+          applyBodyFormatWithDefaultCap(email.bodyText, email.bodyHtml, format, maxLength),
+        );
 
         if (markRead && !readOnly) {
           await imapService.setFlags(account, emailId, mailbox, 'read');
@@ -247,12 +258,11 @@ export default function registerEmailsTools(
         'Does NOT mark emails as seen. ' +
         'Defaults to format="text" (HTML stripped) for compact, AI-friendly output.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
-        ids: z
-          .array(z.string())
-          .min(1)
-          .max(20)
-          .describe('Email IDs to fetch (max 20). Obtain IDs from list_emails or search_emails.'),
+        account: accountParam,
+        ids: idArraySchema(
+          20,
+          'Email IDs to fetch (max 20). Obtain IDs from list_emails or search_emails.',
+        ),
         mailbox: z.string().default('INBOX').describe('Mailbox path (default: INBOX)'),
         format: z
           .enum(['full', 'text', 'stripped'])
@@ -265,7 +275,7 @@ export default function registerEmailsTools(
           .int()
           .min(100)
           .optional()
-          .describe('Truncate each email body at this many characters.'),
+          .describe('Truncate each email body at this many characters (default: 20000).'),
       },
       annotations: {
         readOnlyHint: true,
@@ -277,19 +287,38 @@ export default function registerEmailsTools(
     async ({ account, ids, mailbox, format, maxLength }) => {
       const results: string[] = [];
       const errors: string[] = [];
+      let normalizedIds: string[];
+      try {
+        normalizedIds = normalizeStringIds(ids);
+      } catch (err) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text' as const,
+              text: `Failed to get emails: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
 
       const settled = await Promise.allSettled(
-        ids.map(async (emailId) => imapService.getEmail(account, emailId, mailbox)),
+        normalizedIds.map(async (emailId) => imapService.getEmail(account ?? '', emailId, mailbox)),
       );
 
       settled.forEach((outcome, i) => {
-        const emailId = ids[i];
+        const emailId = normalizedIds[i];
         if (outcome.status === 'fulfilled') {
           const email = outcome.value;
           const from = email.from.name
             ? `${email.from.name} <${email.from.address}>`
             : email.from.address;
-          const body = applyBodyFormat(email.bodyText, email.bodyHtml, format, maxLength);
+          const body = applyBodyFormatWithDefaultCap(
+            email.bodyText,
+            email.bodyHtml,
+            format,
+            maxLength,
+          );
           const attachLine =
             email.attachments.length > 0
               ? `📎 ${email.attachments.map((a) => a.filename).join(', ')}`
@@ -345,8 +374,8 @@ export default function registerEmailsTools(
         'Also useful to confirm the result of a mark_email call. ' +
         'Does NOT mark the email as seen.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
-        emailId: z.string().describe('Email ID from list_emails or search_emails'),
+        account: accountParam,
+        ...emailIdInputFields('Email ID from list_emails or search_emails'),
         mailbox: z.string().default('INBOX').describe('Mailbox path (default: INBOX)'),
       },
       annotations: {
@@ -356,9 +385,11 @@ export default function registerEmailsTools(
         openWorldHint: true,
       },
     },
-    async ({ account, emailId, mailbox }) => {
+    async (params) => {
       try {
-        const flags = await imapService.getEmailFlags(account, emailId, mailbox);
+        const emailId = resolveEmailId(params);
+        const { mailbox } = params;
+        const flags = await imapService.getEmailFlags(params.account ?? '', emailId, mailbox);
 
         const statusParts: string[] = [flags.seen ? '✓ Read' : '🔵 Unread'];
         if (flags.flagged) statusParts.push('⭐ Flagged');
@@ -404,7 +435,7 @@ export default function registerEmailsTools(
         'with attachments from a specific recipient without a keyword. ' +
         'Supports additional filters for recipient, attachments, size, and reply status.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
+        account: accountParam,
         query: z
           .string()
           .optional()
@@ -414,10 +445,7 @@ export default function registerEmailsTools(
         page: z.number().int().min(1).default(1).describe('Page number'),
         pageSize: z.number().int().min(1).max(100).default(20).describe('Results per page'),
         to: z.string().optional().describe('Filter by recipient address'),
-        has_attachment: z
-          .boolean()
-          .optional()
-          .describe('Filter: true=has attachments, false=no attachments'),
+        ...attachmentFilterFields,
         larger_than: z.number().optional().describe('Minimum email size in KB'),
         smaller_than: z.number().optional().describe('Maximum email size in KB'),
         answered: z.boolean().optional().describe('Filter: true=replied, false=not replied'),
@@ -435,12 +463,12 @@ export default function registerEmailsTools(
     },
     async (params) => {
       try {
-        const result = await imapService.searchEmails(params.account, params.query ?? '', {
+        const result = await imapService.searchEmails(params.account ?? '', params.query ?? '', {
           mailbox: params.mailbox,
           page: params.page,
           pageSize: params.pageSize,
           to: params.to,
-          hasAttachment: params.has_attachment,
+          hasAttachment: resolveHasAttachment(params),
           largerThan: params.larger_than,
           smallerThan: params.smaller_than,
           answered: params.answered,

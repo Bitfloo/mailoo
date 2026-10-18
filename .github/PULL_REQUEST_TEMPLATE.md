@@ -18,6 +18,7 @@ commit-msg hook and a pull request check reject them. The pattern lives in
 - [ ] My code follows the project's code style (Biome formatter + ESLint linter)
 - [ ] I have run `pnpm check` and it passes
 - [ ] I have run `pnpm typecheck` and it passes
+- [ ] I have run `pnpm test` and it passes
 - [ ] I have added tests that prove my fix/feature works (if applicable)
 - [ ] I have updated documentation (if applicable)
 - [ ] Commit messages pass Conventional Commits + `scripts/check-public-git-log.sh`

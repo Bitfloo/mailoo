@@ -279,4 +279,54 @@ describe('ImapService', () => {
       },
     );
   });
+
+  describe('listEmails date-sort window', () => {
+    it('caps envelope date-sorting window to newest UIDs when matches exceed 250', async () => {
+      const uids = Array.from({ length: 500 }, (_, i) => i + 1);
+      client.search.mockResolvedValue(uids);
+      let firstFetchRange = '';
+      client.fetch.mockImplementation((range: string) => {
+        if (!firstFetchRange) firstFetchRange = range;
+        async function* fetchMock() {
+          yield {
+            uid: 500,
+            envelope: { date: new Date('2026-03-01'), subject: 'latest', from: [], to: [] },
+            flags: new Set(),
+            bodyParts: new Map([['1', Buffer.from('Preview text from part 1')]]),
+          };
+        }
+        return fetchMock();
+      });
+
+      const result = await service.listEmails('test', { page: 1, pageSize: 10 });
+      const fetchedUids = firstFetchRange.split(',');
+      expect(fetchedUids).toHaveLength(250);
+      expect(fetchedUids[0]).toBe('251');
+      expect(fetchedUids[249]).toBe('500');
+      expect(result.total).toBe(500);
+      expect(result.items[0].preview).toBe('Preview text from part 1');
+    });
+
+    it('extracts preview even when RFC 822 headers exceed 256 bytes', async () => {
+      client.search.mockResolvedValue([42]);
+      const longHeaders = `${'X-Header-Padding: '.padEnd(80, 'a')}\r\n`.repeat(10);
+      const source = Buffer.from(
+        `${longHeaders}Subject: Long headers\r\n\r\nActual body preview text!`,
+      );
+      client.fetch.mockImplementation(() => {
+        async function* fetchMock() {
+          yield {
+            uid: 42,
+            envelope: { date: new Date('2026-03-01'), subject: 'Long headers', from: [], to: [] },
+            flags: new Set(),
+            source,
+          };
+        }
+        return fetchMock();
+      });
+
+      const result = await service.listEmails('test', { page: 1, pageSize: 10 });
+      expect(result.items[0].preview).toBe('Actual body preview text!');
+    });
+  });
 });

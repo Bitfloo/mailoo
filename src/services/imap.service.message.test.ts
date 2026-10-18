@@ -5,8 +5,9 @@ import {
   createMockImapClient,
   fetchOneByUid,
   fetchServesRows,
+  rejectCommandsDuringFetch,
 } from '../test-support/imap-client-fake.js';
-import ImapService from './imap.service.js';
+import ImapService, { extractReferences } from './imap.service.js';
 
 /** A message as imapflow fetches it for get_email: ENVELOPE, FLAGS, BODYSTRUCTURE and the source. */
 function fetchedMessage(headerLines: string[], body: string, fields: object = {}) {
@@ -145,7 +146,7 @@ describe('ImapService', () => {
         flagged: true,
         answered: false,
         labels: ['$Work'],
-        preview: `Hello there ${'x'.repeat(185)}`,
+        preview: `Hello there ${'x'.repeat(250)}`.slice(0, 200),
       });
     });
 
@@ -228,6 +229,121 @@ describe('ImapService', () => {
       const { items } = await service.listEmails('test');
 
       expect(items.map((item) => item.messageId)).toEqual(['<m3@example.com>']);
+    });
+  });
+
+  describe('getEmail header fetch', () => {
+    it('fetches headers instead of source: true when bodyStructure has text parts', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 10,
+        envelope: {
+          subject: 'No full source',
+          from: [{ address: 'a@example.com' }],
+          to: [{ address: 'b@example.com' }],
+          messageId: '<mid@example.com>',
+        },
+        flags: new Set(),
+        headers: Buffer.from(
+          'References: <ref1@example.com>\r\n <ref2@example.com>\r\nContent-Type: text/plain\r\n\r\n',
+        ),
+        bodyStructure: { type: 'text/plain', part: '1' },
+      });
+      async function* chunksOf(text: string) {
+        yield Buffer.from(text);
+      }
+      client.download.mockResolvedValue({ content: chunksOf('Selective body') });
+
+      const email = await service.getEmail('test', '10');
+      expect(client.fetchOne).toHaveBeenCalledTimes(1);
+      expect(client.fetchOne).toHaveBeenCalledWith(
+        '10',
+        {
+          uid: true,
+          envelope: true,
+          flags: true,
+          bodyStructure: true,
+          headers: ['references', 'content-type'],
+        },
+        { uid: true },
+      );
+      expect(email.bodyText).toBe('Selective body');
+      expect(email.references).toEqual(['<ref1@example.com>', '<ref2@example.com>']);
+    });
+
+    it('falls back to bounded 64KB source slice when bodyStructure has no text part', async () => {
+      client.fetchOne
+        .mockResolvedValueOnce({
+          uid: 11,
+          envelope: {
+            subject: 'Fallback message',
+            from: [{ address: 'a@example.com' }],
+            to: [{ address: 'b@example.com' }],
+            messageId: '<mid11@example.com>',
+          },
+          flags: new Set(),
+          headers: Buffer.from('Content-Type: text/plain\r\n\r\n'),
+          bodyStructure: { type: 'application/octet-stream', disposition: 'attachment' },
+        })
+        .mockResolvedValueOnce({
+          uid: 11,
+          source: Buffer.from('Content-Type: text/plain\r\n\r\nFallback body text'),
+        });
+
+      const email = await service.getEmail('test', '11');
+      expect(client.fetchOne).toHaveBeenCalledTimes(2);
+      expect(client.fetchOne).toHaveBeenNthCalledWith(
+        2,
+        '11',
+        { uid: true, source: { start: 0, maxLength: 65536 } },
+        { uid: true },
+      );
+      expect(email.bodyText).toBe('Fallback body text');
+    });
+  });
+
+  describe('getEmails', () => {
+    it('should download each body after the FETCH, not inside it', async () => {
+      const row = (uid: number) => ({
+        uid,
+        envelope: {
+          subject: `Message ${uid}`,
+          from: [],
+          to: [],
+          messageId: `<m${uid}@example.com>`,
+        },
+        flags: new Set<string>(),
+        bodyStructure: { type: 'text/plain', part: '1' },
+      });
+      async function* chunksOf(text: string) {
+        yield Buffer.from(text);
+      }
+      client.download.mockImplementation(async (uid: string) => ({
+        content: chunksOf(`body ${uid}`),
+      }));
+      const issuedDuringFetch = rejectCommandsDuringFetch(client, [row(7), row(8)]);
+
+      const emails = await service.getEmails('test', ['7', '8']);
+
+      expect({
+        issuedDuringFetch,
+        bodies: emails.map((email) => email.bodyText),
+      }).toEqual({ issuedDuringFetch: [], bodies: ['body 7', 'body 8'] });
+    });
+  });
+
+  describe('extractReferences', () => {
+    it('extracts references from headers buffer and falls back to source', () => {
+      expect(
+        extractReferences({
+          headers: Buffer.from('References: <a@ex.com>\r\n\t<b@ex.com>\r\n'),
+        }),
+      ).toEqual(['<a@ex.com>', '<b@ex.com>']);
+
+      expect(
+        extractReferences({
+          source: Buffer.from('From: x@ex.com\r\nReferences: <c@ex.com> <d@ex.com>\r\n\r\nBody'),
+        }),
+      ).toEqual(['<c@ex.com>', '<d@ex.com>']);
     });
   });
 });

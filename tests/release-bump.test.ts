@@ -59,6 +59,33 @@ async function stampReadme(readme: string, version: string): Promise<string> {
   return (await runStamp(readme, version)).readme;
 }
 
+/** Run the server.json stamp in a scratch dir holding `serverJson`; a non-zero exit resolves with `error` set. */
+async function stampServerJson(
+  serverJson: string,
+  version: string,
+): Promise<{ serverJson: string; files: string[]; error?: Error }> {
+  const dir = await mkdtemp(join(tmpdir(), 'mailoo-server-json-'));
+  try {
+    await writeFile(join(dir, 'server.json'), serverJson);
+    let error: Error | undefined;
+    try {
+      await execFileAsync('bash', [join(root, 'scripts/bump-server-json-version.sh'), version], {
+        cwd: dir,
+        env: { PATH: process.env.PATH },
+      });
+    } catch (caught) {
+      error = caught as Error;
+    }
+    return {
+      serverJson: await readFile(join(dir, 'server.json'), 'utf8'),
+      files: await readdir(dir),
+      error,
+    };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 describe('release bump', () => {
   let pkg: { version: string };
 
@@ -225,6 +252,45 @@ describe('release bump', () => {
       '1.4.2-rc.1',
     ])('should refuse %s as a release version', async (version) => {
       await expect(stampReadme(readme, version)).rejects.toThrow(/not a release version/);
+    });
+  });
+
+  describe('when server.json is stamped for a release', () => {
+    let serverJson: string;
+
+    beforeAll(async () => {
+      serverJson = await readFile(join(root, 'server.json'), 'utf8');
+    });
+
+    it('should set the release version on server.json and on every package', async () => {
+      const { serverJson: stamped } = await stampServerJson(serverJson, '1.4.2');
+      const parsed = JSON.parse(stamped) as { version: string; packages: { version: string }[] };
+      expect([parsed.version, ...parsed.packages.map((pkgEntry) => pkgEntry.version)]).toEqual(
+        Array.from({ length: parsed.packages.length + 1 }, () => '1.4.2'),
+      );
+    });
+
+    // A manual release dispatched from a branch with no version input used to stamp
+    // `refs/heads/<branch>` into the manifest the MCP Registry publishes.
+    it.each([
+      'refs/heads/develop',
+      'v1.4.2',
+      '1.4',
+      'latest',
+      '1.4.2-rc.1',
+      '1.4.2x',
+      '1.4.2\n',
+      '1.4.2 && id',
+    ])('should refuse %j as a release version', async (version) => {
+      const { error } = await stampServerJson(serverJson, version);
+      expect(error?.message).toMatch(/not a release version/);
+    });
+
+    it('should leave server.json as it was when it refuses a version', async () => {
+      await expect(stampServerJson(serverJson, 'refs/heads/develop')).resolves.toMatchObject({
+        serverJson,
+        files: ['server.json'],
+      });
     });
   });
 });

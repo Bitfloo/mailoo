@@ -20,6 +20,7 @@ import {
   specificRoot,
 } from '../safety/local-paths.js';
 import type ImapService from '../services/imap.service.js';
+import { accountParam, emailIdInputFields, resolveEmailId } from './schema-helpers.js';
 
 const BYTES_PER_MEBIBYTE = 1024 * 1024;
 
@@ -235,8 +236,8 @@ export default function registerAttachmentTools(
         'the file',
       )}`,
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
-        id: z.string().describe('Email ID (UID) from list_emails or get_email'),
+        account: accountParam,
+        ...emailIdInputFields('Email ID (UID) from list_emails or get_email'),
         mailbox: z.string().default('INBOX').describe('Mailbox containing the email'),
         filename: z.string().describe('Exact attachment filename (from get_email metadata)'),
         savePath: z
@@ -254,8 +255,11 @@ export default function registerAttachmentTools(
         openWorldHint: true,
       },
     },
-    async ({ account, id, mailbox, filename, savePath }) => {
+    async (params) => {
       try {
+        const account = params.account ?? '';
+        const id = resolveEmailId(params);
+        const { mailbox, filename, savePath } = params;
         if (readOnly && savePath !== undefined) {
           throw new Error(SAVE_PATH_READ_ONLY_MESSAGE);
         }

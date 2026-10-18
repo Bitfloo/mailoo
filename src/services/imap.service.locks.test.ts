@@ -56,6 +56,12 @@ const SITES: Record<string, LockSite> = {
       }),
     fails: 'fetchOne',
   },
+  getEmails: {
+    method: 'getEmails',
+    call: async (svc) => svc.getEmails('test', ['9'], 'Archive'),
+    serve: (c) => c.fetchAll.mockResolvedValue([{ ...message, bodyStructure: plainBody }]),
+    fails: 'fetchAll',
+  },
   getEmailFlags: {
     method: 'getEmailFlags',
     call: async (svc) => svc.getEmailFlags('test', '9', 'Archive'),

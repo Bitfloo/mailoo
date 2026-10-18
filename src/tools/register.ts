@@ -55,50 +55,70 @@ export default function registerAllTools(
   watcherService: WatcherService,
   hooksService: HooksService,
 ): void {
-  const { readOnly } = config.settings;
+  const { readOnly, toolset = 'full' } = config.settings;
+  const includeCore = toolset === 'core' || toolset === 'full';
+  const includeFull = toolset === 'full';
 
-  // Read tools — always registered
+  // Read tools — always registered (minimal + core + full)
   registerAccountsTools(server, connections);
   registerMailboxesTools(server, imapService);
   registerEmailsTools(server, imapService, readOnly);
-  registerAttachmentTools(server, imapService, readOnly);
-  registerExportTools(server, imapService, readOnly);
-  registerContactsTools(server, imapService);
-  registerThreadTools(server, imapService);
-  registerTemplateReadTools(server, templateService);
-  registerCalendarReadTools(
-    server,
-    imapService,
-    calendarService,
-    localCalendarService,
-    remindersService,
-  );
-  registerAnalyticsTools(server, imapService);
-  registerHealthTools(server, connections, imapService);
-  registerLocateTools(server, imapService);
-  registerWatcherReadTools(server, watcherService, hooksService);
-  registerSecurityTools(server, imapService);
-  registerSieveReadTools(server, connections, sieveService);
-  registerLabelReadTools(server, imapService);
-  registerSchedulerReadTools(server, schedulerService);
-
-  if (!readOnly) {
-    registerCalendarWriteTools(
+  if (includeCore) {
+    registerAttachmentTools(server, imapService, readOnly);
+  }
+  if (includeFull) {
+    registerExportTools(server, imapService, readOnly);
+    registerContactsTools(server, imapService);
+  }
+  if (includeCore) {
+    registerThreadTools(server, imapService);
+  }
+  if (includeFull) {
+    registerTemplateReadTools(server, templateService);
+    registerCalendarReadTools(
       server,
       imapService,
       calendarService,
       localCalendarService,
       remindersService,
     );
-    registerWatcherWriteTools(server, hooksService);
+    registerAnalyticsTools(server, imapService);
+  }
+  registerHealthTools(server, connections, imapService);
+  if (includeFull) {
+    registerLocateTools(server, imapService);
+    registerWatcherReadTools(server, watcherService, hooksService);
+    registerSecurityTools(server, imapService);
+    registerSieveReadTools(server, connections, sieveService);
+    registerLabelReadTools(server, imapService);
+    registerSchedulerReadTools(server, schedulerService);
+  }
+
+  if (!readOnly) {
+    if (includeFull) {
+      registerCalendarWriteTools(
+        server,
+        imapService,
+        calendarService,
+        localCalendarService,
+        remindersService,
+      );
+      registerWatcherWriteTools(server, hooksService);
+    }
     registerSendTools(server, smtpService);
     registerManageTools(server, imapService);
-    registerLabelWriteTools(server, imapService);
-    registerBulkTools(server, imapService);
-    registerDraftTools(server, imapService, smtpService);
-    registerFolderTools(server, imapService);
-    registerTemplateWriteTools(server, templateService, imapService, smtpService);
-    registerSchedulerWriteTools(server, schedulerService);
-    registerSieveWriteTools(server, connections, sieveService);
+    if (includeFull) {
+      registerLabelWriteTools(server, imapService);
+    }
+    if (includeCore) {
+      registerBulkTools(server, imapService);
+      registerDraftTools(server, imapService, smtpService);
+    }
+    if (includeFull) {
+      registerFolderTools(server, imapService);
+      registerTemplateWriteTools(server, templateService, imapService, smtpService);
+      registerSchedulerWriteTools(server, schedulerService);
+      registerSieveWriteTools(server, connections, sieveService);
+    }
   }
 }
