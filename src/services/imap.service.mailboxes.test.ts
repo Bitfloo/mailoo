@@ -47,6 +47,44 @@ describe('ImapService', () => {
       });
       expect(client.status).toHaveBeenCalledTimes(2);
     });
+
+    // A \Noselect parent cannot be opened, and the server refuses STATUS on it.
+    it('should list a folder whose STATUS fails with zero counts', async () => {
+      client.list.mockResolvedValue([
+        { name: 'INBOX', path: 'INBOX', specialUse: '\\Inbox', flags: new Set() },
+        { name: '[Gmail]', path: '[Gmail]', flags: new Set(['\\Noselect']) },
+      ]);
+      // imapflow's STATUS answer holds only the counts the query asked for.
+      client.status.mockImplementation(
+        async (path: string, query: { messages?: boolean; unseen?: boolean }) => {
+          if (path === '[Gmail]') throw new Error('Command failed: NO [NONEXISTENT]');
+          return {
+            path,
+            ...(query.messages ? { messages: 10 } : {}),
+            ...(query.unseen ? { unseen: 3 } : {}),
+          };
+        },
+      );
+
+      const result = await service.listMailboxes('test');
+
+      expect(result).toEqual([
+        {
+          name: 'INBOX',
+          path: 'INBOX',
+          specialUse: '\\Inbox',
+          totalMessages: 10,
+          unseenMessages: 3,
+        },
+        {
+          name: '[Gmail]',
+          path: '[Gmail]',
+          specialUse: undefined,
+          totalMessages: 0,
+          unseenMessages: 0,
+        },
+      ]);
+    });
   });
 
   // -----------------------------------------------------------------------
