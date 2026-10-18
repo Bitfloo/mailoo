@@ -172,45 +172,51 @@ export async function runCheck(
   });
 }
 
-async function runList(): Promise<void> {
-  const emails = await listScheduled('all');
-
+/** What `mailoo scheduler list` prints for the queue. */
+export function formatScheduledList(emails: ScheduledEmail[]): string[] {
   if (emails.length === 0) {
-    console.log('No scheduled emails.');
-    return;
+    return ['No scheduled emails.'];
   }
 
+  const lines: string[] = [];
   const pending = emails.filter((e) => e.status === 'pending');
   const sent = emails.filter((e) => e.status === 'sent');
   const failed = emails.filter((e) => e.status === 'failed');
 
   if (pending.length > 0) {
-    console.log(`\n📬 Pending (${pending.length}):`);
+    lines.push(`\n📬 Pending (${pending.length}):`);
     pending.forEach((e) => {
       const overdue = new Date(e.sendAt).getTime() < Date.now() ? ' ⚠️ OVERDUE' : '';
-      console.log(
+      lines.push(
         `  ${e.id.slice(0, 8)} | ${e.account} → ${e.to.join(', ')} | "${e.subject}" | ${e.sendAt}${overdue}`,
       );
     });
   }
 
   if (sent.length > 0) {
-    console.log(`\n✅ Sent (${sent.length}):`);
+    lines.push(`\n✅ Sent (${sent.length}):`);
     sent.forEach((e) => {
-      console.log(
+      lines.push(
         `  ${e.id.slice(0, 8)} | ${e.account} → ${e.to.join(', ')} | "${e.subject}" | sent ${e.sentAt}`,
       );
     });
   }
 
   if (failed.length > 0) {
-    console.log(`\n❌ Failed (${failed.length}):`);
+    lines.push(`\n❌ Failed (${failed.length}):`);
     failed.forEach((e) => {
-      console.log(
+      lines.push(
         `  ${e.id.slice(0, 8)} | ${e.account} → ${e.to.join(', ')} | "${e.subject}" | ${e.lastError}`,
       );
     });
   }
+  return lines;
+}
+
+async function runList(): Promise<void> {
+  formatScheduledList(await listScheduled('all')).forEach((line) => {
+    console.log(line);
+  });
 }
 
 /** `mailoo scheduler install`. A test passes the platform, a command runner and a line sink. */
