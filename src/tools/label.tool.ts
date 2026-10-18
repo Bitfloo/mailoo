@@ -12,6 +12,7 @@ import audit from '../safety/audit.js';
 import { validateLabelName } from '../safety/validation.js';
 
 import type ImapService from '../services/imap.service.js';
+import { accountParam, emailIdInputFields, resolveEmailId } from './schema-helpers.js';
 
 function registerLabelGroup(
   server: McpServer,
@@ -32,7 +33,7 @@ function registerLabelGroup(
           'ProtonMail note: labels are represented as IMAP folders under the Labels/ prefix. ' +
           'Use list_emails with mailbox="Labels/<name>" to find emails tagged with a ProtonMail label.',
         inputSchema: {
-          account: z.string().describe('Account name from list_accounts'),
+          account: accountParam,
         },
         annotations: {
           readOnlyHint: true,
@@ -43,7 +44,7 @@ function registerLabelGroup(
       },
       async ({ account }) => {
         try {
-          const labels = await imapService.listLabels(account);
+          const labels = await imapService.listLabels(account ?? '');
           if (labels.length === 0) {
             return {
               content: [
@@ -88,8 +89,8 @@ function registerLabelGroup(
           'For ProtonMail, this copies the email into the corresponding Labels/<name> folder. ' +
           'For Gmail and standard IMAP, this sets a keyword flag on the message.',
         inputSchema: {
-          account: z.string().describe('Account name from list_accounts'),
-          emailId: z.string().describe('Email ID (UID) from list_emails'),
+          account: accountParam,
+          ...emailIdInputFields('Email ID (UID) from list_emails'),
           mailbox: z.string().describe('Mailbox containing the email (must be a real folder)'),
           label: z.string().describe('Label name to add (e.g., "Important", "Project-X")'),
         },
@@ -100,8 +101,12 @@ function registerLabelGroup(
           openWorldHint: true,
         },
       },
-      async ({ account, emailId, mailbox, label }) => {
+      async (params) => {
+        const account = params.account ?? '';
+        let emailId = params.emailId ?? params.id ?? params.email_id ?? '';
+        const { mailbox, label } = params;
         try {
+          emailId = resolveEmailId(params);
           const cleanLabel = validateLabelName(label);
           await imapService.addLabel(account, emailId, mailbox, cleanLabel);
           await audit.log('add_label', account, { emailId, mailbox, label: cleanLabel }, 'ok');
@@ -132,8 +137,8 @@ function registerLabelGroup(
           'Remove a label from an email. For ProtonMail, this removes the email from the label folder. ' +
           'For Gmail and standard IMAP, this removes a keyword flag.',
         inputSchema: {
-          account: z.string().describe('Account name from list_accounts'),
-          emailId: z.string().describe('Email ID (UID) from list_emails'),
+          account: accountParam,
+          ...emailIdInputFields('Email ID (UID) from list_emails'),
           mailbox: z.string().describe('Mailbox containing the email (must be a real folder)'),
           label: z.string().describe('Label name to remove'),
         },
@@ -144,8 +149,12 @@ function registerLabelGroup(
           openWorldHint: true,
         },
       },
-      async ({ account, emailId, mailbox, label }) => {
+      async (params) => {
+        const account = params.account ?? '';
+        let emailId = params.emailId ?? params.id ?? params.email_id ?? '';
+        const { mailbox, label } = params;
         try {
+          emailId = resolveEmailId(params);
           const cleanLabel = validateLabelName(label);
           await imapService.removeLabel(account, emailId, mailbox, cleanLabel);
           await audit.log('remove_label', account, { emailId, mailbox, label: cleanLabel }, 'ok');
@@ -179,7 +188,7 @@ function registerLabelGroup(
           'Create a new label. For ProtonMail, creates a folder under Labels/. ' +
           'For standard IMAP keywords, labels are auto-created on first use — this is a no-op.',
         inputSchema: {
-          account: z.string().describe('Account name from list_accounts'),
+          account: accountParam,
           name: z
             .string()
             .describe(
@@ -194,16 +203,17 @@ function registerLabelGroup(
         },
       },
       async ({ account, name }) => {
+        const accountInput = account ?? '';
         try {
           const cleanName = validateLabelName(name);
-          await imapService.createLabel(account, cleanName);
-          await audit.log('create_label', account, { name: cleanName }, 'ok');
+          await imapService.createLabel(accountInput, cleanName);
+          await audit.log('create_label', accountInput, { name: cleanName }, 'ok');
           return {
             content: [{ type: 'text' as const, text: `🏷️ Label "${name}" created.` }],
           };
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          await audit.log('create_label', account, { name }, 'error', errMsg);
+          await audit.log('create_label', accountInput, { name }, 'error', errMsg);
           return {
             isError: true,
             content: [{ type: 'text' as const, text: `Failed to create label: ${errMsg}` }],
@@ -223,7 +233,7 @@ function registerLabelGroup(
           'Delete a label. For ProtonMail, deletes the label folder. ' +
           'For standard IMAP keywords, labels cannot be deleted server-wide — use remove_label on individual emails.',
         inputSchema: {
-          account: z.string().describe('Account name from list_accounts'),
+          account: accountParam,
           name: z.string().describe('Label name to delete'),
         },
         annotations: {
@@ -234,15 +244,16 @@ function registerLabelGroup(
         },
       },
       async ({ account, name }) => {
+        const accountInput = account ?? '';
         try {
-          await imapService.deleteLabel(account, name);
-          await audit.log('delete_label', account, { name }, 'ok');
+          await imapService.deleteLabel(accountInput, name);
+          await audit.log('delete_label', accountInput, { name }, 'ok');
           return {
             content: [{ type: 'text' as const, text: `🏷️ Label "${name}" deleted.` }],
           };
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          await audit.log('delete_label', account, { name }, 'error', errMsg);
+          await audit.log('delete_label', accountInput, { name }, 'error', errMsg);
           return {
             isError: true,
             content: [{ type: 'text' as const, text: `Failed to delete label: ${errMsg}` }],

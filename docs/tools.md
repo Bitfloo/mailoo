@@ -1,8 +1,7 @@
 # MCP tools
 
 The [README API tables](../README.md#api) are the index (names and
-one-liners). This page is the SSOT for parameters and behaviour that
-landed with the Mailoo IMAP/SMTP dump. Config keys live in
+one-liners). This page documents parameters and behaviour for the Mailoo IMAP/SMTP tools. Config keys live in
 [configuration.md](configuration.md).
 
 Reporting security issues: [SECURITY.md](../SECURITY.md).

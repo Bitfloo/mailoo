@@ -21,7 +21,7 @@ vi.mock('@clack/prompts', async () => {
   const { clackPromptsMock, ACCOUNT_ANSWERS } = await import('../test-support/cli-wizard.js');
   return clackPromptsMock(wizard, ACCOUNT_ANSWERS);
 });
-vi.mock('../connections/manager.js', () => ({ default: probes }));
+vi.mock('../connections/probe.js', () => probes);
 
 /** Each differs from its default, so a field taken from the wrong answer shows. */
 const CUSTOM_ANSWERS: Record<string, Answer> = {

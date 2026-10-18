@@ -26,6 +26,7 @@ import type RemindersService from '../services/reminders.service.js';
 import { buildCalendarNotes } from '../utils/calendar-notes.js';
 import { extractConferenceDetails } from '../utils/conference-details.js';
 import { extractMeetingUrl } from '../utils/meeting-url.js';
+import { accountParam, emailIdInputFields, resolveEmailId } from './schema-helpers.js';
 
 // Keywords that suggest an action item / reminder rather than a calendar event
 const REMINDER_KEYWORDS =
@@ -51,8 +52,8 @@ function registerCalendarGroup(
         description:
           'Extract calendar events (ICS/iCalendar) from an email. Returns structured event data including time, location, attendees, and status.',
         inputSchema: {
-          account: z.string().describe('Account name'),
-          email_id: z.string().describe('Email UID'),
+          account: accountParam,
+          ...emailIdInputFields('Email UID'),
           mailbox: z.string().default('INBOX').describe('Mailbox path (default: INBOX)'),
         },
         annotations: {
@@ -62,42 +63,61 @@ function registerCalendarGroup(
           openWorldHint: true,
         },
       },
-      async ({ account, email_id: emailId, mailbox }) => {
-        const email = await imapService.getEmail(account, emailId, mailbox);
-        const icsContents = await imapService.getCalendarParts(account, mailbox, emailId);
+      async (params) => {
+        try {
+          const account = params.account ?? '';
+          const emailId = resolveEmailId(params);
+          const { mailbox } = params;
+          const email = await imapService.getEmail(account, emailId, mailbox);
+          const icsContents = await imapService.getCalendarParts(account, mailbox, emailId);
 
-        if (icsContents.length === 0) {
+          if (icsContents.length === 0) {
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: [
+                    delimitUntrusted(
+                      JSON.stringify(
+                        { email_subject: email.subject, events: [], count: 0 },
+                        null,
+                        2,
+                      ),
+                    ),
+                    'No calendar/ICS content found in this email',
+                  ].join('\n'),
+                },
+              ],
+            };
+          }
+
+          const events = calendarService.extractFromParts(icsContents);
+
           return {
             content: [
               {
                 type: 'text' as const,
-                text: [
-                  delimitUntrusted(
-                    JSON.stringify({ email_subject: email.subject, events: [], count: 0 }, null, 2),
+                text: delimitUntrusted(
+                  JSON.stringify(
+                    { email_subject: email.subject, events, count: events.length },
+                    null,
+                    2,
                   ),
-                  'No calendar/ICS content found in this email',
-                ].join('\n'),
+                ),
+              },
+            ],
+          };
+        } catch (err) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: `Failed to extract calendar events: ${err instanceof Error ? err.message : String(err)}`,
               },
             ],
           };
         }
-
-        const events = calendarService.extractFromParts(icsContents);
-
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: delimitUntrusted(
-                JSON.stringify(
-                  { email_subject: email.subject, events, count: events.length },
-                  null,
-                  2,
-                ),
-              ),
-            },
-          ],
-        };
       },
     );
   }
@@ -120,8 +140,8 @@ function registerCalendarGroup(
           `Returns one of: ${ADD_EVENT_STATUSES.join(' | ')}.`,
         ].join(' '),
         inputSchema: {
-          account: z.string().describe('Account name'),
-          email_id: z.string().describe('Email UID'),
+          account: accountParam,
+          ...emailIdInputFields('Email UID'),
           mailbox: z.string().default('INBOX').describe('Mailbox path (default: INBOX)'),
           calendar_name: z
             .string()
@@ -150,161 +170,174 @@ function registerCalendarGroup(
           openWorldHint: true,
         },
       },
-      async ({
-        account,
-        email_id: emailId,
-        mailbox,
-        calendar_name: calendarName,
-        alarm_minutes: alarmMinutes,
-        save_attachments: saveAttachments,
-        confirm,
-      }) => {
-        // 1. Fetch full email
-        const email = await imapService.getEmail(account, emailId, mailbox);
-        const bodyText = email.bodyText ?? '';
-        const bodyHtml = email.bodyHtml ?? '';
-        const combinedText = `${bodyText}\n${bodyHtml}`;
-
-        // 2. Try to get event data from ICS attachment
-        let eventStart: Date = new Date(email.date);
-        let eventEnd: Date = new Date(eventStart.getTime() + 60 * 60 * 1000);
-        let eventLocation: string | undefined;
-        let eventOrganizer: string | undefined;
-        let eventAttendees: string[] = [];
-        let icsUid: string | undefined;
-
-        const icsContents = await imapService.getCalendarParts(account, mailbox, emailId);
-        if (icsContents.length > 0) {
-          const events = calendarService.extractFromParts(icsContents);
-          if (events.length > 0) {
-            const ev = events[0];
-            eventStart = new Date(ev.start);
-            eventEnd = new Date(ev.end);
-            eventLocation = ev.location;
-            icsUid = ev.uid;
-            if (ev.organizer) {
-              eventOrganizer = ev.organizer.name
-                ? `${ev.organizer.name} <${ev.organizer.address}>`
-                : ev.organizer.address;
-            }
-            eventAttendees = ev.attendees.map((a) => {
-              if (a.name) return `${a.name} <${a.address}>`;
-              return a.address;
-            });
-          }
-        }
-
-        // 3. Extract meeting URL and conference details
-        const meetingUrl = extractMeetingUrl(combinedText);
-        const conference = extractConferenceDetails(bodyText !== '' ? bodyText : bodyHtml);
-
-        // 4. Save attachments (before dialog so filenames are shown)
-        let savedAttachments: {
-          filename: string;
-          localPath: string;
-          fileUrl: string;
-          mimeType: string;
-          size: number;
-        }[] = [];
-
-        if (saveAttachments && email.attachments.length > 0) {
-          const destDir = join(
-            CALENDAR_ATTACHMENTS_DIR,
-            `${account}-${emailId}`.replace(/[^a-zA-Z0-9-_]/g, '_'),
-          );
-          savedAttachments = await imapService.saveEmailAttachments(
-            account,
-            emailId,
+      async (params) => {
+        try {
+          const account = params.account ?? '';
+          const emailId = resolveEmailId(params);
+          const {
             mailbox,
-            destDir,
-          );
-        }
+            calendar_name: calendarName,
+            alarm_minutes: alarmMinutes,
+            save_attachments: saveAttachments,
+            confirm,
+          } = params;
+          // 1. Fetch full email
+          const email = await imapService.getEmail(account, emailId, mailbox);
+          const bodyText = email.bodyText ?? '';
+          const bodyHtml = email.bodyHtml ?? '';
+          const combinedText = `${bodyText}\n${bodyHtml}`;
 
-        // 5. Build rich notes
-        const notes = buildCalendarNotes({
-          emailFrom: email.from.name
-            ? `${email.from.name} <${email.from.address}>`
-            : email.from.address,
-          emailSubject: email.subject,
-          emailDate: new Date(email.date).toLocaleString('en', {
-            weekday: 'short',
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-          }),
-          organizer: eventOrganizer,
-          attendees: eventAttendees,
-          meetingUrl: meetingUrl?.url,
-          meetingUrlLabel: meetingUrl?.label,
-          dialIn: conference?.dialIn,
-          meetingId: conference?.meetingId,
-          passcode: conference?.passcode,
-          conferenceProvider: conference?.provider,
-          bodyExcerpt: bodyText || bodyHtml,
-          savedAttachments,
-        });
+          // 2. Try to get event data from ICS attachment
+          let eventStart: Date = new Date(email.date);
+          let eventEnd: Date = new Date(eventStart.getTime() + 60 * 60 * 1000);
+          let eventLocation: string | undefined;
+          let eventOrganizer: string | undefined;
+          let eventAttendees: string[] = [];
+          let icsUid: string | undefined;
 
-        // 6. Add to calendar (shows dialog if confirm=true, dedup check is automatic)
-        const result = await localCalendarService.addEvent(
-          {
-            title: email.subject,
-            start: eventStart,
-            end: eventEnd,
-            location: eventLocation,
-            notes,
-            url: meetingUrl?.url,
-            urlLabel: meetingUrl?.label,
-            alarmMinutes,
-            attendeeCount: eventAttendees.length,
-            savedAttachments,
+          const icsContents = await imapService.getCalendarParts(account, mailbox, emailId);
+          if (icsContents.length > 0) {
+            const events = calendarService.extractFromParts(icsContents);
+            if (events.length > 0) {
+              const ev = events[0];
+              eventStart = new Date(ev.start);
+              eventEnd = new Date(ev.end);
+              eventLocation = ev.location;
+              icsUid = ev.uid;
+              if (ev.organizer) {
+                eventOrganizer = ev.organizer.name
+                  ? `${ev.organizer.name} <${ev.organizer.address}>`
+                  : ev.organizer.address;
+              }
+              eventAttendees = ev.attendees.map((a) => {
+                if (a.name) return `${a.name} <${a.address}>`;
+                return a.address;
+              });
+            }
+          }
+
+          // 3. Extract meeting URL and conference details
+          const meetingUrl = extractMeetingUrl(combinedText);
+          const conference = extractConferenceDetails(bodyText !== '' ? bodyText : bodyHtml);
+
+          // 4. Save attachments (before dialog so filenames are shown)
+          let savedAttachments: {
+            filename: string;
+            localPath: string;
+            fileUrl: string;
+            mimeType: string;
+            size: number;
+          }[] = [];
+
+          if (saveAttachments && email.attachments.length > 0) {
+            const destDir = join(
+              CALENDAR_ATTACHMENTS_DIR,
+              `${account}-${emailId}`.replace(/[^a-zA-Z0-9-_]/g, '_'),
+            );
+            savedAttachments = await imapService.saveEmailAttachments(
+              account,
+              emailId,
+              mailbox,
+              destDir,
+            );
+          }
+
+          // 5. Build rich notes
+          const notes = buildCalendarNotes({
+            emailFrom: email.from.name
+              ? `${email.from.name} <${email.from.address}>`
+              : email.from.address,
+            emailSubject: email.subject,
+            emailDate: new Date(email.date).toLocaleString('en', {
+              weekday: 'short',
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
+            organizer: eventOrganizer,
+            attendees: eventAttendees,
+            meetingUrl: meetingUrl?.url,
+            meetingUrlLabel: meetingUrl?.label,
             dialIn: conference?.dialIn,
             meetingId: conference?.meetingId,
             passcode: conference?.passcode,
             conferenceProvider: conference?.provider,
-            icsUid,
-          },
-          calendarName,
-          { confirm },
-        );
+            bodyExcerpt: bodyText || bodyHtml,
+            savedAttachments,
+          });
 
-        // 7. Build response
-        const details: Record<string, unknown> = {
-          status: result.status,
-          message: result.message,
-        };
-        if (result.status === 'duplicate') {
-          details.duplicate = result.duplicate;
-          details.hint = 'Event already exists. Update the existing event.';
-        }
-        if (result.status === 'added') {
-          details.event = {
-            title: delimitUntrusted(email.subject),
-            start: eventStart.toISOString(),
-            end: eventEnd.toISOString(),
-            location: eventLocation === undefined ? undefined : delimitUntrusted(eventLocation),
-            calendar: result.calendarName,
-            meetingUrl:
-              meetingUrl?.url === undefined ? undefined : delimitUntrusted(meetingUrl.url),
-            dialIn:
-              conference?.dialIn === undefined ? undefined : delimitUntrusted(conference.dialIn),
-            meetingId:
-              conference?.meetingId === undefined
-                ? undefined
-                : delimitUntrusted(conference.meetingId),
-            attachmentsSaved: savedAttachments.length,
-            attachments: savedAttachments.map((a) => ({
-              filename: delimitUntrusted(a.filename),
-              size: a.size,
-              localPath: a.localPath,
-            })),
+          // 6. Add to calendar (shows dialog if confirm=true, dedup check is automatic)
+          const result = await localCalendarService.addEvent(
+            {
+              title: email.subject,
+              start: eventStart,
+              end: eventEnd,
+              location: eventLocation,
+              notes,
+              url: meetingUrl?.url,
+              urlLabel: meetingUrl?.label,
+              alarmMinutes,
+              attendeeCount: eventAttendees.length,
+              savedAttachments,
+              dialIn: conference?.dialIn,
+              meetingId: conference?.meetingId,
+              passcode: conference?.passcode,
+              conferenceProvider: conference?.provider,
+              icsUid,
+            },
+            calendarName,
+            { confirm },
+          );
+
+          // 7. Build response
+          const details: Record<string, unknown> = {
+            status: result.status,
+            message: result.message,
+          };
+          if (result.status === 'duplicate') {
+            details.duplicate = result.duplicate;
+            details.hint = 'Event already exists. Update the existing event.';
+          }
+          if (result.status === 'added') {
+            details.event = {
+              title: delimitUntrusted(email.subject),
+              start: eventStart.toISOString(),
+              end: eventEnd.toISOString(),
+              location: eventLocation === undefined ? undefined : delimitUntrusted(eventLocation),
+              calendar: result.calendarName,
+              meetingUrl:
+                meetingUrl?.url === undefined ? undefined : delimitUntrusted(meetingUrl.url),
+              dialIn:
+                conference?.dialIn === undefined ? undefined : delimitUntrusted(conference.dialIn),
+              meetingId:
+                conference?.meetingId === undefined
+                  ? undefined
+                  : delimitUntrusted(conference.meetingId),
+              attachmentsSaved: savedAttachments.length,
+              attachments: savedAttachments.map((a) => ({
+                filename: delimitUntrusted(a.filename),
+                size: a.size,
+                localPath: a.localPath,
+              })),
+            };
+          }
+
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify(details, null, 2) }],
+          };
+        } catch (err) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: `Failed to add event to calendar: ${err instanceof Error ? err.message : String(err)}`,
+              },
+            ],
           };
         }
-
-        return {
-          content: [{ type: 'text' as const, text: JSON.stringify(details, null, 2) }],
-        };
       },
     );
   }
@@ -332,30 +365,42 @@ function registerCalendarGroup(
         },
       },
       async () => {
-        const [calResult, remResult] = await Promise.all([
-          localCalendarService.checkPermissions(),
-          remindersService.checkPermissions(),
-        ]);
-        const lines = [
-          '--- Calendar.app ---',
-          `Platform: ${calResult.platform}`,
-          `Access granted: ${calResult.granted ? '✅ Yes' : '❌ No'}`,
-        ];
-        if (!calResult.granted && calResult.instructions.length > 0) {
-          lines.push('', 'Setup instructions:');
-          calResult.instructions.forEach((line, i) => {
-            lines.push(`  ${i === 0 ? '' : `${i}. `}${line}`);
-          });
+        try {
+          const [calResult, remResult] = await Promise.all([
+            localCalendarService.checkPermissions(),
+            remindersService.checkPermissions(),
+          ]);
+          const lines = [
+            '--- Calendar.app ---',
+            `Platform: ${calResult.platform}`,
+            `Access granted: ${calResult.granted ? '✅ Yes' : '❌ No'}`,
+          ];
+          if (!calResult.granted && calResult.instructions.length > 0) {
+            lines.push('', 'Setup instructions:');
+            calResult.instructions.forEach((line, i) => {
+              lines.push(`  ${i === 0 ? '' : `${i}. `}${line}`);
+            });
+          }
+          lines.push('', '--- Reminders.app ---');
+          lines.push(`Access granted: ${remResult.granted ? '✅ Yes' : '❌ No'}`);
+          if (!remResult.granted && remResult.instructions.length > 0) {
+            lines.push('', 'Setup instructions:');
+            remResult.instructions.forEach((line, i) => {
+              lines.push(`  ${i === 0 ? '' : `${i}. `}${line}`);
+            });
+          }
+          return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+        } catch (err) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: `Failed to check calendar permissions: ${err instanceof Error ? err.message : String(err)}`,
+              },
+            ],
+          };
         }
-        lines.push('', '--- Reminders.app ---');
-        lines.push(`Access granted: ${remResult.granted ? '✅ Yes' : '❌ No'}`);
-        if (!remResult.granted && remResult.instructions.length > 0) {
-          lines.push('', 'Setup instructions:');
-          remResult.instructions.forEach((line, i) => {
-            lines.push(`  ${i === 0 ? '' : `${i}. `}${line}`);
-          });
-        }
-        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
       },
     );
 
@@ -380,22 +425,34 @@ function registerCalendarGroup(
         },
       },
       async () => {
-        const calendars = await localCalendarService.listCalendars();
-        if (calendars.length === 0) {
+        try {
+          const calendars = await localCalendarService.listCalendars();
+          if (calendars.length === 0) {
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'No calendars found. Run check_calendar_permissions to verify access.',
+                },
+              ],
+            };
+          }
+          const lines = [`Found ${calendars.length} calendar(s):`, ''];
+          calendars.forEach((c, i) => {
+            lines.push(`  ${i + 1}. ${c.name} (id: ${c.id})`);
+          });
+          return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+        } catch (err) {
           return {
+            isError: true,
             content: [
               {
                 type: 'text' as const,
-                text: 'No calendars found. Run check_calendar_permissions to verify access.',
+                text: `Failed to list calendars: ${err instanceof Error ? err.message : String(err)}`,
               },
             ],
           };
         }
-        const lines = [`Found ${calendars.length} calendar(s):`, ''];
-        calendars.forEach((c, i) => {
-          lines.push(`  ${i + 1}. ${c.name} (id: ${c.id})`);
-        });
-        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
       },
     );
 
@@ -447,39 +504,51 @@ function registerCalendarGroup(
         },
       },
       async ({ title, from, to, calendar_name: calendarName, limit }) => {
-        const events = await localCalendarService.listEvents({
-          title,
-          from,
-          to,
-          calendarName,
-          limit,
-        });
+        try {
+          const events = await localCalendarService.listEvents({
+            title,
+            from,
+            to,
+            calendarName,
+            limit,
+          });
 
-        if (events.length === 0) {
-          const filterDesc = title ? ` matching "${title}"` : '';
+          if (events.length === 0) {
+            const filterDesc = title ? ` matching "${title}"` : '';
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: `No events found${filterDesc}. Try adjusting the date range or title filter.`,
+                },
+              ],
+            };
+          }
+
+          const lines = [`\uD83D\uDCC5 Found ${events.length} event(s):`, ''];
+          events.forEach((ev, i) => {
+            const loc = ev.location ? ` \uD83D\uDCCD ${ev.location}` : '';
+            lines.push(
+              `  ${i + 1}. ${ev.title}`,
+              `     \uD83D\uDD50 ${ev.start} \u2013 ${ev.end}`,
+              `     \uD83D\uDCC6 ${ev.calendar}${loc}`,
+              `     ID: ${ev.id}`,
+              '',
+            );
+          });
+
+          return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+        } catch (err) {
           return {
+            isError: true,
             content: [
               {
                 type: 'text' as const,
-                text: `No events found${filterDesc}. Try adjusting the date range or title filter.`,
+                text: `Failed to list calendar events: ${err instanceof Error ? err.message : String(err)}`,
               },
             ],
           };
         }
-
-        const lines = [`\uD83D\uDCC5 Found ${events.length} event(s):`, ''];
-        events.forEach((ev, i) => {
-          const loc = ev.location ? ` \uD83D\uDCCD ${ev.location}` : '';
-          lines.push(
-            `  ${i + 1}. ${ev.title}`,
-            `     \uD83D\uDD50 ${ev.start} \u2013 ${ev.end}`,
-            `     \uD83D\uDCC6 ${ev.calendar}${loc}`,
-            `     ID: ${ev.id}`,
-            '',
-          );
-        });
-
-        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
       },
     );
 
@@ -526,39 +595,51 @@ function registerCalendarGroup(
         },
       },
       async ({ title, list_name: listName, include_completed: includeCompleted, limit }) => {
-        const reminders = await remindersService.listReminders({
-          title,
-          listName,
-          includeCompleted,
-          limit,
-        });
+        try {
+          const reminders = await remindersService.listReminders({
+            title,
+            listName,
+            includeCompleted,
+            limit,
+          });
 
-        if (reminders.length === 0) {
-          const filterDesc = title ? ` matching "${title}"` : '';
+          if (reminders.length === 0) {
+            const filterDesc = title ? ` matching "${title}"` : '';
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: `No reminders found${filterDesc}. Try adjusting the title filter or set include_completed=true.`,
+                },
+              ],
+            };
+          }
+
+          const lines = [`\uD83D\uDD14 Found ${reminders.length} reminder(s):`, ''];
+          reminders.forEach((r, i) => {
+            const status = r.completed ? '\u2705' : '\u2B1C';
+            const due = r.dueDate ? ` \uD83D\uDD50 ${r.dueDate}` : '';
+            const priority = r.priority !== 'none' ? ` \u26A0\uFE0F ${r.priority}` : '';
+            lines.push(
+              `  ${i + 1}. ${status} ${r.title}`,
+              `     \uD83D\uDCCB ${r.list}${due}${priority}`,
+              `     ID: ${r.id}`,
+              '',
+            );
+          });
+
+          return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+        } catch (err) {
           return {
+            isError: true,
             content: [
               {
                 type: 'text' as const,
-                text: `No reminders found${filterDesc}. Try adjusting the title filter or set include_completed=true.`,
+                text: `Failed to list reminders: ${err instanceof Error ? err.message : String(err)}`,
               },
             ],
           };
         }
-
-        const lines = [`\uD83D\uDD14 Found ${reminders.length} reminder(s):`, ''];
-        reminders.forEach((r, i) => {
-          const status = r.completed ? '\u2705' : '\u2B1C';
-          const due = r.dueDate ? ` \uD83D\uDD50 ${r.dueDate}` : '';
-          const priority = r.priority !== 'none' ? ` \u26A0\uFE0F ${r.priority}` : '';
-          lines.push(
-            `  ${i + 1}. ${status} ${r.title}`,
-            `     \uD83D\uDCCB ${r.list}${due}${priority}`,
-            `     ID: ${r.id}`,
-            '',
-          );
-        });
-
-        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
       },
     );
   }
@@ -579,8 +660,8 @@ function registerCalendarGroup(
           'Use analyze_email_for_scheduling first to let the AI decide if a reminder is appropriate.',
         ].join(' '),
         inputSchema: {
-          account: z.string().describe('Email account name'),
-          email_id: z.string().describe('Email ID from list_emails or get_email'),
+          account: accountParam,
+          ...emailIdInputFields('Email ID from list_emails or get_email'),
           mailbox: z.string().default('INBOX').describe('Mailbox containing the email'),
           title: z.string().optional().describe('Reminder title (defaults to email subject)'),
           notes: z
@@ -611,46 +692,59 @@ function registerCalendarGroup(
           openWorldHint: true,
         },
       },
-      async ({
-        account,
-        email_id: emailId,
-        mailbox,
-        title,
-        notes,
-        due_date,
-        priority,
-        list_name,
-        confirm,
-      }) => {
-        const email = await imapService.getEmail(account, emailId, mailbox);
-        const bodyText = email.bodyText ?? '';
-        const bodyHtml = email.bodyHtml ?? '';
-
-        const reminderTitle = title ?? email.subject;
-        const from = email.from.name
-          ? `${email.from.name} <${email.from.address}>`
-          : email.from.address;
-        const snippet = (bodyText !== '' ? bodyText : bodyHtml).substring(0, 400).trim();
-        const reminderNotes =
-          notes ??
-          [`\uD83D\uDCE7 From: ${from}`, `\uD83D\uDCCC Subject: ${email.subject}`, '', snippet]
-            .filter(Boolean)
-            .join('\n');
-
-        const result = await remindersService.addReminder(
-          {
-            title: reminderTitle,
-            notes: reminderNotes,
-            dueDate: due_date,
+      async (params) => {
+        try {
+          const account = params.account ?? '';
+          const emailId = resolveEmailId(params);
+          const {
+            mailbox,
+            title,
+            notes,
+            due_date: dueDate,
             priority,
-            listName: list_name,
-          },
-          { confirm },
-        );
+            list_name: listName,
+            confirm,
+          } = params;
+          const email = await imapService.getEmail(account, emailId, mailbox);
+          const bodyText = email.bodyText ?? '';
+          const bodyHtml = email.bodyHtml ?? '';
 
-        return {
-          content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
-        };
+          const reminderTitle = title ?? email.subject;
+          const from = email.from.name
+            ? `${email.from.name} <${email.from.address}>`
+            : email.from.address;
+          const snippet = (bodyText !== '' ? bodyText : bodyHtml).substring(0, 400).trim();
+          const reminderNotes =
+            notes ??
+            [`\uD83D\uDCE7 From: ${from}`, `\uD83D\uDCCC Subject: ${email.subject}`, '', snippet]
+              .filter(Boolean)
+              .join('\n');
+
+          const result = await remindersService.addReminder(
+            {
+              title: reminderTitle,
+              notes: reminderNotes,
+              dueDate,
+              priority,
+              listName,
+            },
+            { confirm },
+          );
+
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (err) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: `Failed to create reminder: ${err instanceof Error ? err.message : String(err)}`,
+              },
+            ],
+          };
+        }
       },
     );
   }
@@ -671,8 +765,8 @@ function registerCalendarGroup(
           'Use this as the first step before creating any scheduling resource.',
         ].join(' '),
         inputSchema: {
-          account: z.string().describe('Email account name'),
-          email_id: z.string().describe('Email ID from list_emails or get_email'),
+          account: accountParam,
+          ...emailIdInputFields('Email ID from list_emails or get_email'),
           mailbox: z.string().default('INBOX').describe('Mailbox containing the email'),
         },
         annotations: {
@@ -682,134 +776,151 @@ function registerCalendarGroup(
           openWorldHint: true,
         },
       },
-      async ({ account, email_id: emailId, mailbox }) => {
-        const email = await imapService.getEmail(account, emailId, mailbox);
-        const bodyText = email.bodyText ?? '';
-        const bodyHtml = email.bodyHtml ?? '';
-        const combined = `${bodyText}\n${bodyHtml}`;
+      async (params) => {
+        try {
+          const account = params.account ?? '';
+          const emailId = resolveEmailId(params);
+          const { mailbox } = params;
+          const email = await imapService.getEmail(account, emailId, mailbox);
+          const bodyText = email.bodyText ?? '';
+          const bodyHtml = email.bodyHtml ?? '';
+          const combined = `${bodyText}\n${bodyHtml}`;
 
-        // Check for ICS event
-        const icsContents = await imapService.getCalendarParts(account, mailbox, emailId);
-        let detectedEvent: Record<string, unknown> | null = null;
-        if (icsContents.length > 0) {
-          const events = calendarService.extractFromParts(icsContents);
-          if (events.length > 0) {
-            const ev = events[0];
+          // Check for ICS event
+          const icsContents = await imapService.getCalendarParts(account, mailbox, emailId);
+          let detectedEvent: Record<string, unknown> | null = null;
+          if (icsContents.length > 0) {
+            const events = calendarService.extractFromParts(icsContents);
+            if (events.length > 0) {
+              const ev = events[0];
+              detectedEvent = {
+                source: 'ics_attachment',
+                confidence: 'high',
+                title: delimitUntrusted(ev.summary),
+                start: ev.start,
+                end: ev.end,
+                location: ev.location === undefined ? undefined : delimitUntrusted(ev.location),
+                uid: ev.uid,
+                organizer:
+                  ev.organizer?.address === undefined
+                    ? undefined
+                    : delimitUntrusted(ev.organizer.address),
+                attendees: ev.attendees.map((a) => delimitUntrusted(a.address)),
+              };
+            }
+          }
+
+          // Meeting URL detection
+          const meetingUrl = extractMeetingUrl(combined);
+          if (!detectedEvent && meetingUrl) {
             detectedEvent = {
-              source: 'ics_attachment',
-              confidence: 'high',
-              title: delimitUntrusted(ev.summary),
-              start: ev.start,
-              end: ev.end,
-              location: ev.location === undefined ? undefined : delimitUntrusted(ev.location),
-              uid: ev.uid,
-              organizer:
-                ev.organizer?.address === undefined
-                  ? undefined
-                  : delimitUntrusted(ev.organizer.address),
-              attendees: ev.attendees.map((a) => delimitUntrusted(a.address)),
+              source: 'meeting_url',
+              confidence: 'medium',
+              title: delimitUntrusted(email.subject),
+              start: email.date,
+              end: new Date(new Date(email.date).getTime() + 60 * 60 * 1000).toISOString(),
+              meetingUrl: delimitUntrusted(meetingUrl.url),
+              provider: delimitUntrusted(meetingUrl.label),
             };
           }
-        }
 
-        // Meeting URL detection
-        const meetingUrl = extractMeetingUrl(combined);
-        if (!detectedEvent && meetingUrl) {
-          detectedEvent = {
-            source: 'meeting_url',
-            confidence: 'medium',
-            title: delimitUntrusted(email.subject),
-            start: email.date,
-            end: new Date(new Date(email.date).getTime() + 60 * 60 * 1000).toISOString(),
-            meetingUrl: delimitUntrusted(meetingUrl.url),
-            provider: delimitUntrusted(meetingUrl.label),
+          // Conference details
+          const conference = extractConferenceDetails(bodyText !== '' ? bodyText : bodyHtml);
+
+          // Reminder signal detection
+          const reminderMatch = REMINDER_KEYWORDS.exec(combined);
+          const detectedReminder = reminderMatch
+            ? {
+                confidence: 'medium',
+                keyword: delimitUntrusted(reminderMatch[0]),
+                title: delimitUntrusted(email.subject),
+                suggestedNotes: delimitUntrusted(
+                  `From: ${email.from.address}\n\n${(bodyText !== '' ? bodyText : bodyHtml).substring(0, 300)}`,
+                ),
+              }
+            : null;
+
+          // Check if already processed by hooks
+          const { isCalendarProcessed, listCalendarProcessed } = await import(
+            '../utils/calendar-state.js'
+          );
+          const alreadyProcessed = await isCalendarProcessed(account, emailId);
+          const processedList = alreadyProcessed ? await listCalendarProcessed() : [];
+          const processedEntry = processedList.find(({ key }) => key.includes(emailId));
+
+          let recommendation: string;
+          if (detectedEvent && detectedReminder) {
+            recommendation = 'both';
+          } else if (detectedEvent) {
+            recommendation = 'event';
+          } else if (detectedReminder) {
+            recommendation = 'reminder';
+          } else {
+            recommendation = 'none';
+          }
+
+          const analysis = {
+            emailId,
+            subject: delimitUntrusted(email.subject),
+            from: delimitUntrusted(email.from.address),
+            date: email.date,
+            attachmentCount: email.attachments.length,
+            recommendation,
+            alreadyAutoProcessed: alreadyProcessed,
+            autoProcessedEntry: processedEntry?.entry ?? null,
+            detectedEvent,
+            detectedReminder,
+            conferenceDetails: conference
+              ? {
+                  dialIn:
+                    conference.dialIn === undefined
+                      ? undefined
+                      : delimitUntrusted(conference.dialIn),
+                  meetingId:
+                    conference.meetingId === undefined
+                      ? undefined
+                      : delimitUntrusted(conference.meetingId),
+                  passcode:
+                    conference.passcode === undefined
+                      ? undefined
+                      : delimitUntrusted(conference.passcode),
+                  provider:
+                    conference.provider === undefined
+                      ? undefined
+                      : delimitUntrusted(conference.provider),
+                }
+              : null,
+            availableActions: {
+              add_to_calendar: detectedEvent !== null || meetingUrl !== undefined,
+              create_reminder: detectedReminder !== null,
+            },
+            instructions: [
+              detectedEvent
+                ? `Call add_to_calendar(account="${account}", email_id="${emailId}") to add the event.`
+                : null,
+              detectedReminder
+                ? `Call create_reminder(account="${account}", email_id="${emailId}") to add the reminder.`
+                : null,
+              alreadyProcessed
+                ? '\u26A0\uFE0F This email was already auto-processed once by the hook system. You are explicitly choosing to process it again.'
+                : null,
+            ].filter(Boolean),
+          };
+
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify(analysis, null, 2) }],
+          };
+        } catch (err) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: `Failed to analyze email for scheduling: ${err instanceof Error ? err.message : String(err)}`,
+              },
+            ],
           };
         }
-
-        // Conference details
-        const conference = extractConferenceDetails(bodyText !== '' ? bodyText : bodyHtml);
-
-        // Reminder signal detection
-        const reminderMatch = REMINDER_KEYWORDS.exec(combined);
-        const detectedReminder = reminderMatch
-          ? {
-              confidence: 'medium',
-              keyword: delimitUntrusted(reminderMatch[0]),
-              title: delimitUntrusted(email.subject),
-              suggestedNotes: delimitUntrusted(
-                `From: ${email.from.address}\n\n${(bodyText !== '' ? bodyText : bodyHtml).substring(0, 300)}`,
-              ),
-            }
-          : null;
-
-        // Check if already processed by hooks
-        const { isCalendarProcessed, listCalendarProcessed } = await import(
-          '../utils/calendar-state.js'
-        );
-        const alreadyProcessed = await isCalendarProcessed(account, emailId);
-        const processedList = alreadyProcessed ? await listCalendarProcessed() : [];
-        const processedEntry = processedList.find(({ key }) => key.includes(emailId));
-
-        let recommendation: string;
-        if (detectedEvent && detectedReminder) {
-          recommendation = 'both';
-        } else if (detectedEvent) {
-          recommendation = 'event';
-        } else if (detectedReminder) {
-          recommendation = 'reminder';
-        } else {
-          recommendation = 'none';
-        }
-
-        const analysis = {
-          emailId,
-          subject: delimitUntrusted(email.subject),
-          from: delimitUntrusted(email.from.address),
-          date: email.date,
-          attachmentCount: email.attachments.length,
-          recommendation,
-          alreadyAutoProcessed: alreadyProcessed,
-          autoProcessedEntry: processedEntry?.entry ?? null,
-          detectedEvent,
-          detectedReminder,
-          conferenceDetails: conference
-            ? {
-                dialIn:
-                  conference.dialIn === undefined ? undefined : delimitUntrusted(conference.dialIn),
-                meetingId:
-                  conference.meetingId === undefined
-                    ? undefined
-                    : delimitUntrusted(conference.meetingId),
-                passcode:
-                  conference.passcode === undefined
-                    ? undefined
-                    : delimitUntrusted(conference.passcode),
-                provider:
-                  conference.provider === undefined
-                    ? undefined
-                    : delimitUntrusted(conference.provider),
-              }
-            : null,
-          availableActions: {
-            add_to_calendar: detectedEvent !== null || meetingUrl !== undefined,
-            create_reminder: detectedReminder !== null,
-          },
-          instructions: [
-            detectedEvent
-              ? `Call add_to_calendar(account="${account}", email_id="${emailId}") to add the event.`
-              : null,
-            detectedReminder
-              ? `Call create_reminder(account="${account}", email_id="${emailId}") to add the reminder.`
-              : null,
-            alreadyProcessed
-              ? '\u26A0\uFE0F This email was already auto-processed once by the hook system. You are explicitly choosing to process it again.'
-              : null,
-          ].filter(Boolean),
-        };
-
-        return {
-          content: [{ type: 'text' as const, text: JSON.stringify(analysis, null, 2) }],
-        };
       },
     );
   }

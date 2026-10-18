@@ -18,7 +18,7 @@ vi.mock('@clack/prompts', async () => {
   const { clackPromptsMock, ACCOUNT_ANSWERS } = await import('../test-support/cli-wizard.js');
   return clackPromptsMock(wizard, ACCOUNT_ANSWERS);
 });
-vi.mock('../connections/manager.js', () => ({ default: probes }));
+vi.mock('../connections/probe.js', () => probes);
 
 describe('mailoo account delete and list', () => {
   const sandbox = useAccountSandbox(wizard, probes);

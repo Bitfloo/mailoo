@@ -5,9 +5,16 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import audit from '../safety/audit.js';
-
+import { sanitizeMailboxName } from '../safety/validation.js';
 import type ImapService from '../services/imap.service.js';
 import type { BulkResult } from '../types/index.js';
+import {
+  accountParam,
+  dryRunParam,
+  idArraySchema,
+  normalizeNumericIds,
+  structuredToolResult,
+} from './schema-helpers.js';
 
 export default function registerBulkTools(server: McpServer, imapService: ImapService): void {
   server.registerTool(
@@ -17,20 +24,20 @@ export default function registerBulkTools(server: McpServer, imapService: ImapSe
       description:
         'Batch operation on multiple emails by UID list. Supports mark_read, mark_unread, flag, unflag, move, and delete. delete moves the messages to Trash. Max 100 IDs per call. Returns success/failure counts.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
+        account: accountParam,
         mailbox: z.string().default('INBOX').describe('Source mailbox containing the emails'),
         action: z
           .enum(['mark_read', 'mark_unread', 'flag', 'unflag', 'move', 'delete'])
           .describe('Bulk action to perform'),
-        ids: z
-          .array(z.number().int())
-          .min(1)
-          .max(100)
-          .describe('Array of email UIDs (max 100). Get UIDs from list_emails or search_emails.'),
+        ids: idArraySchema(
+          100,
+          'Array of email UIDs (max 100). Get UIDs from list_emails or search_emails.',
+        ),
         destination: z
           .string()
           .optional()
           .describe("Destination mailbox — required when action is 'move'"),
+        dryRun: dryRunParam,
       },
       annotations: {
         readOnlyHint: false,
@@ -39,8 +46,12 @@ export default function registerBulkTools(server: McpServer, imapService: ImapSe
         openWorldHint: true,
       },
     },
-    async ({ account, mailbox, action, ids, destination }) => {
+    async ({ account, mailbox, action, ids, destination, dryRun }) => {
+      const accountInput = account ?? '';
+      let numericIds: number[] = [];
       try {
+        numericIds = normalizeNumericIds(ids);
+
         if (action === 'move' && !destination) {
           return {
             isError: true,
@@ -53,22 +64,50 @@ export default function registerBulkTools(server: McpServer, imapService: ImapSe
           };
         }
 
+        if (dryRun) {
+          sanitizeMailboxName(mailbox);
+          if (action === 'move' && destination) {
+            sanitizeMailboxName(destination);
+          }
+          const resolvedAccount =
+            typeof imapService.resolveAccountName === 'function'
+              ? imapService.resolveAccountName(account)
+              : accountInput;
+          return structuredToolResult(
+            `[DRY RUN] Would perform bulk "${action}" on ${numericIds.length} email(s) in "${mailbox}"${destination ? ` -> "${destination}"` : ''} on account "${resolvedAccount}".`,
+            {
+              action: 'bulk_action',
+              bulkAction: action,
+              account: resolvedAccount,
+              mailbox,
+              destination,
+              count: numericIds.length,
+            },
+            true,
+          );
+        }
+
         let result: BulkResult;
         if (action === 'move') {
-          result = await imapService.bulkMove(account, ids, mailbox, destination as string);
+          result = await imapService.bulkMove(
+            accountInput,
+            numericIds,
+            mailbox,
+            destination as string,
+          );
         } else if (action === 'delete') {
-          result = await imapService.bulkDelete(account, ids, mailbox);
+          result = await imapService.bulkDelete(accountInput, numericIds, mailbox);
         } else {
-          result = await imapService.bulkSetFlags(account, ids, mailbox, action);
+          result = await imapService.bulkSetFlags(accountInput, numericIds, mailbox, action);
         }
 
         await audit.log(
           'bulk_action',
-          account,
+          accountInput,
           {
             mailbox,
             action,
-            ids: ids.length,
+            ids: numericIds.length,
             destination,
           },
           'ok',
@@ -86,8 +125,8 @@ export default function registerBulkTools(server: McpServer, imapService: ImapSe
         const errMsg = err instanceof Error ? err.message : String(err);
         await audit.log(
           'bulk_action',
-          account,
-          { mailbox, action, ids: ids.length },
+          accountInput,
+          { mailbox, action, ids: numericIds.length || ids.length },
           'error',
           errMsg,
         );

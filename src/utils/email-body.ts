@@ -204,6 +204,8 @@ export function preferRicherPlain(plain: string | undefined, html: string | unde
   return plainText;
 }
 
+export const DEFAULT_BODY_MAX_LENGTH = 20_000;
+
 /**
  * Applies the requested body format and optional character cap.
  *
@@ -233,4 +235,24 @@ export function applyBodyFormat(
   }
 
   return body;
+}
+
+/**
+ * Formats email body and applies `DEFAULT_BODY_MAX_LENGTH` (20,000 chars) when
+ * `maxLength` is omitted by the caller, protecting LLM context windows.
+ */
+export function applyBodyFormatWithDefaultCap(
+  bodyText: string | undefined,
+  bodyHtml: string | undefined,
+  format: BodyFormat,
+  maxLength?: number,
+): string {
+  if (maxLength !== undefined) {
+    return applyBodyFormat(bodyText, bodyHtml, format, maxLength);
+  }
+  const formatted = applyBodyFormat(bodyText, bodyHtml, format);
+  if (formatted.length > DEFAULT_BODY_MAX_LENGTH) {
+    return `${formatted.slice(0, DEFAULT_BODY_MAX_LENGTH)}\n\n[Truncated at ${DEFAULT_BODY_MAX_LENGTH} characters — pass a larger maxLength or format="full" for the complete body]`;
+  }
+  return formatted;
 }

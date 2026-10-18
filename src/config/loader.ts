@@ -20,7 +20,7 @@ import type {
 import hasGroupOrOtherBits from '../utils/file-mode.js';
 import isEnoent from '../utils/fs-errors.js';
 import type { RawAccountConfig, RawAppConfig, RawAppConfigInput } from './schema.js';
-import { AppConfigFileSchema, SystemOneConfigSchema } from './schema.js';
+import { AppConfigFileSchema, SystemOneConfigSchema, ToolsetSchema } from './schema.js';
 import { CONFIG_FILE, xdg } from './xdg.js';
 
 // ---------------------------------------------------------------------------
@@ -72,6 +72,11 @@ function loadFromEnv(): RawAppConfigInput | null {
     settings: {
       rate_limit: intEnv(process.env.MCP_EMAIL_RATE_LIMIT),
       read_only: flagEnv(process.env.MCP_EMAIL_READ_ONLY),
+      toolset: process.env.MCP_EMAIL_TOOLSET as 'full' | 'core' | 'minimal' | undefined,
+      default_account:
+        (process.env.MCP_EMAIL_DEFAULT_ACCOUNT?.trim()?.length ?? 0) > 0
+          ? process.env.MCP_EMAIL_DEFAULT_ACCOUNT?.trim()
+          : undefined,
       save_to_sent: flagEnv(process.env.MCP_EMAIL_SAVE_TO_SENT),
       watcher: {
         enabled: flagEnv(process.env.MCP_EMAIL_WATCHER_ENABLED),
@@ -319,10 +324,22 @@ function normalizeSystemOne(
 }
 
 function normalizeConfig(raw: RawAppConfig): AppConfig {
+  const envToolset = process.env.MCP_EMAIL_TOOLSET?.trim();
+  const envDefaultAccount = process.env.MCP_EMAIL_DEFAULT_ACCOUNT?.trim();
+  const toolset =
+    envToolset !== undefined && envToolset.length > 0
+      ? ToolsetSchema.parse(envToolset)
+      : raw.settings.toolset;
+  const defaultAccount =
+    envDefaultAccount !== undefined && envDefaultAccount.length > 0
+      ? envDefaultAccount
+      : raw.settings.default_account;
   return {
     settings: {
       rateLimit: raw.settings.rate_limit,
       readOnly: raw.settings.read_only,
+      toolset,
+      defaultAccount,
       saveToSent: raw.settings.save_to_sent,
       watcher: {
         enabled: raw.settings.watcher.enabled,
@@ -398,7 +415,7 @@ export async function loadConfig(configPath?: string): Promise<AppConfig> {
     `No configuration found.\n\n` +
       `Set environment variables (MCP_EMAIL_ADDRESS, MCP_EMAIL_PASSWORD, etc.)\n` +
       `or create a config file at: ${configPath ?? CONFIG_FILE}\n\n` +
-      `Run 'mailoo setup' for interactive configuration.`,
+      `Run 'mailoo account add' for interactive configuration.`,
   );
 }
 

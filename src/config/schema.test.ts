@@ -232,6 +232,19 @@ describe('SettingsSchema', () => {
     expect(SettingsSchema.parse({}).read_only).toBe(false);
   });
 
+  it('defaults toolset to full and accepts core or minimal', () => {
+    expect(SettingsSchema.parse({}).toolset).toBe('full');
+    expect(SettingsSchema.parse({ toolset: 'core' }).toolset).toBe('core');
+    expect(SettingsSchema.parse({ toolset: 'minimal' }).toolset).toBe('minimal');
+    expect(() => SettingsSchema.parse({ toolset: 'invalid' })).toThrow();
+  });
+
+  it('accepts optional default_account', () => {
+    expect(SettingsSchema.parse({}).default_account).toBeUndefined();
+    expect(SettingsSchema.parse({ default_account: 'work' }).default_account).toBe('work');
+    expect(() => SettingsSchema.parse({ default_account: '' })).toThrow();
+  });
+
   it('defaults system_one enabled/auto_move/auto_flag/include_body to false and is_critical_min to 0.85', () => {
     const result = SettingsSchema.parse({});
     expect(result.system_one.enabled).toBe(false);

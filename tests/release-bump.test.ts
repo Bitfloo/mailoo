@@ -7,6 +7,9 @@ import { promisify } from 'node:util';
 import { parse as parseTOML } from 'smol-toml';
 
 import { repoRoot as root } from './agents/agent-file.js';
+import { requireTools } from './workflow-yaml.js';
+
+requireTools(['bash', 'jq', 'perl']);
 
 const execFileAsync = promisify(execFile);
 
@@ -59,6 +62,33 @@ async function stampReadme(readme: string, version: string): Promise<string> {
   return (await runStamp(readme, version)).readme;
 }
 
+/** Run the server.json stamp in a scratch dir holding `serverJson`; a non-zero exit resolves with `error` set. */
+async function stampServerJson(
+  serverJson: string,
+  version: string,
+): Promise<{ serverJson: string; files: string[]; error?: Error }> {
+  const dir = await mkdtemp(join(tmpdir(), 'mailoo-server-json-'));
+  try {
+    await writeFile(join(dir, 'server.json'), serverJson);
+    let error: Error | undefined;
+    try {
+      await execFileAsync('bash', [join(root, 'scripts/bump-server-json-version.sh'), version], {
+        cwd: dir,
+        env: { PATH: process.env.PATH },
+      });
+    } catch (caught) {
+      error = caught as Error;
+    }
+    return {
+      serverJson: await readFile(join(dir, 'server.json'), 'utf8'),
+      files: await readdir(dir),
+      error,
+    };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 describe('release bump', () => {
   let pkg: { version: string };
 
@@ -66,19 +96,19 @@ describe('release bump', () => {
     pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as { version: string };
   });
 
-  it('pulls the image of the current minor line in the README Docker examples', async () => {
+  it('should pull the image of the current minor line in the README Docker examples', async () => {
     const tags = readmeImageTags(await readFile(join(root, 'README.md'), 'utf8'));
     expect(tags.length).toBeGreaterThan(0);
     expect([...new Set(tags)]).toEqual([minorLine(pkg.version)]);
   });
 
-  it('names the current minor line where the README explains the image tags', async () => {
+  it('should name the current minor line where the README explains the image tags', async () => {
     const readme = await readFile(join(root, 'README.md'), 'utf8');
     const line = minorLine(pkg.version);
     expect(readme).toContain(`The \`${line}\` tag follows the newest ${line}.x release.`);
   });
 
-  it('checks, builds and stamps the release before cog bumps it', async () => {
+  it('should check, build and stamp the release before cog bumps it', async () => {
     // A minor bump would otherwise leave the README on the old line, and the pre-push tests would stop the release push.
     // One list: a bump profile's own hooks would replace these.
     expect(cogHookLists(await readFile(join(root, 'cog.toml'), 'utf8'), 'pre_bump_hooks')).toEqual([
@@ -94,7 +124,7 @@ describe('release bump', () => {
     ]);
   });
 
-  it('pushes the bump on its own branch and leaves the tag until the pull request is merged', async () => {
+  it('should push the bump on its own branch and leave the tag until the pull request is merged', async () => {
     // develop takes changes only through a pull request, so cog's push of HEAD to it was declined at v0.2.1.
     // The tag starts the publish, so it goes up only once develop holds the bump commit.
     expect(cogHookLists(await readFile(join(root, 'cog.toml'), 'utf8'), 'post_bump_hooks')).toEqual(
@@ -225,6 +255,57 @@ describe('release bump', () => {
       '1.4.2-rc.1',
     ])('should refuse %s as a release version', async (version) => {
       await expect(stampReadme(readme, version)).rejects.toThrow(/not a release version/);
+    });
+  });
+
+  describe('when server.json is stamped for a release', () => {
+    let serverJson: string;
+
+    beforeAll(async () => {
+      serverJson = await readFile(join(root, 'server.json'), 'utf8');
+    });
+
+    it('should set the release version on server.json and on every package', async () => {
+      const { serverJson: stamped } = await stampServerJson(serverJson, '1.4.2');
+      const parsed = JSON.parse(stamped) as { version: string; packages: { version: string }[] };
+      expect([parsed.version, ...parsed.packages.map((pkgEntry) => pkgEntry.version)]).toEqual(
+        Array.from({ length: parsed.packages.length + 1 }, () => '1.4.2'),
+      );
+    });
+
+    it('should leave nothing but server.json behind when it stamps a version', async () => {
+      await expect(stampServerJson(serverJson, '1.4.2')).resolves.toMatchObject({
+        files: ['server.json'],
+        error: undefined,
+      });
+    });
+
+    it('should stamp a server.json that lists no packages', async () => {
+      const { serverJson: stamped } = await stampServerJson('{"version": "0.0.0"}\n', '1.4.2');
+      expect(JSON.parse(stamped)).toEqual({ version: '1.4.2' });
+    });
+
+    // A manual release dispatched from a branch with no version input used to stamp
+    // `refs/heads/<branch>` into the manifest the MCP Registry publishes.
+    it.each([
+      'refs/heads/develop',
+      'v1.4.2',
+      '1.4',
+      'latest',
+      '1.4.2-rc.1',
+      '1.4.2x',
+      '1.4.2\n',
+      '1.4.2 && id',
+    ])('should refuse %j as a release version', async (version) => {
+      const { error } = await stampServerJson(serverJson, version);
+      expect(error?.message).toMatch(/not a release version/);
+    });
+
+    it('should leave server.json as it was when it refuses a version', async () => {
+      await expect(stampServerJson(serverJson, 'refs/heads/develop')).resolves.toMatchObject({
+        serverJson,
+        files: ['server.json'],
+      });
     });
   });
 });

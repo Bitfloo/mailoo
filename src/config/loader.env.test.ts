@@ -44,6 +44,20 @@ describe('Config Loader', () => {
       expect(config.settings.systemOne.thresholds.injectionHigh).toBe(0.75);
     });
 
+    it('reads toolset and defaultAccount from MCP_EMAIL_TOOLSET and MCP_EMAIL_DEFAULT_ACCOUNT', async () => {
+      process.env.MCP_EMAIL_ADDRESS = 'env@example.com';
+      process.env.MCP_EMAIL_PASSWORD = 'env-pass';
+      process.env.MCP_EMAIL_IMAP_HOST = 'imap.example.com';
+      process.env.MCP_EMAIL_SMTP_HOST = 'smtp.example.com';
+      process.env.MCP_EMAIL_TOOLSET = 'core';
+      process.env.MCP_EMAIL_DEFAULT_ACCOUNT = 'env@example.com';
+
+      const config = await loadConfig(path.join(sandbox.dir, 'nonexistent.toml'));
+
+      expect(config.settings.toolset).toBe('core');
+      expect(config.settings.defaultAccount).toBe('env@example.com');
+    });
+
     it('should read the TOML file when the env account has no SMTP host', async () => {
       vi.stubEnv('MCP_EMAIL_ADDRESS', 'env@example.com');
       vi.stubEnv('MCP_EMAIL_PASSWORD', 'env-pass');

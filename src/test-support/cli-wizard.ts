@@ -15,7 +15,7 @@ import path from 'node:path';
 
 import type { Mock } from 'vitest';
 
-import type ConnectionManager from '../connections/manager.js';
+import type { testImap, testSmtp } from '../connections/probe.js';
 import type { ProviderConfig } from '../types/index.js';
 
 /** A select over accounts answers with the account's index. */
@@ -35,8 +35,8 @@ export interface WizardState {
 }
 
 export interface Probes {
-  testImap: Mock<typeof ConnectionManager.testImap>;
-  testSmtp: Mock<typeof ConnectionManager.testSmtp>;
+  testImap: Mock<typeof testImap>;
+  testSmtp: Mock<typeof testSmtp>;
 }
 
 export function newWizardState(): WizardState {
@@ -51,8 +51,8 @@ export function resetWizard(state: WizardState): void {
 
 export function newProbes(): Probes {
   return {
-    testImap: vi.fn<typeof ConnectionManager.testImap>(),
-    testSmtp: vi.fn<typeof ConnectionManager.testSmtp>(),
+    testImap: vi.fn<typeof testImap>(),
+    testSmtp: vi.fn<typeof testSmtp>(),
   };
 }
 

@@ -7,6 +7,7 @@ describe('schema defaults', () => {
     expect(SettingsSchema.parse({})).toEqual({
       rate_limit: 10,
       read_only: false,
+      toolset: 'full',
       save_to_sent: true,
       watcher: { enabled: false, folders: ['INBOX'], idle_timeout: 1740 },
       system_one: {

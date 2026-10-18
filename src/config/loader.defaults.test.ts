@@ -88,6 +88,8 @@ host = "smtp.example.com"
       MCP_EMAIL_USERNAME: 'env-login',
       MCP_EMAIL_RATE_LIMIT: '3',
       MCP_EMAIL_READ_ONLY: 'true',
+      MCP_EMAIL_TOOLSET: 'core',
+      MCP_EMAIL_DEFAULT_ACCOUNT: 'work',
       MCP_EMAIL_SAVE_TO_SENT: 'false',
       MCP_EMAIL_WATCHER_ENABLED: 'true',
       MCP_EMAIL_WATCHER_FOLDERS: 'INBOX, Work',
@@ -136,6 +138,8 @@ host = "smtp.example.com"
       settings: {
         rateLimit: 3,
         readOnly: true,
+        toolset: 'core',
+        defaultAccount: 'work',
         saveToSent: false,
         watcher: { enabled: true, folders: ['INBOX', 'Work'], idleTimeout: 600 },
         systemOne: { enabled: true },

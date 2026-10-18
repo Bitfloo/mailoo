@@ -4,8 +4,8 @@ Runtime TOML lives at `$XDG_CONFIG_HOME/mailoo/config.toml` (default
 `~/.config/mailoo/config.toml`). The [README](../README.md#configuration)
 covers install, the wizard, and the common `[settings]` / `[[accounts]]`
 shape. This page is the SSOT for behaviour added around Sent copies,
-IMAP4rev2, ManageSieve, read-only side effects, stdio lifecycle,
-and webhook targets.
+IMAP4rev2, ManageSieve, read-only side effects, reconnect backoff,
+stdio lifecycle, and webhook targets.
 
 A config file that is not valid TOML is reported as
 `Config file <path> is not valid TOML (line L, column C): <reason>`, without
@@ -188,6 +188,17 @@ A request whose `mcp-session-id` the server does not hold (never issued, closed,
 | `MCP_EMAIL_HTTP_TOKEN` | unset | Bearer token. Required when the listen address is not loopback or `MCP_EMAIL_HTTP_ALLOWED_HOSTS` lists a non-loopback name. |
 | `MCP_EMAIL_HTTP_ALLOWED_HOSTS` | listen address, or the loopback names | Required for `0.0.0.0` and `::`. Names or `host:port`. |
 
+## Reconnect backoff
+
+After an IMAP login or SMTP verify for an account fails, Mailoo does not
+dial that server again for the account until a backoff window has passed:
+1 s after the first failure, doubling to 60 s, each window shortened by up
+to a quarter so accounts do not retry in lockstep. A tool call inside the
+window fails at once with
+`Last IMAP connect for "<account>" failed: <error> (next attempt in <n>s)`
+(`SMTP` for sends). A successful connect resets the window. The IDLE
+watcher retries a dropped or failed folder connection on the same schedule.
+
 ## Stdio shutdown
 
 In `stdio` mode the process listens for stdin `end` / `close` (client
@@ -202,6 +213,8 @@ These supplement the table in the README (single-account env overlay).
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MCP_EMAIL_READ_ONLY` | `false` | Skip write tools and mailbox writers |
+| `MCP_EMAIL_TOOLSET` | `full` | Toolset profile to register (`full`, `core`, or `minimal`) |
+| `MCP_EMAIL_DEFAULT_ACCOUNT` | unset | Default account name or email when `account` is omitted |
 | `MCP_EMAIL_SAVE_TO_SENT` | `true` | IMAP APPEND after SMTP, to the account's `sent_mailbox` or else the `\Sent` special-use folder |
 | `MCP_EMAIL_IMAP_DISABLE_IMAP4REV2` | `false` | Force IMAP4rev1 SEARCH |
 | `MCP_EMAIL_SIEVE_HOST` | IMAP host | ManageSieve hostname |

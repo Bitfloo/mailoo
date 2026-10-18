@@ -24,7 +24,7 @@ import {
 import { CONFIG_FILE, configExists, loadRawConfig, saveConfig } from '../config/loader.js';
 import type { RawAccountConfig, RawAppConfig } from '../config/schema.js';
 import { AppConfigFileSchema, SettingsSchema } from '../config/schema.js';
-import ConnectionManager from '../connections/manager.js';
+import { testImap, testSmtp } from '../connections/probe.js';
 import type { AccountConfig } from '../types/index.js';
 import ensureInteractive from './guard.js';
 import { detectProvider } from './providers.js';
@@ -347,7 +347,7 @@ async function testConnections(account: AccountConfig): Promise<boolean> {
   const spinner = p_spinner();
 
   spinner.start('Testing IMAP connection…');
-  const imapResult = await ConnectionManager.testImap(account);
+  const imapResult = await testImap(account);
   if (imapResult.success) {
     spinner.stop(
       `IMAP ✓ ${account.imap.host}:${account.imap.port} — ${imapResult.details?.messages} messages, ${imapResult.details?.folders} folders`,
@@ -357,7 +357,7 @@ async function testConnections(account: AccountConfig): Promise<boolean> {
   }
 
   spinner.start('Testing SMTP connection…');
-  const smtpResult = await ConnectionManager.testSmtp(account);
+  const smtpResult = await testSmtp(account);
   if (smtpResult.success) {
     spinner.stop(`SMTP ✓ ${account.smtp.host}:${account.smtp.port} — authenticated`);
   } else {

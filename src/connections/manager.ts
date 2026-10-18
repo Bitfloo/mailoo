@@ -12,13 +12,11 @@ import type { SMTPPoolOptions, Transporter } from 'nodemailer';
 import nodemailer from 'nodemailer';
 import { mcpLog } from '../logging.js';
 
-import type OAuthService from '../services/oauth.service.js';
 import type { AccountConfig } from '../types/index.js';
-import type { IConnectionManager } from './types.js';
-
-type SmtpAuth =
-  | { user: string; pass?: string }
-  | { type: string; user: string; accessToken: string };
+import type { SmtpAuth } from './auth.js';
+import { buildImapAuth, buildSmtpAuth } from './auth.js';
+import { ConnectBackoff } from './backoff.js';
+import type { AccessTokenSource, IConnectionManager } from './types.js';
 
 function certificatesRequired(verifySsl: boolean | undefined): boolean {
   return verifySsl !== false;
@@ -56,6 +54,37 @@ export function buildImapFlowOptions(
   };
 }
 
+export function buildSmtpTransportOptions(account: AccountConfig, auth: SmtpAuth): SMTPPoolOptions {
+  const pool = account.smtp.pool ?? {
+    enabled: true,
+    maxConnections: 1,
+    maxMessages: 100,
+  };
+
+  return {
+    host: account.smtp.host,
+    port: account.smtp.port,
+    secure: account.smtp.tls,
+    requireTLS: account.smtp.starttls,
+    ignoreTLS: !account.smtp.tls && !account.smtp.starttls,
+    tls: {
+      rejectUnauthorized: account.smtp.verifySsl,
+    },
+    auth,
+    pool: pool.enabled,
+    ...(pool.enabled
+      ? {
+          maxConnections: pool.maxConnections,
+          maxMessages: pool.maxMessages,
+        }
+      : {}),
+  };
+}
+
+function asError(err: unknown): Error {
+  return err instanceof Error ? err : new Error(String(err));
+}
+
 export function bindImapLifecycle(
   accountName: string,
   client: ImapFlow,
@@ -80,31 +109,86 @@ export function bindImapLifecycle(
 export default class ConnectionManager implements IConnectionManager {
   private imapClients = new Map<string, ImapFlow>();
 
+  // Concurrent first calls (get_emails fans out 20 getEmail calls) must share one connect,
+  // or every loser stays logged in outside the map and closeAll never reaches it.
+  private imapConnecting = new Map<string, Promise<ImapFlow>>();
+
   private smtpTransports = new Map<string, Transporter>();
+
+  private smtpConnecting = new Map<string, Promise<Transporter>>();
 
   private accounts = new Map<string, AccountConfig>();
 
-  private oauthService?: OAuthService;
+  private backoff = new ConnectBackoff();
 
-  constructor(accounts: AccountConfig[], oauthService?: OAuthService) {
+  private oauthService?: AccessTokenSource;
+
+  private defaultAccount?: string;
+
+  constructor(
+    accounts: AccountConfig[],
+    oauthService?: AccessTokenSource,
+    defaultAccount?: string,
+  ) {
     accounts.forEach((account) => {
       this.accounts.set(account.name, account);
     });
     this.oauthService = oauthService;
+    this.defaultAccount = defaultAccount;
   }
 
   // -------------------------------------------------------------------------
   // Account lookup
   // -------------------------------------------------------------------------
 
-  getAccount(name: string): AccountConfig {
-    const account = this.accounts.get(name);
-    if (!account) {
+  private findAccountByKey(key: string): AccountConfig | undefined {
+    const exact = this.accounts.get(key);
+    if (exact) return exact;
+    const lower = key.toLowerCase();
+    const values = [...this.accounts.values()];
+    const byName = values.find((account) => account.name.toLowerCase() === lower);
+    if (byName) return byName;
+    return values.find((account) => account.email.toLowerCase() === lower);
+  }
+
+  private formatAvailableAccounts(): string {
+    if (this.accounts.size === 0) return 'none';
+    return [...this.accounts.values()].map((a) => `${a.name} (${a.email})`).join(', ');
+  }
+
+  getAccount(name?: string): AccountConfig {
+    const trimmed = name?.trim() ?? '';
+    if (trimmed.length > 0) {
+      const direct = this.findAccountByKey(trimmed);
+      if (direct) return direct;
+      if (trimmed.toLowerCase() !== 'default') {
+        throw new Error(
+          `Account "${trimmed}" not found. Available accounts: ${this.formatAvailableAccounts()}`,
+        );
+      }
+    }
+
+    const configuredDefault = this.defaultAccount?.trim();
+    if (configuredDefault) {
+      const fromDefault = this.findAccountByKey(configuredDefault);
+      if (fromDefault) return fromDefault;
       throw new Error(
-        `Account "${name}" not found. Available: ${[...this.accounts.keys()].join(', ')}`,
+        `Configured default account not found. Available accounts: ${this.formatAvailableAccounts()}`,
       );
     }
-    return account;
+
+    if (this.accounts.size === 1) {
+      const [onlyAccount] = this.accounts.values();
+      if (onlyAccount) return onlyAccount;
+    }
+
+    throw new Error(
+      `Account "${trimmed}" not found. Available accounts: ${this.formatAvailableAccounts()}`,
+    );
+  }
+
+  resolveAccountName(name?: string): string {
+    return this.getAccount(name).name;
   }
 
   getAccountNames(): string[] {
@@ -115,15 +199,17 @@ export default class ConnectionManager implements IConnectionManager {
   // IMAP
   // -------------------------------------------------------------------------
 
-  async getImapClient(accountName: string): Promise<ImapFlow> {
-    const existing = this.imapClients.get(accountName);
+  async getImapClient(accountName?: string): Promise<ImapFlow> {
+    const account = this.getAccount(accountName);
+    const resolvedName = account.name;
+    const existing = this.imapClients.get(resolvedName);
     if (existing?.usable) {
       return existing;
     }
 
     // Clean up stale connection
     if (existing) {
-      this.imapClients.delete(accountName);
+      this.imapClients.delete(resolvedName);
       try {
         existing.close();
       } catch {
@@ -131,34 +217,51 @@ export default class ConnectionManager implements IConnectionManager {
       }
     }
 
-    const account = this.getAccount(accountName);
+    const inFlight = this.imapConnecting.get(resolvedName);
+    if (inFlight) return inFlight;
 
-    // Build auth config based on auth type
-    let auth: { user: string; pass?: string; accessToken?: string };
-    if (account.oauth2 && this.oauthService) {
-      const accessToken = await this.oauthService.getAccessToken(account.oauth2);
-      auth = { user: account.username, accessToken };
-    } else {
-      auth = { user: account.username, pass: account.password };
-    }
-
-    const client = new ImapFlow({
-      ...buildImapFlowOptions(account),
-      auth,
+    const attempt = this.connectImap(account).finally(() => {
+      this.imapConnecting.delete(resolvedName);
     });
-    bindImapLifecycle(accountName, client, () => {
-      if (this.imapClients.get(accountName) === client) {
-        this.imapClients.delete(accountName);
+    this.imapConnecting.set(resolvedName, attempt);
+    return attempt;
+  }
+
+  private async connectImap(account: AccountConfig): Promise<ImapFlow> {
+    const resolvedName = account.name;
+    this.backoff.assertReady('IMAP', resolvedName);
+
+    let client: ImapFlow | undefined;
+    try {
+      const auth = await buildImapAuth(account, this.oauthService);
+      const connecting = new ImapFlow({
+        ...buildImapFlowOptions(account),
+        auth,
+      });
+      client = connecting;
+      bindImapLifecycle(resolvedName, connecting, () => {
+        if (this.imapClients.get(resolvedName) === connecting) {
+          this.imapClients.delete(resolvedName);
+        }
+      });
+      await connecting.connect();
+    } catch (err) {
+      this.backoff.recordFailure('IMAP', resolvedName, asError(err));
+      // imapflow leaves the socket open when the server rejects LOGIN.
+      try {
+        client?.close();
+      } catch {
+        /* ignore */
       }
-    });
-
-    await client.connect();
+      throw err;
+    }
+    this.backoff.recordSuccess('IMAP', resolvedName);
     await mcpLog(
       'info',
       'imap',
-      `Connected to ${account.imap.host}:${account.imap.port} for "${accountName}"`,
+      `Connected to ${account.imap.host}:${account.imap.port} for "${resolvedName}"`,
     );
-    this.imapClients.set(accountName, client);
+    this.imapClients.set(resolvedName, client);
     return client;
   }
 
@@ -166,42 +269,14 @@ export default class ConnectionManager implements IConnectionManager {
   // SMTP
   // -------------------------------------------------------------------------
 
-  private static buildSmtpTransportOptions(
-    account: AccountConfig,
-    auth: SmtpAuth,
-  ): SMTPPoolOptions {
-    const pool = account.smtp.pool ?? {
-      enabled: true,
-      maxConnections: 1,
-      maxMessages: 100,
-    };
-
-    return {
-      host: account.smtp.host,
-      port: account.smtp.port,
-      secure: account.smtp.tls,
-      requireTLS: account.smtp.starttls,
-      ignoreTLS: !account.smtp.tls && !account.smtp.starttls,
-      tls: {
-        rejectUnauthorized: account.smtp.verifySsl,
-      },
-      auth,
-      pool: pool.enabled,
-      ...(pool.enabled
-        ? {
-            maxConnections: pool.maxConnections,
-            maxMessages: pool.maxMessages,
-          }
-        : {}),
-    };
-  }
-
   async getSmtpTransport(
-    accountName: string,
+    accountName?: string,
     options?: { verify?: boolean },
   ): Promise<Transporter> {
+    const account = this.getAccount(accountName);
+    const resolvedName = account.name;
     const verify = options?.verify ?? false;
-    const existing = this.smtpTransports.get(accountName);
+    const existing = this.smtpTransports.get(resolvedName);
     if (existing) {
       if (!verify) {
         return existing;
@@ -210,145 +285,57 @@ export default class ConnectionManager implements IConnectionManager {
         await existing.verify();
         return existing;
       } catch {
-        this.smtpTransports.delete(accountName);
+        const current = this.smtpTransports.get(resolvedName);
+        if (current === existing) {
+          this.smtpTransports.delete(resolvedName);
+        }
         try {
           existing.close();
         } catch {
           /* ignore */
         }
+        // A concurrent caller already cached a verified replacement; a third connect would
+        // overwrite it without closing it.
+        if (current && current !== existing) return current;
       }
     }
 
-    const account = this.getAccount(accountName);
+    const inFlight = this.smtpConnecting.get(resolvedName);
+    if (inFlight) return inFlight;
 
-    // Build auth config based on auth type
-    let auth: SmtpAuth;
-    if (account.oauth2 && this.oauthService) {
-      const accessToken = await this.oauthService.getAccessToken(account.oauth2);
-      auth = { type: 'OAuth2', user: account.username, accessToken };
-    } else {
-      auth = { user: account.username, pass: account.password };
+    const attempt = this.connectSmtp(account).finally(() => {
+      this.smtpConnecting.delete(resolvedName);
+    });
+    this.smtpConnecting.set(resolvedName, attempt);
+    return attempt;
+  }
+
+  private async connectSmtp(account: AccountConfig): Promise<Transporter> {
+    const resolvedName = account.name;
+    this.backoff.assertReady('SMTP', resolvedName);
+
+    let transport: Transporter | undefined;
+    try {
+      const auth = buildSmtpAuth(account, this.oauthService);
+      transport = nodemailer.createTransport(buildSmtpTransportOptions(account, auth));
+      await transport.verify();
+    } catch (err) {
+      this.backoff.recordFailure('SMTP', resolvedName, asError(err));
+      transport?.close();
+      throw err;
     }
-
-    const transport = nodemailer.createTransport(
-      ConnectionManager.buildSmtpTransportOptions(account, auth),
-    );
-
-    await transport.verify();
+    this.backoff.recordSuccess('SMTP', resolvedName);
     await mcpLog(
       'info',
       'smtp',
-      `Connected to ${account.smtp.host}:${account.smtp.port} for "${accountName}"`,
+      `Connected to ${account.smtp.host}:${account.smtp.port} for "${resolvedName}"`,
     );
-    this.smtpTransports.set(accountName, transport);
+    this.smtpTransports.set(resolvedName, transport);
     return transport;
   }
 
-  async verifySmtpTransport(accountName: string): Promise<void> {
+  async verifySmtpTransport(accountName?: string): Promise<void> {
     await this.getSmtpTransport(accountName, { verify: true });
-  }
-
-  // -------------------------------------------------------------------------
-  // Test connections (for setup wizard / test command)
-  // -------------------------------------------------------------------------
-
-  static async testImap(
-    account: AccountConfig,
-    oauthService?: OAuthService,
-  ): Promise<{
-    success: boolean;
-    error?: string;
-    details?: { messages: number; folders: number };
-  }> {
-    let client: ImapFlow | undefined;
-    try {
-      let auth: { user: string; pass?: string; accessToken?: string };
-      if (account.oauth2 && oauthService) {
-        const accessToken = await oauthService.getAccessToken(account.oauth2);
-        auth = { user: account.username, accessToken };
-      } else {
-        auth = { user: account.username, pass: account.password };
-      }
-
-      client = new ImapFlow({
-        ...buildImapFlowOptions(account),
-        auth,
-      });
-      client.on('error', () => {});
-      await client.connect();
-
-      const mailboxes = await client.list();
-      let messageCount = 0;
-      try {
-        const inbox = await client.status('INBOX', {
-          messages: true,
-          unseen: true,
-        });
-        messageCount = inbox.messages ?? 0;
-      } catch {
-        // INBOX may not exist (e.g. Google Workspace uses "All Mail")
-        if (mailboxes.length > 0) {
-          try {
-            const first = await client.status(mailboxes[0].path, {
-              messages: true,
-            });
-            messageCount = first.messages ?? 0;
-          } catch {
-            /* ignore — connection still works */
-          }
-        }
-      }
-
-      return {
-        success: true,
-        details: {
-          messages: messageCount,
-          folders: mailboxes.length,
-        },
-      };
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    } finally {
-      if (client) {
-        try {
-          await client.logout();
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  }
-
-  static async testSmtp(
-    account: AccountConfig,
-    oauthService?: OAuthService,
-  ): Promise<{ success: boolean; error?: string }> {
-    let transport: Transporter | undefined;
-    try {
-      let auth: SmtpAuth;
-      if (account.oauth2 && oauthService) {
-        const accessToken = await oauthService.getAccessToken(account.oauth2);
-        auth = { type: 'OAuth2', user: account.username, accessToken };
-      } else {
-        auth = { user: account.username, pass: account.password };
-      }
-
-      transport = nodemailer.createTransport(
-        ConnectionManager.buildSmtpTransportOptions(account, auth),
-      );
-      await transport.verify();
-      return { success: true };
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    } finally {
-      transport?.close();
-    }
   }
 
   // -------------------------------------------------------------------------
@@ -357,6 +344,8 @@ export default class ConnectionManager implements IConnectionManager {
 
   async closeAll(): Promise<void> {
     await mcpLog('info', 'connections', 'Closing all connections');
+    // A connect still in flight lands in the maps when it settles; wait so it is closed too.
+    await Promise.allSettled([...this.imapConnecting.values(), ...this.smtpConnecting.values()]);
     const closeOps: Promise<void>[] = [];
 
     Array.from(this.imapClients.entries()).forEach(([name, client]) => {

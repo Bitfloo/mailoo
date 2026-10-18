@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type { IConnectionManager } from '../connections/types.js';
-import ImapService, { findTextMimeParts } from './imap.service.js';
+import ImapService, { extractReferences, findTextMimeParts } from './imap.service.js';
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -342,6 +342,89 @@ describe('ImapService', () => {
       expect(parts).not.toContain('1');
       expect(email.bodyText).toContain('-----Original Message-----');
     });
+
+    it('fetches headers instead of source: true when bodyStructure has text parts', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 10,
+        envelope: {
+          subject: 'No full source',
+          from: [{ address: 'a@example.com' }],
+          to: [{ address: 'b@example.com' }],
+          messageId: '<mid@example.com>',
+        },
+        flags: new Set(),
+        headers: Buffer.from(
+          'References: <ref1@example.com>\r\n <ref2@example.com>\r\nContent-Type: text/plain\r\n\r\n',
+        ),
+        bodyStructure: { type: 'text/plain', part: '1' },
+      });
+      async function* chunksOf(text: string) {
+        yield Buffer.from(text);
+      }
+      client.download.mockResolvedValue({ content: chunksOf('Selective body') });
+
+      const email = await service.getEmail('test', '10');
+      expect(client.fetchOne).toHaveBeenCalledTimes(1);
+      expect(client.fetchOne).toHaveBeenCalledWith(
+        '10',
+        {
+          uid: true,
+          envelope: true,
+          flags: true,
+          bodyStructure: true,
+          headers: ['references', 'content-type'],
+        },
+        { uid: true },
+      );
+      expect(email.bodyText).toBe('Selective body');
+      expect(email.references).toEqual(['<ref1@example.com>', '<ref2@example.com>']);
+    });
+
+    it('falls back to bounded 64KB source slice when bodyStructure has no text part', async () => {
+      client.fetchOne
+        .mockResolvedValueOnce({
+          uid: 11,
+          envelope: {
+            subject: 'Fallback message',
+            from: [{ address: 'a@example.com' }],
+            to: [{ address: 'b@example.com' }],
+            messageId: '<mid11@example.com>',
+          },
+          flags: new Set(),
+          headers: Buffer.from('Content-Type: text/plain\r\n\r\n'),
+          bodyStructure: { type: 'application/octet-stream', disposition: 'attachment' },
+        })
+        .mockResolvedValueOnce({
+          uid: 11,
+          source: Buffer.from('Content-Type: text/plain\r\n\r\nFallback body text'),
+        });
+
+      const email = await service.getEmail('test', '11');
+      expect(client.fetchOne).toHaveBeenCalledTimes(2);
+      expect(client.fetchOne).toHaveBeenNthCalledWith(
+        2,
+        '11',
+        { uid: true, source: { start: 0, maxLength: 65536 } },
+        { uid: true },
+      );
+      expect(email.bodyText).toBe('Fallback body text');
+    });
+  });
+
+  describe('extractReferences', () => {
+    it('extracts references from headers buffer and falls back to source', () => {
+      expect(
+        extractReferences({
+          headers: Buffer.from('References: <a@ex.com>\r\n\t<b@ex.com>\r\n'),
+        }),
+      ).toEqual(['<a@ex.com>', '<b@ex.com>']);
+
+      expect(
+        extractReferences({
+          source: Buffer.from('From: x@ex.com\r\nReferences: <c@ex.com> <d@ex.com>\r\n\r\nBody'),
+        }),
+      ).toEqual(['<c@ex.com>', '<d@ex.com>']);
+    });
   });
 
   describe('listEmails ordering', () => {
@@ -370,6 +453,54 @@ describe('ImapService', () => {
       const result = await service.listEmails('test', { pageSize: 1 });
       expect(result.items[0].subject).toBe('new');
       expect(result.items[0].id).toBe('1');
+    });
+
+    it('caps envelope date-sorting window to newest UIDs when matches exceed 250', async () => {
+      const uids = Array.from({ length: 500 }, (_, i) => i + 1);
+      client.search.mockResolvedValue(uids);
+      let firstFetchRange = '';
+      client.fetch.mockImplementation((range: string) => {
+        if (!firstFetchRange) firstFetchRange = range;
+        async function* fetchMock() {
+          yield {
+            uid: 500,
+            envelope: { date: new Date('2026-03-01'), subject: 'latest', from: [], to: [] },
+            flags: new Set(),
+            bodyParts: new Map([['1', Buffer.from('Preview text from part 1')]]),
+          };
+        }
+        return fetchMock();
+      });
+
+      const result = await service.listEmails('test', { page: 1, pageSize: 10 });
+      const fetchedUids = firstFetchRange.split(',');
+      expect(fetchedUids).toHaveLength(250);
+      expect(fetchedUids[0]).toBe('251');
+      expect(fetchedUids[249]).toBe('500');
+      expect(result.total).toBe(500);
+      expect(result.items[0].preview).toBe('Preview text from part 1');
+    });
+
+    it('extracts preview even when RFC 822 headers exceed 256 bytes', async () => {
+      client.search.mockResolvedValue([42]);
+      const longHeaders = `${'X-Header-Padding: '.padEnd(80, 'a')}\r\n`.repeat(10);
+      const source = Buffer.from(
+        `${longHeaders}Subject: Long headers\r\n\r\nActual body preview text!`,
+      );
+      client.fetch.mockImplementation(() => {
+        async function* fetchMock() {
+          yield {
+            uid: 42,
+            envelope: { date: new Date('2026-03-01'), subject: 'Long headers', from: [], to: [] },
+            flags: new Set(),
+            source,
+          };
+        }
+        return fetchMock();
+      });
+
+      const result = await service.listEmails('test', { page: 1, pageSize: 10 });
+      expect(result.items[0].preview).toBe('Actual body preview text!');
     });
   });
 
