@@ -1,4 +1,5 @@
 import { mcpLog } from '../logging.js';
+import type { MockImap } from '../test-support/hooks-harness.js';
 import { flushHooks, hooksConfig, meta, mockImap } from '../test-support/hooks-harness.js';
 import type { HookRule } from '../types/index.js';
 import HooksService from './hooks.service.js';
@@ -128,6 +129,81 @@ describe('HooksService IMAP apply', () => {
       'hooks',
       expect.stringContaining('flushBatch failed'),
     );
+  });
+});
+
+describe('HooksService static rule actions', () => {
+  let hooks: HooksService | undefined;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    hooks?.stop();
+    hooks = undefined;
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  const fromAlice = { from: 'alice@example.com' };
+
+  async function applyRules(rules: HookRule[], imap: MockImap = mockImap()): Promise<MockImap> {
+    hooks = new HooksService(hooksConfig({ rules }), imap as unknown as ImapService);
+    hooks.start({} as never, { sampling: false });
+    await flushHooks([meta()]);
+    return imap;
+  }
+
+  it('should not flag an email when the matching rule has no flag action', async () => {
+    const imap = await applyRules([
+      { name: 'known', match: fromAlice, actions: { labels: ['A'] } },
+    ]);
+    expect(imap.setFlags.mock.calls).toEqual([]);
+  });
+
+  it('should apply the first matching rule when two rules match', async () => {
+    const imap = await applyRules([
+      { name: 'first', match: fromAlice, actions: { labels: ['First'] } },
+      { name: 'second', match: { from: '*@example.com' }, actions: { labels: ['Second'] } },
+    ]);
+    expect(imap.addLabel.mock.calls).toEqual([['personal', '10', 'INBOX', 'First']]);
+  });
+
+  it('should apply every label of a rule', async () => {
+    const imap = await applyRules([
+      { name: 'tags', match: fromAlice, actions: { labels: ['Board', 'Q4'] } },
+    ]);
+    expect(imap.addLabel.mock.calls).toEqual([
+      ['personal', '10', 'INBOX', 'Board'],
+      ['personal', '10', 'INBOX', 'Q4'],
+    ]);
+  });
+
+  it.each<['addLabel' | 'setFlags' | 'moveEmail', HookRule['actions'], string]>([
+    ['addLabel', { labels: ['Board'] }, 'Could not add label "Board" to email 10'],
+    ['setFlags', { flag: true }, 'Could not flag email 10'],
+    ['setFlags', { markRead: true }, 'Could not mark email 10 as read'],
+    ['moveEmail', { moveTo: 'Receipts' }, 'Could not move email 10 to Receipts'],
+  ])('should log a warning when %s fails for %j', async (method, actions, message) => {
+    const imap = mockImap();
+    imap[method].mockRejectedValue(new Error('NO [CANNOT] refused'));
+    await applyRules([{ name: 'r', match: fromAlice, actions }], imap);
+    const failures = vi
+      .mocked(mcpLog)
+      .mock.calls.filter(([, , text]) => String(text).startsWith('Could not'));
+    expect(failures).toEqual([['warning', 'hooks', message]]);
+  });
+
+  it('should still move the email when setting the flag fails', async () => {
+    const imap = mockImap();
+    imap.setFlags.mockRejectedValue(new Error('NO [CANNOT] refused'));
+    await applyRules(
+      [{ name: 'r', match: fromAlice, actions: { flag: true, moveTo: 'Done' } }],
+      imap,
+    );
+    expect(imap.moveEmail.mock.calls).toEqual([['personal', '10', 'INBOX', 'Done']]);
   });
 });
 
