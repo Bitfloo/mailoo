@@ -190,6 +190,15 @@ describe('workflow steps', () => {
     expect(steps(name, yaml)).toEqual(STEPS[name]);
   });
 
+  it.each(workflowTexts())('should give no run step of %s a with: input', (_, yaml) => {
+    // with: passes inputs to an action, and the roster above shows none on a run step.
+    const withRun = Object.values(jobSteps(yaml))
+      .flat()
+      .filter((step) => step.run !== undefined && step.with !== undefined)
+      .map((step) => step.name ?? step.id ?? step.run);
+    expect(withRun).toEqual([]);
+  });
+
   it.each([
     { where: 'its own job', workflow: 'release.yml', job: 'mcp', exempt: true },
     { where: 'another job', workflow: 'release.yml', job: 'npm', exempt: false },
