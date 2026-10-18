@@ -65,6 +65,11 @@ describe('SmtpService', () => {
       );
     });
 
+    it('should build a Message-ID from the token and the account email domain', () => {
+      const token = '6f1c2b8e-1d4a-4f7b-9c3e-2a5d8e7f0b1c';
+      expect(service.messageIdFor('test', token)).toBe(`<${token}@example.com>`);
+    });
+
     it('attaches decoded base64 content', async () => {
       await service.sendEmail('test', {
         to: ['a@example.com'],

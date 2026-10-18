@@ -563,4 +563,84 @@ describe('HTTP session account state', () => {
     await openSession(session, 2, false);
     expect(scopeA.events.listenerCount('email:new')).toBe(baseline);
   });
+
+  it('should not start a scheduled-send check while the previous one is still running', async () => {
+    const { SCHEDULER_INTERVAL_MS } = await import('../services/scheduler.service.js');
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const session = await startHost(testConfig({ readOnly: false }));
+      let checks = 0;
+      const finishers: (() => void)[] = [];
+      vi.spyOn(session.host.scheduler, 'checkAndSend').mockImplementation(async () => {
+        checks += 1;
+        await new Promise<void>((resolve) => {
+          finishers.push(resolve);
+        });
+        return { sent: 0, failed: 0, deferred: 0, errors: [] };
+      });
+      await openSession(session, 1, false);
+      await session.host.ready;
+      // A slow SMTP server: the first check outlasts three intervals.
+      vi.advanceTimersByTime(3 * SCHEDULER_INTERVAL_MS);
+      const whileFirstRuns = checks;
+      finishers.forEach((finish) => {
+        finish();
+      });
+      await new Promise((resolve) => {
+        setImmediate(resolve);
+      });
+      vi.advanceTimersByTime(SCHEDULER_INTERVAL_MS);
+      expect({ whileFirstRuns, afterItFinished: checks }).toEqual({
+        whileFirstRuns: 1,
+        afterItFinished: 2,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('should stop scheduled-send checks once the host closes', async () => {
+    const { SCHEDULER_INTERVAL_MS } = await import('../services/scheduler.service.js');
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const session = await startHost(testConfig({ readOnly: false }));
+      let checks = 0;
+      vi.spyOn(session.host.scheduler, 'checkAndSend').mockImplementation(async () => {
+        checks += 1;
+        return { sent: 0, failed: 0, deferred: 0, errors: [] };
+      });
+      await openSession(session, 1, false);
+      await session.host.ready;
+      await session.host.close();
+      const atClose = checks;
+      await vi.advanceTimersByTimeAsync(3 * SCHEDULER_INTERVAL_MS);
+      expect({ atClose, afterThreeIntervals: checks }).toEqual({
+        atClose: 1,
+        afterThreeIntervals: 1,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('should log a scheduled-send check that fails at warning', async () => {
+    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const logged: unknown[] = [];
+    vi.spyOn(McpServer.prototype, 'sendLoggingMessage').mockImplementation(async (params) => {
+      logged.push(params);
+    });
+    const session = await startHost(testConfig({ readOnly: false }));
+    vi.spyOn(session.host.scheduler, 'checkAndSend').mockRejectedValue(
+      new Error('EACCES: permission denied, mkdir'),
+    );
+    await openSession(session, 1, false);
+    await session.host.ready;
+    await vi.waitFor(() => {
+      expect(logged).toContainEqual({
+        level: 'warning',
+        logger: 'scheduler',
+        data: 'Scheduled send check failed: EACCES: permission denied, mkdir',
+      });
+    });
+  });
 });

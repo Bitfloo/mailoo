@@ -10,22 +10,31 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { SCHEDULED_DIR } from '../config/xdg.js';
+import RateLimitError from '../safety/rate-limit-error.js';
 import { recipientEmail, validateInputLength } from '../safety/validation.js';
-import type { ScheduledEmail } from '../types/index.js';
+import type { ScheduledEmail, SendResult } from '../types/index.js';
+import writeFileAtomic from '../utils/atomic-write.js';
+import { acquireClaim, errnoCode, releaseClaim, startClaimRenewal } from '../utils/file-claim.js';
 import type ImapService from './imap.service.js';
 import type SmtpService from './smtp.service.js';
+
+/**
+ * How often the server checks the queue. `scheduler install` takes the launchd
+ * StartInterval and the crontab minute step from it.
+ */
+export const SCHEDULER_INTERVAL_MS = 60_000;
 
 /** Max age (ms) of a queue claim before another check may send that email. */
 export const STALE_LOCK_MS = 5 * 60 * 1000;
 
 // Renew well inside the stale window so only a dead holder's claim goes stale.
-const CLAIM_RENEW_MS = STALE_LOCK_MS / 5;
+export const CLAIM_RENEW_MS = STALE_LOCK_MS / 5;
 
 /** Beside `<id>.json`. Exclusive create (`wx`) is the only claim. */
 export const SCHEDULE_CLAIM_SUFFIX = '.lock';
 
-/** Max retry attempts before marking as "failed" */
-const MAX_ATTEMPTS = 3;
+/** Send attempts before an entry is marked `failed`. */
+export const MAX_ATTEMPTS = 3;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -77,112 +86,19 @@ function lockFile(dir: string, id: string): string {
   return path.resolve(dir, `${id}${SCHEDULE_CLAIM_SUFFIX}`);
 }
 
-function errnoCode(err: unknown): string | undefined {
-  if (typeof err !== 'object' || err === null || !('code' in err)) return undefined;
-  const { code } = err as { code?: unknown };
-  return typeof code === 'string' ? code : undefined;
-}
-
-async function createClaim(lockPath: string, token: string): Promise<boolean> {
-  try {
-    await fs.writeFile(lockPath, token, { flag: 'wx' });
-    return true;
-  } catch (err) {
-    if (errnoCode(err) === 'EEXIST') return false;
-    throw err;
-  }
-}
-
-async function claimAge(lockPath: string, now: number): Promise<number | undefined> {
-  try {
-    const stat = await fs.stat(lockPath);
-    return now - stat.mtimeMs;
-  } catch (err) {
-    if (errnoCode(err) === 'ENOENT') return undefined;
-    throw err;
-  }
-}
-
-async function stealStaleClaim(
-  dir: string,
-  id: string,
-  lockPath: string,
-  now: number,
-  token: string,
-): Promise<boolean> {
-  const parked = path.resolve(dir, `${id}${SCHEDULE_CLAIM_SUFFIX}.${crypto.randomUUID()}`);
-  try {
-    await fs.rename(lockPath, parked);
-  } catch (err) {
-    if (errnoCode(err) === 'ENOENT') return false;
-    throw err;
-  }
-  try {
-    const age = await claimAge(parked, now);
-    if (age === undefined || age <= STALE_LOCK_MS) {
-      try {
-        // rename would replace a claim created after the park.
-        await fs.link(parked, lockPath);
-      } catch (err) {
-        if (errnoCode(err) !== 'EEXIST') throw err;
-      }
-      return false;
-    }
-    return await createClaim(lockPath, token);
-  } finally {
-    await fs.unlink(parked).catch(() => undefined);
-  }
-}
-
 /**
  * Exclusive right to send or cancel this id.
  * The in-process timer and `mailoo scheduler` can both read a pending file;
  * only the caller that creates the claim continues. While a claimed email is
- * being sent, that holder refreshes the claim's mtime every CLAIM_RENEW_MS.
- * A claim older than STALE_LOCK_MS has not been refreshed within that window
- * and may be taken again. Release deletes the lock when its content is this
- * holder's token, and leaves the lock in place when the content is not.
+ * being sent, that holder refreshes the claim's mtime every CLAIM_RENEW_MS,
+ * so a claim older than STALE_LOCK_MS belongs to a dead holder.
  */
 async function claimSchedule(
   dir: string,
   id: string,
   now = Date.now(),
 ): Promise<string | undefined> {
-  const lockPath = lockFile(dir, id);
-  const token = crypto.randomUUID();
-  if (await createClaim(lockPath, token)) return token;
-  const age = await claimAge(lockPath, now);
-  if (age === undefined) {
-    return (await createClaim(lockPath, token)) ? token : undefined;
-  }
-  if (age <= STALE_LOCK_MS) return undefined;
-  return (await stealStaleClaim(dir, id, lockPath, now, token)) ? token : undefined;
-}
-
-function startClaimRenewal(lockPath: string): () => void {
-  const timer = setInterval(() => {
-    fs.utimes(lockPath, new Date(), new Date()).catch(() => undefined);
-  }, CLAIM_RENEW_MS);
-  timer.unref();
-  return () => {
-    clearInterval(timer);
-  };
-}
-
-async function releaseClaim(dir: string, id: string, token: string): Promise<void> {
-  const lockPath = lockFile(dir, id);
-  try {
-    const current = await fs.readFile(lockPath, 'utf8');
-    if (current !== token) return;
-  } catch (err) {
-    if (errnoCode(err) === 'ENOENT') return;
-    throw err;
-  }
-  try {
-    await fs.unlink(lockPath);
-  } catch (err) {
-    if (errnoCode(err) !== 'ENOENT') throw err;
-  }
+  return acquireClaim(lockFile(dir, id), STALE_LOCK_MS, now);
 }
 
 async function readScheduled(filePath: string): Promise<ScheduledEmail | undefined> {
@@ -195,15 +111,33 @@ async function readScheduled(filePath: string): Promise<ScheduledEmail | undefin
   }
 }
 
+/** SMTP accepted it and the sent record was written; only the move into sent/ may be missing. */
+function isDelivered(scheduled: ScheduledEmail, id: string): boolean {
+  return scheduled.id === id && scheduled.status === 'sent';
+}
+
+/** Whether a check sends an email with this send time; `scheduler list` and `status` call it overdue. */
+export function isSendTimeReached(sendAt: string, now: number): boolean {
+  // Not `<=`: a NaN sendAt (a damaged queue file) must still count as due.
+  return !(new Date(sendAt).getTime() > now);
+}
+
 function isDue(scheduled: ScheduledEmail, id: string, now: number): boolean {
-  const sendAt = new Date(scheduled.sendAt).getTime();
   return (
     scheduled.id === id &&
     scheduled.status !== 'failed' &&
     scheduled.status !== 'sent' &&
-    // Not `<=`: a NaN sendAt (a damaged queue file) must still count as due.
-    !(sendAt > now)
+    isSendTimeReached(scheduled.sendAt, now)
   );
+}
+
+interface Delivery {
+  outcome: 'sent' | 'failed' | 'deferred' | 'skipped';
+  error?: string;
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 const CANCEL_ALREADY_BEING_SENT = 'Cannot cancel email that is already being sent';
@@ -460,11 +394,8 @@ export default class SchedulerService {
     const filtered = options.account ? emails.filter((e) => e.account === options.account) : emails;
 
     // Filter by status unless "all"
-    if (status !== 'all') {
-      return filtered.filter((e) => e.status === status);
-    }
-
-    return filtered.sort((a, b) => new Date(a.sendAt).getTime() - new Date(b.sendAt).getTime());
+    const selected = status === 'all' ? filtered : filtered.filter((e) => e.status === status);
+    return selected.sort((a, b) => new Date(a.sendAt).getTime() - new Date(b.sendAt).getTime());
   }
 
   // -------------------------------------------------------------------------
@@ -513,7 +444,7 @@ export default class SchedulerService {
       }
       throw err;
     } finally {
-      if (claimToken) await releaseClaim(this.pendingDir, scheduleId, claimToken);
+      if (claimToken) await releaseClaim(lockFile(this.pendingDir, scheduleId), claimToken);
     }
   }
 
@@ -525,9 +456,11 @@ export default class SchedulerService {
   async checkAndSend(): Promise<{
     sent: number;
     failed: number;
+    /** Held back by the rate limit; retried on a later check without using an attempt. */
+    deferred: number;
     errors: string[];
   }> {
-    const result = { sent: 0, failed: 0, errors: [] as string[] };
+    const result = { sent: 0, failed: 0, deferred: 0, errors: [] as string[] };
     await this.ensureDirs();
 
     let files: string[];
@@ -545,10 +478,9 @@ export default class SchedulerService {
       const delivery = await this.processQueueFile(file, now);
       if (delivery.outcome === 'skipped') continue;
       if (delivery.outcome === 'sent') result.sent += 1;
-      else if (delivery.outcome === 'failed') {
-        result.failed += 1;
-        if (delivery.error !== undefined) result.errors.push(`${file}: ${delivery.error}`);
-      }
+      else if (delivery.outcome === 'deferred') result.deferred += 1;
+      else result.failed += 1;
+      if (delivery.error !== undefined) result.errors.push(`${file}: ${delivery.error}`);
     }
 
     return result;
@@ -576,13 +508,10 @@ export default class SchedulerService {
   private async writeScheduledFile(scheduled: ScheduledEmail): Promise<void> {
     await this.ensureDirs();
     const filePath = queueFile(this.pendingDir, scheduled.id);
-    await fs.writeFile(filePath, JSON.stringify(scheduled, null, 2));
+    await writeFileAtomic(filePath, JSON.stringify(scheduled, null, 2));
   }
 
-  private async processQueueFile(
-    file: string,
-    now: number,
-  ): Promise<{ outcome: 'sent' | 'failed' | 'skipped'; error?: string }> {
+  private async processQueueFile(file: string, now: number): Promise<Delivery> {
     const id = scheduleIdFromFilename(file);
     if (!id) return { outcome: 'skipped' };
     const filePath = queueFile(this.pendingDir, id);
@@ -591,33 +520,42 @@ export default class SchedulerService {
     try {
       const content = await fs.readFile(filePath, 'utf-8');
       const scheduled = JSON.parse(content) as ScheduledEmail;
-      if (!isDue(scheduled, id, now)) return { outcome: 'skipped' };
+      const delivered = isDelivered(scheduled, id);
+      if (!delivered && !isDue(scheduled, id, now)) return { outcome: 'skipped' };
 
       claimToken = await claimSchedule(this.pendingDir, id, now);
       if (!claimToken) return { outcome: 'skipped' };
-
-      const fresh = await readScheduled(filePath);
-      if (!fresh || !isDue(fresh, id, now)) return { outcome: 'skipped' };
-      if (fresh.attempts >= MAX_ATTEMPTS) {
-        fresh.status = 'failed';
-        fresh.lastError = 'Max retry attempts exceeded';
-        await this.writeScheduledFile(fresh);
-        return { outcome: 'failed' };
-      }
-
-      await this.sendClaimedEmail(fresh, id);
-      return { outcome: 'sent' };
+      if (delivered) return await this.settleDelivered(id);
+      return await this.sendIfStillDue(filePath, id, now);
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
+      const errorMsg = errorMessage(err);
       await this.writeSendFailure(id, errorMsg);
       return { outcome: 'failed', error: errorMsg };
     } finally {
-      if (claimToken) await releaseClaim(this.pendingDir, id, claimToken);
+      if (claimToken) await releaseClaim(lockFile(this.pendingDir, id), claimToken);
     }
   }
 
-  private async sendClaimedEmail(queued: ScheduledEmail, id: string): Promise<void> {
-    const filePath = queueFile(this.pendingDir, id);
+  /** Only the move into sent/ was lost. A failed move is tried again on the next check. */
+  private async settleDelivered(id: string): Promise<Delivery> {
+    await this.moveToSent(id).catch(() => undefined);
+    return { outcome: 'skipped' };
+  }
+
+  /** Under the claim: read the record again, then fail it if it is out of attempts or send it. */
+  private async sendIfStillDue(filePath: string, id: string, now: number): Promise<Delivery> {
+    const fresh = await readScheduled(filePath);
+    if (!fresh || !isDue(fresh, id, now)) return { outcome: 'skipped' };
+    if (fresh.attempts >= MAX_ATTEMPTS) {
+      fresh.status = 'failed';
+      fresh.lastError = 'Max retry attempts exceeded';
+      await this.writeScheduledFile(fresh);
+      return { outcome: 'failed' };
+    }
+    return this.sendClaimedEmail(fresh, id);
+  }
+
+  private async sendClaimedEmail(queued: ScheduledEmail, id: string): Promise<Delivery> {
     const sending: ScheduledEmail = {
       ...queued,
       status: 'sending',
@@ -625,36 +563,85 @@ export default class SchedulerService {
     };
     await this.writeScheduledFile(sending);
 
-    const stopRenewal = startClaimRenewal(lockFile(this.pendingDir, id));
+    const stopRenewal = startClaimRenewal(lockFile(this.pendingDir, id), CLAIM_RENEW_MS);
     try {
-      const sendResult = await this.smtpService.sendEmail(sending.account, {
-        to: sending.to,
-        subject: sending.subject,
-        body: sending.body,
-        cc: sending.cc,
-        bcc: sending.bcc,
-        html: sending.html,
-      });
-
-      const sent: ScheduledEmail = {
-        ...sending,
-        status: 'sent',
-        sentAt: new Date().toISOString(),
-        sentMessageId: sendResult.messageId,
-      };
-      await fs.writeFile(queueFile(this.sentDir, id), JSON.stringify(sent, null, 2));
-      await fs.unlink(filePath);
-
-      if (sent.draftMessageId && sent.draftMailbox) {
-        try {
-          await this.imapService.deleteEmail(sent.account, sent.draftMessageId, sent.draftMailbox);
-        } catch {
-          // Best-effort
-        }
+      let sendResult: SendResult;
+      try {
+        sendResult = await this.smtpService.sendEmail(sending.account, {
+          to: sending.to,
+          subject: sending.subject,
+          body: sending.body,
+          cc: sending.cc,
+          bcc: sending.bcc,
+          html: sending.html,
+          messageId: this.smtpService.messageIdFor(sending.account, id),
+          inReplyTo: sending.inReplyTo,
+          references: sending.references,
+        });
+      } catch (err) {
+        if (!(err instanceof RateLimitError)) throw err;
+        // Nothing reached SMTP, so this check is not an attempt. Restore the record as it was queued.
+        await this.writeScheduledFile({ ...queued, lastError: err.message });
+        return { outcome: 'deferred' };
       }
+
+      // Inside the try, so the claim stays fresh while the record is written.
+      return await this.recordDelivery(sending, sendResult);
     } finally {
       stopRenewal();
     }
+  }
+
+  /** SMTP accepted the message. Nothing here may send it back into the retry path. */
+  private async recordDelivery(sending: ScheduledEmail, sendResult: SendResult): Promise<Delivery> {
+    const recordError = await this.recordSent({
+      ...sending,
+      status: 'sent',
+      sentAt: new Date().toISOString(),
+      sentMessageId: sendResult.messageId,
+    });
+
+    if (sending.draftMessageId && sending.draftMailbox) {
+      try {
+        await this.imapService.deleteEmail(
+          sending.account,
+          sending.draftMessageId,
+          sending.draftMailbox,
+        );
+      } catch {
+        // Best-effort
+      }
+    }
+    if (recordError === undefined) return { outcome: 'sent' };
+    return {
+      outcome: 'sent',
+      error: `sent, but the queue record was not updated: ${recordError}`,
+    };
+  }
+
+  /**
+   * The first write is the commit point: a record that says sent is never due
+   * again, so a crash or a failed move after it cannot resend the email. The
+   * move into sent/ runs even when that write failed, because a rename needs
+   * no free space and takes the email out of the due set.
+   */
+  private async recordSent(sent: ScheduledEmail): Promise<string | undefined> {
+    let problem: string | undefined;
+    try {
+      await this.writeScheduledFile(sent);
+    } catch (err) {
+      problem = errorMessage(err);
+    }
+    try {
+      await this.moveToSent(sent.id);
+    } catch (err) {
+      problem ??= errorMessage(err);
+    }
+    return problem;
+  }
+
+  private async moveToSent(id: string): Promise<void> {
+    await fs.rename(queueFile(this.pendingDir, id), queueFile(this.sentDir, id));
   }
 
   private async writeSendFailure(id: string, errorMsg: string): Promise<void> {
@@ -664,7 +651,7 @@ export default class SchedulerService {
       const scheduled = JSON.parse(content) as ScheduledEmail;
       scheduled.status = scheduled.attempts >= MAX_ATTEMPTS ? 'failed' : 'pending';
       scheduled.lastError = errorMsg;
-      await fs.writeFile(filePath, JSON.stringify(scheduled, null, 2));
+      await writeFileAtomic(filePath, JSON.stringify(scheduled, null, 2));
     } catch {
       // If we can't even update the file, skip
     }
@@ -692,4 +679,54 @@ export default class SchedulerService {
     }
     return emails;
   }
+}
+
+export type SchedulerLog = (level: 'info' | 'warning', message: string) => Promise<void> | void;
+
+async function reportCheck(
+  check: Pick<SchedulerService, 'checkAndSend'>,
+  log: SchedulerLog,
+): Promise<void> {
+  let result: Awaited<ReturnType<SchedulerService['checkAndSend']>>;
+  try {
+    result = await check.checkAndSend();
+  } catch (err) {
+    await log('warning', `Scheduled send check failed: ${errorMessage(err)}`);
+    return;
+  }
+  if (result.sent > 0) await log('info', `Sent ${result.sent} scheduled email(s)`);
+  if (result.failed > 0) await log('warning', `${result.failed} scheduled email(s) failed`);
+  // eslint-disable-next-line no-restricted-syntax
+  for (const error of result.errors) await log('warning', `Scheduled send error: ${error}`); // eslint-disable-line no-await-in-loop
+  if (result.deferred > 0) {
+    await log('info', `${result.deferred} scheduled email(s) held back by the rate limit`);
+  }
+}
+
+/**
+ * Checks the queue now and then every SCHEDULER_INTERVAL_MS. A check that is
+ * still running when the timer fires is skipped rather than overlapped, so a
+ * slow SMTP server cannot pile checks up. Returns a function that stops it.
+ */
+export function startSchedulerLoop(
+  check: Pick<SchedulerService, 'checkAndSend'>,
+  log: SchedulerLog,
+): () => void {
+  let running = false;
+  const tick = () => {
+    if (running) return;
+    running = true;
+    reportCheck(check, log)
+      // Only the log sink can throw here; it must not stop the loop.
+      .catch(() => undefined)
+      .finally(() => {
+        running = false;
+      });
+  };
+  tick();
+  const timer = setInterval(tick, SCHEDULER_INTERVAL_MS);
+  timer.unref();
+  return () => {
+    clearInterval(timer);
+  };
 }

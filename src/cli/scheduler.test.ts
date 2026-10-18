@@ -1,9 +1,17 @@
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
-import type { CommandRunner } from './scheduler.js';
-import { installCrontabLine, loadLaunchAgent, removeCrontabLine } from './scheduler.js';
+import {
+  runCheck,
+  runInstall,
+  runList,
+  runSchedulerCommand,
+  runStatus,
+  runUninstall,
+  SCHEDULER_COMMANDS,
+} from '../test-support/scheduler-home.js';
+import type { SchedulerCommands } from './scheduler.js';
+import { LAUNCHD_LABEL, runCommandFile } from './scheduler-install.js';
 
 const SRC = path.resolve('src');
 
@@ -103,72 +111,7 @@ async function productionSources(dir: string): Promise<string[]> {
     );
 }
 
-function recordRunner(): {
-  run: CommandRunner;
-  calls: { file: string; args: string[]; input?: string }[];
-} {
-  const calls: { file: string; args: string[]; input?: string }[] = [];
-  const run: CommandRunner = (file, args, input) => {
-    calls.push({ file, args: [...args], input });
-    if (file === 'crontab' && args[0] === '-l') return '0 0 * * * /usr/bin/true\n';
-    return '';
-  };
-  return { run, calls };
-}
-
-function shQuote(value: string): string {
-  return `'${value.replaceAll("'", `'\\''`)}'`;
-}
-
-// A mocked execFileSync keeps every call, so the next test reads the previous stdio mode.
-async function withFakeCrontab(
-  list: { stdout: string } | { stderr: string },
-  run: (written: () => Promise<string | undefined>) => Promise<void>,
-): Promise<void> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-crontab-'));
-  const stdoutPath = path.join(dir, 'stdout');
-  const stderrPath = path.join(dir, 'stderr');
-  const writtenPath = path.join(dir, 'written');
-  const bin = path.join(dir, 'crontab');
-  if ('stderr' in list) await fs.writeFile(stderrPath, list.stderr);
-  else await fs.writeFile(stdoutPath, list.stdout);
-  const script = `#!/bin/sh
-set -e
-if [ "$1" = "-l" ]; then
-  if [ -f ${shQuote(stderrPath)} ]; then
-    cat ${shQuote(stderrPath)} >&2
-    exit 1
-  fi
-  cat ${shQuote(stdoutPath)}
-  exit 0
-fi
-if [ "$1" = "-" ]; then
-  cat > ${shQuote(writtenPath)}
-  exit 0
-fi
-exit 2
-`;
-  await fs.writeFile(bin, script, { mode: 0o755 });
-  await fs.chmod(bin, 0o755);
-  const previousPath = process.env.PATH;
-  process.env.PATH = [dir, '/bin', '/usr/bin'].join(path.delimiter);
-  try {
-    await run(async () => {
-      try {
-        await fs.access(writtenPath);
-      } catch {
-        return undefined;
-      }
-      return fs.readFile(writtenPath, 'utf8');
-    });
-  } finally {
-    if (previousPath === undefined) delete process.env.PATH;
-    else process.env.PATH = previousPath;
-    await fs.rm(dir, { recursive: true, force: true });
-  }
-}
-
-describe('scheduler install commands', () => {
+describe('shell commands in production code', () => {
   it('should not import a shell executor or build a shell command from a variable', async () => {
     const files = await productionSources(SRC);
     const texts = await Promise.all(
@@ -177,93 +120,136 @@ describe('scheduler install commands', () => {
     const hits = texts.flatMap(({ file, text }) => shellHits(file, text));
     expect(hits).toEqual([]);
   });
+});
 
-  it('should load launchd with an argument array and an owner-only plist', async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-launchd-'));
+const SCHEDULER_CLI = path.join(SRC, 'cli', 'scheduler.js');
+const VALUE_IMPORT = /(?:^|\n)[ \t]*(?:import|export)\s+(?!type\s)[^;]*?\bfrom\s+['"]([^'"]+)['"]/g;
+const DYNAMIC_IMPORT = /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g;
+
+async function testSources(dir: string): Promise<string[]> {
+  const entries = await fs.readdir(dir, { recursive: true, withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.join(entry.parentPath, entry.name))
+    .filter(
+      (file) => file.endsWith('.test.ts') || file.includes(`${path.sep}test-support${path.sep}`),
+    );
+}
+
+describe('scheduler CLI imports in tests', () => {
+  it('should load the scheduler CLI in tests only through the module that pins HOME and PATH', async () => {
+    const files = await testSources(SRC);
+    const importers = await Promise.all(
+      files.map(async (file) => {
+        const text = await fs.readFile(file, 'utf8');
+        const specifiers = [...text.matchAll(VALUE_IMPORT), ...text.matchAll(DYNAMIC_IMPORT)];
+        const loadsCli = specifiers.some(
+          ([, specifier = '']) => path.resolve(path.dirname(file), specifier) === SCHEDULER_CLI,
+        );
+        return loadsCli ? [path.relative(SRC, file)] : [];
+      }),
+    );
+    expect(importers.flat()).toEqual([path.join('test-support', 'scheduler-home.ts')]);
+  });
+
+  it('should leave launchctl and crontab off PATH, so a test that drops its runner cannot run them', () => {
+    const codes = [
+      ['launchctl', 'list', LAUNCHD_LABEL],
+      ['crontab', '-l'],
+    ].map(([file = '', ...args]) => {
+      try {
+        runCommandFile(file, args);
+        return 'ran';
+      } catch (err) {
+        return (err as { code?: unknown }).code;
+      }
+    });
+    expect(codes).toEqual(['ENOENT', 'ENOENT']);
+  });
+});
+
+function recordedCommands(): { commands: SchedulerCommands; ran: string[] } {
+  const ran: string[] = [];
+  const record = (name: string) => async () => {
+    ran.push(name);
+  };
+  const commands = {
+    check: record('check'),
+    list: record('list'),
+    install: record('install'),
+    uninstall: record('uninstall'),
+    status: record('status'),
+  };
+  return { commands, ran };
+}
+
+/** Runs the router with console output captured; the help names a command at two-space indent. */
+async function route(subcommand: string | undefined): Promise<{
+  ran: string[];
+  helpNames: string[];
+  stderr: unknown[];
+}> {
+  const { commands, ran } = recordedCommands();
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    await runSchedulerCommand(subcommand, commands);
+    const printed = log.mock.calls.flat().join('\n');
+    const helpNames = [...printed.matchAll(/^ {2}(\S+)/gm)].map((match) => match[1] ?? '');
+    return { ran, helpNames, stderr: error.mock.calls.flat() };
+  } finally {
+    log.mockRestore();
+    error.mockRestore();
+  }
+}
+
+describe('scheduler subcommand router', () => {
+  it('should run each subcommand through its exported run function by default', () => {
+    expect(SCHEDULER_COMMANDS).toEqual({
+      check: runCheck,
+      list: runList,
+      install: runInstall,
+      uninstall: runUninstall,
+      status: runStatus,
+    });
+  });
+
+  it('should run the exported list command when no command map is given', async () => {
+    const ran: string[] = [];
+    const list = vi.spyOn(SCHEDULER_COMMANDS, 'list').mockImplementation(async () => {
+      ran.push('list');
+    });
     try {
-      const plistPath = path.join(dir, 'agent.plist');
-      const { run, calls } = recordRunner();
-      await loadLaunchAgent(plistPath, '<plist version="1.0"></plist>\n', run);
-      const stat = await fs.stat(plistPath);
-      expect(stat.mode % 0o1000).toBe(0o600);
-      expect(calls).toEqual([{ file: 'launchctl', args: ['load', plistPath], input: undefined }]);
+      await runSchedulerCommand('list');
+      expect(ran).toEqual(['list']);
     } finally {
-      await fs.rm(dir, { recursive: true, force: true });
+      list.mockRestore();
     }
   });
 
-  it('should write crontab through stdin arguments', () => {
-    const { run, calls } = recordRunner();
-    const line =
-      "* * * * * '/usr/bin/node' '/opt/mailoo/main.js' scheduler check # mailoo scheduler";
-    installCrontabLine(line, '# mailoo scheduler', run);
-    expect(calls[0]).toEqual({ file: 'crontab', args: ['-l'], input: undefined });
-    expect(calls[1]?.file).toBe('crontab');
-    expect(calls[1]?.args).toEqual(['-']);
-    expect(calls[1]?.input).toContain(line);
-    expect(calls[1]?.input).not.toMatch(/\|/);
+  it('should run the command each subcommand names', async () => {
+    const { commands, ran } = recordedCommands();
+    const names = Object.keys(commands);
+    await Promise.all(names.map(async (name) => runSchedulerCommand(name, commands)));
+    expect(ran).toEqual(names);
   });
 
-  it('should remove a crontab entry through stdin arguments', () => {
-    const { run, calls } = recordRunner();
-    removeCrontabLine('# mailoo scheduler', run);
-    expect(calls[1]?.args).toEqual(['-']);
-    expect(calls[1]?.input).toBe('0 0 * * * /usr/bin/true\n');
-    expect(calls[1]?.input).not.toContain('mailoo scheduler');
+  it.each([undefined, 'help', '--help'])(
+    'should print the help naming every subcommand and run nothing for %s',
+    async (subcommand) => {
+      expect(await route(subcommand)).toEqual({
+        ran: [],
+        helpNames: Object.keys(recordedCommands().commands),
+        stderr: [],
+      });
+    },
+  );
+
+  it('should name an unknown subcommand on stderr, print the help and run nothing', async () => {
+    expect(await route('bogus')).toEqual({
+      ran: [],
+      helpNames: Object.keys(recordedCommands().commands),
+      stderr: ['Unknown scheduler command: bogus\n'],
+    });
   });
-
-  it.runIf(process.platform !== 'win32')(
-    'should install one crontab line when the user has no crontab',
-    async () => {
-      const line =
-        "* * * * * '/usr/bin/node' '/opt/mailoo/main.js' scheduler check # mailoo scheduler";
-      await withFakeCrontab({ stderr: 'crontab: no crontab for user\n' }, async (written) => {
-        expect(installCrontabLine(line, '# mailoo scheduler')).toBe(true);
-        expect(await written()).toBe(`${line}\n`);
-      });
-    },
-  );
-
-  it.runIf(process.platform !== 'win32')(
-    'should not write the crontab when the marker line is already installed',
-    async () => {
-      const existing = '0 0 * * * /usr/bin/true\n* * * * * /opt/mailoo check # mailoo scheduler\n';
-      const line =
-        "* * * * * '/usr/bin/node' '/opt/mailoo/main.js' scheduler check # mailoo scheduler";
-      await withFakeCrontab({ stdout: existing }, async (written) => {
-        expect(installCrontabLine(line, '# mailoo scheduler')).toBe(false);
-        expect(await written()).toBeUndefined();
-      });
-    },
-  );
-
-  it.runIf(process.platform !== 'win32')(
-    'should abort crontab install when listing fails for another reason',
-    async () => {
-      await withFakeCrontab({ stderr: 'crontab: permission denied\n' }, async (written) => {
-        expect(() =>
-          installCrontabLine('* * * * * /usr/bin/true # mailoo scheduler', '# mailoo scheduler'),
-        ).toThrow(/permission denied/);
-        expect(await written()).toBeUndefined();
-      });
-    },
-  );
-
-  it.runIf(process.platform !== 'win32')(
-    'should keep blank lines when removing a crontab entry',
-    async () => {
-      const existing = [
-        '0 0 * * * /usr/bin/true',
-        '',
-        '* * * * * /opt/mailoo check # mailoo scheduler',
-        '',
-        '30 1 * * * /usr/bin/true',
-        '',
-      ].join('\n');
-      await withFakeCrontab({ stdout: existing }, async (written) => {
-        expect(removeCrontabLine('# mailoo scheduler')).toBe(true);
-        expect(await written()).toBe('0 0 * * * /usr/bin/true\n\n\n30 1 * * * /usr/bin/true\n');
-      });
-    },
-  );
 });

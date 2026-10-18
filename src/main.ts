@@ -14,7 +14,6 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 import { loadConfig } from './config/loader.js';
-import ConnectionManager from './connections/manager.js';
 import { bindServer, markInitialized, mcpLog } from './logging.js';
 import registerAllPrompts from './prompts/register.js';
 import registerAllResources from './resources/register.js';
@@ -24,19 +23,18 @@ import {
   readHttpLaunchOptions,
   startGuardedHttpServers,
 } from './safety/http-transport.js';
-import RateLimiter from './safety/rate-limiter.js';
+import createShutdown from './safety/shutdown.js';
 import attachStdioShutdown from './safety/stdio-lifecycle.js';
-import { maybeStartMailboxWriters } from './safety/write-side-effects.js';
+import createStdioWriters from './safety/stdio-writers.js';
+import { WRITER_LEASE_FILE } from './safety/writer-lease.js';
 import createServer, { PKG_VERSION } from './server.js';
 import CalendarService from './services/calendar.service.js';
 import HooksService from './services/hooks.service.js';
-import ImapService from './services/imap.service.js';
 import LocalCalendarService from './services/local-calendar.service.js';
 import { MailArrival } from './services/mail-arrival/index.js';
-import OAuthService from './services/oauth.service.js';
+import { createMailConnections, createMailServices } from './services/mail-services.js';
 import RemindersService from './services/reminders.service.js';
-import SchedulerService from './services/scheduler.service.js';
-import SmtpService from './services/smtp.service.js';
+import SchedulerService, { startSchedulerLoop } from './services/scheduler.service.js';
 import TemplateService from './services/template.service.js';
 import WatcherService from './services/watcher.service.js';
 import registerAllTools from './tools/register.js';
@@ -83,23 +81,18 @@ Examples:
   mailoo notify status            # Check notification platform support
 `.trim();
 
+function exitProcess(code: number): void {
+  process.exit(code); // eslint-disable-line n/no-process-exit -- open IMAP handles would otherwise pin the event loop
+}
+
+function reportToStderr(message: string): void {
+  process.stderr.write(`[mailoo] ${message}\n`);
+}
+
 async function runServer(): Promise<void> {
   const config = await loadConfig();
 
-  const oauthService = new OAuthService();
-  const connections = new ConnectionManager(
-    config.accounts,
-    oauthService,
-    config.settings.defaultAccount,
-  );
-  const rateLimiter = new RateLimiter(config.settings.rateLimit);
-  const imapService = new ImapService(connections);
-  const smtpService = new SmtpService(
-    connections,
-    rateLimiter,
-    imapService,
-    config.settings.saveToSent,
-  );
+  const { connections, imap: imapService, smtp: smtpService } = createMailServices(config);
   const templateService = new TemplateService();
   const calendarService = new CalendarService();
   const localCalendarService = new LocalCalendarService();
@@ -139,11 +132,32 @@ async function runServer(): Promise<void> {
   // the real capabilities (including `sampling` support).
   // --------------------------------------------------------------------------
 
-  let schedulerInterval: ReturnType<typeof setInterval> | undefined;
-
   const lowLevelServer = server.server;
 
   const canWrite = !config.settings.readOnly;
+
+  const writers = createStdioWriters({
+    lockPath: WRITER_LEASE_FILE,
+    services: {
+      startHooks: () => {
+        const clientCaps = lowLevelServer.getClientCapabilities?.() ?? {};
+        hooksService.start(lowLevelServer, { sampling: clientCaps.sampling != null });
+      },
+      hooks: hooksService,
+      watcher: watcherService,
+      startScheduler: () => {
+        const log = async (level: 'info' | 'warning', message: string) => {
+          await mcpLog(level, 'scheduler', message);
+        };
+        return startSchedulerLoop(schedulerService, log);
+      },
+      connections,
+      server,
+    },
+    log: async (level, message) => {
+      await mcpLog(level, 'server', message);
+    },
+  });
 
   lowLevelServer.oninitialized = () => {
     markInitialized();
@@ -169,38 +183,16 @@ async function runServer(): Promise<void> {
           );
         }
 
-        const started = await maybeStartMailboxWriters(canWrite, {
-          startHooks: () => {
-            const clientCaps = lowLevelServer.getClientCapabilities?.() ?? {};
-            hooksService.start(lowLevelServer, { sampling: clientCaps.sampling != null });
-          },
-          startWatcher: async () => watcherService.start(),
-          startScheduler: async () => {
-            try {
-              const result = await schedulerService.checkAndSend();
-              if (result.sent > 0) {
-                await mcpLog(
-                  'info',
-                  'scheduler',
-                  `Sent ${result.sent} overdue email(s) on startup`,
-                );
-              }
-            } catch {
-              // Non-fatal: scheduler check failure shouldn't prevent server start
-            }
-
-            schedulerInterval = setInterval(async () => {
-              try {
-                await schedulerService.checkAndSend();
-              } catch {
-                // Silent — don't spam logs
-              }
-            }, 60_000);
-            schedulerInterval.unref();
-          },
-        });
-
-        if (!started) {
+        if (canWrite) {
+          await writers.lease.start();
+          if (!writers.lease.leading) {
+            await mcpLog(
+              'info',
+              'server',
+              'Another Mailoo process runs hooks, watcher, and scheduler; this one takes over when it stops',
+            );
+          }
+        } else {
           await mcpLog(
             'info',
             'server',
@@ -218,18 +210,10 @@ async function runServer(): Promise<void> {
     })();
   };
 
-  // Graceful shutdown
-  let shuttingDown = false;
-  const shutdown = async () => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    if (schedulerInterval) clearInterval(schedulerInterval);
-    hooksService.stop();
-    await watcherService.stop();
-    await connections.closeAll();
-    await server.close();
-    process.exit(0); // eslint-disable-line n/no-process-exit -- stdio EOF must terminate; IMAP handles would pin the loop
-  };
+  const shutdown = createShutdown(writers.shutdownSteps, {
+    exit: exitProcess,
+    report: reportToStderr,
+  });
 
   attachStdioShutdown(process.stdin, shutdown);
   process.on('SIGINT', shutdown);
@@ -243,13 +227,7 @@ async function runHttpServer(policy: ReturnType<typeof readHttpLaunchOptions>): 
   // One bearer token is one principal. The host keeps the rate limit, schedule
   // queue, watcher, and hooks process-wide, as on stdio. Each HTTP session only
   // owns an McpServer and its transport.
-  const oauthService = new OAuthService();
-  const connections = new ConnectionManager(
-    config.accounts,
-    oauthService,
-    config.settings.defaultAccount,
-  );
-  const imapService = new ImapService(connections);
+  const { connections, imap: imapService } = createMailConnections(config);
   const templateService = new TemplateService();
   const calendarService = new CalendarService();
   const localCalendarService = new LocalCalendarService();
@@ -268,11 +246,14 @@ async function runHttpServer(policy: ReturnType<typeof readHttpLaunchOptions>): 
   const listener = await startGuardedHttpServers(policy, host.handle);
   process.stderr.write(`${formatHttpListenLines(listener.addresses)}\n`);
 
-  const shutdown = async () => {
-    await host.close();
-    await connections.closeAll();
-    await listener.close();
-  };
+  const shutdown = createShutdown(
+    [
+      ['host', async () => host.close()],
+      ['connections', async () => connections.closeAll()],
+      ['listener', async () => listener.close()],
+    ],
+    { exit: exitProcess, report: reportToStderr },
+  );
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);

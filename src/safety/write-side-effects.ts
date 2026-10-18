@@ -10,14 +10,19 @@ export interface MailboxWriterStarts {
   startScheduler?: () => Promise<void> | void;
 }
 
+export async function startMailboxWriters(starts: MailboxWriterStarts): Promise<void> {
+  starts.startHooks?.();
+  // The watcher can wait out a connection timeout per folder; overdue sends must not wait with it.
+  if (starts.startScheduler) await starts.startScheduler();
+  if (starts.startWatcher) await starts.startWatcher();
+}
+
 /** Starts hooks/watcher/scheduler only when writes are allowed. Returns whether they ran. */
 export async function maybeStartMailboxWriters(
   canWrite: boolean,
   starts: MailboxWriterStarts,
 ): Promise<boolean> {
   if (!canWrite) return false;
-  starts.startHooks?.();
-  if (starts.startWatcher) await starts.startWatcher();
-  if (starts.startScheduler) await starts.startScheduler();
+  await startMailboxWriters(starts);
   return true;
 }

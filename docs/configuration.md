@@ -199,12 +199,33 @@ window fails at once with
 (`SMTP` for sends). A successful connect resets the window. The IDLE
 watcher retries a dropped or failed folder connection on the same schedule.
 
-## Stdio shutdown
+## Shutdown
 
 In `stdio` mode the process listens for stdin `end` / `close` (client
-EOF) and then stops hooks, watcher, IMAP/SMTP, and the MCP server. It
-does not attach a stdin `data` listener (that would steal protocol
-bytes from the SDK).
+EOF) and then stops the scheduler, hooks and watcher, frees the writer
+lease, and closes IMAP/SMTP and the MCP server. It does not attach a stdin `data` listener (that would
+steal protocol bytes from the SDK).
+
+`SIGINT`, `SIGTERM` and (in `stdio` mode) `SIGHUP` run the same steps;
+in `http` mode they close the sessions, IMAP/SMTP and the listeners.
+A failing step is logged to stderr and the next one still runs. If the
+steps have not finished within 10 seconds, for example because a server
+stopped answering a logout, the process names the step on stderr and
+exits with status 1.
+
+## One mailbox writer per machine
+
+Each MCP client window starts its own `stdio` server. Hooks, the IMAP IDLE
+watcher and the scheduler run in one of them only, so a new message is
+classified, moved and alerted once. The first server to start takes
+`$XDG_STATE_HOME/mailoo/mailbox-writers.lock` and refreshes it every 30
+seconds. The others serve every tool and try for the lock every 30 seconds.
+
+When the holder shuts down it deletes the lock, and another server takes
+over within 30 seconds. If the holder dies, its lock counts as abandoned
+after 2 minutes without a refresh. A process with `read_only = true` never
+takes the lock. `mailoo http` does not take part: it runs its own watcher,
+hooks and scheduler.
 
 ## Extra environment variables
 

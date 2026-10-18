@@ -5,299 +5,269 @@
  * for managing the email scheduler.
  */
 
-/* eslint-disable n/no-sync -- CLI install waits for launchctl and crontab */
-
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { loadConfig } from '../config/loader.js';
-import ConnectionManager from '../connections/manager.js';
-import RateLimiter from '../safety/rate-limiter.js';
-import ImapService from '../services/imap.service.js';
-import SchedulerService from '../services/scheduler.service.js';
-import SmtpService from '../services/smtp.service.js';
+import { createMailServices } from '../services/mail-services.js';
+import SchedulerService, { isSendTimeReached } from '../services/scheduler.service.js';
+import type { AppConfig, ScheduledEmail } from '../types/index.js';
+import type { CommandRunner } from './scheduler-install.js';
+import {
+  buildCronLine,
+  buildLaunchdPlist,
+  CHECK_INTERVAL_SECONDS,
+  CRONTAB_MARKER,
+  installCrontabLine,
+  LAUNCHD_LABEL,
+  loadLaunchAgent,
+  removeCrontabLine,
+  runCommandFile,
+} from './scheduler-install.js';
 
-const LAUNCHD_LABEL = 'com.bitfloo.mailoo.scheduler';
 const LAUNCHD_PLIST_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents');
 const LAUNCHD_PLIST = path.join(LAUNCHD_PLIST_DIR, `${LAUNCHD_LABEL}.plist`);
-const CRONTAB_MARKER = '# mailoo scheduler';
-
-export type CommandRunner = (file: string, args: readonly string[], input?: string) => string;
-
-export function runCommandFile(file: string, args: readonly string[], input?: string): string {
-  // crontab reports a missing table on stderr. Discarding it leaves stderr null
-  // and the Error message omits the text, so a permission failure looks empty.
-  const stderr = file === 'crontab' ? 'pipe' : 'ignore';
-  return execFileSync(file, [...args], {
-    encoding: 'utf-8',
-    stdio: input === undefined ? ['ignore', 'pipe', stderr] : ['pipe', 'pipe', stderr],
-    ...(input === undefined ? {} : { input }),
-  });
-}
-
-function stderrText(err: unknown): string {
-  if (typeof err !== 'object' || err === null || !('stderr' in err)) return '';
-  const { stderr } = err as { stderr?: unknown };
-  return typeof stderr === 'string' ? stderr : '';
-}
-
-// Exit status 1 is also used when crontab cannot be read. Only this stderr text
-// means the user has no crontab.
-function isNoCrontab(err: unknown): boolean {
-  return /no crontab for/i.test(stderrText(err));
-}
-
-function crontabReadError(err: unknown): Error {
-  const detail = stderrText(err).trim();
-  const fallback = err instanceof Error ? err.message : String(err);
-  return new Error(`Could not read the crontab: ${detail.length > 0 ? detail : fallback}`);
-}
-
-function quoteCronArg(value: string): string {
-  return `'${value.replaceAll("'", `'\\''`)}'`;
-}
-
-function readCrontab(run: CommandRunner): string | undefined {
-  try {
-    return run('crontab', ['-l']);
-  } catch (err) {
-    if (isNoCrontab(err)) return undefined;
-    throw crontabReadError(err);
-  }
-}
-
-export async function loadLaunchAgent(
-  plistPath: string,
-  plist: string,
-  run: CommandRunner = runCommandFile,
-): Promise<void> {
-  await fs.mkdir(path.dirname(plistPath), { recursive: true });
-  await fs.writeFile(plistPath, plist, { mode: 0o600 });
-  await fs.chmod(plistPath, 0o600);
-  try {
-    run('launchctl', ['load', plistPath]);
-  } catch {
-    // May already be loaded
-  }
-}
-
-export function installCrontabLine(
-  line: string,
-  marker: string,
-  run: CommandRunner = runCommandFile,
-): boolean {
-  const existing = readCrontab(run) ?? '';
-  if (existing.includes(marker)) return false;
-  const body = existing.trim().length === 0 ? `${line}\n` : `${existing.trimEnd()}\n${line}\n`;
-  run('crontab', ['-'], body);
-  return true;
-}
-
-export function removeCrontabLine(marker: string, run: CommandRunner = runCommandFile): boolean {
-  const existing = readCrontab(run);
-  if (existing === undefined) return false;
-  const lines = existing.split('\n').filter((entry) => !entry.includes(marker));
-  const body = lines.join('\n');
-  run('crontab', ['-'], body.endsWith('\n') ? body : `${body}\n`);
-  return true;
-}
 
 function getExecutablePath(): string {
   return process.argv[1] ?? 'mailoo';
 }
 
-async function createSchedulerService(): Promise<SchedulerService> {
-  const config = await loadConfig();
-  const connections = new ConnectionManager(config.accounts);
-  const rateLimiter = new RateLimiter(config.settings.rateLimit);
-  const imapService = new ImapService(connections);
-  const smtpService = new SmtpService(connections, rateLimiter, imapService);
-  return new SchedulerService(smtpService, imapService);
+// A pooled SMTP socket or an IMAP session left open keeps a cron run alive
+// after its work is done.
+async function withScheduler<T>(
+  config: AppConfig,
+  run: (scheduler: SchedulerService) => Promise<T>,
+  queueDir?: string,
+): Promise<T> {
+  const { connections, imap, smtp } = createMailServices(config);
+  try {
+    return await run(new SchedulerService(smtp, imap, queueDir));
+  } finally {
+    await connections.closeAll();
+  }
+}
+
+type CheckResult = Awaited<ReturnType<SchedulerService['checkAndSend']>>;
+
+export async function checkScheduledEmails(
+  config: AppConfig,
+  queueDir?: string,
+): Promise<CheckResult> {
+  return withScheduler(config, async (scheduler) => scheduler.checkAndSend(), queueDir);
+}
+
+/** What `mailoo scheduler check` prints for one check. */
+export function formatCheckResult(result: CheckResult): string[] {
+  const lines: string[] = [];
+  if (result.sent > 0) {
+    lines.push(`✅ Sent ${result.sent} scheduled email(s)`);
+  }
+  if (result.failed > 0) {
+    lines.push(`❌ Failed: ${result.failed}`);
+  }
+  if (result.deferred > 0) {
+    lines.push(`⏳ Held back by the rate limit: ${result.deferred} (retried on the next check)`);
+  }
+  // A delivered email can carry an error too, when its queue record was not updated.
+  lines.push(...result.errors.map((err) => `   ${err}`));
+  if (result.sent === 0 && result.failed === 0 && result.deferred === 0) {
+    lines.push('No overdue scheduled emails.');
+  }
+  return lines;
 }
 
 // ---------------------------------------------------------------------------
 // Subcommands
 // ---------------------------------------------------------------------------
 
-async function runCheck(): Promise<void> {
-  const scheduler = await createSchedulerService();
-  const result = await scheduler.checkAndSend();
-
-  if (result.sent > 0) {
-    console.log(`✅ Sent ${result.sent} scheduled email(s)`);
-  }
-  if (result.failed > 0) {
-    console.log(`❌ Failed: ${result.failed}`);
-    for (const err of result.errors) console.log(`   ${err}`); // eslint-disable-line no-restricted-syntax
-  }
-  if (result.sent === 0 && result.failed === 0) {
-    console.log('No overdue scheduled emails.');
-  }
+export async function runCheck(
+  load: () => Promise<AppConfig> = loadConfig,
+  print: (line: string) => void = console.log,
+  queueDir?: string,
+): Promise<void> {
+  const result = await checkScheduledEmails(await load(), queueDir);
+  formatCheckResult(result).forEach((line) => {
+    print(line);
+  });
 }
 
-async function runList(): Promise<void> {
-  const scheduler = await createSchedulerService();
-  const emails = await scheduler.list({ status: 'all' });
-
+/** What `mailoo scheduler list` prints for the queue. */
+export function formatScheduledList(emails: ScheduledEmail[]): string[] {
   if (emails.length === 0) {
-    console.log('No scheduled emails.');
-    return;
+    return ['No scheduled emails.'];
   }
 
+  const lines: string[] = [];
   const pending = emails.filter((e) => e.status === 'pending');
+  const sending = emails.filter((e) => e.status === 'sending');
   const sent = emails.filter((e) => e.status === 'sent');
   const failed = emails.filter((e) => e.status === 'failed');
 
   if (pending.length > 0) {
-    console.log(`\n📬 Pending (${pending.length}):`);
+    lines.push(`\n📬 Pending (${pending.length}):`);
     pending.forEach((e) => {
-      const overdue = new Date(e.sendAt).getTime() < Date.now() ? ' ⚠️ OVERDUE' : '';
-      console.log(
+      const overdue = isSendTimeReached(e.sendAt, Date.now()) ? ' ⚠️ OVERDUE' : '';
+      lines.push(
         `  ${e.id.slice(0, 8)} | ${e.account} → ${e.to.join(', ')} | "${e.subject}" | ${e.sendAt}${overdue}`,
       );
     });
   }
 
+  if (sending.length > 0) {
+    lines.push(`\n📤 Sending (${sending.length}):`);
+    sending.forEach((e) => {
+      lines.push(
+        `  ${e.id.slice(0, 8)} | ${e.account} → ${e.to.join(', ')} | "${e.subject}" | ${e.sendAt}`,
+      );
+    });
+  }
+
   if (sent.length > 0) {
-    console.log(`\n✅ Sent (${sent.length}):`);
+    lines.push(`\n✅ Sent (${sent.length}):`);
     sent.forEach((e) => {
-      console.log(
+      lines.push(
         `  ${e.id.slice(0, 8)} | ${e.account} → ${e.to.join(', ')} | "${e.subject}" | sent ${e.sentAt}`,
       );
     });
   }
 
   if (failed.length > 0) {
-    console.log(`\n❌ Failed (${failed.length}):`);
+    lines.push(`\n❌ Failed (${failed.length}):`);
     failed.forEach((e) => {
-      console.log(
+      lines.push(
         `  ${e.id.slice(0, 8)} | ${e.account} → ${e.to.join(', ')} | "${e.subject}" | ${e.lastError}`,
       );
     });
   }
+  return lines;
 }
 
-async function runInstall(): Promise<void> {
-  const platform = os.platform();
+export async function runList(
+  load: () => Promise<AppConfig> = loadConfig,
+  print: (line: string) => void = console.log,
+  queueDir?: string,
+): Promise<void> {
+  const emails = await withScheduler(
+    await load(),
+    async (scheduler) => scheduler.list({ status: 'all' }),
+    queueDir,
+  );
+  formatScheduledList(emails).forEach((line) => {
+    print(line);
+  });
+}
+
+export async function runInstall(
+  platform: NodeJS.Platform = os.platform(),
+  run: CommandRunner = runCommandFile,
+  print: (line: string) => void = console.log,
+  plistPath: string = LAUNCHD_PLIST,
+): Promise<void> {
   const execPath = getExecutablePath();
 
   if (platform === 'darwin') {
     // macOS: launchd plist
-    const plist = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>${LAUNCHD_LABEL}</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>${process.execPath}</string>
-    <string>${execPath}</string>
-    <string>scheduler</string>
-    <string>check</string>
-  </array>
-  <key>StartInterval</key>
-  <integer>60</integer>
-  <key>StandardOutPath</key>
-  <string>/tmp/mailoo-scheduler.log</string>
-  <key>StandardErrorPath</key>
-  <string>/tmp/mailoo-scheduler.log</string>
-  <key>RunAtLoad</key>
-  <true/>
-</dict>
-</plist>`;
+    await loadLaunchAgent(plistPath, buildLaunchdPlist(process.execPath, execPath), run);
 
-    await loadLaunchAgent(LAUNCHD_PLIST, plist);
-
-    console.log('✅ Installed macOS launchd scheduler');
-    console.log(`   Plist: ${LAUNCHD_PLIST}`);
-    console.log('   Runs every 60 seconds');
+    print('✅ Installed macOS launchd scheduler');
+    print(`   Plist: ${plistPath}`);
+    print(`   Runs every ${CHECK_INTERVAL_SECONDS} seconds`);
   } else if (platform === 'linux') {
     // Linux: crontab
-    const cronLine = `* * * * * ${quoteCronArg(process.execPath)} ${quoteCronArg(execPath)} scheduler check ${CRONTAB_MARKER}`;
-
-    if (!installCrontabLine(cronLine, CRONTAB_MARKER)) {
-      console.log('⚠️  Scheduler crontab entry already exists');
+    if (!installCrontabLine(buildCronLine(process.execPath, execPath), CRONTAB_MARKER, run)) {
+      print('⚠️  Scheduler crontab entry already exists');
       return;
     }
 
-    console.log('✅ Installed Linux crontab scheduler');
-    console.log('   Runs every minute');
+    print('✅ Installed Linux crontab scheduler');
+    print(`   Runs every ${CHECK_INTERVAL_SECONDS} seconds`);
   } else {
     console.error(`❌ Unsupported platform: ${platform}`);
     console.error("   Manually run 'mailoo scheduler check' on a schedule.");
   }
 }
 
-async function runUninstall(): Promise<void> {
-  const platform = os.platform();
-
+export async function runUninstall(
+  platform: NodeJS.Platform = os.platform(),
+  run: CommandRunner = runCommandFile,
+  print: (line: string) => void = console.log,
+  plistPath: string = LAUNCHD_PLIST,
+): Promise<void> {
   if (platform === 'darwin') {
-    try {
-      runCommandFile('launchctl', ['unload', LAUNCHD_PLIST]);
-    } catch {
-      // May not be loaded
-    }
+    run('launchctl', ['unload', plistPath]);
 
     try {
-      await fs.unlink(LAUNCHD_PLIST);
-      console.log('✅ Removed macOS launchd scheduler');
+      await fs.unlink(plistPath);
+      print('✅ Removed macOS launchd scheduler');
     } catch {
-      console.log('ℹ️  No launchd scheduler found');
+      print('ℹ️  No launchd scheduler found');
     }
   } else if (platform === 'linux') {
-    if (removeCrontabLine(CRONTAB_MARKER)) {
-      console.log('✅ Removed Linux crontab scheduler');
+    if (removeCrontabLine(CRONTAB_MARKER, run)) {
+      print('✅ Removed Linux crontab scheduler');
     } else {
-      console.log('ℹ️  No crontab scheduler found');
+      print('ℹ️  No crontab scheduler found');
     }
   } else {
     console.error(`❌ Unsupported platform: ${platform}`);
   }
 }
 
-async function runStatus(): Promise<void> {
-  const platform = os.platform();
-
+export async function runStatus({
+  platform = os.platform(),
+  run = runCommandFile,
+  print = console.log,
+  plistPath = LAUNCHD_PLIST,
+  load = loadConfig,
+  queueDir,
+}: {
+  platform?: NodeJS.Platform;
+  run?: CommandRunner;
+  print?: (line: string) => void;
+  plistPath?: string;
+  load?: () => Promise<AppConfig>;
+  queueDir?: string;
+} = {}): Promise<void> {
   if (platform === 'darwin') {
     try {
-      await fs.access(LAUNCHD_PLIST);
+      await fs.access(plistPath);
       try {
-        const output = runCommandFile('launchctl', ['list', LAUNCHD_LABEL]);
+        const output = run('launchctl', ['list', LAUNCHD_LABEL]);
         const pidMatch = /"PID"\s*=\s*(\d+)/.exec(output);
-        console.log('✅ macOS launchd scheduler: INSTALLED');
-        console.log(`   Plist: ${LAUNCHD_PLIST}`);
+        print('✅ macOS launchd scheduler: INSTALLED');
+        print(`   Plist: ${plistPath}`);
         if (pidMatch) {
-          console.log(`   PID: ${pidMatch[1]}`);
+          print(`   PID: ${pidMatch[1]}`);
         }
       } catch {
-        console.log('⚠️  macOS launchd scheduler: INSTALLED but not loaded');
-        console.log(`   Plist: ${LAUNCHD_PLIST}`);
+        print('⚠️  macOS launchd scheduler: INSTALLED but not loaded');
+        print(`   Plist: ${plistPath}`);
       }
     } catch {
-      console.log('❌ macOS launchd scheduler: NOT INSTALLED');
+      print('❌ macOS launchd scheduler: NOT INSTALLED');
     }
   } else if (platform === 'linux') {
     try {
-      const existing = runCommandFile('crontab', ['-l']);
+      const existing = run('crontab', ['-l']);
       if (existing.includes(CRONTAB_MARKER)) {
-        console.log('✅ Linux crontab scheduler: INSTALLED');
+        print('✅ Linux crontab scheduler: INSTALLED');
       } else {
-        console.log('❌ Linux crontab scheduler: NOT INSTALLED');
+        print('❌ Linux crontab scheduler: NOT INSTALLED');
       }
     } catch {
-      console.log('❌ Linux crontab scheduler: NOT INSTALLED');
+      print('❌ Linux crontab scheduler: NOT INSTALLED');
     }
   }
 
-  // Show queue status
-  const scheduler = await createSchedulerService();
-  const pending = await scheduler.list({ status: 'pending' });
-  const overdue = pending.filter((e) => new Date(e.sendAt).getTime() < Date.now());
+  const pending = await withScheduler(
+    await load(),
+    async (scheduler) => scheduler.list({ status: 'pending' }),
+    queueDir,
+  );
+  const overdue = pending.filter((e) => isSendTimeReached(e.sendAt, Date.now()));
 
-  console.log(`\n📬 Queue: ${pending.length} pending, ${overdue.length} overdue`);
+  print(`\n📬 Queue: ${pending.length} pending, ${overdue.length} overdue`);
 }
 
 // ---------------------------------------------------------------------------
@@ -315,22 +285,43 @@ Commands:
   status     Show scheduler installation status
 `.trim();
 
-export default async function runSchedulerCommand(subcommand?: string): Promise<void> {
+/**
+ * What each `mailoo scheduler` subcommand runs. The router and each command take what they
+ * touch as optional arguments, so a test runs them without the user's launchd, crontab or queue.
+ */
+export type SchedulerCommands = Record<
+  'check' | 'list' | 'install' | 'uninstall' | 'status',
+  () => Promise<void>
+>;
+
+// Each runs with its defaults: the user's config, queue, platform and console.
+export const SCHEDULER_COMMANDS: SchedulerCommands = {
+  check: runCheck,
+  list: runList,
+  install: runInstall,
+  uninstall: runUninstall,
+  status: runStatus,
+};
+
+export default async function runSchedulerCommand(
+  subcommand?: string,
+  commands: SchedulerCommands = SCHEDULER_COMMANDS,
+): Promise<void> {
   switch (subcommand) {
     case 'check':
-      await runCheck();
+      await commands.check();
       break;
     case 'list':
-      await runList();
+      await commands.list();
       break;
     case 'install':
-      await runInstall();
+      await commands.install();
       break;
     case 'uninstall':
-      await runUninstall();
+      await commands.uninstall();
       break;
     case 'status':
-      await runStatus();
+      await commands.status();
       break;
     case 'help':
     case '--help':
