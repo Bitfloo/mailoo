@@ -11,8 +11,9 @@ import { readKeyLines, releaseSteps } from './workflow-yaml.js';
 describe('dependabot groups', () => {
   const config = readFileSync(join(repoRoot, '.github/dependabot.yml'), 'utf8');
   /**
-   * Each group's name and settings, read as text: the repo has no YAML parser, so lists stay inline
-   * and double-quoted. A groups block or a group this reader cannot split is refused, not skipped.
+   * Each group's name and settings, read as text so that a refusal pins each form the reader
+   * accepts: lists stay inline and double-quoted, and a groups block or a group this reader cannot
+   * split is refused, not skipped.
    */
   function groupsOf(yaml: string): (readonly [string, string])[] {
     const blocks = [...releaseSteps(yaml).matchAll(/^ {4}groups:\n((?: {6}.*\n?)+)/gm)].map(

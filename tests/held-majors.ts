@@ -8,7 +8,10 @@ const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as 
   Record<string, string>
 >;
 
-/** Each pnpm-lock.yaml package with its peerDependencies ranges, read as text: the repo has no YAML parser. */
+/**
+ * Each pnpm-lock.yaml package with its peerDependencies ranges, read as text: lockPeerRange refuses
+ * unless it finds one holder with that peer, so a lockfile form this reader misses fails the test.
+ */
 const lockPeers = (
   readFileSync(join(repoRoot, 'pnpm-lock.yaml'), 'utf8').split(/^packages:\n/m)[1] ?? ''
 )
