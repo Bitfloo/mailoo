@@ -17,6 +17,7 @@ import {
   triggers,
   workflowDir,
   workflowFiles,
+  workflowTexts,
 } from './workflow-yaml.js';
 
 requireTools(['bash']);
@@ -198,6 +199,20 @@ describe('pinned GitHub Actions', () => {
       unpinnedUses(readFileSync(join(workflowDir, name), 'utf8')).map((line) => `${name}: ${line}`),
     );
     expect(unpinned).toEqual([]);
+  });
+
+  it('should pin each action repository to one commit and tag in every workflow', () => {
+    // Two pins of one repository would run two versions of it, and a tag comment that differs for
+    // one commit would name a version that commit is not.
+    const pins = new Map<string, Set<string>>();
+    for (const [, yaml] of workflowTexts()) {
+      for (const [, repository, pin] of yaml.matchAll(
+        /^ +(?:- )?uses: ([^/@\s]+\/[^/@\s]+)\S*@(.+)$/gm,
+      )) {
+        pins.set(repository, (pins.get(repository) ?? new Set()).add(pin));
+      }
+    }
+    expect([...pins].filter(([, set]) => set.size > 1)).toEqual([]);
   });
 
   const sha = 'd23441a48e516b6c34aea4fa41551a30e30af803';
