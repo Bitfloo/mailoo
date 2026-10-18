@@ -81,7 +81,6 @@ export function formatCheckResult(result: CheckResult): string[] {
 // Subcommands
 // ---------------------------------------------------------------------------
 
-/** `mailoo scheduler check`. A test passes a temp config, a line sink and a temp queue. */
 export async function runCheck(
   load: () => Promise<AppConfig> = loadConfig,
   print: (line: string) => void = console.log,
@@ -144,7 +143,6 @@ export function formatScheduledList(emails: ScheduledEmail[]): string[] {
   return lines;
 }
 
-/** `mailoo scheduler list`. A test passes a temp config, a line sink and a temp queue. */
 export async function runList(
   load: () => Promise<AppConfig> = loadConfig,
   print: (line: string) => void = console.log,
@@ -160,10 +158,6 @@ export async function runList(
   });
 }
 
-/**
- * `mailoo scheduler install`. A test passes the platform, a command runner, a line sink
- * and a temp plist path.
- */
 export async function runInstall(
   platform: NodeJS.Platform = os.platform(),
   run: CommandRunner = runCommandFile,
@@ -194,10 +188,6 @@ export async function runInstall(
   }
 }
 
-/**
- * `mailoo scheduler uninstall`. A test passes the platform, a command runner, a line sink
- * and a temp plist path.
- */
 export async function runUninstall(
   platform: NodeJS.Platform = os.platform(),
   run: CommandRunner = runCommandFile,
@@ -224,18 +214,21 @@ export async function runUninstall(
   }
 }
 
-/**
- * `mailoo scheduler status`. A test passes the platform, a command runner, a line sink,
- * a temp plist path, a temp config and a temp queue.
- */
-export async function runStatus(
-  platform: NodeJS.Platform = os.platform(),
-  run: CommandRunner = runCommandFile,
-  print: (line: string) => void = console.log,
-  plistPath: string = LAUNCHD_PLIST,
-  load: () => Promise<AppConfig> = loadConfig,
-  queueDir?: string,
-): Promise<void> {
+export async function runStatus({
+  platform = os.platform(),
+  run = runCommandFile,
+  print = console.log,
+  plistPath = LAUNCHD_PLIST,
+  load = loadConfig,
+  queueDir,
+}: {
+  platform?: NodeJS.Platform;
+  run?: CommandRunner;
+  print?: (line: string) => void;
+  plistPath?: string;
+  load?: () => Promise<AppConfig>;
+  queueDir?: string;
+} = {}): Promise<void> {
   if (platform === 'darwin') {
     try {
       await fs.access(plistPath);
@@ -292,7 +285,10 @@ Commands:
   status     Show scheduler installation status
 `.trim();
 
-/** What each `mailoo scheduler` subcommand runs. A test passes recorders. */
+/**
+ * What each `mailoo scheduler` subcommand runs. The router and each command take what they
+ * touch as optional arguments, so a test runs them without the user's launchd, crontab or queue.
+ */
 export type SchedulerCommands = Record<
   'check' | 'list' | 'install' | 'uninstall' | 'status',
   () => Promise<void>

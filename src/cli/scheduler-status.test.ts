@@ -99,7 +99,7 @@ describe('scheduler status command', () => {
       await fs.writeFile(plistPath, '<plist version="1.0"></plist>\n');
       const { run, calls } = outputRunner({ launchctl: LAUNCHCTL_LIST });
       const { lines, print } = lineSink();
-      await runStatus('darwin', run, print, plistPath, load, queueDir);
+      await runStatus({ platform: 'darwin', run, print, plistPath, load, queueDir });
       expect({ calls, lines }).toEqual({
         calls: [['launchctl', 'list', 'com.bitfloo.mailoo.scheduler']],
         lines: [
@@ -116,7 +116,14 @@ describe('scheduler status command', () => {
     await withStatusEnv(async ({ plistPath, queueDir, load }) => {
       await fs.writeFile(plistPath, '<plist version="1.0"></plist>\n');
       const { lines, print } = lineSink();
-      await runStatus('darwin', outputRunner({}).run, print, plistPath, load, queueDir);
+      await runStatus({
+        platform: 'darwin',
+        run: outputRunner({}).run,
+        print,
+        plistPath,
+        load,
+        queueDir,
+      });
       expect(lines).toEqual([
         '⚠️  macOS launchd scheduler: INSTALLED but not loaded',
         `   Plist: ${plistPath}`,
@@ -129,7 +136,7 @@ describe('scheduler status command', () => {
     await withStatusEnv(async ({ plistPath, queueDir, load }) => {
       const { run } = outputRunner({ launchctl: LAUNCHCTL_LIST });
       const { lines, print } = lineSink();
-      await runStatus('darwin', run, print, plistPath, load, queueDir);
+      await runStatus({ platform: 'darwin', run, print, plistPath, load, queueDir });
       expect(lines).toEqual(['❌ macOS launchd scheduler: NOT INSTALLED', EMPTY_QUEUE]);
     });
   });
@@ -138,7 +145,14 @@ describe('scheduler status command', () => {
     await withStatusEnv(async ({ plistPath, queueDir, load }) => {
       const crontab = '* * * * * /opt/mailoo check # mailoo scheduler\n';
       const { lines, print } = lineSink();
-      await runStatus('linux', outputRunner({ crontab }).run, print, plistPath, load, queueDir);
+      await runStatus({
+        platform: 'linux',
+        run: outputRunner({ crontab }).run,
+        print,
+        plistPath,
+        load,
+        queueDir,
+      });
       expect(lines).toEqual(['✅ Linux crontab scheduler: INSTALLED', EMPTY_QUEUE]);
     });
   });
@@ -147,7 +161,14 @@ describe('scheduler status command', () => {
     await withStatusEnv(async ({ plistPath, queueDir, load }) => {
       const crontab = '0 0 * * * /usr/bin/true\n';
       const { lines, print } = lineSink();
-      await runStatus('linux', outputRunner({ crontab }).run, print, plistPath, load, queueDir);
+      await runStatus({
+        platform: 'linux',
+        run: outputRunner({ crontab }).run,
+        print,
+        plistPath,
+        load,
+        queueDir,
+      });
       expect(lines).toEqual(['❌ Linux crontab scheduler: NOT INSTALLED', EMPTY_QUEUE]);
     });
   });
@@ -155,7 +176,14 @@ describe('scheduler status command', () => {
   it('should say the crontab scheduler is not installed when the crontab cannot be listed', async () => {
     await withStatusEnv(async ({ plistPath, queueDir, load }) => {
       const { lines, print } = lineSink();
-      await runStatus('linux', outputRunner({}).run, print, plistPath, load, queueDir);
+      await runStatus({
+        platform: 'linux',
+        run: outputRunner({}).run,
+        print,
+        plistPath,
+        load,
+        queueDir,
+      });
       expect(lines).toEqual(['❌ Linux crontab scheduler: NOT INSTALLED', EMPTY_QUEUE]);
     });
   });
@@ -192,7 +220,14 @@ describe('scheduler status command', () => {
         }),
       );
       const { lines, print } = lineSink();
-      await runStatus('linux', outputRunner({}).run, print, plistPath, load, queueDir);
+      await runStatus({
+        platform: 'linux',
+        run: outputRunner({}).run,
+        print,
+        plistPath,
+        load,
+        queueDir,
+      });
       expect(lines.at(-1)).toBe('\n📬 Queue: 3 pending, 2 overdue');
     });
   });
