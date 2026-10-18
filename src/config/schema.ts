@@ -161,9 +161,13 @@ export const SystemOneConfigSchema = z.object({
     }),
 });
 
+export const ToolsetSchema = z.enum(['full', 'core', 'minimal']);
+
 export const SettingsSchema = z.object({
   rate_limit: z.number().int().min(1).default(10),
   read_only: z.boolean().default(false),
+  toolset: ToolsetSchema.default('full'),
+  default_account: z.string().min(1).optional(),
   save_to_sent: z.boolean().default(true),
   watcher: WatcherConfigSchema.default({
     enabled: false,
@@ -216,6 +220,7 @@ export const AppConfigFileSchema = z.object({
   settings: SettingsSchema.default({
     rate_limit: 10,
     read_only: false,
+    toolset: 'full',
     save_to_sent: true,
     watcher: {
       enabled: false,

@@ -1,8 +1,7 @@
-import { chmodSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { jobSections } from '../workflow-yaml.js';
-import { repoRoot } from './agent-file.js';
+import { jobSections, workflowDir, workflowFiles } from '../workflow-yaml.js';
 import {
   checkerScript,
   clean,
@@ -223,10 +222,8 @@ describe('public git checker: private patterns', () => {
     // CI green with the private patterns silently off.
     const variable = /^ {2}add_extra (\w+) "\$\1"$/m.exec(readFileSync(checkerScript, 'utf8'))?.[1];
     expect(variable).toBeTruthy();
-    const workflows = join(repoRoot, '.github/workflows');
-    const jobs = readdirSync(workflows)
-      .filter((file) => /\.ya?ml$/.test(file))
-      .flatMap((file) => jobSections(readFileSync(join(workflows, file), 'utf8')))
+    const jobs = workflowFiles()
+      .flatMap((file) => jobSections(readFileSync(join(workflowDir, file), 'utf8')))
       .filter((job) => job.includes('check-public-git-log.sh'));
     expect(jobs.length).toBeGreaterThan(0);
     for (const job of jobs) {

@@ -6,6 +6,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 import type ImapService from '../services/imap.service.js';
+import { accountParam } from './schema-helpers.js';
 
 export default function registerContactsTools(server: McpServer, imapService: ImapService): void {
   server.registerTool(
@@ -15,7 +16,7 @@ export default function registerContactsTools(server: McpServer, imapService: Im
       description:
         'Extract unique contacts from recent email headers. Returns contacts sorted by frequency (most frequent first). Useful for finding frequent correspondents or building an address book.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
+        account: accountParam,
         mailbox: z.string().optional().describe('Mailbox to scan (default: INBOX)'),
         limit: z
           .number()
@@ -34,7 +35,7 @@ export default function registerContactsTools(server: McpServer, imapService: Im
     },
     async ({ account, mailbox, limit }) => {
       try {
-        const contacts = await imapService.extractContacts(account, {
+        const contacts = await imapService.extractContacts(account ?? '', {
           mailbox,
           limit,
         });

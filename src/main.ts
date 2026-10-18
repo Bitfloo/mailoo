@@ -49,7 +49,7 @@ Commands:
   stdio       Run as MCP server over stdio (default)
   http [port] [host]  Streamable HTTP (default: port 8080 on 127.0.0.1 and ::1)
   account     Account management (list, add, edit, delete)
-  setup       Alias for 'account add'
+  setup       Deprecated alias for 'account add'
   test        Test connections for all or a specific account
   install     Register/unregister with MCP clients (Claude, Cursor, …)
   config      Config management (show, edit, path, init)
@@ -65,7 +65,7 @@ Examples:
   mailoo account add              # Add a new email account
   mailoo account edit personal    # Edit an account
   mailoo account delete work      # Delete an account
-  mailoo setup                    # Alias for account add
+  mailoo setup                    # Deprecated alias for account add
   mailoo test                     # Test all accounts
   mailoo test personal            # Test specific account
   mailoo install                  # Register with detected MCP clients

@@ -25,7 +25,7 @@ RUN pnpm prune --prod
 FROM node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS production
 
 LABEL org.opencontainers.image.title="Mailoo" \
-      org.opencontainers.image.description="Mailoo — email MCP server for IMAP, SMTP, and ManageSieve. Multi-account, per-folder profiles." \
+      org.opencontainers.image.description="Email, calendar, reminders & ManageSieve MCP server (IMAP/SMTP, AI triage, scheduling, OAuth2)." \
       org.opencontainers.image.url="https://github.com/bitfloo/mailoo" \
       org.opencontainers.image.source="https://github.com/bitfloo/mailoo" \
       org.opencontainers.image.licenses="LGPL-3.0-or-later" \

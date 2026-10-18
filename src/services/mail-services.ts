@@ -20,7 +20,11 @@ export interface MailServices extends MailConnections {
 }
 
 export function createMailConnections(config: AppConfig): MailConnections {
-  const connections = new ConnectionManager(config.accounts, new OAuthService());
+  const connections = new ConnectionManager(
+    config.accounts,
+    new OAuthService(),
+    config.settings.defaultAccount,
+  );
   return { connections, imap: new ImapService(connections) };
 }
 

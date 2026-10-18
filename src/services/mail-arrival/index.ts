@@ -78,7 +78,7 @@ function mapAnswers(
 
 interface SystemOneClient {
   systemOne: (input: {
-    state: EntryType;
+    state: NonNullable<EntryType>;
     questions: Questions;
     model: string;
   }) => Promise<{ answers?: Record<string, unknown> }>;
@@ -93,7 +93,7 @@ async function classify(
 ): Promise<MailAnswers | null> {
   try {
     const result = await client.systemOne({
-      state: state as unknown as EntryType,
+      state: state as unknown as NonNullable<EntryType>,
       questions,
       model,
     });
@@ -107,8 +107,12 @@ async function classify(
   }
 }
 
+/** Caps memory for a long-running watcher; a repeat notice of an older message is classified again. */
+export const SEEN_LIMIT = 5_000;
+
+// Per account: a message sent to two of the user's addresses is one arrival in each.
 function seenKey(email: ArrivalEmail): string {
-  if (email.meta.messageId) return `mid:${email.meta.messageId}`;
+  if (email.meta.messageId) return `mid:${email.account}:${email.meta.messageId}`;
   return `uid:${email.account}:${email.mailbox}:${email.meta.id}`;
 }
 
@@ -207,8 +211,20 @@ export class MailArrival {
       return { kind: 'noop', reason: 'not_in_source' };
     }
 
+    // Claimed before the slow calls so a repeat notice in flight is not classified twice.
     this.seen.add(key);
+    if (this.seen.size > SEEN_LIMIT) {
+      const [oldest] = this.seen;
+      this.seen.delete(oldest);
+    }
 
+    const action = await this.classifyAndApply(email);
+    // A failed read or classification must not cost the message its next chance.
+    if (action.kind === 'noop' && action.reason === 'api_error') this.seen.delete(key);
+    return action;
+  }
+
+  private async classifyAndApply(email: ArrivalEmail): Promise<MailAction> {
     const folders = this.foldersByAccount.get(email.account) ?? [];
     let security: SenderAuthSignals;
     try {

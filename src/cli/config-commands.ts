@@ -38,7 +38,7 @@ async function showConfig(): Promise<void> {
   const exists = await configExists();
   if (!exists) {
     console.error(`No config file found at: ${CONFIG_FILE}`);
-    console.error(`Run 'mailoo setup' or 'mailoo config init' to create one.`);
+    console.error(`Run 'mailoo account add' or 'mailoo config init' to create one.`);
     throw new Error('Config file not found');
   }
 

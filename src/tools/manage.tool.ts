@@ -5,9 +5,16 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import audit from '../safety/audit.js';
-import { sanitizeMailboxName } from '../safety/validation.js';
+import { parseMessageUid, sanitizeMailboxName } from '../safety/validation.js';
 import type ImapService from '../services/imap.service.js';
 import { FLAG_ACTIONS } from '../services/imap.service.js';
+import {
+  accountParam,
+  dryRunParam,
+  emailIdInputFields,
+  resolveEmailId,
+  structuredToolResult,
+} from './schema-helpers.js';
 
 export default function registerManageTools(server: McpServer, imapService: ImapService): void {
   // ---------------------------------------------------------------------------
@@ -22,8 +29,8 @@ export default function registerManageTools(server: McpServer, imapService: Imap
         'The sourceMailbox must be a real folder, not a virtual one like "All Mail". ' +
         'Use find_email_folder first if the email was discovered in a virtual folder.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
-        emailId: z.string().describe('Email ID to move (from list_emails)'),
+        account: accountParam,
+        ...emailIdInputFields('Email ID to move (from list_emails)'),
         sourceMailbox: z.string().describe('Current mailbox (e.g., INBOX)'),
         destinationMailbox: z
           .string()
@@ -36,8 +43,12 @@ export default function registerManageTools(server: McpServer, imapService: Imap
         openWorldHint: true,
       },
     },
-    async ({ account, emailId, sourceMailbox, destinationMailbox }) => {
+    async (params) => {
+      const account = params.account ?? '';
+      let emailId = params.emailId ?? params.id ?? params.email_id ?? '';
+      const { sourceMailbox, destinationMailbox } = params;
       try {
+        emailId = resolveEmailId(params);
         const cleanSource = sanitizeMailboxName(sourceMailbox);
         const cleanDest = sanitizeMailboxName(destinationMailbox);
         await imapService.moveEmail(account, emailId, cleanSource, cleanDest);
@@ -88,10 +99,11 @@ export default function registerManageTools(server: McpServer, imapService: Imap
         'Delete an email. By default moves to Trash. Set permanent=true for permanent deletion (⚠️ irreversible). ' +
         'The mailbox must be a real folder. Use find_email_folder first if the email was found in a virtual folder.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
-        emailId: z.string().describe('Email ID to delete (from list_emails)'),
+        account: accountParam,
+        ...emailIdInputFields('Email ID to delete (from list_emails)'),
         mailbox: z.string().default('INBOX').describe('Mailbox containing the email'),
         permanent: z.boolean().default(false).describe('⚠️ Permanently delete (skip Trash)'),
+        dryRun: dryRunParam,
       },
       annotations: {
         readOnlyHint: false,
@@ -100,9 +112,31 @@ export default function registerManageTools(server: McpServer, imapService: Imap
         openWorldHint: true,
       },
     },
-    async ({ account, emailId, mailbox, permanent }) => {
+    async (params) => {
+      const account = params.account ?? '';
+      let emailId = params.emailId ?? params.id ?? params.email_id ?? '';
+      const { mailbox, permanent, dryRun } = params;
       try {
+        emailId = resolveEmailId(params);
         const cleanMailbox = sanitizeMailboxName(mailbox);
+        if (dryRun) {
+          parseMessageUid(emailId);
+          const resolvedAccount =
+            typeof imapService.resolveAccountName === 'function'
+              ? imapService.resolveAccountName(params.account)
+              : account;
+          return structuredToolResult(
+            `[DRY RUN] Would ${permanent ? 'permanently delete' : 'move to Trash'} email ${emailId} in "${cleanMailbox}" on account "${resolvedAccount}".`,
+            {
+              action: 'delete_email',
+              account: resolvedAccount,
+              emailId,
+              mailbox: cleanMailbox,
+              permanent,
+            },
+            true,
+          );
+        }
         await imapService.deleteEmail(account, emailId, cleanMailbox, permanent);
         await audit.log('delete_email', account, { emailId, mailbox, permanent }, 'ok');
         return {
@@ -139,8 +173,8 @@ export default function registerManageTools(server: McpServer, imapService: Imap
       description:
         'Change email flags — mark as read/unread, flag/unflag. Idempotent: marking an already-read email as read is a no-op.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
-        id: z.string().describe('Email ID (UID) from list_emails or search_emails'),
+        account: accountParam,
+        ...emailIdInputFields('Email ID (UID) from list_emails or search_emails'),
         mailbox: z.string().default('INBOX').describe('Mailbox containing the email'),
         action: z
           .enum(FLAG_ACTIONS)
@@ -153,8 +187,12 @@ export default function registerManageTools(server: McpServer, imapService: Imap
         openWorldHint: true,
       },
     },
-    async ({ account, id, mailbox, action }) => {
+    async (params) => {
+      const account = params.account ?? '';
+      let id = params.id ?? params.emailId ?? params.email_id ?? '';
+      const { mailbox, action } = params;
       try {
+        id = resolveEmailId(params);
         await imapService.setFlags(account, id, mailbox, action);
         await audit.log('mark_email', account, { id, mailbox, action }, 'ok');
         const labels: Record<string, string> = {
