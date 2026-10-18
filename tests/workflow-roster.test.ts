@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { repoRoot } from './agents/agent-file.js';
 import {
   jobSteps,
   onBlock,
@@ -9,6 +10,10 @@ import {
   workflowDir,
   workflowFiles,
 } from './workflow-yaml.js';
+
+const { engines } = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
+  engines: { node: string };
+};
 
 const workflows = workflowFiles().map(
   (name) => [name, readFileSync(join(workflowDir, name), 'utf8')] as const,
@@ -134,6 +139,17 @@ describe('workflow rosters', () => {
     // release gates would publish past a failed npm or MCP publish, a step past a refused stamp
     // would publish server.json unstamped, and a pull request check would pass with failing tests.
     expect(readKeyLines(yaml, 'continue-on-error')).toEqual([]);
+  });
+
+  it('should set up Node at the package.json engines floor in every setup-node step', () => {
+    // CLAUDE.md keeps Node 24 as the floor, so CI on another major tests a runtime nobody is promised.
+    const versions = workflows.flatMap(([, yaml]) =>
+      Object.values(jobSteps(yaml))
+        .flat()
+        .filter((step) => step.uses?.startsWith('actions/setup-node@'))
+        .map((step) => step.with?.['node-version']),
+    );
+    expect([...new Set(versions)]).toEqual([engines.node.match(/^>=(\d+)\.0\.0$/)?.[1]]);
   });
 
   it.each(workflows)('should set no shell and no run defaults in %s', (_, yaml) => {
