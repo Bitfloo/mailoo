@@ -12,36 +12,63 @@ requireTools(['bash', 'jq']);
 interface GoreleaserImage {
   id: string;
   dockerfile: string;
+  extra_files: string[];
   images: string[];
   platforms: string[];
   tags: string[];
+  labels: Record<string, string>;
+  annotations: Record<string, string>;
 }
 
-const goreleaserImages = (
-  parse(readFileSync(join(repoRoot, '.goreleaser.yaml'), 'utf8')) as {
-    dockers_v2: GoreleaserImage[];
-  }
-).dockers_v2;
+const goreleaser = parse(readFileSync(join(repoRoot, '.goreleaser.yaml'), 'utf8')) as Record<
+  string,
+  unknown
+> & { dockers_v2: GoreleaserImage[] };
+const goreleaserImages = goreleaser.dockers_v2;
 
-/** Shell fragment in docker-rebuild.yml for one GoReleaser tag template. sha-* is release-only. */
-// biome-ignore-start lint/suspicious/noTemplateCurlyInString: values are shell fragments from docker-rebuild.yml, not JS templates
-const RELEASE_TAG_IN_REBUILD: Record<string, string> = {
-  '{{ .Version }}': '"${IMAGE}:${V}"',
-  '{{ .Version }}-bookworm': '"${IMAGE}:${V}-bookworm"',
-  '{{ .Version }}-alpine': '"${IMAGE}:${V}-alpine"',
-  '{{ .Major }}.{{ .Minor }}': '"${IMAGE}:${MAJOR}.${MINOR}"',
-  '{{ .Major }}.{{ .Minor }}-bookworm': '"${IMAGE}:${MAJOR}.${MINOR}-bookworm"',
-  '{{ .Major }}.{{ .Minor }}-alpine': '"${IMAGE}:${MAJOR}.${MINOR}-alpine"',
-  '{{ .Major }}': '"${IMAGE}:${MAJOR}"',
-  '{{ .Major }}-bookworm': '"${IMAGE}:${MAJOR}-bookworm"',
-  '{{ .Major }}-alpine': '"${IMAGE}:${MAJOR}-alpine"',
-  bookworm: '"${IMAGE}:bookworm"',
-  '{{ if not .Prerelease }}latest{{ end }}': '"${IMAGE}:latest"',
-  '{{ if not .Prerelease }}alpine{{ end }}': '"${IMAGE}:alpine"',
+const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
+  description: string;
+  license: string;
 };
-// biome-ignore-end lint/suspicious/noTemplateCurlyInString: end of shell fragments
+
+function goreleaserImage(id: string): GoreleaserImage {
+  const image = goreleaserImages.find((entry) => entry.id === id);
+  if (!image) {
+    throw new Error(`missing goreleaser image ${id}`);
+  }
+  return image;
+}
+
+/** A GoReleaser tag template as a 1.4.2 release renders it. The commit is left a template. */
+function renderFor142(template: string): string {
+  const rendered = template
+    .replaceAll('{{ .Version }}', '1.4.2')
+    .replaceAll('{{ .Major }}', '1')
+    .replaceAll('{{ .Minor }}', '4')
+    .replace(/\{\{ if not \.Prerelease \}\}(\w+)\{\{ end \}\}/g, '$1');
+  if (rendered.replaceAll('{{ .ShortCommit }}', '').includes('{{')) {
+    throw new Error(`cannot render ${template}`);
+  }
+  return rendered;
+}
+
+/** Each build-context path a Dockerfile copies: every COPY source but those from another stage. */
+function copySources(dockerfile: string): string[] {
+  return readFileSync(join(repoRoot, dockerfile), 'utf8')
+    .split('\n')
+    .filter((line) => line.startsWith('COPY ') && !line.includes('--from='))
+    .flatMap((line) =>
+      line
+        .split(/\s+/)
+        .slice(1, -1)
+        .filter((word) => !word.startsWith('--')),
+    );
+}
 
 const rebuildSteps = jobSteps(rebuildYml).rebuild;
+const rebuildBuilds = rebuildSteps
+  .filter((step) => step.uses?.startsWith('docker/build-push-action@'))
+  .map((step) => step.with ?? {});
 
 const repository = 'ghcr.io/bitfloo/mailoo';
 
@@ -51,13 +78,11 @@ function images(...tags: string[]): string {
 
 describe('docker rebuild images', () => {
   it('should hand each Dockerfile its own tag list and push it', () => {
-    const builds = rebuildSteps
-      .filter((step) => step.uses?.startsWith('docker/build-push-action@'))
-      .map(({ with: input }) => [
-        input?.file,
-        String(input?.tags).match(/^\$\{\{ steps\.meta\.outputs\.(\w+) \}\}$/)?.[1],
-        input?.push,
-      ]);
+    const builds = rebuildBuilds.map((input) => [
+      input.file,
+      String(input.tags).match(/^\$\{\{ steps\.meta\.outputs\.(\w+) \}\}$/)?.[1],
+      input.push,
+    ]);
     expect(builds).toEqual([
       ['Dockerfile', 'bookworm_tags', true],
       ['Dockerfile.alpine', 'alpine_tags', true],
@@ -168,7 +193,7 @@ describe('docker rebuild images', () => {
   });
 
   it('should set only the pinned keys on each GoReleaser image', () => {
-    // skip_push or disable would let a release build an image and push none.
+    // disable would let a release skip an image and push none.
     expect(goreleaserImages.map((image) => Object.keys(image).sort())).toEqual(
       Array(2).fill([
         'annotations',
@@ -183,24 +208,92 @@ describe('docker rebuild images', () => {
     );
   });
 
-  it('should use the GoReleaser tag names, Dockerfiles and architectures', () => {
-    for (const id of ['mailoo-debian', 'mailoo-alpine']) {
-      const image = goreleaserImages.find((entry) => entry.id === id);
-      if (!image) {
-        throw new Error(`missing goreleaser image ${id}`);
-      }
-      expect(rebuildYml, id).toContain(`file: ${image.dockerfile}\n`);
-      expect(image.platforms).toEqual(['linux/amd64', 'linux/arm64']);
-      for (const template of image.tags) {
-        if (template.includes('ShortCommit')) {
-          expect(rebuildYml).not.toContain('sha-${{');
-          continue;
-        }
-        const needle = RELEASE_TAG_IN_REBUILD[template];
-        expect(needle, template).toBeTruthy();
-        expect(rebuildYml).toContain(needle);
-      }
-    }
-    expect(rebuildYml.match(/platforms: linux\/amd64,linux\/arm64/g)).toHaveLength(2);
+  it.each([
+    { id: 'mailoo-debian', output: 'bookworm_tags', releaseOnly: ['sha-{{ .ShortCommit }}'] },
+    { id: 'mailoo-alpine', output: 'alpine_tags', releaseOnly: [] },
+  ])('should give the $id release image the tags the rebuild writes for 1.4.2', (row) => {
+    // The rebuild refreshes the tags a release pushed, so a tag only one of them writes is never
+    // refreshed or never published. The sha- tag names one release commit and is not refreshed.
+    const written = meta({ version: '1.4.2' }).outputs[row.output].split(',');
+    const rebuilt = written.map((image) => image.slice(`${repository}:`.length));
+    expect(goreleaserImage(row.id).tags.map(renderFor142).sort()).toEqual(
+      [...rebuilt, ...row.releaseOnly].sort(),
+    );
+  });
+
+  it('should build each release image from the Dockerfile the rebuild uses for its tags', () => {
+    const fileFor = Object.fromEntries(
+      rebuildBuilds.map((input) => [String(input.tags).match(/outputs\.(\w+)/)?.[1], input.file]),
+    );
+    expect(goreleaserImages.map((image) => [image.id, image.dockerfile])).toEqual([
+      ['mailoo-debian', fileFor.bookworm_tags],
+      ['mailoo-alpine', fileFor.alpine_tags],
+    ]);
+  });
+
+  it('should build each release image for the architectures the rebuild builds', () => {
+    expect(goreleaserImages.map((image) => image.platforms.join(','))).toEqual(
+      rebuildBuilds.map((input) => input.platforms),
+    );
+  });
+
+  it.each(['mailoo-debian', 'mailoo-alpine'])(
+    'should hand GoReleaser every file the %s Dockerfile copies',
+    (id) => {
+      // GoReleaser builds from a context that holds only extra_files, so a file left out fails
+      // the release image build.
+      const image = goreleaserImage(id);
+      const sources = copySources(image.dockerfile);
+      expect({
+        read: sources.length > 0,
+        missing: sources.filter((source) => !image.extra_files.includes(source)),
+      }).toEqual({ read: true, missing: [] });
+    },
+  );
+
+  it('should label both release images with the pinned OCI metadata', () => {
+    // The registry shows these on the package page, and version, revision and created tie an
+    // image to its release.
+    const labels = {
+      'org.opencontainers.image.title': 'Mailoo',
+      'org.opencontainers.image.description': pkg.description,
+      'org.opencontainers.image.url': 'https://github.com/bitfloo/mailoo',
+      'org.opencontainers.image.source': 'https://github.com/bitfloo/mailoo',
+      'org.opencontainers.image.version': '{{ .Version }}',
+      'org.opencontainers.image.revision': '{{ .FullCommit }}',
+      'org.opencontainers.image.created': '{{ .Date }}',
+      'org.opencontainers.image.licenses': pkg.license,
+      'org.opencontainers.image.vendor': 'Bitfloo',
+    };
+    expect(goreleaserImages.map((image) => image.labels)).toEqual([labels, labels]);
+  });
+
+  it('should annotate each release image only with values its labels hold', () => {
+    expect(
+      goreleaserImages.map((image) =>
+        Object.entries(image.annotations).filter(([key, value]) => image.labels[key] !== value),
+      ),
+    ).toEqual([[], []]);
+  });
+
+  it('should set only the pinned top-level keys in .goreleaser.yaml', () => {
+    // A top-level key such as dockers, docker_manifests or publishers would push or publish
+    // something no release test reads.
+    expect(Object.keys(goreleaser).sort()).toEqual([
+      'builds',
+      'dockers_v2',
+      'project_name',
+      'release',
+      'version',
+    ]);
+  });
+
+  it('should use the version 2 GoReleaser config format', () => {
+    expect(goreleaser.version).toBe(2);
+  });
+
+  it('should name the project mailoo and build no binary', () => {
+    // The images build from the Dockerfiles; npm publishes the package from release.yml.
+    expect([goreleaser.project_name, goreleaser.builds]).toEqual(['mailoo', [{ skip: true }]]);
   });
 });
