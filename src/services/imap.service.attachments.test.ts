@@ -256,6 +256,23 @@ describe('ImapService', () => {
       expect(Buffer.from(result.contentBase64, 'base64').toString()).toBe('body-of-part-2');
     });
 
+    it.each([
+      ['refuse an attachment a byte over', 5 * 1024 * 1024 + 1, false],
+      ['download an attachment exactly at', 5 * 1024 * 1024, true],
+    ])('should %s the 5 MiB default cap', async (_, size, allowed) => {
+      fetchOneByUid(client, {
+        uid: 9,
+        bodyStructure: mixedStructure(attachmentNode('2', 'scan.pdf', { size })),
+      });
+      downloadReturnsPartName(client);
+
+      const download = service.downloadAttachment('test', '9', 'INBOX', 'scan.pdf');
+
+      await (allowed
+        ? expect(download).resolves.toMatchObject({ filename: 'scan.pdf' })
+        : expect(download).rejects.toThrow('exceeds 5MB'));
+    });
+
     // An empty part number downloads BODY[], the whole message, as the attachment.
     it('should refuse a single-part attachment that has no MIME part number', async () => {
       fetchOneByUid(client, { uid: 9, bodyStructure: singlePartAttachment });
