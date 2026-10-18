@@ -1,8 +1,8 @@
 {
   "name": "@bitfloo/mailoo",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "mcpName": "io.github.Bitfloo/mailoo",
-  "description": "Mailoo — email MCP server for IMAP, SMTP, and ManageSieve. Multi-account, per-folder profiles.",
+  "description": "Email, calendar, reminders & ManageSieve MCP server (IMAP/SMTP, AI triage, scheduling, OAuth2).",
   "type": "module",
   "bin": {
     "mailoo": "dist/main.js"
@@ -66,7 +66,16 @@
     "anthropic",
     "ai-tools",
     "llm",
-    "nodejs"
+    "nodejs",
+    "calendar",
+    "reminders",
+    "managesieve",
+    "sieve",
+    "triage",
+    "scheduling",
+    "oauth2",
+    "ai-agents",
+    "email-automation"
   ],
   "author": {
     "name": "Bitfloo",

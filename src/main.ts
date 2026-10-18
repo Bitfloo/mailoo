@@ -87,7 +87,11 @@ async function runServer(): Promise<void> {
   const config = await loadConfig();
 
   const oauthService = new OAuthService();
-  const connections = new ConnectionManager(config.accounts, oauthService);
+  const connections = new ConnectionManager(
+    config.accounts,
+    oauthService,
+    config.settings.defaultAccount,
+  );
   const rateLimiter = new RateLimiter(config.settings.rateLimit);
   const imapService = new ImapService(connections);
   const smtpService = new SmtpService(
@@ -240,7 +244,11 @@ async function runHttpServer(policy: ReturnType<typeof readHttpLaunchOptions>): 
   // queue, watcher, and hooks process-wide, as on stdio. Each HTTP session only
   // owns an McpServer and its transport.
   const oauthService = new OAuthService();
-  const connections = new ConnectionManager(config.accounts, oauthService);
+  const connections = new ConnectionManager(
+    config.accounts,
+    oauthService,
+    config.settings.defaultAccount,
+  );
   const imapService = new ImapService(connections);
   const templateService = new TemplateService();
   const calendarService = new CalendarService();

@@ -1,4 +1,11 @@
-import { applyBodyFormat, looksLikeRawMime, preferRicherPlain, stripHtml } from './email-body.js';
+import {
+  applyBodyFormat,
+  applyBodyFormatWithDefaultCap,
+  DEFAULT_BODY_MAX_LENGTH,
+  looksLikeRawMime,
+  preferRicherPlain,
+  stripHtml,
+} from './email-body.js';
 
 const mimeBoundaryDump =
   '--_000_BE0\r\nContent-Type: text/plain; charset="utf-8"\r\n\r\nSGkgSmFrb2I=';
@@ -168,5 +175,13 @@ describe('applyBodyFormat', () => {
     const bodyText =
       'Offer expires 2026-04-01. Terms apply. More details in the full campaign follow-up including eligibility, refund windows, and the activation steps for each recipient.';
     expect(applyBodyFormat(bodyText, undefined, 'full', 0)).toBe(bodyText);
+  });
+
+  it('caps at 20,000 characters by default in applyBodyFormatWithDefaultCap when maxLength is omitted', () => {
+    const huge = 'X'.repeat(DEFAULT_BODY_MAX_LENGTH + 500);
+    const out = applyBodyFormatWithDefaultCap(huge, undefined, 'text');
+    expect(out).toBe(
+      `${'X'.repeat(DEFAULT_BODY_MAX_LENGTH)}\n\n[Truncated at 20000 characters — pass a larger maxLength or format="full" for the complete body]`,
+    );
   });
 });

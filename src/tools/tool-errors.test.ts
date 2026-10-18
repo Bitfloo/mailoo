@@ -11,7 +11,10 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import createServer from '../server.js';
 import NotifierService from '../services/notifier.service.js';
+import registerAnalyticsTools from './analytics.tool.js';
+import { registerCalendarReadTools, registerCalendarWriteTools } from './calendar.tool.js';
 import registerEmailsTools from './emails.tool.js';
+import { registerSchedulerReadTools, registerSchedulerWriteTools } from './scheduler.tool.js';
 import { registerWatcherWriteTools } from './watcher.tool.js';
 
 const FAILURE = 'mailbox unavailable';
@@ -105,5 +108,116 @@ describe('tool failures return isError', () => {
     } as never);
     const result = await callTool(server, 'test_notification', { sound: false });
     expectFailure(result);
+  });
+
+  it('should return isError for calendar read and write tools when services throw', async () => {
+    const server = createServer();
+    const failingImap = {
+      getEmail: async () => Promise.reject(new Error(FAILURE)),
+    } as never;
+    const failingCalendar = {
+      extractFromEmail: () => {
+        throw new Error(FAILURE);
+      },
+    } as never;
+    const failingLocalCalendar = {
+      checkPermissions: async () => Promise.reject(new Error(FAILURE)),
+      listCalendars: async () => Promise.reject(new Error(FAILURE)),
+      listEvents: async () => Promise.reject(new Error(FAILURE)),
+      addEvent: async () => Promise.reject(new Error(FAILURE)),
+    } as never;
+    const failingReminders = {
+      checkPermissions: async () => Promise.reject(new Error(FAILURE)),
+      listReminders: async () => Promise.reject(new Error(FAILURE)),
+      addReminder: async () => Promise.reject(new Error(FAILURE)),
+    } as never;
+
+    registerCalendarReadTools(
+      server,
+      failingImap,
+      failingCalendar,
+      failingLocalCalendar,
+      failingReminders,
+    );
+    registerCalendarWriteTools(
+      server,
+      failingImap,
+      failingCalendar,
+      failingLocalCalendar,
+      failingReminders,
+    );
+
+    expectFailure(
+      await callTool(server, 'extract_calendar', {
+        account: 'work',
+        emailId: '1',
+        mailbox: 'INBOX',
+      }),
+    );
+    expectFailure(await callTool(server, 'check_calendar_permissions', {}));
+    expectFailure(await callTool(server, 'list_calendars', {}));
+    expectFailure(await callTool(server, 'list_events', { limit: 10 }));
+    expectFailure(await callTool(server, 'list_reminders', { limit: 10 }));
+    expectFailure(
+      await callTool(server, 'analyze_email_for_scheduling', {
+        account: 'work',
+        emailId: '1',
+        mailbox: 'INBOX',
+      }),
+    );
+    expectFailure(
+      await callTool(server, 'add_to_calendar', {
+        account: 'work',
+        emailId: '1',
+        mailbox: 'INBOX',
+      }),
+    );
+    expectFailure(
+      await callTool(server, 'create_reminder', {
+        account: 'work',
+        emailId: '1',
+        confirm: true,
+      }),
+    );
+  });
+
+  it('should return isError when get_email_stats fails in analytics tool', async () => {
+    const server = createServer();
+    registerAnalyticsTools(server, {
+      getEmailStats: async () => Promise.reject(new Error(FAILURE)),
+    } as never);
+    const result = await callTool(server, 'get_email_stats', {
+      account: 'work',
+      mailbox: 'INBOX',
+      days: 7,
+    });
+    expectFailure(result);
+  });
+
+  it('should return isError for scheduler read and write tools when scheduler service throws', async () => {
+    const server = createServer();
+    const failingScheduler = {
+      resolveAccountName: () => {
+        throw new Error(FAILURE);
+      },
+      list: async () => Promise.reject(new Error(FAILURE)),
+      schedule: async () => Promise.reject(new Error(FAILURE)),
+      cancel: async () => Promise.reject(new Error(FAILURE)),
+    } as never;
+
+    registerSchedulerReadTools(server, failingScheduler);
+    registerSchedulerWriteTools(server, failingScheduler);
+
+    expectFailure(await callTool(server, 'list_scheduled', { status: 'all' }));
+    expectFailure(
+      await callTool(server, 'schedule_email', {
+        account: 'work',
+        to: ['recipient@example.com'],
+        subject: 'Hello',
+        body: 'World',
+        send_at: 'in 1 hour',
+      }),
+    );
+    expectFailure(await callTool(server, 'cancel_scheduled', { schedule_id: 'sched-1' }));
   });
 });

@@ -49,6 +49,8 @@ describe('Config Loader', () => {
       'MCP_EMAIL_SMTP_HOST',
       'MCP_EMAIL_READ_ONLY',
       'MCP_EMAIL_ACCOUNT_NAME',
+      'MCP_EMAIL_TOOLSET',
+      'MCP_EMAIL_DEFAULT_ACCOUNT',
     ]) {
       savedEnv[key] = process.env[key];
       delete process.env[key];
@@ -317,6 +319,20 @@ actions = { move_to = "Receipts" }
       const config = await loadConfig(path.join(tmpDir, 'nonexistent.toml'));
 
       expect(config.settings.systemOne.thresholds.injectionHigh).toBe(0.75);
+    });
+
+    it('reads toolset and defaultAccount from MCP_EMAIL_TOOLSET and MCP_EMAIL_DEFAULT_ACCOUNT', async () => {
+      process.env.MCP_EMAIL_ADDRESS = 'env@example.com';
+      process.env.MCP_EMAIL_PASSWORD = 'env-pass';
+      process.env.MCP_EMAIL_IMAP_HOST = 'imap.example.com';
+      process.env.MCP_EMAIL_SMTP_HOST = 'smtp.example.com';
+      process.env.MCP_EMAIL_TOOLSET = 'core';
+      process.env.MCP_EMAIL_DEFAULT_ACCOUNT = 'env@example.com';
+
+      const config = await loadConfig(path.join(tmpDir, 'nonexistent.toml'));
+
+      expect(config.settings.toolset).toBe('core');
+      expect(config.settings.defaultAccount).toBe('env@example.com');
     });
   });
 

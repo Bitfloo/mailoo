@@ -17,7 +17,7 @@ import type {
   SystemOneConfig,
 } from '../types/index.js';
 import type { RawAccountConfig, RawAppConfig } from './schema.js';
-import { AppConfigFileSchema, SystemOneConfigSchema } from './schema.js';
+import { AppConfigFileSchema, SystemOneConfigSchema, ToolsetSchema } from './schema.js';
 import { CONFIG_FILE, xdg } from './xdg.js';
 
 // ---------------------------------------------------------------------------
@@ -53,6 +53,11 @@ function loadFromEnv(): RawAppConfig | null {
     settings: {
       rate_limit: parseInt(process.env.MCP_EMAIL_RATE_LIMIT ?? '10', 10),
       read_only: process.env.MCP_EMAIL_READ_ONLY === 'true',
+      toolset: (process.env.MCP_EMAIL_TOOLSET as 'full' | 'core' | 'minimal' | undefined) ?? 'full',
+      default_account:
+        (process.env.MCP_EMAIL_DEFAULT_ACCOUNT?.trim()?.length ?? 0) > 0
+          ? process.env.MCP_EMAIL_DEFAULT_ACCOUNT?.trim()
+          : undefined,
       save_to_sent: process.env.MCP_EMAIL_SAVE_TO_SENT !== 'false',
       watcher: {
         enabled: process.env.MCP_EMAIL_WATCHER_ENABLED === 'true',
@@ -307,10 +312,22 @@ function normalizeSystemOne(
 }
 
 function normalizeConfig(raw: RawAppConfig): AppConfig {
+  const envToolset = process.env.MCP_EMAIL_TOOLSET?.trim();
+  const envDefaultAccount = process.env.MCP_EMAIL_DEFAULT_ACCOUNT?.trim();
+  const toolset =
+    envToolset !== undefined && envToolset.length > 0
+      ? ToolsetSchema.parse(envToolset)
+      : raw.settings.toolset;
+  const defaultAccount =
+    envDefaultAccount !== undefined && envDefaultAccount.length > 0
+      ? envDefaultAccount
+      : raw.settings.default_account;
   return {
     settings: {
       rateLimit: raw.settings.rate_limit,
       readOnly: raw.settings.read_only,
+      toolset,
+      defaultAccount,
       saveToSent: raw.settings.save_to_sent,
       watcher: {
         enabled: raw.settings.watcher.enabled,

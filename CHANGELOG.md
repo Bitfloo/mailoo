@@ -10,6 +10,27 @@ Mailoo is a fork of [email-mcp](https://github.com/codefuturist/email-mcp);
 its history before the fork is at the end of this file.
 
 - - -
+## [v0.2.2](https://github.com/bitfloo/mailoo/compare/v0.2.1..v0.2.2) - 2026-10-18
+#### ✨ Features
+- add toolset profiles, default account resolution, dry-run previews, and structured tool output - ([61eb252](https://github.com/bitfloo/mailoo/commit/61eb25253664561754068ad3756c386f26c8c4bf)) - Mike, Cursor
+#### 🐛 Bug Fixes
+- (**cli**) point users to account add instead of the deprecated setup alias - ([0ec7663](https://github.com/bitfloo/mailoo/commit/0ec766367df48dde7159be1d8e8d3d717f403ccd)) - Mike, Claude Opus 5.5
+- (**release**) refuse a server.json version that is not X.Y.Z - ([631f1fc](https://github.com/bitfloo/mailoo/commit/631f1fcf8a62b5e679164a0d6ec8a189a8168f3f)) - Mike, Claude Opus 5.5
+- (**security**) reuse stripHtml in preview extraction and keep env reading in config loader - ([3e8ae3d](https://github.com/bitfloo/mailoo/commit/3e8ae3d0e9a9d9288eedc1193ebf8b26b425bc51)) - Mike, Cursor
+#### 📚 Documentation
+- (**readme**) list the notify commands in the CLI reference - ([2638c68](https://github.com/bitfloo/mailoo/commit/2638c68afa30c0ef3a470adc7a49f4c429fbdfd0)) - Mike, Claude Opus 5.5
+- (**readme**) lead with account add instead of the deprecated setup alias - ([e15577d](https://github.com/bitfloo/mailoo/commit/e15577dba51ce1343f3b76f55cdc3777cb8fe33f)) - Mike, Claude Opus 5.5
+- (**readme**) mark MCP_EMAIL_PASSWORD optional for OAuth2 accounts - ([a7b0a91](https://github.com/bitfloo/mailoo/commit/a7b0a91cf60295a8bb3a3c5c7f567e6af8cdef84)) - Mike, Claude Opus 5.5
+- (**readme**) say a clone builds with pnpm 10 - ([ca2ab05](https://github.com/bitfloo/mailoo/commit/ca2ab055e05c65148a645b42c628c4adb3ceae76)) - Mike, Claude Opus 5.5
+- align toolset profile counts, remove hype phrasing, and update performance roadmap - ([2dc0f5a](https://github.com/bitfloo/mailoo/commit/2dc0f5a5a0ea7ba5f431691b62ab74fb48a40f14)) - Mike, Cursor
+- say CodeQL runs on develop pushes and ask for pnpm test in the PR template - ([e4d087d](https://github.com/bitfloo/mailoo/commit/e4d087d4b49c18940c3d9961cba05f1fe31b7f8d)) - Mike, Claude Opus 5.5
+- keep the pull request CI job list in CONTRIBUTING only - ([6612726](https://github.com/bitfloo/mailoo/commit/6612726ee772d90efa24e59f389e7bfcb9892648)) - Mike, Claude Opus 5.5
+- describe what GitHub CI runs on pull requests and dispatch - ([08f3a2a](https://github.com/bitfloo/mailoo/commit/08f3a2a3953cfb490cc81c046e48e687296d5069)) - Mike, Claude Opus 5.5
+#### ♻️ Refactoring
+- (**release**) share the X.Y.Z version check between the stamp scripts - ([a4c2806](https://github.com/bitfloo/mailoo/commit/a4c2806621b5fcc83d63b2e85e870f2a7857f693)) - Mike, Claude Opus 5.5
+
+- - -
+
 ## [v0.2.1](https://github.com/bitfloo/mailoo/compare/v0.2.0..v0.2.1) - 2026-10-16
 #### 🐛 Bug Fixes
 - (**ci**) fail the public git checker on a commit git cannot read - ([e9fb785](https://github.com/bitfloo/mailoo/commit/e9fb785994d5333dc5e9185aad199f88dd84ee4e)) - Mike, Claude Opus 5.5
