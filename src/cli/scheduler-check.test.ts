@@ -60,7 +60,6 @@ describe('scheduler check command', () => {
   });
 
   afterEach(async () => {
-    vi.unstubAllEnvs();
     await Promise.all([smtp.close(), imap.close(), token.close()]);
     await fs.rm(root, { recursive: true, force: true });
   });
