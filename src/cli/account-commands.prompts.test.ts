@@ -124,3 +124,49 @@ describe('mailoo account Ctrl-C', () => {
     },
   );
 });
+
+const POSITIVE = 'Must be a positive integer';
+
+describe('mailoo account prompt validation', () => {
+  const sandbox = useAccountSandbox(wizard, probes);
+
+  // Clack shows the returned text and asks again; undefined accepts the value.
+  // Enter on an untouched prompt hands the validator undefined, not ''.
+  it.each([
+    ['Account name', undefined, 'Account name is required'],
+    ['Account name', '', 'Account name is required'],
+    ['Account name', 'work', undefined],
+    ['Email address', undefined, 'Please enter a valid email address'],
+    ['Email address', 'user.example.com', 'Please enter a valid email address'],
+    ['Email address', 'user@example.com', undefined],
+    ['IMAP host', undefined, 'IMAP host is required'],
+    ['IMAP host', '', 'IMAP host is required'],
+    ['IMAP host', 'imap.example.com', undefined],
+    ['SMTP host', undefined, 'SMTP host is required'],
+    ['SMTP host', '', 'SMTP host is required'],
+    ['SMTP host', 'smtp.example.com', undefined],
+    ['SMTP pool max connections', undefined, POSITIVE],
+    ['SMTP pool max connections', '', POSITIVE],
+    ['SMTP pool max connections', '0', POSITIVE],
+    ['SMTP pool max connections', 'many', POSITIVE],
+    ['SMTP pool max connections', '1', undefined],
+    ['SMTP pool max messages per connection', undefined, POSITIVE],
+    ['SMTP pool max messages per connection', '', POSITIVE],
+    ['SMTP pool max messages per connection', '0', POSITIVE],
+    ['SMTP pool max messages per connection', 'many', POSITIVE],
+    ['SMTP pool max messages per connection', '1', undefined],
+    ['Password / App Password', undefined, 'Password is required'],
+    ['Password / App Password', '', 'Password is required'],
+    ['Password / App Password', 'app-password', undefined],
+  ])('should have the "%s" validator turn %j into %j', async (prompt, input, expected) => {
+    wizard.overrides.set('Enable SMTP connection pooling?', true);
+    wizard.overrides.set('SMTP pool max connections', '2');
+    wizard.overrides.set('SMTP pool max messages per connection', '2');
+
+    await (await sandbox.entryPoint('account add'))();
+
+    const asked = wizard.asked.find(({ message }) => message === prompt);
+    const validate = asked?.options.validate as (value?: string) => string | undefined;
+    expect(validate(input)).toBe(expected);
+  });
+});
