@@ -1,69 +1,15 @@
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { parse } from 'yaml';
+
 import { repoRoot } from './agents/agent-file.js';
 import { changelogMd, swapOnce } from './changelog-fixture.js';
-import { jobSections, releaseStep, releaseSteps, releaseYml } from './workflow-yaml.js';
+import { releaseNotes } from './release-notes-harness.js';
+import { harnessedStep, releaseStep, releaseYml, requireTools, runBlock } from './workflow-yaml.js';
 
-/** The step's `run: |` block, dedented, as the runner would execute it. */
-function runBlock(step: string): string {
-  const match = step.match(/\n {8}run: \|\n((?: {10}.*(?:\n|$)|\n)+)/);
-  if (!match) {
-    throw new Error('step has no run block');
-  }
-  return match[1].replace(/^ {10}/gm, '');
-}
-
-/** The step's `env:` block with each `${{ expression }}` filled in from `context`, as the runner does. */
-function stepEnv(step: string, context: Record<string, string>): Record<string, string> {
-  const block = step.match(/\n {8}env:\n((?: {10}\S.*\n)+)/)?.[1] ?? '';
-  return Object.fromEntries(
-    [...block.matchAll(/^ {10}(\w+): (.*)$/gm)].map(([, name, value]) => [
-      name,
-      value.replace(/\$\{\{ ([\w.-]+) \}\}/g, (_, expression: string) => {
-        if (!(expression in context)) {
-          throw new Error(`no value for ${expression}`);
-        }
-        return context[expression];
-      }),
-    ]),
-  );
-}
-
-interface ReleaseRun {
-  ref: string;
-  /** GitHub passes an absent workflow_dispatch input as an empty string, so a tag push gets ''. */
-  inputVersion?: string;
-  /** CHANGELOG.md text to run against instead of the real file; null runs it where there is none. */
-  changelog?: string | null;
-}
-
-/** Run the release-notes step with its own env wiring and return what it wrote. */
-function releaseNotes(run: ReleaseRun): string {
-  const step = releaseStep(releaseYml, 'Write release notes');
-  const temp = mkdtempSync(join(tmpdir(), 'mailoo-release-notes-'));
-  try {
-    if (typeof run.changelog === 'string') {
-      writeFileSync(join(temp, 'CHANGELOG.md'), run.changelog);
-    }
-    // A run step without `shell:` gets `bash -e {0}` on the runner: no -u, no pipefail.
-    execFileSync('bash', ['-e', '-c', runBlock(step)], {
-      cwd: run.changelog === undefined ? repoRoot : temp,
-      env: {
-        PATH: process.env.PATH,
-        RUNNER_TEMP: temp,
-        GITHUB_REF: run.ref,
-        ...stepEnv(step, { 'inputs.version': run.inputVersion ?? '' }),
-      },
-      stdio: 'pipe',
-    });
-    return readFileSync(join(temp, 'release-notes.md'), 'utf8');
-  } finally {
-    rmSync(temp, { recursive: true, force: true });
-  }
-}
+requireTools(['awk', 'bash']);
 
 /** Cut by string search, not by the awk in release.yml, so a wrong awk boundary fails the tests. */
 function changelogSection(tag: string): string {
@@ -79,24 +25,61 @@ function notesBeforeInstall(notes: string): string {
   return notes.slice(0, notes.indexOf('\n**Install:**')).trim();
 }
 
-describe('release notes', () => {
+describe('step harness', () => {
   it('should run the whole run block, blank lines included', () => {
-    const step = '- name: Example\n        run: |\n          true\n\n          false\n';
+    const step = '      - name: Example\n        run: |\n          true\n\n          false\n';
     expect(runBlock(step)).toBe('true\n\nfalse\n');
   });
 
-  it('uses the CHANGELOG.md section of the pushed tag as the release body', () => {
+  it('should name every tool it needs that PATH does not hold as an executable', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mailoo-tools-'));
+    try {
+      writeFileSync(join(dir, 'jq'), '', { mode: 0o755 });
+      writeFileSync(join(dir, 'awk'), '', { mode: 0o644 });
+      expect(() => requireTools(['jq', 'awk', 'tar'], dir)).toThrow(
+        /^these tests need awk, tar on PATH$/,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('should refuse a step its harness does not declare', () => {
+    const harness = { workflow: 'release.yml', job: 'mcp', steps: [] };
+    expect(() => harnessedStep(harness, 'Install mcp-publisher')).toThrow(
+      'release.yml mcp: the harness does not declare Install mcp-publisher',
+    );
+  });
+
+  it('should refuse a declared step that sits in another job', () => {
+    const harness = { workflow: 'release.yml', job: 'npm', steps: ['Install mcp-publisher'] };
+    expect(() => harnessedStep(harness, 'Install mcp-publisher')).toThrow(
+      'release.yml npm has no step Install mcp-publisher',
+    );
+  });
+
+  it.each(['shell: sh', '"shell": bash', 'working-directory: .github'])(
+    'should refuse to run a step that sets %s',
+    (key) => {
+      const step = `      - name: Example\n        ${key}\n        run: true\n`;
+      expect(() => runBlock(step)).toThrow(`the harness runs bash -e in the checkout, not: ${key}`);
+    },
+  );
+});
+
+describe('release notes', () => {
+  it('should use the CHANGELOG.md section of the tag as the release body when a tag is pushed', () => {
     const section = changelogSection('v0.2.0');
     expect(section).toMatch(/^#### ✨ Features\n- add export_email tool/);
     expect(notesBeforeInstall(releaseNotes({ ref: 'refs/tags/v0.2.0' }))).toBe(section);
   });
 
-  it('uses the CHANGELOG.md section of the version input on a manual run', () => {
+  it('should use the CHANGELOG.md section of the version input when run by hand', () => {
     const notes = releaseNotes({ ref: 'refs/heads/develop', inputVersion: '0.1.8' });
     expect(notesBeforeInstall(notes)).toBe(changelogSection('v0.1.8'));
   });
 
-  it('does not take a newer release whose version starts with the same digits', () => {
+  it('should not take a newer release when its version starts with the same digits', () => {
     const changelog = swapOnce(changelogMd, '\n## [v0.2.0](', '\n## [v0.1.10](');
     const notes = releaseNotes({ ref: 'refs/tags/v0.1.1', changelog });
     expect(notesBeforeInstall(notes)).toBe(changelogSection('v0.1.1'));
@@ -123,7 +106,7 @@ describe('release notes', () => {
     expect(notesBeforeInstall(notes)).toBe(subject(changelogSection('v0.2.0')));
   });
 
-  it('gives a release of omitted commit types only the install lines', () => {
+  it('should give only the install lines when a release holds only omitted commit types', () => {
     // cog 7 writes the heading with an empty body when every commit type in the range is omitted.
     // The empty entry goes above whichever entry is newest, under a version no release takes:
     // anchored on v0.2.0, this test failed the push of the v0.2.1 bump that moved it down.
@@ -157,7 +140,7 @@ describe('release notes', () => {
     );
   });
 
-  it('ends the release body with install commands for that version', () => {
+  it('should end the release body with the install commands for that version', () => {
     const notes = releaseNotes({ ref: 'refs/tags/v0.2.0' });
     expect(notes.trimEnd().split('\n').slice(-3)).toEqual([
       '**Install:** `npx -y @bitfloo/mailoo@0.2.0` · `docker pull ghcr.io/bitfloo/mailoo:0.2.0` (or `0.2.0-alpine`)',
@@ -166,7 +149,7 @@ describe('release notes', () => {
     ]);
   });
 
-  it('hands the written release body to GoReleaser', () => {
+  it('should hand the written release body to GoReleaser', () => {
     expect(releaseStep(releaseYml, 'Write release notes')).toContain(
       'notes="$RUNNER_TEMP/release-notes.md"',
     );
@@ -175,71 +158,16 @@ describe('release notes', () => {
     );
   });
 
-  it('should replace the body of a release that already exists', () => {
-    // A re-run or a manual dispatch for a tag that already has a release would otherwise keep the old body.
-    const goreleaser = readFileSync(join(repoRoot, '.goreleaser.yaml'), 'utf8');
-    expect(goreleaser).toMatch(/^release:\n(?: {2}.*\n)*? {2}mode: replace$/m);
-  });
-
-  const dockerJob = jobSections(releaseSteps(releaseYml)).find((job) =>
-    job.includes('goreleaser/goreleaser-action@'),
-  );
-  if (!dockerJob) {
-    throw new Error('release.yml has no GoReleaser job');
-  }
-
-  it('should run only the docker setup actions between the checkout and the release notes', () => {
-    // Another checkout or a run step there could hand the notes step another CHANGELOG.md or none.
-    const before = dockerJob.slice(
-      dockerJob.indexOf('- uses: actions/checkout@'),
-      dockerJob.indexOf('- name: Write release notes\n'),
-    );
-    expect(
-      before.split(/\n {6}- /).map((step) => step.match(/uses: ([\w-]+\/[\w-]+)@/)?.[1] ?? step),
-    ).toEqual([
-      'actions/checkout',
-      'docker/setup-qemu-action',
-      'docker/setup-buildx-action',
-      'docker/login-action',
-    ]);
-  });
-
-  it('should read CHANGELOG.md from a full, unconditional checkout of the release commit', () => {
-    const checkout = dockerJob.slice(dockerJob.indexOf('- uses: actions/checkout@'));
-    // ref, repository, path or sparse-checkout would hand the step another CHANGELOG.md or none.
-    expect(checkout.slice(0, checkout.indexOf('\n      - ')).split('\n').slice(1)).toEqual([
-      '        with:',
-      '          fetch-depth: 0',
-    ]);
-  });
-
-  it.each(['Write release notes', 'Run GoReleaser'])(
-    'lets a failure in %s stop the release',
-    (name) => {
-      expect(releaseStep(releaseYml, name)).not.toMatch(/^ +(?:if|continue-on-error):/m);
-    },
-  );
-
-  it('should write the release notes right before GoReleaser reads them', () => {
-    // A step in between could rewrite the file GoReleaser publishes as the release body.
-    const written = releaseStep(releaseYml, 'Write release notes');
-    expect(dockerJob.slice(dockerJob.indexOf(written) + written.length)).toMatch(
-      /^\n {6}- name: Run GoReleaser\n/,
-    );
-  });
-
-  it('should run the release-notes step with the default shell in the checkout root', () => {
-    // The harness above runs it that way: `bash -e` in the directory that holds CHANGELOG.md.
-    expect(releaseStep(releaseYml, 'Write release notes')).not.toMatch(
-      /^ +(?:shell|working-directory):/m,
-    );
-  });
-
-  it('should set no run defaults the release-notes harness does not model', () => {
-    expect(releaseSteps(releaseYml)).not.toMatch(/^ *defaults:/m);
-  });
-
-  it('should fail the release when a docker job step fails', () => {
-    expect(dockerJob).not.toMatch(/^ {4}continue-on-error:/m);
+  it('should publish the notes as the latest bitfloo/mailoo release, replacing any old body', () => {
+    // mode: a re-run or a manual dispatch for a tag that already has a release would otherwise keep
+    // the old body. A draft is not public, and make_latest: false would leave the previous release
+    // marked as the latest.
+    const { release } = parse(readFileSync(join(repoRoot, '.goreleaser.yaml'), 'utf8'));
+    expect(release).toEqual({
+      github: { owner: 'bitfloo', name: 'mailoo' },
+      make_latest: true,
+      draft: false,
+      mode: 'replace',
+    });
   });
 });

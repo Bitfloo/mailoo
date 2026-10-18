@@ -11,7 +11,7 @@
 
 Enables AI assistants and autonomous agents to read, search, send, manage, schedule, and analyze emails, calendars, Reminders, and ManageSieve filter scripts across multiple accounts. Exposes up to 57 tools (with `full`, `core`, and `minimal` toolset profiles), 7 prompts, and 6 resources over the MCP 2025/2026 protocol with `outputSchema` / `structuredContent`, OAuth2 support _(experimental)_, email scheduling, calendar extraction, analytics, provider-aware label management, real-time IMAP IDLE watcher with AI-powered triage, customizable presets and static rules, ManageSieve filters, and a guided setup wizard.
 
-Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, and read-only side effects is documented in [`docs/configuration.md`](docs/configuration.md) and [`docs/tools.md`](docs/tools.md).
+Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, read-only side effects, and reconnect backoff is documented in [`docs/configuration.md`](docs/configuration.md) and [`docs/tools.md`](docs/tools.md).
 
 ## Highlights
 
@@ -85,7 +85,7 @@ Mailoo is designed to work across both frontier models (Claude, GPT, Gemini) and
 
 | Topic | Where |
 |-------|--------|
-| Sent APPEND, IMAP4rev2, Sieve, `read_only`, stdio EOF | [docs/configuration.md](docs/configuration.md) |
+| Sent APPEND, IMAP4rev2, Sieve, `read_only`, reconnect backoff, stdio EOF | [docs/configuration.md](docs/configuration.md) |
 | `savePath`, search dates, `get_email_security`, sieve tools, send/draft attachments, RFC 2047, protected folders, busy-mailbox timeout, `bulk_action` ids, calendar attachment saves | [docs/tools.md](docs/tools.md) |
 | Performance notes | [docs/performance-roadmap.md](docs/performance-roadmap.md) |
 
@@ -181,7 +181,7 @@ npx -y @bitfloo/mailoo test            # all accounts
 npx -y @bitfloo/mailoo test personal   # specific account
 ```
 
-`npx -y @bitfloo/mailoo test` / `mailoo test` is a **live-account connection probe**, not Vitest. Unit and integration tests are `pnpm test` / `pnpm test:integration` (see [Contributing](#contributing)).
+`npx -y @bitfloo/mailoo test` / `mailoo test` is a **live-account connection probe**, not Vitest. Unit and integration tests are `pnpm test` / `pnpm test:integration` (see [Contributing](#contributing)). OAuth2 accounts log in with an access token refreshed from the configured refresh token.
 
 ### Configure Your MCP Client
 
@@ -465,6 +465,8 @@ max_messages = 100
 
 > **Note:** OAuth2 support is experimental. Token refresh and provider-specific flows may require additional testing in your environment.
 
+Token refresh and code exchange give up after 15 seconds, so a provider that stops answering fails the connect with `OAuth2 token refresh timed out after 15s` instead of hanging it. Callers that need a fresh token at the same time share one refresh request. The IDLE watcher logs in with the same access tokens.
+
 ```toml
 [[accounts]]
 name = "work"
@@ -560,7 +562,7 @@ Scheduled emails are JSON files in `~/.local/state/mailoo/scheduled/`. Before se
 
 ### Real-time Watcher & AI Hooks
 
-The IMAP IDLE watcher monitors configured mailboxes in real-time using persistent IDLE connections (separate from tool connections). When new emails arrive:
+The IMAP IDLE watcher monitors configured mailboxes in real-time using persistent IDLE connections (separate from tool connections). Each folder stays in IDLE between fetches, IDLE resumes about a second after each fetch, and `idle_timeout` sets how often IDLE is restarted. When new emails arrive:
 
 1. **Static rules** — Pattern-match on from/to/subject → apply labels, flag, or mark read instantly (no AI)
 2. **AI triage** — Remaining emails are analyzed via MCP sampling with a customizable preset prompt
@@ -718,7 +720,7 @@ actions = { flag = true, alert = true, labels = ["VIP"] }
 ```
 
 Features:
-- **Auto-reconnect** — Exponential backoff (1s → 60s) on connection failures
+- **Auto-reconnect** — Retries a dropped or failed folder connection on the [reconnect backoff](docs/configuration.md#reconnect-backoff) schedule; mail delivered while the connection was down is reported after the reconnect, unless the server changed the folder's UIDVALIDITY; a folder that has not connected yet reports only mail that arrives after its first successful connect
 - **Batching** — Groups arrivals within a configurable delay to reduce AI calls
 - **Rate limiting** — Max 10 sampling calls per minute
 - **Graceful degradation** — Falls back to notify mode if client doesn't support sampling
@@ -742,6 +744,8 @@ Only new mail in `source_folders` (default `INBOX`) that no static rule handled 
 | Body | Only with `include_body = true`: plain text without the quoted reply chain, cut to `body_max_chars` (default 6000, maximum 24000) |
 
 Not sent: To, Cc, and Bcc addresses, `Message-ID`, other raw headers, attachment contents, and the body while `include_body` is false.
+
+Mailoo remembers the last 5000 messages it classified and does not send them again. A message that reaches two of your accounts is classified once in each. A message whose request, or whose header read, failed is not remembered, so the next notice of it tries again.
 
 `auto_move` and `auto_flag` are separate poles and default false. Filing destinations come from `folders[].path` (validated against IMAP LIST), not a live listing of every mailbox.
 
@@ -982,7 +986,10 @@ src/
 │   ├── schema.ts          — Zod validation schemas
 │   └── loader.ts          — Config loader (TOML + env vars)
 ├── connections/
-│   └── manager.ts         — Lazy persistent IMAP/SMTP with OAuth2 (experimental)
+│   ├── auth.ts            — IMAP/SMTP credentials (password or OAuth2)
+│   ├── backoff.ts         — Reconnect delays with jitter after a failed connect
+│   ├── manager.ts         — Lazy persistent IMAP/SMTP with OAuth2 (experimental)
+│   └── probe.ts           — One-shot IMAP/SMTP login checks (setup wizard, mailoo test)
 ├── services/              — Business logic
 │   ├── imap.service.ts    — IMAP operations
 │   ├── label-strategy.ts  — Provider-aware label strategy (ProtonMail/Gmail/IMAP keywords)
