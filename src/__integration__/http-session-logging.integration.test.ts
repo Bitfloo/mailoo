@@ -17,6 +17,11 @@ import {
   startHost,
 } from './helpers/http-host.js';
 
+// vi.waitFor's 1 s default would fail a stream that opens slowly on a loaded
+// machine, so 5 s bounds only a stream that never opens. Each retry sends one
+// more log, so retries are 100 ms apart rather than the default 50 ms.
+const UNTIL_LOG_ARRIVES = { timeout: 5_000, interval: 100 };
+
 // Each session binds its own McpServer for logging. One module-wide reference
 // kept only the session bound last, so its close silenced every other client.
 describe('HTTP session logging', () => {
@@ -37,13 +42,10 @@ describe('HTTP session logging', () => {
 
       // The live client opens its notification stream asynchronously after the
       // handshake; repeat the log until that stream is up.
-      await vi.waitFor(
-        async () => {
-          await mcpLog('info', 'test', 'after terminate');
-          expect(received).toContain('after terminate');
-        },
-        { timeout: 5_000, interval: 100 },
-      );
+      await vi.waitFor(async () => {
+        await mcpLog('info', 'test', 'after terminate');
+        expect(received).toContain('after terminate');
+      }, UNTIL_LOG_ARRIVES);
     } finally {
       await Promise.allSettled([live.close(), ended.close()]);
       await running.stop();
@@ -145,20 +147,14 @@ describe('HTTP session logging before the handshake', () => {
 
       // The live client opens its notification stream asynchronously after the
       // handshake; repeat each log until it arrives there.
-      await vi.waitFor(
-        async () => {
-          await mcpLog('info', 'test', 'first');
-          expect(received).toContain('first');
-        },
-        { timeout: 5_000, interval: 100 },
-      );
-      await vi.waitFor(
-        async () => {
-          await mcpLog('info', 'test', 'second');
-          expect(received).toContain('second');
-        },
-        { timeout: 5_000, interval: 100 },
-      );
+      await vi.waitFor(async () => {
+        await mcpLog('info', 'test', 'first');
+        expect(received).toContain('first');
+      }, UNTIL_LOG_ARRIVES);
+      await vi.waitFor(async () => {
+        await mcpLog('info', 'test', 'second');
+        expect(received).toContain('second');
+      }, UNTIL_LOG_ARRIVES);
 
       expect(pendingStream.text()).not.toContain('notifications/message');
     } finally {
