@@ -13,7 +13,7 @@ import type ConnectionManager from '../connections/manager.js';
 import { bindServer, markInitialized, unbindServer } from '../logging.js';
 import registerAllPrompts from '../prompts/register.js';
 import registerAllResources from '../resources/register.js';
-import createServer from '../server.js';
+import createServer, { registeredToolNames } from '../server.js';
 import type CalendarService from '../services/calendar.service.js';
 import type { EmailEventBus } from '../services/event-bus.js';
 import type HooksService from '../services/hooks.service.js';
@@ -117,7 +117,7 @@ export default async function openSession(
       services.templateService,
       services.scheduler,
     );
-    registerAllPrompts(mcpServer);
+    registerAllPrompts(mcpServer, registeredToolNames(mcpServer));
     await mcpServer.connect(transport);
 
     const ls = mcpServer.server;

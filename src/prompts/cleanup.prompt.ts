@@ -8,7 +8,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-export default function registerCleanupPrompt(server: McpServer): void {
+export default function registerCleanupPrompt(server: McpServer, tools: ReadonlySet<string>): void {
   server.registerPrompt(
     'cleanup_inbox',
     {
@@ -29,7 +29,11 @@ export default function registerCleanupPrompt(server: McpServer): void {
     },
     async ({ account, older_than_days: olderThan, dry_run: dryRun }) => {
       const days = Math.max(parseInt(olderThan, 10) || 30, 1);
-      const execute = dryRun === 'false';
+      const executeAsked = dryRun === 'false';
+      const execute = executeAsked && tools.has('bulk_action');
+      const dryRunNote = executeAsked
+        ? "Execution was asked for, but this server's toolset has no bulk actions. Present the cleanup plan only."
+        : 'Present the cleanup plan only. Ask if I want to proceed with any of the suggested actions.';
       const beforeDate = new Date(Date.now() - days * 86400000).toISOString().split('T')[0];
 
       return {
@@ -81,7 +85,7 @@ Present your findings as:
 ${
   execute
     ? `**Mode: EXECUTE** — After presenting the plan, proceed to execute the cleanup using bulk_action to move/delete emails as categorized. Report results for each action.`
-    : `**Mode: DRY RUN** — Present the cleanup plan only. Ask if I want to proceed with any of the suggested actions.`
+    : `**Mode: DRY RUN** — ${dryRunNote}`
 }`,
             },
           },

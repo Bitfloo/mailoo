@@ -17,6 +17,13 @@ const pkg = esmRequire('../package.json') as { name: string; version: string };
 export const PKG_NAME = pkg.name.split('/').pop() ?? 'mailoo';
 export const PKG_VERSION = pkg.version;
 
+const toolNamesByServer = new WeakMap<McpServer, Set<string>>();
+
+/** Tools registered so far on a server from createServer; the SDK keeps its own list private. */
+export function registeredToolNames(server: McpServer): ReadonlySet<string> {
+  return toolNamesByServer.get(server) ?? new Set();
+}
+
 export default function createServer(): McpServer {
   const server = new McpServer(
     {
@@ -33,12 +40,15 @@ export default function createServer(): McpServer {
     },
   );
 
+  const toolNames = new Set<string>();
+  toolNamesByServer.set(server, toolNames);
   const originalRegisterTool = server.registerTool.bind(server);
   server.registerTool = ((
     name: string,
     config: Record<string, unknown>,
     cb: (...args: unknown[]) => Promise<unknown>,
   ) => {
+    toolNames.add(name);
     const hasTitle = typeof config?.title === 'string';
     const effectiveConfig =
       hasTitle && !config.outputSchema

@@ -16,6 +16,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import { TEMPLATES_DIR } from './config/xdg.js';
 import buildCatalog from './test-support/mcp-catalog-harness.js';
+import type { ToolsetProfile } from './types/index.js';
 
 const srcRoot = dirname(fileURLToPath(import.meta.url));
 const baselinePath = join(srcRoot, 'mcp-catalog.baseline.json');
@@ -422,4 +423,80 @@ describe('read_only roster in configuration.md', () => {
     ).sort(compareText);
     expect(documented).toEqual(await listedReadOnlyToolNames());
   });
+});
+
+// A prompt that names a tool the profile left out sends the model after a tool it cannot call.
+describe('prompts in each toolset profile', () => {
+  const profiles: [ToolsetProfile, boolean, string[]][] = [
+    ['full', false, []],
+    ['full', true, []],
+    ['core', false, ['summarize_meetings']],
+    ['core', true, ['summarize_meetings']],
+    ['minimal', false, ['summarize_meetings', 'summarize_thread']],
+    ['minimal', true, ['summarize_meetings', 'summarize_thread']],
+  ];
+  const PROMPT_ARGUMENTS: Record<string, string> = {
+    tone: 'brief',
+    dry_run: 'true',
+    email_id: '42',
+    to: 'recipient@example.com',
+  };
+
+  async function renderedPrompts(
+    toolset: ToolsetProfile,
+    readOnly: boolean,
+  ): Promise<{ tools: string[]; prompts: Map<string, string[]> }> {
+    const server = buildCatalog({ readOnly, accounts: ['work'], toolset });
+    const client = new Client({ name: 'mailoo-prompt-profiles', version: '0.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    try {
+      const tools = (await client.listTools()).tools.map((tool) => tool.name);
+      const listed = (await client.listPrompts()).prompts;
+      const rendered = await Promise.all(
+        listed.map(async (prompt): Promise<[string, string[]]> => {
+          const args = Object.fromEntries(
+            (prompt.arguments ?? []).map((arg) => [arg.name, PROMPT_ARGUMENTS[arg.name] ?? 'work']),
+          );
+          // cleanup_inbox names a different tool when asked to execute.
+          const variants =
+            prompt.name === 'cleanup_inbox' ? [args, { ...args, dry_run: 'false' }] : [args];
+          const texts = await Promise.all(
+            variants.map(async (variant) => {
+              const got = await client.getPrompt({ name: prompt.name, arguments: variant });
+              return got.messages
+                .map((message) => (message.content.type === 'text' ? message.content.text : ''))
+                .join('\n');
+            }),
+          );
+          return [prompt.name, texts];
+        }),
+      );
+      return { tools, prompts: new Map(rendered) };
+    } finally {
+      await Promise.allSettled([client.close(), server.close()]);
+    }
+  }
+
+  it.each(profiles)(
+    'should list in %s (read_only %s) only prompts whose tools it registers',
+    async (toolset, readOnly, hidden) => {
+      const everyTool = (await renderedPrompts('full', false)).tools;
+      const { tools, prompts } = await renderedPrompts(toolset, readOnly);
+      const allPrompts = scanCalls(
+        (await sourceFiles('prompts')).map((file) => file.text),
+        'prompt',
+      ).map((call) => call.name);
+      expect([...prompts.keys()].sort()).toEqual(
+        allPrompts.filter((name) => !hidden.includes(name)).sort(),
+      );
+      const unregistered = [...prompts].flatMap(([name, texts]) =>
+        everyTool
+          .filter((tool) => !tools.includes(tool))
+          .filter((tool) => texts.some((text) => new RegExp(`\\b${tool}\\b`).test(text)))
+          .map((tool) => `${name} → ${tool}`),
+      );
+      expect(unregistered).toEqual([]);
+    },
+  );
 });
