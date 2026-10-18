@@ -244,6 +244,7 @@ describe('pinned GitHub Actions', () => {
     '- uses: ./local',
     '- uses: docker://alpine:3',
     `- uses: a/b@${sha} # v1`,
+    `- uses: a/b@${sha} # v1.2`,
     `- uses: a/b@${sha} # v1.2.3 junk`,
     `- uses: a/b@${'g'.repeat(40)} # v1.2.3`,
   ])('should flag %j as a uses: not pinned to a commit SHA and version tag', (line) => {
