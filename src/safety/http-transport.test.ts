@@ -33,6 +33,7 @@ describe('startGuardedHttpServers', () => {
       expect(res.body).toContain('Invalid Host header');
       expect(res.body).not.toContain('ok');
       expect(res.headers['access-control-allow-origin']).toBeUndefined();
+      expect(res.headers.allow).toBeUndefined();
       expect(res.headers['cache-control']).toBe('no-store');
       expect(res.headers['x-content-type-options']).toBe('nosniff');
     } finally {

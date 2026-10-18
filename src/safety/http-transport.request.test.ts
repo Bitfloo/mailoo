@@ -98,6 +98,15 @@ describe('evaluateHttpAccess', () => {
     });
   });
 
+  it('should allow https://127.0.0.1 when the listen port is 443 and refuse it when the port is 80', () => {
+    const access = (port: number) =>
+      evaluateHttpAccess(
+        { method: 'GET', headers: { host: `127.0.0.1:${port}`, origin: 'https://127.0.0.1' } },
+        resolveHttpListen({ port }),
+      );
+    expect({ on443: access(443).ok, on80: access(80).ok }).toEqual({ on443: true, on80: false });
+  });
+
   it('rejects an Origin whose port is not the listen port', () => {
     expect(
       deny(
@@ -287,6 +296,12 @@ describe('readLimitedBody', () => {
   it('should return a streamed body that reaches exactly the limit', async () => {
     const body = await readLimitedBody(fakeRequest([Buffer.alloc(4), Buffer.alloc(4)]), 8);
     expect(body.length).toBe(8);
+  });
+
+  it('should read a body whose declared Content-Length equals the limit', async () => {
+    const headers = { 'content-length': '8' };
+    const req = Object.assign(Readable.from([Buffer.alloc(8)]), { headers }) as IncomingMessage;
+    expect((await readLimitedBody(req, 8)).length).toBe(8);
   });
 
   it('rejects streamed bytes one past the limit', async () => {
