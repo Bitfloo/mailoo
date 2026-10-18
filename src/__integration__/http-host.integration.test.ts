@@ -124,6 +124,44 @@ describe('HTTP host close', () => {
       stream.close();
     }
   });
+
+  // close() with nothing left to wait for resolves in milliseconds; this only
+  // bounds how long the test watches for an early resolve, so a slow machine
+  // can make a broken host pass but cannot fail a correct one.
+  const EARLY_CLOSE_WINDOW_MS = 200;
+
+  it('should not resolve close() until a session dispose still running has finished', async () => {
+    const running = await startHost({ now: 1_000 }, 5_000);
+    const { sessionId } = await postInitialize(running.port, 1);
+    const scope = running.host.scopeFor(sessionId);
+    if (!scope) throw new Error(`no scope for session ${sessionId}`);
+    let finishDispose = (): void => {};
+    const disposeHeld = new Promise<void>((resolve) => {
+      finishDispose = resolve;
+    });
+    const dispose = scope.dispose.bind(scope);
+    vi.spyOn(scope, 'dispose').mockImplementation(async () => {
+      await disposeHeld;
+      await dispose();
+    });
+    let window: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const closing = running.host.close().then(() => 'closed');
+      const early = await Promise.race([
+        closing,
+        new Promise<string>((resolve) => {
+          window = setTimeout(() => resolve('waiting'), EARLY_CLOSE_WINDOW_MS);
+        }),
+      ]);
+      finishDispose();
+
+      expect({ early, late: await closing }).toEqual({ early: 'waiting', late: 'closed' });
+    } finally {
+      clearTimeout(window);
+      finishDispose();
+      await running.stop();
+    }
+  });
 });
 
 describe('HTTP host scheduler', () => {
