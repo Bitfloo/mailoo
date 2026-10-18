@@ -65,6 +65,18 @@ describe('addEvent duplicate check', () => {
     });
   });
 
+  it('should name the failed step when the duplicate check returns malformed JSON', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '{"found":', stderr: '' });
+    const result = await onDarwin(async () =>
+      new LocalCalendarService().addEvent(standup, 'Work', { confirm: false }),
+    );
+    expect(result).toEqual({
+      status: 'no_display',
+      message:
+        'Could not check for an existing event, so it was not added: find existing event: osascript returned malformed JSON',
+    });
+  });
+
   it('should give the duplicate check the same 90 s budget as list_events', async () => {
     // A timed-out check refuses the add.
     await onDarwin(async () =>

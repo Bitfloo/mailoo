@@ -69,6 +69,12 @@ describe('osascript results', () => {
     );
   });
 
+  it('should give list_calendars a 10 s budget', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '["Work"]', stderr: '' });
+    await onDarwin(async () => new LocalCalendarService().listCalendars());
+    expect(osascriptImpl.mock.calls[0]?.[2].timeout).toBe(10_000);
+  });
+
   it('should return an event whose title holds a line break', async () => {
     // jsonString escapes backslash and quote only; AppleScript emits the line break raw.
     osascriptImpl.mockResolvedValueOnce({

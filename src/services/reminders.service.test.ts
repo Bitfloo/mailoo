@@ -156,6 +156,12 @@ describe('RemindersService checkPermissions', () => {
     expect(result.granted).toBe(true);
   });
 
+  it('should give the Reminders permission check a 10 s budget', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '3\n', stderr: '' });
+    await withReminders(async (svc) => svc.checkPermissions());
+    expect(osascriptImpl.mock.calls[0]?.[2].timeout).toBe(10_000);
+  });
+
   it('should report no Reminders access when osascript rejects', async () => {
     osascriptImpl.mockRejectedValueOnce(
       Object.assign(new Error('Command failed: osascript'), {

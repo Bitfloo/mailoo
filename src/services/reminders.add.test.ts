@@ -51,6 +51,24 @@ describe('addReminder confirm dialog', () => {
     const script = osascriptImpl.mock.calls[0]?.[1][1] ?? '';
     expect(/giving up after (\d+)/.exec(script)?.[1]).toBe(String(CONFIRM_DIALOG_WAIT_S));
   });
+
+  it('should add only when the default button of the dialog is pressed', async () => {
+    // A compared label that is not the button's would return timed_out on every confirmed add.
+    osascriptImpl.mockResolvedValueOnce({ stdout: '{"status":"cancelled"}', stderr: '' });
+    await withReminders(async (svc) => svc.addReminder({ title: 'Call the bank' }));
+    const lines = (osascriptImpl.mock.calls[0]?.[1][1] ?? '').split('\n').map((l) => l.trim());
+    const display = lines.find((line) => line.startsWith('display dialog')) ?? '';
+    const compare = lines.find((line) => line.startsWith('if dlgResult is not')) ?? '';
+    expect({
+      buttons: /buttons \{([^}]*)\}/.exec(display)?.[1],
+      defaultButton: /default button "([^"]*)"/.exec(display)?.[1],
+      compared: /"([^"]*)"/.exec(compare)?.[1],
+    }).toEqual({
+      buttons: '"Cancel", "Add Reminder"',
+      defaultButton: 'Add Reminder',
+      compared: 'Add Reminder',
+    });
+  });
 });
 
 describe('addReminder due date line and properties', () => {

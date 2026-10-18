@@ -229,6 +229,13 @@ describe('addEvent result', () => {
     });
   });
 
+  it('should name no calendar in the message when the add script reports none', async () => {
+    const result = await addReporting('{"status":"added","eventId":"E1"}\n');
+    expect(result.message).toBe(
+      `✅ Event added: "${delimitUntrusted('Budget review')}" → calendar.`,
+    );
+  });
+
   it('should report a timed-out dialog as timed_out with the wait in the message', async () => {
     await expect(addReporting('{"status":"timed_out"}\n')).resolves.toEqual({
       status: 'timed_out',
