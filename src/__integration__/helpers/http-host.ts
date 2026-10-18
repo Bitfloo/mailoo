@@ -185,7 +185,7 @@ export async function startHost(
   maxSessions?: number,
 ) {
   const queueRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-http-host-'));
-  const connections = new ConnectionManager([]);
+  const connections = new ConnectionManager(config.accounts);
   const host = await createHttpMcpHost({
     config,
     connections,
@@ -210,6 +210,7 @@ export async function startHost(
     async stop() {
       await host.close();
       await listener.close();
+      await connections.closeAll();
       await fs.rm(queueRoot, { recursive: true, force: true });
     },
   };
