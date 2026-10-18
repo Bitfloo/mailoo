@@ -205,7 +205,11 @@ describe('WatcherService on a live IMAP server', () => {
     await waitForDelivery(IDLE_START_MS);
 
     const burst = [1, 2, 3].map((n) => `${marker}-new-${n}`);
-    await Promise.all(burst.map(async (subject) => seedEmail({ subject })));
+    // eslint-disable-next-line no-restricted-syntax -- concurrent SMTP sessions make GreenMail drop or stall the idling session
+    for (const subject of burst) {
+      // eslint-disable-next-line no-await-in-loop
+      await seedEmail({ subject });
+    }
 
     await vi.waitFor(
       () => {
