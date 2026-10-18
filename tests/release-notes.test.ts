@@ -160,8 +160,8 @@ describe('release notes', () => {
 
   it('should publish the notes as the latest bitfloo/mailoo release, replacing any old body', () => {
     // mode: a re-run or a manual dispatch for a tag that already has a release would otherwise keep
-    // the old body. A draft is not public, and without make_latest GitHub would keep marking the
-    // previous release as the latest.
+    // the old body. A draft is not public, and make_latest: false would leave the previous release
+    // marked as the latest.
     const { release } = parse(readFileSync(join(repoRoot, '.goreleaser.yaml'), 'utf8'));
     expect(release).toEqual({
       github: { owner: 'bitfloo', name: 'mailoo' },
