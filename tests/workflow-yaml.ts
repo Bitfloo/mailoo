@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -133,6 +134,24 @@ export function stepEnv(step: string, context: Record<string, string>): Record<s
       }),
     ]),
   );
+}
+
+/** The step's command as the runner executes it: a one-line `run:`, or a `run: |` block dedented. */
+export function runBlock(step: string): string {
+  const line = step.match(/^ {8}run: (?![|>])(.+)$/m)?.[1];
+  if (line) {
+    return line;
+  }
+  const block = step.match(/\n {8}run: \|\n((?: {10}.*(?:\n|$)|\n)+)/)?.[1];
+  if (!block) {
+    throw new Error('step has no run command');
+  }
+  return block.replace(/^ {10}/gm, '');
+}
+
+/** Run a command as the runner runs a step without `shell:` (`bash -e {0}`: no -u, no pipefail), with only `env`. */
+export function runStep(command: string, cwd: string, env: Record<string, string | undefined>) {
+  return spawnSync('bash', ['-e', '-c', command], { cwd, env, encoding: 'utf8' });
 }
 
 /** The ref variables the runner sets together, so a step may read either form. */

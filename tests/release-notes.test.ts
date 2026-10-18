@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,17 +11,10 @@ import {
   releaseStep,
   releaseSteps,
   releaseYml,
+  runBlock,
+  runStep,
   stepEnv,
 } from './workflow-yaml.js';
-
-/** The step's `run: |` block, dedented, as the runner would execute it. */
-function runBlock(step: string): string {
-  const match = step.match(/\n {8}run: \|\n((?: {10}.*(?:\n|$)|\n)+)/);
-  if (!match) {
-    throw new Error('step has no run block');
-  }
-  return match[1].replace(/^ {10}/gm, '');
-}
 
 interface ReleaseRun {
   ref: string;
@@ -40,17 +32,19 @@ function releaseNotes(run: ReleaseRun): string {
     if (typeof run.changelog === 'string') {
       writeFileSync(join(temp, 'CHANGELOG.md'), run.changelog);
     }
-    // A run step without `shell:` gets `bash -e {0}` on the runner: no -u, no pipefail.
-    execFileSync('bash', ['-e', '-c', runBlock(step)], {
-      cwd: run.changelog === undefined ? repoRoot : temp,
-      env: {
+    const { status, stderr } = runStep(
+      runBlock(step),
+      run.changelog === undefined ? repoRoot : temp,
+      {
         PATH: process.env.PATH,
         RUNNER_TEMP: temp,
         ...refEnv(run.ref),
         ...stepEnv(step, { 'inputs.version': run.inputVersion ?? '' }),
       },
-      stdio: 'pipe',
-    });
+    );
+    if (status !== 0) {
+      throw new Error(stderr);
+    }
     return readFileSync(join(temp, 'release-notes.md'), 'utf8');
   } finally {
     rmSync(temp, { recursive: true, force: true });

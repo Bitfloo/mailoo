@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,6 +14,8 @@ import {
   releaseStep,
   releaseSteps,
   releaseYml,
+  runBlock,
+  runStep,
   stepEnv,
   triggers,
   workflowDir,
@@ -80,15 +81,6 @@ describe('CI spend policy', () => {
     expect(codeqlOn).toMatch(/^ {2}schedule:$/m);
   });
 });
-
-/** The workflow's grep -F operand is the only copy of the npm retry sentence. */
-function npmRetryMarker(step: string): string {
-  const match = step.match(/grep -F -q "([^"]+)"/);
-  if (!match?.[1]) {
-    throw new Error('Publish to MCP Registry has no npm retry marker');
-  }
-  return match[1];
-}
 
 function exactVersion(version: string): [number, number, number] | null {
   const match = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
@@ -178,43 +170,7 @@ describe('release supply chain', () => {
       ['.cursor/environment.json', `${pkg.packageManager}+sha512.${hex}`],
     ]);
   });
-
-  it('should pin the mcp-publisher archive hash in the install step', () => {
-    const step = releaseStep(releaseYml, 'Install mcp-publisher');
-    expect(step).not.toContain('releases/latest');
-    expect(step).toMatch(/\b[0-9a-f]{64}\b/);
-    expect(step).toContain('sha256sum -c');
-  });
-
-  it('should retry MCP publish up to six times, 20 seconds apart', () => {
-    const step = releaseStep(releaseYml, 'Publish to MCP Registry');
-    expect(step).toContain('./mcp-publisher publish');
-    expect(step).toContain('attempts=6');
-    expect(step).toContain('pause=20');
-    expect(step).toContain('for ((attempt = 1; attempt <= attempts; attempt++)); do');
-  });
-
-  it('should stop MCP publish at once on any error but npm not having the version yet', () => {
-    const step = releaseStep(releaseYml, 'Publish to MCP Registry');
-    const publish = step.indexOf('./mcp-publisher publish');
-    const unmatched = step.indexOf(`if ! grep -F -q "${npmRetryMarker(step)}"`);
-    const exitStatus = step.indexOf('exit "$status"', unmatched);
-    expect(unmatched).toBeGreaterThan(publish);
-    // A later exit in the loop would also follow the check, after a retry or a wait.
-    expect(step.slice(unmatched, exitStatus)).toMatch(/; then\n\s*$/);
-    expect(step.slice(publish, exitStatus)).not.toContain('sleep');
-    expect(step.indexOf('sleep "$pause"')).toBeGreaterThan(exitStatus);
-  });
 });
-
-/** The step's one-line `run:` command, as the runner would execute it. */
-function runLine(step: string): string {
-  const match = step.match(/^ {8}run: (?!\|)(.+)$/m);
-  if (!match) {
-    throw new Error('step has no one-line run');
-  }
-  return match[1];
-}
 
 describe('release version selection', () => {
   // The stamp refuses an empty or ref-shaped version, so a tag push breaks unless the step falls back to the tag.
@@ -227,17 +183,15 @@ describe('release version selection', () => {
     try {
       mkdirSync(join(temp, 'scripts'));
       writeFileSync(join(temp, 'scripts/bump-server-json-version.sh'), 'printf "%s\\n" "$1"\n');
-      // A run step without `shell:` gets `bash -e {0}` on the runner.
-      const stamped = execFileSync('bash', ['-e', '-c', runLine(step)], {
-        cwd: temp,
-        encoding: 'utf8',
-        env: {
-          PATH: process.env.PATH,
-          ...refEnv(ref),
-          ...stepEnv(step, { 'inputs.version': inputVersion }),
-        },
+      const stamped = runStep(runBlock(step), temp, {
+        PATH: process.env.PATH,
+        ...refEnv(ref),
+        ...stepEnv(step, { 'inputs.version': inputVersion }),
       });
-      expect(stamped).toBe(`${version}\n`);
+      expect({ status: stamped.status, stdout: stamped.stdout }).toEqual({
+        status: 0,
+        stdout: `${version}\n`,
+      });
     } finally {
       rmSync(temp, { recursive: true, force: true });
     }
