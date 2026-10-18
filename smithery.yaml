@@ -15,7 +15,7 @@ startCommand:
         description: "Email address. Required for the environment-variable account."
       MCP_EMAIL_PASSWORD:
         type: string
-        description: "Password or app password. Required unless MCP_EMAIL_OAUTH2_PROVIDER is set."
+        description: "Password or app password. Each account needs one credential: this password, or OAuth2 through MCP_EMAIL_OAUTH2_PROVIDER."
       MCP_EMAIL_IMAP_HOST:
         type: string
         description: "IMAP server hostname."
@@ -75,16 +75,16 @@ startCommand:
         description: "Maximum messages per pooled SMTP connection. Defaults to 100."
       MCP_EMAIL_OAUTH2_PROVIDER:
         type: string
-        description: "OAuth2 provider: google, microsoft, or custom."
+        description: "OAuth2 provider: google, microsoft, or custom. Replaces MCP_EMAIL_PASSWORD; the OAuth2 client id, client secret, and refresh token are then required."
       MCP_EMAIL_OAUTH2_CLIENT_ID:
         type: string
-        description: "OAuth2 client id."
+        description: "OAuth2 client id. Required when MCP_EMAIL_OAUTH2_PROVIDER is set."
       MCP_EMAIL_OAUTH2_CLIENT_SECRET:
         type: string
-        description: "OAuth2 client secret."
+        description: "OAuth2 client secret. Required when MCP_EMAIL_OAUTH2_PROVIDER is set."
       MCP_EMAIL_OAUTH2_REFRESH_TOKEN:
         type: string
-        description: "OAuth2 refresh token."
+        description: "OAuth2 refresh token. Required when MCP_EMAIL_OAUTH2_PROVIDER is set."
       MCP_EMAIL_RATE_LIMIT:
         type: string
         description: "Maximum sends per minute. Defaults to 10."
