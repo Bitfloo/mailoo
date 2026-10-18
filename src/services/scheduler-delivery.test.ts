@@ -11,13 +11,20 @@ import {
 } from '../test-support/scheduler-fixtures.js';
 import type { ScheduledEmail } from '../types/index.js';
 
-/** Fails the next rename into sentDir. Unlike a read-only sent/, this holds when the tests run as root. */
-async function withNextMoveFailing(sentDir: string, body: () => Promise<void>): Promise<void> {
+/**
+ * Fails the next `count` renames into sentDir. Unlike a read-only sent/, this holds when the
+ * tests run as root.
+ */
+async function withNextMoveFailing(
+  sentDir: string,
+  body: () => Promise<void>,
+  count = 1,
+): Promise<void> {
   const original = fs.rename.bind(fs);
-  let armed = true;
+  let left = count;
   const spy = vi.spyOn(fs, 'rename').mockImplementation(async (from, to) => {
-    if (armed && path.dirname(String(to)) === sentDir) {
-      armed = false;
+    if (left > 0 && path.dirname(String(to)) === sentDir) {
+      left -= 1;
       throw Object.assign(new Error('EACCES: permission denied, rename'), { code: 'EACCES' });
     }
     return original(from, to);
@@ -51,41 +58,35 @@ describe('retried and delivered sends', () => {
     }
   });
 
-  // Root ignores directory permissions, so the unwritable sent/ cannot be simulated.
-  it.skipIf(process.getuid?.() === 0)(
-    'should not send again when the sent record cannot be written after SMTP accepted',
-    async () => {
-      await withDueQueue(async ({ queueDir, sentDir }) => {
-        const { service, smtp } = createService(queueDir);
-        await fs.mkdir(sentDir, { recursive: true });
-        await fs.chmod(sentDir, 0o500);
+  it('should not send again when the sent record cannot be written after SMTP accepted', async () => {
+    await withDueQueue(async ({ queueDir, sentDir }) => {
+      const { service, smtp } = createService(queueDir);
+      await withNextMoveFailing(sentDir, async () => {
         await service.checkAndSend();
-        await service.checkAndSend();
-        expect(smtp.sendEmail.mock.calls).toHaveLength(1);
       });
-    },
-  );
+      await service.checkAndSend();
+      expect(smtp.sendEmail.mock.calls).toHaveLength(1);
+    });
+  });
 
-  it.skipIf(process.getuid?.() === 0)(
-    'should count a delivered email as sent when its sent record cannot be written',
-    async () => {
-      await withDueQueue(async ({ queueDir, id, sentDir }) => {
-        const { service } = createService(queueDir);
-        await fs.mkdir(sentDir, { recursive: true });
-        await fs.chmod(sentDir, 0o500);
-        const result = await service.checkAndSend();
-        // The file name tells the operator which queue entry to inspect.
-        const prefix = new RegExp(
-          `^${id}\\.json: sent, but the queue record was not updated: EACCES`,
-        );
-        expect({ sent: result.sent, failed: result.failed, errors: result.errors }).toEqual({
-          sent: 1,
-          failed: 0,
-          errors: [expect.stringMatching(prefix)],
-        });
+  it('should count a delivered email as sent when its sent record cannot be written', async () => {
+    await withDueQueue(async ({ queueDir, id, sentDir }) => {
+      const { service } = createService(queueDir);
+      let result = { sent: 0, failed: 0, deferred: 0, errors: [] as string[] };
+      await withNextMoveFailing(sentDir, async () => {
+        result = await service.checkAndSend();
       });
-    },
-  );
+      // The file name tells the operator which queue entry to inspect.
+      const prefix = new RegExp(
+        `^${id}\\.json: sent, but the queue record was not updated: EACCES`,
+      );
+      expect({ sent: result.sent, failed: result.failed, errors: result.errors }).toEqual({
+        sent: 1,
+        failed: 0,
+        errors: [expect.stringMatching(prefix)],
+      });
+    });
+  });
 
   it('should report a delivered email whose sent record hit a full disk', async () => {
     await withDueQueue(async ({ queueDir }) => {
@@ -104,24 +105,21 @@ describe('retried and delivered sends', () => {
   });
 
   // At least once, not exactly once: with neither the sent record nor the move, the record still says sending.
-  it.skipIf(process.getuid?.() === 0)(
-    'should send again on the next check when neither the sent record nor the move into sent/ succeeded',
-    async () => {
-      await withDueQueue(async ({ queueDir, sentDir }) => {
-        const { service, smtp } = createService(queueDir);
-        await fs.mkdir(sentDir, { recursive: true });
-        await fs.chmod(sentDir, 0o500);
+  it('should send again on the next check when neither the sent record nor the move into sent/ succeeded', async () => {
+    await withDueQueue(async ({ queueDir, sentDir }) => {
+      const { service, smtp } = createService(queueDir);
+      await withNextMoveFailing(sentDir, async () => {
         await withFullDisk(
           (data) => data.includes('"status": "sent"'),
           async () => {
             await service.checkAndSend();
           },
         );
-        await service.checkAndSend();
-        expect(smtp.sendEmail.mock.calls).toHaveLength(2);
       });
-    },
-  );
+      await service.checkAndSend();
+      expect(smtp.sendEmail.mock.calls).toHaveLength(2);
+    });
+  });
 
   it('should not send again when a check that read the record before delivery claims it after', async () => {
     await withDueQueue(async ({ queueDir, pendingPath, sentDir }) => {
@@ -179,58 +177,54 @@ describe('retried and delivered sends', () => {
   });
 
   // Sent back to the retry path, a delivered email would go out again on the next check.
-  it.skipIf(process.getuid?.() === 0)(
-    'should leave a record that says sent unchanged and unsent when its move into sent/ fails',
-    async () => {
-      await withDueQueue(async ({ queueDir, id, pendingPath, sentDir }) => {
-        const record = {
-          ...pendingRecord(id, '2020-01-01T00:00:00Z'),
-          status: 'sent',
-          attempts: 1,
-        };
-        await fs.writeFile(pendingPath, JSON.stringify(record));
-        await fs.mkdir(sentDir, { recursive: true });
-        await fs.chmod(sentDir, 0o500);
-        const { service, smtp } = createService(queueDir);
-        const first = await service.checkAndSend();
-        await service.checkAndSend();
-        const kept = JSON.parse(await fs.readFile(pendingPath, 'utf8')) as ScheduledEmail;
-        expect({
-          sends: smtp.sendEmail.mock.calls.length,
-          first,
-          status: kept.status,
-          attempts: kept.attempts,
-        }).toEqual({
-          sends: 0,
-          first: { sent: 0, failed: 0, deferred: 0, errors: [] },
-          status: 'sent',
-          attempts: 1,
-        });
+  it('should leave a record that says sent unchanged and unsent when its move into sent/ fails', async () => {
+    await withDueQueue(async ({ queueDir, id, pendingPath, sentDir }) => {
+      const record = { ...pendingRecord(id, '2020-01-01T00:00:00Z'), status: 'sent', attempts: 1 };
+      await fs.writeFile(pendingPath, JSON.stringify(record));
+      const { service, smtp } = createService(queueDir);
+      let first = {};
+      // One failed move per check: the record must survive both.
+      await withNextMoveFailing(
+        sentDir,
+        async () => {
+          first = await service.checkAndSend();
+          await service.checkAndSend();
+        },
+        2,
+      );
+      const kept = JSON.parse(await fs.readFile(pendingPath, 'utf8')) as ScheduledEmail;
+      expect({
+        sends: smtp.sendEmail.mock.calls.length,
+        first,
+        status: kept.status,
+        attempts: kept.attempts,
+      }).toEqual({
+        sends: 0,
+        first: { sent: 0, failed: 0, deferred: 0, errors: [] },
+        status: 'sent',
+        attempts: 1,
       });
-    },
-  );
+    });
+  });
 
   // The sent record is the commit point, so its error is the one that explains a resend.
-  it.skipIf(process.getuid?.() === 0)(
-    'should report the sent record error when the move into sent/ fails too',
-    async () => {
-      await withDueQueue(async ({ queueDir, sentDir }) => {
-        const { service } = createService(queueDir);
-        await fs.mkdir(sentDir, { recursive: true });
-        await fs.chmod(sentDir, 0o500);
-        let errors: string[] = [];
+  it('should report the sent record error when the move into sent/ fails too', async () => {
+    await withDueQueue(async ({ queueDir, sentDir }) => {
+      const { service } = createService(queueDir);
+      let errors: string[] = [];
+      await withNextMoveFailing(sentDir, async () => {
         await withFullDisk(
           (data) => data.includes('"status": "sent"'),
           async () => {
             ({ errors } = await service.checkAndSend());
           },
         );
-        expect(errors).toEqual([
-          expect.stringMatching(/sent, but the queue record was not updated: ENOSPC/),
-        ]);
       });
-    },
-  );
+      expect(errors).toEqual([
+        expect.stringMatching(/sent, but the queue record was not updated: ENOSPC/),
+      ]);
+    });
+  });
 
   it('should leave a record that says sent in place while its sender still holds the claim', async () => {
     await withDueQueue(async ({ queueDir, id, pendingPath }) => {
