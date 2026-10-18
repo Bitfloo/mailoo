@@ -110,4 +110,16 @@ describe('buildSmtpAuth', () => {
     const result = await provision(buildSmtpAuth(oauthAccount, tokens));
     expect(result.err?.message).toBe('OAuth2 token refresh failed (400): invalid_grant');
   });
+
+  it('should hand a non-Error refresh failure to nodemailer as an Error', async () => {
+    const tokens: AccessTokenSource = {
+      // eslint-disable-next-line prefer-promise-reject-errors -- the case under test: a bare string
+      getAccessToken: async () => Promise.reject('invalid_grant'),
+    };
+    const { err } = await provision(buildSmtpAuth(oauthAccount, tokens));
+    expect({ isError: err instanceof Error, message: err?.message }).toEqual({
+      isError: true,
+      message: 'invalid_grant',
+    });
+  });
 });
