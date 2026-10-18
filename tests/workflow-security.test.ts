@@ -13,6 +13,7 @@ import {
   unreadKeys,
   workflowDir,
   workflowFiles,
+  workflowTexts,
 } from './workflow-yaml.js';
 
 const ciYml = readFileSync(join(workflowDir, 'ci.yml'), 'utf8');
@@ -160,6 +161,11 @@ describe('workflow file, job and key readers', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('should hand the rosters the text of every workflow file in the tree', () => {
+    // The step, key and job rosters run over this list, so a file left out would be checked by none.
+    expect(workflowTexts().map(([name]) => name)).toEqual(workflowFiles());
   });
 });
 
