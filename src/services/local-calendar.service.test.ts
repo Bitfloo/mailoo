@@ -129,6 +129,14 @@ describe('listEvents script', () => {
     );
   });
 
+  it.each([
+    [3, 'set maxResults to 3'],
+    [0, 'set maxResults to 0'],
+  ])('should pass limit %s into the list_events script', async (limit, line) => {
+    const script = await listScript({ limit });
+    expect(script.split('\n').find((text) => text.startsWith('set maxResults to '))).toBe(line);
+  });
+
   it('should list 20 events from 7 days back to 30 days ahead by default', async () => {
     const now = new Date(2026, 9, 17, 12, 0, 0);
     vi.useFakeTimers({ now, toFake: ['Date'] });
@@ -190,9 +198,16 @@ describe('checkPermissions', () => {
       }),
     );
     const result = await onDarwin(async () => new LocalCalendarService().checkPermissions());
-    expect({ granted: result.granted, first: result.instructions[0] }).toEqual({
+    expect(result).toEqual({
       granted: false,
-      first: 'Calendar access was denied or unavailable.',
+      platform: 'darwin',
+      instructions: [
+        'Calendar access was denied or unavailable.',
+        '1. Open System Settings (Apple menu \u2192 System Settings)',
+        '2. Go to Privacy & Security \u2192 Calendars',
+        '3. Enable access for Terminal (or your terminal emulator, e.g. iTerm2)',
+        '4. Quit and restart the terminal, then try again.',
+      ],
     });
   });
 });
