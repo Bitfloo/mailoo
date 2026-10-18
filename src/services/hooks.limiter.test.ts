@@ -33,10 +33,10 @@ describe('HooksService sampling limiter', () => {
 
   /** Flushes one batch per id, in order; each flush takes the 1 s batch delay. */
   async function flushEach(ids: string[]): Promise<void> {
-    await ids.reduce(async (previous, id) => {
-      await previous;
+    for (const id of ids) {
+      // eslint-disable-next-line no-await-in-loop -- each batch waits for the previous flush.
       await flushHooks([meta({ id })]);
-    }, Promise.resolve());
+    }
   }
 
   it('should sample at most 10 batches a minute and 10 more after the 60 s reset', async () => {
