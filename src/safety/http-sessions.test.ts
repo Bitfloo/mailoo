@@ -228,15 +228,19 @@ describe('HttpSessionStore', () => {
   it('should keep the table invariants over a seeded mix of sessions, requests, waits and sweeps', () => {
     const run = newRun();
     const random = seededRandom(20_261_017);
-    const unvisited = new Set<Step['action']>(['set', 'begin', 'end', 'wait', 'sweep']);
+    // One visit per path let a run reach the cap once and pass. This seed draws 51 sets
+    // (47 at the cap), 1,131 begins, 637 ends, 731 waits and 450 sweeps.
+    const visits = { set: 0, setAtCap: 0, begin: 0, end: 0, wait: 0, sweep: 0 };
 
     const breaches = Array.from({ length: 3_000 }).flatMap((_, at) => {
       const step = applyRandomAction(run, random);
-      unvisited.delete(step.action);
+      visits[step.action] += 1;
+      if (step.action === 'set' && step.overCap) visits.setAtCap += 1;
       return checkInvariants(run, step, at);
     });
+    const thin = Object.entries(visits).flatMap(([path, n]) => (n < 40 ? [path] : []));
 
-    expect({ breaches, unvisited: [...unvisited] }).toEqual({ breaches: [], unvisited: [] });
+    expect({ breaches, thin }).toEqual({ breaches: [], thin: [] });
   });
 
   it('writes stderr when transport.close rejects', async () => {
