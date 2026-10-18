@@ -124,7 +124,6 @@ export async function withDueQueue(
     await fs.writeFile(pendingPath, JSON.stringify(pendingRecord(id, '2020-01-01T00:00:00Z')));
     await body({ queueDir, id, pendingPath, sentDir });
   } finally {
-    await fs.chmod(sentDir, 0o700).catch(() => undefined);
     await fs.rm(queueDir, { recursive: true, force: true });
   }
 }
