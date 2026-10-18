@@ -16,6 +16,14 @@ import queueId from './queue-id.js';
 export const stateHome = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-'));
 vi.stubEnv('XDG_STATE_HOME', stateHome);
 
+/** The queue a service built without a queue directory uses. */
+export const { SCHEDULED_DIR: scheduledDir } = await import('../config/xdg.js');
+// Fails every file that imports this module, before any test can write a queue file under HOME.
+const queueFromHome = path.relative(stateHome, scheduledDir);
+if (queueFromHome.startsWith('..') || path.isAbsolute(queueFromHome)) {
+  throw new Error(`Scheduler test queue ${scheduledDir} is outside the test state home`);
+}
+
 export const {
   default: SchedulerService,
   CLAIM_RENEW_MS,
@@ -23,8 +31,6 @@ export const {
   SCHEDULE_CLAIM_SUFFIX,
   STALE_LOCK_MS,
 } = await import('../services/scheduler.service.js');
-
-export const scheduledDir = path.join(stateHome, 'mailoo', 'scheduled');
 
 export function daysFromNow(days: number): string {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
