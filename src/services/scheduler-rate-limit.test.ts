@@ -100,39 +100,69 @@ describe('scheduled email content', () => {
     vi.useRealTimers();
   });
 
-  it('should deliver the stored recipients, subject, body, html flag, cc and bcc', async () => {
+  type ScheduleOptions = Parameters<InstanceType<typeof SchedulerService>['schedule']>[1];
+
+  /** Schedules one email for the next day, runs a check the day after and returns what SMTP got. */
+  async function scheduleAndSend(
+    options: Omit<ScheduleOptions, 'sendAt'>,
+  ): Promise<{ sent: SendMailOptions[]; stored: ScheduledEmail }> {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
     const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-content-'));
     const sent: SendMailOptions[] = [];
     try {
       const service = smtpBackedScheduler(queueDir, { sent });
-      await service.schedule('personal', {
-        to: ['to@example.com'],
-        cc: ['cc@example.com'],
-        bcc: ['bcc@example.com'],
-        subject: 'Quarterly numbers',
-        body: '<p>The figures are attached.</p>',
-        html: true,
+      const { id } = await service.schedule('personal', {
+        ...options,
         sendAt: '2028-01-16T00:00:00.000Z',
       });
+      const stored = JSON.parse(
+        await fs.readFile(path.join(queueDir, `${id}.json`), 'utf8'),
+      ) as ScheduledEmail;
       vi.setSystemTime(new Date('2028-01-17T00:00:00.000Z'));
       await service.checkAndSend();
-      expect(
-        sent.map(({ to, cc, bcc, subject, html, text }) => ({ to, cc, bcc, subject, html, text })),
-      ).toEqual([
-        {
-          to: 'to@example.com',
-          cc: 'cc@example.com',
-          bcc: 'bcc@example.com',
-          subject: 'Quarterly numbers',
-          html: '<p>The figures are attached.</p>',
-          text: undefined,
-        },
-      ]);
+      return { sent, stored };
     } finally {
       await fs.rm(queueDir, { recursive: true, force: true });
     }
+  }
+
+  it('should deliver the stored recipients, subject, body, html flag, cc and bcc', async () => {
+    const { sent } = await scheduleAndSend({
+      to: ['to@example.com'],
+      cc: ['cc@example.com'],
+      bcc: ['bcc@example.com'],
+      subject: 'Quarterly numbers',
+      body: '<p>The figures are attached.</p>',
+      html: true,
+    });
+    expect(
+      sent.map(({ to, cc, bcc, subject, html, text }) => ({ to, cc, bcc, subject, html, text })),
+    ).toEqual([
+      {
+        to: 'to@example.com',
+        cc: 'cc@example.com',
+        bcc: 'bcc@example.com',
+        subject: 'Quarterly numbers',
+        html: '<p>The figures are attached.</p>',
+        text: undefined,
+      },
+    ]);
+  });
+
+  it('should deliver a plain-text body as text when the email was scheduled without an html flag', async () => {
+    const { sent, stored } = await scheduleAndSend({
+      to: ['to@example.com'],
+      subject: 'Quarterly numbers',
+      body: 'The figures are attached.',
+    });
+    expect({
+      delivered: sent.map(({ html, text }) => ({ html, text })),
+      storedHtml: stored.html,
+    }).toEqual({
+      delivered: [{ html: undefined, text: 'The figures are attached.' }],
+      storedHtml: false,
+    });
   });
 });
 
