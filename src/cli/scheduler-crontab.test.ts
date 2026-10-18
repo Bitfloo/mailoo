@@ -21,14 +21,14 @@ async function withFakeCrontab(
 set -e
 if [ "$1" = "-l" ]; then
   if [ -f ${shQuote(stderrPath)} ]; then
-    cat ${shQuote(stderrPath)} >&2
+    /bin/cat ${shQuote(stderrPath)} >&2
     exit 1
   fi
-  cat ${shQuote(stdoutPath)}
+  /bin/cat ${shQuote(stdoutPath)}
   exit 0
 fi
 if [ "$1" = "-" ]; then
-  cat > ${shQuote(writtenPath)}
+  /bin/cat > ${shQuote(writtenPath)}
   exit 0
 fi
 exit 2
@@ -36,7 +36,8 @@ exit 2
   await fs.writeFile(bin, script, { mode: 0o755 });
   await fs.chmod(bin, 0o755);
   const previousPath = process.env.PATH;
-  process.env.PATH = [dir, '/bin', '/usr/bin'].join(path.delimiter);
+  // Only the fake: a fake that cannot run must fail, not fall through to the real crontab.
+  process.env.PATH = dir;
   try {
     await run(async () => {
       try {
