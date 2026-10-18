@@ -42,6 +42,24 @@ const GOOGLE_INVITE = [
   '',
 ].join('\r\n');
 
+/** One VEVENT in a REQUEST calendar; `lines` go between BEGIN:VEVENT and END:VEVENT. */
+function invite(...lines: string[]): string {
+  return [
+    'BEGIN:VCALENDAR',
+    'METHOD:REQUEST',
+    'VERSION:2.0',
+    'BEGIN:VEVENT',
+    ...lines,
+    'END:VEVENT',
+    'END:VCALENDAR',
+    '',
+  ].join('\r\n');
+}
+
+function vevent(uid: string, start: string): string[] {
+  return [`UID:${uid}`, `DTSTART:${start}`, 'DTEND:20261231T235900Z', 'SUMMARY:Planning sync'];
+}
+
 describe('CalendarService.parseIcs', () => {
   it('should read a SUMMARY, LOCATION and DESCRIPTION without parameters as text', () => {
     const [event] = CalendarService.parseIcs(GOOGLE_INVITE);
@@ -80,5 +98,80 @@ describe('CalendarService.parseIcs', () => {
       uid: '040000008200E00074C5B7101A82E008',
       status: 'CANCELLED',
     });
+  });
+
+  it('should leave summary, description and location at their defaults when the invitation has none', () => {
+    const [event] = CalendarService.parseIcs(
+      invite('UID:bare-1', 'DTSTART:20261005T080000Z', 'DTEND:20261005T083000Z'),
+    );
+    expect({
+      summary: event?.summary,
+      description: event?.description,
+      location: event?.location,
+    }).toEqual({ summary: '(No title)', description: undefined, location: undefined });
+  });
+
+  it('should read the method, recurrence, organizer and attendees of a recurring invitation', () => {
+    const [event] = CalendarService.parseIcs(
+      invite(
+        ...vevent('weekly-1', '20261005T080000Z'),
+        'ORGANIZER;CN=Alice:mailto:alice@example.com',
+        'ATTENDEE;CN=Bob;ROLE=REQ-PARTICIPANT:mailto:bob@example.com',
+        'ATTENDEE:mailto:carol@example.com',
+        'ATTENDEE;CN=Projector;CUTYPE=RESOURCE:',
+        'RRULE:FREQ=WEEKLY;COUNT=4',
+      ),
+    );
+    expect({
+      method: event?.method,
+      rrule: event?.recurrence?.split('\n').at(-1),
+      organizer: event?.organizer,
+      attendees: event?.attendees,
+    }).toEqual({
+      method: 'REQUEST',
+      rrule: 'RRULE:FREQ=WEEKLY;COUNT=4',
+      organizer: { name: 'Alice', address: 'alice@example.com' },
+      attendees: [{ name: 'Bob', address: 'bob@example.com' }, { address: 'carol@example.com' }],
+    });
+  });
+
+  it('should strip mailto: from an organizer without parameters', () => {
+    const [event] = CalendarService.parseIcs(
+      invite(...vevent('org-1', '20261005T080000Z'), 'ORGANIZER:mailto:alice@example.com'),
+    );
+    expect(event?.organizer).toEqual({ address: 'alice@example.com' });
+  });
+
+  it('should read a TENTATIVE status written in lower case', () => {
+    const [event] = CalendarService.parseIcs(
+      invite(...vevent('tent-1', '20261005T080000Z'), 'STATUS:tentative'),
+    );
+    expect(event?.status).toBe('TENTATIVE');
+  });
+
+  it('should order the events of one calendar by start', () => {
+    const ics = invite(
+      ...vevent('late', '20261007T080000Z'),
+      'END:VEVENT',
+      'BEGIN:VEVENT',
+      ...vevent('early', '20261005T080000Z'),
+    );
+    expect(CalendarService.parseIcs(ics).map((event) => event.uid)).toEqual(['early', 'late']);
+  });
+});
+
+describe('CalendarService.extractFromParts', () => {
+  it('should keep the first event of a UID that a later part repeats', () => {
+    const first = invite(...vevent('standup', '20261005T080000Z'));
+    const update = invite(...vevent('standup', '20261006T080000Z'));
+    const events = new CalendarService().extractFromParts([first, update]);
+    expect(events.map((event) => event.start)).toEqual(['2026-10-05T08:00:00.000Z']);
+  });
+
+  it('should order the events of all parts by start', () => {
+    const late = invite(...vevent('late', '20261007T080000Z'));
+    const early = invite(...vevent('early', '20261005T080000Z'));
+    const events = new CalendarService().extractFromParts([late, early]);
+    expect(events.map((event) => event.uid)).toEqual(['early', 'late']);
   });
 });
