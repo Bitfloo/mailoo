@@ -56,8 +56,10 @@ describe('buildEmailMeta', () => {
     expect([read.seen, unread.seen]).toEqual([true, false]);
   });
 
-  it('should list only user keywords as labels', () => {
-    const meta = buildEmailMeta({ ...fetched, flags: new Set(['\\Seen', '$Important']) });
+  it('should list no system flag as a label', () => {
+    // Every system flag RFC 3501 defines, next to one user keyword.
+    const systemFlags = ['\\Seen', '\\Answered', '\\Flagged', '\\Deleted', '\\Draft', '\\Recent'];
+    const meta = buildEmailMeta({ ...fetched, flags: new Set([...systemFlags, '$Important']) });
     expect(meta.labels).toEqual(['$Important']);
   });
 
