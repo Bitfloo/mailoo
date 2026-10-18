@@ -138,6 +138,39 @@ describe('ImapService', () => {
     });
   });
 
+  describe('getQuota', () => {
+    it('should report the INBOX storage quota in MB', async () => {
+      // imapflow's QUOTA answer: storage KB from the wire multiplied into bytes.
+      client.getQuota.mockResolvedValue({
+        path: 'INBOX',
+        storage: { usage: 2 * 1024 * 1024, limit: 4 * 1024 * 1024, status: '50%' },
+      });
+
+      const quota = await service.getQuota('test');
+
+      expect([quota, client.getQuota.mock.calls]).toEqual([
+        { usedMb: 2, totalMb: 4, percentage: 50 },
+        [['INBOX']],
+      ]);
+    });
+
+    it.each([
+      ['the server has no QUOTA extension', false],
+      ['the quota root has no storage limit', { path: 'INBOX' }],
+      ['the storage limit is 0', { path: 'INBOX', storage: { usage: 0, limit: 0, status: '0%' } }],
+    ])('should report no quota when %s', async (_, answer) => {
+      client.getQuota.mockResolvedValue(answer);
+
+      await expect(service.getQuota('test')).resolves.toBeNull();
+    });
+
+    it('should report no quota when the QUOTA command fails', async () => {
+      client.getQuota.mockRejectedValue(new Error('Command failed: NO [UNAVAILABLE]'));
+
+      await expect(service.getQuota('test')).resolves.toBeNull();
+    });
+  });
+
   describe('getEmail', () => {
     it('downloads leaf text parts rather than hardcoded part 1, and keeps Original Message', async () => {
       client.fetchOne.mockResolvedValue({

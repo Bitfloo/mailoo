@@ -22,7 +22,8 @@ type ImapCommand =
   | 'fetchOne'
   | 'mailboxCreate'
   | 'mailboxRename'
-  | 'mailboxDelete';
+  | 'mailboxDelete'
+  | 'getQuota';
 
 // Written out because tsc cannot name the inferred vi.fn() type in a declaration.
 export type MockImapClient = Record<ImapCommand, Mock> & {
@@ -53,6 +54,8 @@ export function createMockImapClient(): MockImapClient {
     mailboxCreate: vi.fn().mockResolvedValue({ path: 'created', created: true }),
     mailboxRename: vi.fn().mockResolvedValue({ path: 'old', newPath: 'new' }),
     mailboxDelete: vi.fn().mockResolvedValue({ path: 'deleted' }),
+    // imapflow resolves false when the server has no QUOTA extension.
+    getQuota: vi.fn().mockResolvedValue(false),
     namespace: undefined,
     _releaseFn: releaseFn,
   };

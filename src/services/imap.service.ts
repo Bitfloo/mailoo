@@ -1950,18 +1950,15 @@ export default class ImapService {
   async getQuota(accountName: string): Promise<QuotaInfo | null> {
     const client = await this.connections.getImapClient(accountName);
     try {
-      const quota = await (
-        client as unknown as {
-          getQuotaForMailbox: (path: string) => Promise<{
-            storage?: { usage?: number; limit?: number };
-          } | null>;
-        }
-      ).getQuotaForMailbox('INBOX');
+      const quota = await client.getQuota('INBOX');
+      // imapflow reports bytes in storage.usage; its type declaration names the field `used`.
+      const storage = quota
+        ? (quota.storage as { usage?: number; limit?: number } | undefined)
+        : undefined;
+      if (!storage?.limit) return null;
 
-      if (!quota?.storage?.limit) return null;
-
-      const usedMb = Math.round((quota.storage.usage ?? 0) / 1024);
-      const totalMb = Math.round(quota.storage.limit / 1024);
+      const usedMb = Math.round((storage.usage ?? 0) / 1024 / 1024);
+      const totalMb = Math.round(storage.limit / 1024 / 1024);
       return {
         usedMb,
         totalMb,
