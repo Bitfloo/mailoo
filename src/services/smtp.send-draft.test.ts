@@ -60,23 +60,34 @@ describe('SmtpService.sendDraft', () => {
     };
   });
 
-  function service(): SmtpService {
+  /** The configured account for `name`: "test", or a second account for any other name. */
+  function account(name: string) {
+    const [user, fullName] = name === 'test' ? ['test', 'Test User'] : ['other', 'Other Desk'];
+    return {
+      name: user,
+      email: `${user}@example.com`,
+      fullName,
+      username: `${user}@example.com`,
+      imap: { host: 'imap.example.com', port: 993, tls: true, starttls: false, verifySsl: true },
+      smtp: { host: 'smtp.example.com', port: 465, tls: true, starttls: false, verifySsl: true },
+    };
+  }
+
+  const otherSendMail = vi.fn();
+
+  function service(saveToSent = true): SmtpService {
+    otherSendMail.mockReset().mockResolvedValue({ messageId: '<other@example.com>' });
     const connections = {
-      getAccount: vi.fn().mockReturnValue({
-        name: 'test',
-        email: 'test@example.com',
-        fullName: 'Test User',
-        username: 'test@example.com',
-        imap: { host: 'imap.example.com', port: 993, tls: true, starttls: false, verifySsl: true },
-        smtp: { host: 'smtp.example.com', port: 465, tls: true, starttls: false, verifySsl: true },
-      }),
-      getAccountNames: vi.fn().mockReturnValue(['test']),
+      getAccount: vi.fn(account),
+      getAccountNames: vi.fn().mockReturnValue(['test', 'other']),
       getImapClient: vi.fn(),
-      getSmtpTransport: vi.fn().mockResolvedValue({ sendMail }),
+      getSmtpTransport: vi.fn().mockImplementation(async (name: string) => ({
+        sendMail: name === 'test' ? sendMail : otherSendMail,
+      })),
       closeAll: vi.fn(),
     } satisfies IConnectionManager;
     const rateLimiter = { tryConsume: vi.fn(() => allowed) } as unknown as RateLimiter;
-    return new SmtpService(connections, rateLimiter, imap as unknown as ImapService);
+    return new SmtpService(connections, rateLimiter, imap as unknown as ImapService, saveToSent);
   }
 
   it('should send the draft recipients, subject, threading headers and text body', async () => {
@@ -152,5 +163,71 @@ describe('SmtpService.sendDraft', () => {
       error: 'Rate limit exceeded for account "test". Please wait before sending more emails.',
       fetches: 0,
     });
+  });
+
+  it('should send from the draft account, through its transport, and file its Sent copy there', async () => {
+    await service().sendDraft('test', 42);
+    expect({
+      from: sendMail.mock.calls[0]?.[0].from,
+      otherSends: otherSendMail.mock.calls.length,
+      sentCopyAccounts: imap.appendSentMessage.mock.calls.map(([name]) => name),
+    }).toEqual({
+      from: '"Test User" <test@example.com>',
+      otherSends: 0,
+      sentCopyAccounts: ['test'],
+    });
+  });
+
+  it('should attach every draft attachment', async () => {
+    const draft = replyDraft();
+    const annex = { filename: 'annex.pdf', mimeType: 'application/pdf', size: 9 };
+    imap.fetchDraft.mockResolvedValue({
+      ...draft,
+      email: { ...draft.email, attachments: [...draft.email.attachments, annex] },
+    });
+    imap.downloadAttachment.mockImplementation(async (...args: unknown[]) => ({
+      filename: args[3],
+      mimeType: 'application/pdf',
+      size: 9,
+      contentBase64: Buffer.from('%PDF-1.7\n').toString('base64'),
+    }));
+    await service().sendDraft('test', 42);
+    expect(
+      sendMail.mock.calls[0]?.[0].attachments.map((a: { filename: string }) => a.filename),
+    ).toEqual(['contract.pdf', 'annex.pdf']);
+  });
+
+  it('should refuse local file and URL access in the sent mail', async () => {
+    await service().sendDraft('test', 42);
+    const mail = sendMail.mock.calls[0]?.[0];
+    expect({ file: mail.disableFileAccess, url: mail.disableUrlAccess }).toEqual({
+      file: true,
+      url: true,
+    });
+  });
+
+  it('should report an empty message id when the transport returns none', async () => {
+    sendMail.mockResolvedValue({});
+    const result = await service().sendDraft('test', 42);
+    expect(result.messageId).toBe('');
+  });
+
+  it('should not append a Sent copy when save_to_sent is off', async () => {
+    const result = await service(false).sendDraft('test', 42);
+    expect({
+      appended: imap.appendSentMessage.mock.calls,
+      savedToSent: result.savedToSent,
+    }).toEqual({ appended: [], savedToSent: true });
+  });
+
+  it("should report the caller's message id when the transport returns none", async () => {
+    sendMail.mockResolvedValue({});
+    const result = await service().sendEmail('test', {
+      to: ['recipient@example.com'],
+      subject: 'Contract follow-up',
+      body: 'Signed copy attached.',
+      messageId: '<stable-7@example.com>',
+    });
+    expect(result.messageId).toBe('<stable-7@example.com>');
   });
 });
