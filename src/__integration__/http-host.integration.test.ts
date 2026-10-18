@@ -1,8 +1,8 @@
 /**
  * What the HTTP host does outside any one session: whether read_only keeps
  * the process-wide mail writers off, whether close() stops them and finishes
- * with a stream still open, and its answers on paths that are not the MCP
- * endpoint.
+ * with a stream still open, how often the scheduler runs, and its answers on
+ * paths that are not the MCP endpoint.
  */
 
 import fs from 'node:fs/promises';
@@ -122,6 +122,37 @@ describe('HTTP host close', () => {
     } finally {
       clearTimeout(deadline);
       stream.close();
+    }
+  });
+});
+
+describe('HTTP host scheduler', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('should run the scheduler again after 60 seconds and not before when the host is writable', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const config = testConfig();
+    config.settings.readOnly = false;
+    const running = await startHost({ now: 1_000 }, 5_000, config);
+    const checkAndSend = vi.spyOn(running.host.scheduler, 'checkAndSend');
+    const client = new Client({ name: 'mailoo-scheduler', version: '0.0.0' });
+    try {
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${running.port}/mcp`)),
+      );
+      await running.host.ready;
+      const atBoot = checkAndSend.mock.calls.length;
+      vi.advanceTimersByTime(59_999);
+      const before = checkAndSend.mock.calls.length - atBoot;
+      vi.advanceTimersByTime(1);
+
+      expect({ before, at: checkAndSend.mock.calls.length - atBoot }).toEqual({ before: 0, at: 1 });
+    } finally {
+      await client.close().catch(() => undefined);
+      await running.stop();
     }
   });
 });
