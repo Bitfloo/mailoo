@@ -94,7 +94,6 @@ describe('startGuardedHttpServers', () => {
   it.each([
     ['/mcp', 'GET, POST, DELETE'],
     ['/health', 'GET'],
-    ['/other', 'GET, POST, DELETE'],
   ])('should list %s methods in Allow when it refuses PUT with 405', async (path, allow) => {
     const policy = resolveHttpListen({ port: 0, host: '127.0.0.1' });
     const listener = await startGuardedHttpServers(policy, okHandler);
@@ -103,6 +102,24 @@ describe('startGuardedHttpServers', () => {
       const res = await send(listener.port, { host }, { method: 'PUT', path });
 
       expect({ status: res.status, allow: res.headers.allow }).toEqual({ status: 405, allow });
+    } finally {
+      await listener.close();
+    }
+  });
+
+  // GET, POST and DELETE on a path no route serves answer 404; another method must not
+  // turn the same missing path into a 405 that names methods it does not have.
+  it('should answer 404 without Allow when it refuses PUT on a path no route serves', async () => {
+    const policy = resolveHttpListen({ port: 0, host: '127.0.0.1' });
+    const listener = await startGuardedHttpServers(policy, okHandler);
+    try {
+      const host = `127.0.0.1:${listener.port}`;
+      const res = await send(listener.port, { host }, { method: 'PUT', path: '/other' });
+
+      expect({ status: res.status, allow: res.headers.allow }).toEqual({
+        status: 404,
+        allow: undefined,
+      });
     } finally {
       await listener.close();
     }

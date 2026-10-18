@@ -401,17 +401,21 @@ export function resolveHttpRoute(method: string | undefined, url: string | undef
   return url === '/health' ? 'health' : 'mcp';
 }
 
-/** The Allow value for a 405 on `url`. A path no route serves lists every method the guard accepts. */
+/** The Allow value for a 405 on `url`. Only a path a route serves is answered with 405. */
 export function allowedMethods(url: string | undefined): string {
-  return [...(ROUTE_METHODS.get(url ?? '') ?? METHODS)].join(', ');
+  return (ROUTE_METHODS.get(url ?? '') ?? []).join(', ');
 }
 
 export function evaluateHttpAccess(
-  req: { method?: string; headers: HttpRequestHeaders },
+  req: { method?: string; url?: string; headers: HttpRequestHeaders },
   policy: HttpListenPolicy,
 ): HttpAccessDecision {
   const method = req.method ?? '';
-  if (!METHODS.has(method)) return refused(405, 'Method not allowed');
+  if (!METHODS.has(method)) {
+    return ROUTE_METHODS.has(req.url ?? '')
+      ? refused(405, 'Method not allowed')
+      : refused(404, 'Not Found');
+  }
 
   const host = hostDecision(oneHeader(req.headers.host), policy);
   if (host) return host;
@@ -587,7 +591,7 @@ export async function startGuardedHttpServers(
   let boundPort = policy.port;
 
   const onRequest: http.RequestListener = (req, res) => {
-    const decision = evaluateHttpAccess({ method: req.method, headers: req.headers }, active);
+    const decision = evaluateHttpAccess(req, active);
     if (!decision.ok) {
       rejectRequest(req, res, decision.status, decision.message);
       return;

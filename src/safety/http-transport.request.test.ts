@@ -165,10 +165,8 @@ describe('evaluateHttpAccess', () => {
   });
 
   it('rejects a method other than GET, POST, or DELETE', () => {
-    expect(
-      deny(evaluateHttpAccess({ method: 'TRACE', headers: { host: '127.0.0.1:8080' } }, policy))
-        .status,
-    ).toBe(405);
+    const req = { method: 'TRACE', url: '/mcp', headers: { host: '127.0.0.1:8080' } };
+    expect(deny(evaluateHttpAccess(req, policy)).status).toBe(405);
   });
 
   it('rejects a Content-Length one byte over the configured limit', () => {
