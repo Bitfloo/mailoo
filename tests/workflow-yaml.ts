@@ -242,8 +242,8 @@ export function requireTools(tools: string[], path = process.env.PATH ?? ''): vo
 }
 
 /**
- * One chunk per job so a token can be required on the scorecard job only. Throws unless every
- * job key in the block starts a chunk, so a key form it cannot split on does not hide a job.
+ * One chunk per job, for the token roster, the job names and the step a harness runs. Throws unless
+ * every job key in the block starts a chunk, so a key form it cannot split on does not hide a job.
  */
 export function jobSections(yaml: string): string[] {
   const parts = yaml.split(/^jobs:\n/m);

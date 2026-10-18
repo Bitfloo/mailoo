@@ -3,7 +3,6 @@ import { requireTools, runBlock } from './workflow-yaml.js';
 
 requireTools(['bash', 'cat', 'cp', 'grep', 'mktemp', 'rm', 'sha256sum', 'tar']);
 
-/** The exit status, the calls and each pause of one publish run. */
 function retries(publisher: Publisher) {
   const { status, calls, pauses } = publish(publisher);
   return { status, calls, pauses };
