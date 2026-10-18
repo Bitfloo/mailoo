@@ -9,7 +9,13 @@ import { recipientEmail } from '../safety/validation.js';
 
 import type ImapService from '../services/imap.service.js';
 import type SmtpService from '../services/smtp.service.js';
-import { accountParam, draftIdInputFields, resolveDraftId } from './schema-helpers.js';
+import {
+  accountParam,
+  draftIdInputFields,
+  dryRunParam,
+  resolveDraftId,
+  structuredToolResult,
+} from './schema-helpers.js';
 
 export default function registerDraftTools(
   server: McpServer,
@@ -109,6 +115,7 @@ export default function registerDraftTools(
         account: accountParam,
         ...draftIdInputFields('Draft email UID (from list_emails on Drafts mailbox)'),
         mailbox: z.string().optional().describe('Drafts folder path (auto-detected if omitted)'),
+        dryRun: dryRunParam,
       },
       annotations: {
         readOnlyHint: false,
@@ -124,6 +131,18 @@ export default function registerDraftTools(
       try {
         const resolvedId = resolveDraftId(params);
         id = resolvedId;
+        if (params.dryRun) {
+          const resolvedAccount =
+            typeof smtpService.resolveAccountName === 'function'
+              ? smtpService.resolveAccountName(params.account)
+              : accountInput;
+          const folder = mailbox ? `"${mailbox}"` : 'the Drafts folder';
+          return structuredToolResult(
+            `[DRY RUN] Would send draft ${resolvedId} from ${folder} on account "${resolvedAccount}" and remove it from Drafts.`,
+            { action: 'send_draft', account: resolvedAccount, id: resolvedId, mailbox },
+            true,
+          );
+        }
         const result = await smtpService.sendDraft(accountInput, resolvedId, mailbox);
 
         await audit.log('send_draft', accountInput, { id: resolvedId, mailbox }, 'ok');

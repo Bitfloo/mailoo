@@ -275,6 +275,18 @@ export default class SchedulerService {
     this.sentDir = path.join(queueDir, 'sent');
   }
 
+  /**
+   * Records store the resolved name, so the filter resolves the same way. A name
+   * that resolves to no account, such as one since removed, filters as written.
+   */
+  private filterAccountName(accountName: string): string {
+    try {
+      return this.resolveAccountName(accountName);
+    } catch {
+      return accountName;
+    }
+  }
+
   resolveAccountName(accountName?: string): string {
     const imapWithResolver = this.imapService as ImapService & {
       resolveAccountName?: (name?: string) => string;
@@ -390,8 +402,8 @@ export default class SchedulerService {
       emails.push(...sent);
     }
 
-    // Filter by account if specified
-    const filtered = options.account ? emails.filter((e) => e.account === options.account) : emails;
+    const account = options.account ? this.filterAccountName(options.account) : undefined;
+    const filtered = account ? emails.filter((e) => e.account === account) : emails;
 
     // Filter by status unless "all"
     const selected = status === 'all' ? filtered : filtered.filter((e) => e.status === status);

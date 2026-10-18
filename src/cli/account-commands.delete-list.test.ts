@@ -44,6 +44,30 @@ describe('mailoo account delete and list', () => {
     expect(saved.accounts.map((a) => a.name)).toEqual(['work']);
   });
 
+  // A default naming a deleted account fails every call that leaves account out.
+  it.each([
+    ['personal', 'me@example.com', undefined],
+    ['work', 'work@example.com', 'personal'],
+  ])(
+    'should drop default_account only when it names the deleted account (%s)',
+    async (deleted, email, kept) => {
+      const config = CONFIG_WITH_PERSONAL_AND_WORK.replace(
+        'rate_limit = 3',
+        'rate_limit = 3\ndefault_account = "personal"',
+      );
+      await fs.writeFile(sandbox.configFile, config, { mode: 0o600 });
+      wizard.overrides.set(`Delete account "${deleted}" (${email})? This cannot be undone.`, true);
+
+      await (await sandbox.entryPoint('account delete', deleted))();
+
+      const saved = parseTOML(await fs.readFile(sandbox.configFile, 'utf-8')) as {
+        settings: { default_account?: string };
+        accounts: { name: string }[];
+      };
+      expect([saved.accounts.length, saved.settings.default_account]).toEqual([1, kept]);
+    },
+  );
+
   it.each([
     ['declined', false],
     ['cancelled with Ctrl-C', Symbol('clack:cancel')],

@@ -228,7 +228,15 @@ describe('applyBodyFormat', () => {
     const huge = 'X'.repeat(DEFAULT_BODY_MAX_LENGTH + 500);
     const out = applyBodyFormatWithDefaultCap(huge, undefined, 'text');
     expect(out).toBe(
-      `${'X'.repeat(DEFAULT_BODY_MAX_LENGTH)}\n\n[Truncated at 20000 characters — pass a larger maxLength or format="full" for the complete body]`,
+      `${'X'.repeat(DEFAULT_BODY_MAX_LENGTH)}\n\n[Truncated at 20000 characters — pass a larger maxLength for the complete body]`,
+    );
+  });
+
+  // The notice once offered format="full" as a way out, and a client that took it got the same cut.
+  it('caps format="full" the same way when maxLength is omitted', () => {
+    const huge = 'X'.repeat(DEFAULT_BODY_MAX_LENGTH + 500);
+    expect(applyBodyFormatWithDefaultCap(huge, undefined, 'full')).toBe(
+      applyBodyFormatWithDefaultCap(huge, undefined, 'text'),
     );
   });
 });

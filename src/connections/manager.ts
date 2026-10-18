@@ -81,6 +81,10 @@ export function buildSmtpTransportOptions(account: AccountConfig, auth: SmtpAuth
   };
 }
 
+function describeAccounts(accounts: AccountConfig[]): string {
+  return accounts.map((a) => `${a.name} (${a.email})`).join(', ');
+}
+
 function asError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err));
 }
@@ -146,14 +150,22 @@ export default class ConnectionManager implements IConnectionManager {
     if (exact) return exact;
     const lower = key.toLowerCase();
     const values = [...this.accounts.values()];
-    const byName = values.find((account) => account.name.toLowerCase() === lower);
-    if (byName) return byName;
-    return values.find((account) => account.email.toLowerCase() === lower);
+    const byName = values.filter((account) => account.name.toLowerCase() === lower);
+    const matches =
+      byName.length > 0
+        ? byName
+        : values.filter((account) => account.email.toLowerCase() === lower);
+    if (matches.length > 1) {
+      throw new Error(
+        `Account "${key}" matches more than one account: ${describeAccounts(matches)}. Pass the account name.`,
+      );
+    }
+    return matches[0];
   }
 
   private formatAvailableAccounts(): string {
     if (this.accounts.size === 0) return 'none';
-    return [...this.accounts.values()].map((a) => `${a.name} (${a.email})`).join(', ');
+    return describeAccounts([...this.accounts.values()]);
   }
 
   getAccount(name?: string): AccountConfig {

@@ -109,6 +109,22 @@ describe('mailoo account edit', () => {
     ]);
   });
 
+  it('should point default_account at the new name when the default account is renamed', async () => {
+    const config = CONFIG_WITH_PERSONAL.replace(
+      'rate_limit = 3',
+      'rate_limit = 3\ndefault_account = "personal"',
+    );
+    await fs.writeFile(sandbox.configFile, config, { mode: 0o600 });
+
+    await (await sandbox.entryPoint('account edit', 'personal'))();
+
+    const saved = parseTOML(await fs.readFile(sandbox.configFile, 'utf-8')) as {
+      settings: { default_account?: string };
+      accounts: { name: string }[];
+    };
+    expect([saved.accounts[0]?.name, saved.settings.default_account]).toEqual(['work', 'work']);
+  });
+
   it('should offer the current name, address and full name when the identity is edited', async () => {
     const withFullName = CONFIG_WITH_PERSONAL.replace(
       'email = "me@example.com"',
