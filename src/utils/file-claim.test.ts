@@ -138,6 +138,45 @@ describe('acquireClaim', () => {
       acquireClaim(path.join(root, 'missing-dir', 'entry.lock'), 60_000),
     ).rejects.toMatchObject({ code: 'ENOENT' });
   });
+
+  // While a live lock is parked its path is empty, so a third process could take it from its holder.
+  it('should not park a claim that is still fresh', async () => {
+    await fs.writeFile(lockPath, 'holder', { flag: 'wx' });
+    const rename = fs.rename.bind(fs);
+    const renames: string[] = [];
+    vi.spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+      renames.push(String(from));
+      await rename(from, to);
+    });
+    const token = await acquireClaim(lockPath, 60_000);
+    expect({ token, renames, lock: await fs.readFile(lockPath, 'utf8') }).toEqual({
+      token: undefined,
+      renames: [],
+      lock: 'holder',
+    });
+  });
+
+  it('should reject when a stale lock cannot be parked for a reason other than ENOENT', async () => {
+    await writeStaleLock();
+    vi.spyOn(fs, 'rename').mockRejectedValueOnce(
+      Object.assign(new Error('EACCES: permission denied, rename'), { code: 'EACCES' }),
+    );
+    await expect(acquireClaim(lockPath, 60_000)).rejects.toMatchObject({ code: 'EACCES' });
+  });
+
+  it('should reject when a renewed lock cannot be put back for a reason other than EEXIST', async () => {
+    await writeStaleLock();
+    const rename = fs.rename.bind(fs);
+    vi.spyOn(fs, 'rename').mockImplementationOnce(async (from, to) => {
+      const renewedAt = new Date();
+      await fs.utimes(from, renewedAt, renewedAt);
+      await rename(from, to);
+    });
+    vi.spyOn(fs, 'link').mockRejectedValueOnce(
+      Object.assign(new Error('EPERM: operation not permitted, link'), { code: 'EPERM' }),
+    );
+    await expect(acquireClaim(lockPath, 60_000)).rejects.toMatchObject({ code: 'EPERM' });
+  });
 });
 
 describe('releaseClaim', () => {
