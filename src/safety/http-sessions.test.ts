@@ -20,6 +20,7 @@ interface Run {
   store: HttpSessionStore<ReturnType<typeof fakeTransport>>;
   open: Map<string, number>;
   lastUsed: Map<string, number>;
+  evicted: { ttl: number; cap: number };
 }
 
 interface Step {
@@ -32,12 +33,11 @@ interface Step {
 function newRun(): Run {
   const clock = { now: 0 };
   const store = new HttpSessionStore<ReturnType<typeof fakeTransport>>(MAX, TTL, () => clock.now);
-  return { clock, store, open: new Map(), lastUsed: new Map() };
+  return { clock, store, open: new Map(), lastUsed: new Map(), evicted: { ttl: 0, cap: 0 } };
 }
 
 function pickAction(roll: number, present: boolean): Step['action'] {
-  if (roll < 0.2 && !present) return 'set';
-  if (roll < 0.4 && present) return 'begin';
+  if (roll < 0.2) return present ? 'begin' : 'set';
   if (roll < 0.6) return 'end';
   if (roll < 0.85) return 'wait';
   return 'sweep';
@@ -86,7 +86,7 @@ function sessionBreach(present: boolean, idle: boolean, expired: boolean, step: 
 }
 
 function checkInvariants(run: Run, step: Step, at: number): string[] {
-  const { clock, store, open, lastUsed } = run;
+  const { clock, store, open, lastUsed, evicted } = run;
   const breaches: string[] = [];
   for (const id of [...open.keys()]) {
     const present = store.get(id) !== undefined;
@@ -94,6 +94,7 @@ function checkInvariants(run: Run, step: Step, at: number): string[] {
     const breach = sessionBreach(present, open.get(id) === 0, expired, step);
     if (breach) breaches.push(`step ${at}: ${id} ${breach}`);
     if (!present) {
+      evicted[expired ? 'ttl' : 'cap'] += 1;
       open.delete(id);
       lastUsed.delete(id);
     }
@@ -246,8 +247,10 @@ describe('HttpSessionStore', () => {
   it('should keep the table invariants over a seeded mix of sessions, requests, waits and sweeps', () => {
     const run = newRun();
     const random = seededRandom(20_261_017);
-    // One visit per path let a run reach the cap once and pass. This seed draws 51 sets
-    // (47 at the cap), 1,131 begins, 637 ends, 731 waits and 450 sweeps.
+    // One visit per path let a run reach the cap once and pass, and begins that outran ends
+    // kept sessions busy, so 5 evictions were by TTL. This seed draws 410 sets (218 at the
+    // cap), 207 begins, 1,202 ends, 731 waits and 450 sweeps, and evicts 248 sessions by
+    // TTL and 160 by the cap.
     const visits = { set: 0, setAtCap: 0, begin: 0, end: 0, wait: 0, sweep: 0 };
 
     const breaches: string[] = [];
@@ -258,8 +261,9 @@ describe('HttpSessionStore', () => {
       breaches.push(...checkInvariants(run, step, at));
     }
     const thin = Object.entries(visits).flatMap(([path, n]) => (n < 40 ? [path] : []));
+    const rare = Object.entries(run.evicted).flatMap(([cause, n]) => (n <= 20 ? [cause] : []));
 
-    expect({ breaches, thin }).toEqual({ breaches: [], thin: [] });
+    expect({ breaches, thin, rare }).toEqual({ breaches: [], thin: [], rare: [] });
   });
 
   it('writes stderr when transport.close rejects', async () => {
