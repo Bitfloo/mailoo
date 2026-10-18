@@ -29,39 +29,51 @@ function newRun(): Run {
   return { clock, store, open: new Map(), lastUsed: new Map() };
 }
 
-function applyRandomAction(run: Run, random: () => number): Step {
-  const roll = random();
-  const id = `s${Math.floor(random() * 8)}`;
-  const { clock, store, open, lastUsed } = run;
-  const overCap = store.size > MAX;
-  if (roll < 0.2 && !store.get(id)) {
-    const full = store.size >= MAX;
+function pickAction(roll: number, present: boolean): Step['action'] {
+  if (roll < 0.2 && !present) return 'set';
+  if (roll < 0.4 && present) return 'begin';
+  if (roll < 0.6) return 'end';
+  if (roll < 0.7 && present) return 'touch';
+  if (roll < 0.85) return 'wait';
+  return 'sweep';
+}
+
+const APPLY: Record<Step['action'], (run: Run, id: string, random: () => number) => void> = {
+  set: ({ clock, store, open, lastUsed }, id) => {
     store.set(id, fakeTransport());
     open.set(id, 0);
     lastUsed.set(id, clock.now);
-    return { action: 'set', added: id, swept: true, overCap: full };
-  }
-  let action: Step['action'] = 'wait';
-  if (roll < 0.4 && store.get(id)) {
+  },
+  begin: ({ clock, store, open, lastUsed }, id) => {
     store.beginRequest(id);
     open.set(id, (open.get(id) ?? 0) + 1);
     lastUsed.set(id, clock.now);
-    action = 'begin';
-  } else if (roll < 0.6) {
+  },
+  end: ({ store, open }, id) => {
     store.endRequest(id);
     if (open.has(id)) open.set(id, Math.max(0, (open.get(id) ?? 0) - 1));
-    action = 'end';
-  } else if (roll < 0.7 && store.get(id)) {
+  },
+  touch: ({ clock, store, lastUsed }, id) => {
     store.touch(id);
     lastUsed.set(id, clock.now);
-    action = 'touch';
-  } else if (roll < 0.85) {
+  },
+  wait: (run, _id, random) => {
+    const { clock } = run;
     clock.now += Math.floor(random() * 800);
-  } else {
+  },
+  sweep: ({ store }) => {
     store.evict();
-    return { action: 'sweep', swept: true, overCap };
-  }
-  return { action, swept: false, overCap };
+  },
+};
+
+function applyRandomAction(run: Run, random: () => number): Step {
+  const roll = random();
+  const id = `s${Math.floor(random() * 8)}`;
+  const { size } = run.store;
+  const action = pickAction(roll, run.store.get(id) !== undefined);
+  APPLY[action](run, id, random);
+  if (action === 'set') return { action, added: id, swept: true, overCap: size >= MAX };
+  return { action, swept: action === 'sweep', overCap: size > MAX };
 }
 
 /** What a session's fate after one step says about the table, if it breaks a promise. */
