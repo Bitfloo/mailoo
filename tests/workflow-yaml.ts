@@ -30,7 +30,12 @@ interface WorkflowStep {
   with?: Record<string, unknown>;
 }
 
-/** Each job's steps, read from the parsed workflow. */
+/**
+ * Parsed, while the readers beside it scan text: the checks built on it compare step values (a
+ * with: input, a run command, a node-version), which YAML writes plain, quoted, folded or in a
+ * flow mapping, and only the parser reads each form as the runner does. The text readers check
+ * where a key is written, which the parsed tree no longer shows.
+ */
 export function jobSteps(yaml: string): Record<string, WorkflowStep[]> {
   const { jobs } = parse(yaml) as { jobs: Record<string, { steps?: WorkflowStep[] }> };
   return Object.fromEntries(Object.entries(jobs).map(([id, job]) => [id, job.steps ?? []]));
@@ -82,6 +87,9 @@ function keyLines(yaml: string, key: string): string[] {
  * Each line where the YAML parser reads a key that keyLines would not find written there: an
  * escaped or explicit key, a key whose colon sits on another line, a key that is not a plain
  * value, or an alias anywhere, which repeats keys the text readers see only at the anchor.
+ * The regex reader and the parser must agree on every key: a key the runner reads in a form the
+ * regex misses would carry a banned key past every check built on keyLines, so readKeyLines
+ * refuses the whole text rather than read it without that key.
  */
 export function unreadKeys(yaml: string): string[] {
   const lineCounter = new LineCounter();
