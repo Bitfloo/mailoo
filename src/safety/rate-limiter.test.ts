@@ -32,6 +32,34 @@ function exactBucket(max: number, windowMs: number, start: number) {
   };
 }
 
+/** Each account of each limiter, beside its exact bucket and what it was granted. */
+function newLanes(limits: number[], accounts: string[], start: number) {
+  return limits.flatMap((max) => {
+    const limiter = new RateLimiter(max);
+    return accounts.map((account) => ({
+      name: `${account}@${max}`,
+      max,
+      account,
+      limiter,
+      exact: exactBucket(max, 60_000, start),
+      allowed: 0,
+      denied: 0,
+    }));
+  });
+}
+
+type Lane = ReturnType<typeof newLanes>[number];
+
+function laneBreach(lane: Lane, start: number): string | undefined {
+  const remaining = lane.limiter.remaining(lane.account);
+  const exactRemaining = lane.exact.remaining(Date.now());
+  const earned = lane.max + (lane.max * (Date.now() - start)) / 60_000;
+  if (remaining === exactRemaining && remaining <= lane.max && lane.allowed <= earned) {
+    return undefined;
+  }
+  return `${lane.name} remaining ${remaining} (exact ${exactRemaining}), allowed ${lane.allowed} of ${earned}`;
+}
+
 describe('RateLimiter', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -176,37 +204,33 @@ describe('RateLimiter', () => {
   // keep the same bucket.
   it('should match an exact token bucket and stay within the limit over a seeded mix of waits and sends', () => {
     vi.useFakeTimers();
-    const max = 4;
-    const limiter = new RateLimiter(max);
-    const random = seededRandom(20_261_017);
     const start = Date.now();
-    const exact = exactBucket(max, 60_000, start);
-    const visits = { wait: 0, allowed: 0, denied: 0 };
+    const random = seededRandom(20_261_017);
+    // One account at one limit could not show a bucket leaking into another, and one
+    // visit per outcome passed. This seed waits 2,011 times and allows/denies a@1 31/315,
+    // b@1 31/314, a@4 138/177, b@4 137/204, a@7 232/101 and b@7 239/70.
+    const lanes = newLanes([1, 4, 7], ['a', 'b'], start);
     const breaches: string[] = [];
 
-    Array.from({ length: 2_000 }).forEach((_, step) => {
+    for (let step = 0; step < 4_000; step += 1) {
       if (random() < 0.5) {
-        vi.advanceTimersByTime(Math.floor(random() * 20_000));
-        visits.wait += 1;
+        vi.advanceTimersByTime(Math.floor(random() * 2_000));
       } else {
-        const decision = limiter.tryConsume('acct');
-        if (decision !== exact.tryConsume(Date.now())) {
-          breaches.push(`step ${step}: allowed ${String(decision)}, the exact bucket disagrees`);
+        const lane = lanes[Math.floor(random() * lanes.length)];
+        const decision = lane.limiter.tryConsume(lane.account);
+        if (decision !== lane.exact.tryConsume(Date.now())) {
+          breaches.push(`step ${step}: ${lane.name} allowed ${String(decision)}, exact disagrees`);
         }
-        visits[decision ? 'allowed' : 'denied'] += 1;
+        lane[decision ? 'allowed' : 'denied'] += 1;
       }
-      const remaining = limiter.remaining('acct');
-      const exactRemaining = exact.remaining(Date.now());
-      const earned = max + (max * (Date.now() - start)) / 60_000;
-      if (remaining !== exactRemaining || remaining > max || visits.allowed > earned) {
-        breaches.push(
-          `step ${step}: remaining ${remaining} (exact ${exactRemaining}), allowed ${visits.allowed} of ${earned}`,
-        );
+      for (const lane of lanes) {
+        const breach = laneBreach(lane, start);
+        if (breach) breaches.push(`step ${step}: ${breach}`);
       }
-    });
-    const unvisited = Object.entries(visits).flatMap(([name, count]) => (count ? [] : [name]));
+    }
+    const thin = lanes.flatMap((l) => (Math.min(l.allowed, l.denied) < 20 ? [l.name] : []));
 
-    expect({ breaches, unvisited }).toEqual({ breaches: [], unvisited: [] });
+    expect({ breaches, thin }).toEqual({ breaches: [], thin: [] });
   });
 
   it('uses default limit of 10 when no argument provided', () => {
