@@ -1,5 +1,5 @@
 import { install, installStep, npmNotShownYet, type Publisher, publish } from './mcp-harness.js';
-import { requireTools } from './workflow-yaml.js';
+import { requireTools, runBlock } from './workflow-yaml.js';
 
 requireTools(['bash', 'grep', 'sha256sum', 'tar']);
 
@@ -65,9 +65,18 @@ describe('MCP Registry publish', () => {
     expect(publish({ reply: 'unauthorized', status: 3 }).stdout).toBe('Error: unauthorized\n');
   });
 
-  it('should pin the mcp-publisher archive hash in the install step', () => {
-    expect(installStep).not.toContain('releases/latest');
-    expect(installStep).toMatch(/\b[0-9a-f]{64}\b/);
+  it('should download, check and extract one pinned mcp-publisher archive', () => {
+    const tag = 'v1.8.1';
+    const archive = 'mcp-publisher_linux_amd64.tar.gz';
+    // The archive's line in registry_1.8.1_checksums.txt, an asset of the v1.8.1 release of
+    // github.com/modelcontextprotocol/registry, read with gh api.
+    const sha256 = 'a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc';
+    const url = `https://github.com/modelcontextprotocol/registry/releases/download/${tag}/${archive}`;
+    expect(runBlock(installStep).split('\n')).toEqual([
+      `curl -fsSL -o ${archive} "${url}"`,
+      `echo "${sha256}  ${archive}" | sha256sum -c -`,
+      `tar -xzf ${archive} mcp-publisher`,
+    ]);
   });
 
   it('should stop the release when the mcp-publisher archive hash does not match', () => {
