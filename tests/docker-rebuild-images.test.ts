@@ -135,6 +135,34 @@ describe('docker rebuild images', () => {
       ),
       images('1.5.0-beta.2-alpine', '1.5-alpine', '1-alpine'),
     ],
+    [
+      '1.10.12',
+      images(
+        '1.10.12',
+        '1.10.12-bookworm',
+        '1.10',
+        '1.10-bookworm',
+        '1',
+        '1-bookworm',
+        'bookworm',
+        'latest',
+      ),
+      images('1.10.12-alpine', '1.10-alpine', '1-alpine', 'alpine'),
+    ],
+    [
+      '10.2.0',
+      images(
+        '10.2.0',
+        '10.2.0-bookworm',
+        '10.2',
+        '10.2-bookworm',
+        '10',
+        '10-bookworm',
+        'bookworm',
+        'latest',
+      ),
+      images('10.2.0-alpine', '10.2-alpine', '10-alpine', 'alpine'),
+    ],
   ])('should write the release tag names for package version %s', (version, bookworm, alpine) => {
     expect(meta({ version })).toEqual({
       status: 0,
