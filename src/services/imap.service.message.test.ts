@@ -262,7 +262,7 @@ describe('ImapService', () => {
           envelope: true,
           flags: true,
           bodyStructure: true,
-          headers: ['references', 'content-type'],
+          headers: ['references', 'in-reply-to', 'content-type'],
         },
         { uid: true },
       );
@@ -298,6 +298,35 @@ describe('ImapService', () => {
         { uid: true },
       );
       expect(email.bodyText).toBe('Fallback body text');
+    });
+  });
+
+  describe('getEmail In-Reply-To', () => {
+    // GreenMail, among others, leaves In-Reply-To out of ENVELOPE, so the header is the only source.
+    it('should read In-Reply-To from the fetched headers when ENVELOPE has none', async () => {
+      client.fetchOne.mockResolvedValue({
+        uid: 10,
+        envelope: { subject: 'Re: plan', from: [], to: [], messageId: '<child@example.com>' },
+        flags: new Set(),
+        headers: Buffer.from('In-Reply-To: <parent@example.com>\r\n\r\n'),
+        bodyStructure: { type: 'text/plain', part: '1' },
+      });
+      async function* chunksOf(text: string) {
+        yield Buffer.from(text);
+      }
+      client.download.mockResolvedValue({ content: chunksOf('body') });
+
+      const email = await service.getEmail('test', '10');
+
+      expect({
+        requested: client.fetchOne.mock.calls[0][1].headers,
+        inReplyTo: email.inReplyTo,
+        header: email.headers['in-reply-to'],
+      }).toEqual({
+        requested: ['references', 'in-reply-to', 'content-type'],
+        inReplyTo: '<parent@example.com>',
+        header: '<parent@example.com>',
+      });
     });
   });
 

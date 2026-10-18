@@ -325,6 +325,8 @@ async function findThreadUids(client: ImapFlow, messageId: string, max: number):
 const DEFAULT_DATE_SORT_WINDOW = 250;
 const FALLBACK_SOURCE_MAX_BYTES = 65_536;
 const LIST_PREVIEW_SOURCE_MAX_BYTES = 4096;
+// In-Reply-To rides along because some servers (GreenMail among them) leave it out of ENVELOPE.
+const MESSAGE_HEADER_FIELDS = ['references', 'in-reply-to', 'content-type'];
 
 function parseHeaderBlock(headerBlock: string): Record<string, string> {
   const headers: Record<string, string> = {};
@@ -591,7 +593,7 @@ async function messageToEmail(
     bodyText,
     bodyHtml,
     messageId: (envelope.messageId as string) ?? '',
-    inReplyTo: (envelope.inReplyTo as string) ?? undefined,
+    inReplyTo: (envelope.inReplyTo as string | undefined) ?? headers['in-reply-to'],
     references: extractReferences(msg, headers),
     attachments: extractAttachments(msg.bodyStructure),
     headers,
@@ -850,7 +852,7 @@ export default class ImapService {
           envelope: true,
           flags: true,
           bodyStructure: true,
-          headers: ['references', 'content-type'],
+          headers: MESSAGE_HEADER_FIELDS,
         },
         { uid: true },
       );
@@ -882,7 +884,7 @@ export default class ImapService {
           envelope: true,
           flags: true,
           bodyStructure: true,
-          headers: ['references', 'content-type'],
+          headers: MESSAGE_HEADER_FIELDS,
         },
         { uid: true },
       );
@@ -1896,7 +1898,7 @@ export default class ImapService {
           envelope: true,
           flags: true,
           bodyStructure: true,
-          headers: ['references', 'content-type'],
+          headers: MESSAGE_HEADER_FIELDS,
         },
         { uid: true },
       );
