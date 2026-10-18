@@ -77,15 +77,6 @@ export function formatCheckResult(result: CheckResult): string[] {
   return lines;
 }
 
-async function listScheduled(
-  status: 'all' | 'pending',
-  load: () => Promise<AppConfig> = loadConfig,
-  queueDir?: string,
-): Promise<ScheduledEmail[]> {
-  const list = async (scheduler: SchedulerService) => scheduler.list({ status });
-  return withScheduler(await load(), list, queueDir);
-}
-
 // ---------------------------------------------------------------------------
 // Subcommands
 // ---------------------------------------------------------------------------
@@ -159,7 +150,12 @@ export async function runList(
   print: (line: string) => void = console.log,
   queueDir?: string,
 ): Promise<void> {
-  formatScheduledList(await listScheduled('all', load, queueDir)).forEach((line) => {
+  const emails = await withScheduler(
+    await load(),
+    async (scheduler) => scheduler.list({ status: 'all' }),
+    queueDir,
+  );
+  formatScheduledList(emails).forEach((line) => {
     print(line);
   });
 }
@@ -232,45 +228,57 @@ export async function runUninstall(
   }
 }
 
-async function runStatus(): Promise<void> {
-  const platform = os.platform();
-
+/**
+ * `mailoo scheduler status`. A test passes the platform, a command runner, a line sink,
+ * a temp plist path, a temp config and a temp queue.
+ */
+export async function runStatus(
+  platform: NodeJS.Platform = os.platform(),
+  run: CommandRunner = runCommandFile,
+  print: (line: string) => void = console.log,
+  plistPath: string = LAUNCHD_PLIST,
+  load: () => Promise<AppConfig> = loadConfig,
+  queueDir?: string,
+): Promise<void> {
   if (platform === 'darwin') {
     try {
-      await fs.access(LAUNCHD_PLIST);
+      await fs.access(plistPath);
       try {
-        const output = runCommandFile('launchctl', ['list', LAUNCHD_LABEL]);
+        const output = run('launchctl', ['list', LAUNCHD_LABEL]);
         const pidMatch = /"PID"\s*=\s*(\d+)/.exec(output);
-        console.log('✅ macOS launchd scheduler: INSTALLED');
-        console.log(`   Plist: ${LAUNCHD_PLIST}`);
+        print('✅ macOS launchd scheduler: INSTALLED');
+        print(`   Plist: ${plistPath}`);
         if (pidMatch) {
-          console.log(`   PID: ${pidMatch[1]}`);
+          print(`   PID: ${pidMatch[1]}`);
         }
       } catch {
-        console.log('⚠️  macOS launchd scheduler: INSTALLED but not loaded');
-        console.log(`   Plist: ${LAUNCHD_PLIST}`);
+        print('⚠️  macOS launchd scheduler: INSTALLED but not loaded');
+        print(`   Plist: ${plistPath}`);
       }
     } catch {
-      console.log('❌ macOS launchd scheduler: NOT INSTALLED');
+      print('❌ macOS launchd scheduler: NOT INSTALLED');
     }
   } else if (platform === 'linux') {
     try {
-      const existing = runCommandFile('crontab', ['-l']);
+      const existing = run('crontab', ['-l']);
       if (existing.includes(CRONTAB_MARKER)) {
-        console.log('✅ Linux crontab scheduler: INSTALLED');
+        print('✅ Linux crontab scheduler: INSTALLED');
       } else {
-        console.log('❌ Linux crontab scheduler: NOT INSTALLED');
+        print('❌ Linux crontab scheduler: NOT INSTALLED');
       }
     } catch {
-      console.log('❌ Linux crontab scheduler: NOT INSTALLED');
+      print('❌ Linux crontab scheduler: NOT INSTALLED');
     }
   }
 
-  // Show queue status
-  const pending = await listScheduled('pending');
+  const pending = await withScheduler(
+    await load(),
+    async (scheduler) => scheduler.list({ status: 'pending' }),
+    queueDir,
+  );
   const overdue = pending.filter((e) => isSendTimeReached(e.sendAt, Date.now()));
 
-  console.log(`\n📬 Queue: ${pending.length} pending, ${overdue.length} overdue`);
+  print(`\n📬 Queue: ${pending.length} pending, ${overdue.length} overdue`);
 }
 
 // ---------------------------------------------------------------------------
