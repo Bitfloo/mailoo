@@ -22,8 +22,11 @@ export function workflowFiles(dir = workflowDir): string[] {
 export const releaseYml = readFileSync(join(workflowDir, 'release.yml'), 'utf8');
 
 interface WorkflowStep {
+  id?: string;
+  name?: string;
   uses?: string;
   run?: string;
+  'working-directory'?: string;
   with?: Record<string, unknown>;
 }
 
