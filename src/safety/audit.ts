@@ -78,6 +78,26 @@ async function appendLine(line: string): Promise<void> {
 }
 
 /**
+ * Tools log the account argument as given: '' when it was omitted for the default,
+ * or an address or another case. The entry names the account that ran instead.
+ */
+let resolveAccount: ((key: string) => string) | undefined;
+
+function setAccountResolver(resolver: (key: string) => string): void {
+  resolveAccount = resolver;
+}
+
+function accountForEntry(account: string): string {
+  if (!resolveAccount) return account;
+  try {
+    return resolveAccount(account);
+  } catch {
+    // An account that does not resolve is what the failed call was given, so it stays as given.
+    return account;
+  }
+}
+
+/**
  * Append a single audit entry to the log file.
  * Creates the directory and file if they don't exist.
  *
@@ -95,7 +115,7 @@ async function log(
     const entry: AuditEntry = {
       ts: new Date().toISOString(),
       tool,
-      account,
+      account: accountForEntry(account),
       params: redactParams(params),
       result,
       ...(error ? { error } : {}),
@@ -108,6 +128,6 @@ async function log(
   }
 }
 
-const audit = { log, AUDIT_LOG_PATH } as const;
+const audit = { log, setAccountResolver, AUDIT_LOG_PATH } as const;
 
 export default audit;
