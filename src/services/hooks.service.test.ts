@@ -47,6 +47,28 @@ describe('HooksService.matchStaticRules from.address', () => {
   });
 });
 
+describe('HooksService.matchStaticRules conditions', () => {
+  it('should not match a rule that names no condition', () => {
+    const outcome = HooksService.matchStaticRules(
+      { account: 'personal', mailbox: 'INBOX', meta: meta() },
+      [{ name: 'everything', match: {}, actions: { flag: true } }],
+    );
+    expect(outcome.matched).toBe(false);
+  });
+
+  it('should match a to pattern against every recipient, not only the first', () => {
+    const outcome = HooksService.matchStaticRules(
+      {
+        account: 'personal',
+        mailbox: 'INBOX',
+        meta: meta({ to: [{ address: 'me@example.com' }, { address: 'team@example.com' }] }),
+      },
+      [{ name: 'team', match: { to: '*team@example.com*' }, actions: {} }],
+    );
+    expect(outcome.matched).toBe(true);
+  });
+});
+
 describe('HooksService IMAP apply', () => {
   let hooks: HooksService | undefined;
 
@@ -165,5 +187,66 @@ describe('HooksService IMAP apply', () => {
       'hooks',
       expect.stringContaining('flushBatch failed'),
     );
+  });
+});
+
+describe('HooksService static rule alerts', () => {
+  let hooks: HooksService | undefined;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    hooks?.stop();
+    hooks = undefined;
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  async function alertFor(rule: HookRule) {
+    const alert = vi.spyOn(NotifierService.prototype, 'alert').mockResolvedValue(undefined);
+    hooks = new HooksService(hooksConfig({ rules: [rule] }), mockImap() as unknown as ImapService);
+    hooks.start({} as never, { sampling: false });
+    await flushHooks([meta()]);
+    return alert.mock.calls[0];
+  }
+
+  it('should alert a flag rule at high priority with its labels and rule name', async () => {
+    const [payload] =
+      (await alertFor({
+        name: 'board',
+        match: { from: 'alice@example.com' },
+        actions: { flag: true, labels: ['Board'] },
+      })) ?? [];
+    expect(payload).toMatchObject({
+      uid: '10',
+      priority: 'high',
+      labels: ['Board'],
+      ruleName: 'board',
+    });
+  });
+
+  it('should alert a rule without flag at normal priority', async () => {
+    const [payload] =
+      (await alertFor({
+        name: 'known',
+        match: { from: 'alice@example.com' },
+        actions: { labels: ['Known'] },
+      })) ?? [];
+    expect(payload?.priority).toBe('normal');
+  });
+
+  it.each([
+    [true, true],
+    [undefined, false],
+  ] as const)('with alert %s, should force the notification: %s', async (alert, forced) => {
+    const call = await alertFor({
+      name: 'board',
+      match: { from: 'alice@example.com' },
+      actions: { alert },
+    });
+    expect(call?.[1]).toBe(forced);
   });
 });

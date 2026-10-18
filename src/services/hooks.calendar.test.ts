@@ -264,4 +264,27 @@ describe('HooksService calendar auto-add state', () => {
       ],
     ]);
   });
+
+  it.each([
+    [false, true, false, '170'],
+    [undefined, true, true, '171'],
+    [true, false, true, '172'],
+  ] as const)(
+    'with a rule add_to_calendar %s and auto_calendar %s, should add the email: %s',
+    async (addToCalendar, autoCalendar, added, id) => {
+      hooks = new HooksService(
+        hooksConfig({
+          batchDelay: 3600,
+          autoCalendar,
+          rules: [{ ...inviteRule, actions: { addToCalendar } }],
+        }),
+        calendarImap(invitation(id)) as unknown as ImapService,
+      );
+      hooks.start({} as never, { sampling: false });
+
+      await runBatch(hooks, [meta({ id })]);
+
+      await expect(isCalendarProcessed('personal', id)).resolves.toBe(added);
+    },
+  );
 });
