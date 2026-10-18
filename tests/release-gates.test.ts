@@ -1,5 +1,5 @@
 import { jobGate, runsJob } from './workflow-gates.js';
-import { readKeyLines, releaseJob, releaseYml } from './workflow-yaml.js';
+import { readKeyLines, releaseJob } from './workflow-yaml.js';
 
 const npmJob = () => releaseJob('npm publish --access public');
 const stampJob = () => releaseJob('- name: Set version in server.json\n');
@@ -121,13 +121,6 @@ describe('release job gates', () => {
       expect(runsJob(jobGate(dockerJob()), { npm: 'success', mcp })).toBe(false);
     },
   );
-
-  it('should keep continue-on-error off every release job and step', () => {
-    // needs.<job>.result reads success after a failure that continue-on-error let through, so the
-    // gates above would publish past a failed npm or MCP publish. A step that continued past a
-    // refused stamp would publish server.json unstamped.
-    expect(readKeyLines(releaseYml, 'continue-on-error')).toEqual([]);
-  });
 
   it('should make the job that stamps server.json need npm when its if: reads the npm result', () => {
     // Without needs, needs.npm.result is empty, so the if: never passes and nothing is published.

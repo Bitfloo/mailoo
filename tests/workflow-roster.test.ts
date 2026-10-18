@@ -129,6 +129,13 @@ describe('workflow rosters', () => {
     expect(runs(yaml)).toEqual(RUNS[name]);
   });
 
+  it.each(workflows)('should keep continue-on-error off every job and step of %s', (_, yaml) => {
+    // needs.<job>.result reads success after a failure that continue-on-error let through, so the
+    // release gates would publish past a failed npm or MCP publish, a step past a refused stamp
+    // would publish server.json unstamped, and a pull request check would pass with failing tests.
+    expect(readKeyLines(yaml, 'continue-on-error')).toEqual([]);
+  });
+
   it.each(workflows)('should set no shell and no run defaults in %s', (_, yaml) => {
     // The harnesses run each step as the runner runs one without them: bash -e in the checkout.
     expect(readKeyLines(yaml, 'shell|defaults')).toEqual([]);
