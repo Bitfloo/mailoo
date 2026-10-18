@@ -24,9 +24,13 @@ describe('scheduler install commands', () => {
 
   it('should run the crontab line on the interval the server checks the queue at', () => {
     const line = buildCronLine('/usr/bin/node', '/opt/mailoo/main.js');
-    // Cron counts whole minutes, so only a `*/N` minute step can carry the interval.
-    const minutes = /^\*\/(\d+) \* \* \* \* /.exec(line)?.[1];
-    expect(Number(minutes) * 60_000).toBe(SCHEDULER_INTERVAL_MS);
+    // A `*/N` minute step starts again at minute 0 every hour, so it keeps an even
+    // interval only when N divides 60.
+    const minutes = Number(/^\*\/(\d+) \* \* \* \* /.exec(line)?.[1]);
+    expect({ ms: minutes * 60_000, dividesHour: 60 % minutes === 0 }).toEqual({
+      ms: SCHEDULER_INTERVAL_MS,
+      dividesHour: true,
+    });
   });
 
   it('should quote the node and CLI paths in the crontab command', () => {
