@@ -1,11 +1,18 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { repoRoot } from './agents/agent-file.js';
 import { mcpHarness } from './mcp-harness.js';
 import { metaHarness } from './rebuild-harness.js';
 import { notesHarness } from './release-notes-harness.js';
-import { jobSteps, workflowTexts } from './workflow-yaml.js';
+import { jobSteps, resolvedSteps, workflowTexts } from './workflow-yaml.js';
+
+const HARNESSES = [mcpHarness, notesHarness, metaHarness];
+const testsDir = join(repoRoot, 'tests');
 
 /** A step a harness module runs, so its text is checked by running it, not by this roster. */
 function harnessed(workflow: string, job: string, label: string | undefined): boolean {
-  return [mcpHarness, notesHarness, metaHarness].some(
+  return HARNESSES.some(
     (harness) =>
       harness.workflow === workflow && harness.job === job && harness.steps.includes(label ?? ''),
   );
@@ -143,9 +150,80 @@ const STEPS: Record<string, Record<string, string[]>> = {
 };
 // biome-ignore-end lint/suspicious/noTemplateCurlyInString: end of workflow values
 
+/** Each function a harness module exports, as `module.name`. */
+function runners(): string[] {
+  return readdirSync(testsDir)
+    .filter((file) => file.endsWith('-harness.ts'))
+    .flatMap((file) =>
+      Array.from(
+        readFileSync(join(testsDir, file), 'utf8').matchAll(/^export function (\w+)/gm),
+        ([, name]) => `${file.replace(/\.ts$/, '')}.${name}`,
+      ),
+    )
+    .sort();
+}
+
+/** Each name a test file imports from a harness module, as `module.name`. */
+function imported(): Set<string> {
+  return new Set(
+    readdirSync(testsDir)
+      .filter((file) => file.endsWith('.test.ts'))
+      .flatMap((file) =>
+        Array.from(
+          readFileSync(join(testsDir, file), 'utf8').matchAll(
+            /^import \{([^}]*)\} from '\.\/([\w-]+-harness)\.js';$/gm,
+          ),
+          ([, names, module]) =>
+            names
+              .split(',')
+              .map((name) => name.trim().replace(/^type /, ''))
+              .filter(Boolean)
+              .map((name) => `${module}.${name}`),
+        ).flat(),
+      ),
+  );
+}
+
 describe('workflow steps', () => {
   // Keyed by the files in the tree, so a new workflow fails until it is listed.
   it.each(workflowTexts())('should run exactly the pinned steps of %s in order', (name, yaml) => {
     expect(steps(name, yaml)).toEqual(STEPS[name]);
+  });
+
+  it.each([
+    { where: 'its own job', workflow: 'release.yml', job: 'mcp', exempt: true },
+    { where: 'another job', workflow: 'release.yml', job: 'npm', exempt: false },
+    { where: 'another workflow', workflow: 'ci.yml', job: 'mcp', exempt: false },
+  ])(
+    'should leave a harness step out of the roster only in $where',
+    ({ workflow, job, exempt }) => {
+      expect(harnessed(workflow, job, 'Publish to MCP Registry')).toBe(exempt);
+    },
+  );
+});
+
+describe('step harnesses', () => {
+  // The roster above leaves a declared step out, so a step no runner looks up, or a runner no test
+  // file imports, would leave that step checked by nothing.
+  it.each(HARNESSES.map((harness) => [`${harness.workflow} ${harness.job}`, harness] as const))(
+    'should look up every step the %s harness declares',
+    (_, harness) => {
+      expect(resolvedSteps(harness)).toEqual([...harness.steps].sort());
+    },
+  );
+
+  it('should find each runner the harness modules export', () => {
+    expect(runners()).toEqual([
+      'mcp-harness.install',
+      'mcp-harness.publish',
+      'mcp-harness.stamp',
+      'rebuild-harness.meta',
+      'release-notes-harness.releaseNotes',
+    ]);
+  });
+
+  it('should have every harness runner imported by a test file', () => {
+    const tested = imported();
+    expect(runners().filter((runner) => !tested.has(runner))).toEqual([]);
   });
 });

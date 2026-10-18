@@ -135,6 +135,8 @@ export interface Harness {
   steps: readonly string[];
 }
 
+const resolved = new Map<Harness, Set<string>>();
+
 /**
  * The text of a step the harness declares, read from the harness's own job, so a step of the same
  * name in another job is not run in its place.
@@ -150,7 +152,13 @@ export function harnessedStep(harness: Harness, label: string): string {
   if (!job || !step) {
     throw new Error(`${where} has no step ${label}`);
   }
+  resolved.set(harness, (resolved.get(harness) ?? new Set()).add(label));
   return releaseStep(job, label, step.name === label ? 'name' : 'id');
+}
+
+/** Each label harnessedStep has returned for `harness` in this test file, sorted. */
+export function resolvedSteps(harness: Harness): string[] {
+  return [...(resolved.get(harness) ?? [])].sort();
 }
 
 /** The release.yml job that holds `marker`, comment lines stripped. */
