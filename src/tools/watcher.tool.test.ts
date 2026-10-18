@@ -59,6 +59,20 @@ describe('configure_alerts', () => {
     notifier.stop();
   });
 
+  it('should reply with the reason when the webhook URL is refused', async () => {
+    const notifier = new NotifierService(base);
+    const result = await captureConfigureAlerts(notifier)({
+      webhook_url: 'https://user:secret@hooks.example.com/hook',
+    });
+    notifier.stop();
+    expect(result.content).toEqual([
+      {
+        type: 'text',
+        text: 'Failed to update alerts config: Webhook URL must not include credentials',
+      },
+    ]);
+  });
+
   it('does not store an unknown urgency threshold', async () => {
     const notifier = new NotifierService(base);
     const run = captureConfigureAlerts(notifier);
