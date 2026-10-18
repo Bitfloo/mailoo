@@ -127,19 +127,12 @@ export default class ConnectionManager implements IConnectionManager {
       }
     }
 
-    const fromProp = this.defaultAccount?.trim();
-    const fromEnv = process.env.MCP_EMAIL_DEFAULT_ACCOUNT?.trim();
-    let configuredDefault: string | undefined;
-    if (fromProp !== undefined && fromProp.length > 0) {
-      configuredDefault = fromProp;
-    } else if (fromEnv !== undefined && fromEnv.length > 0) {
-      configuredDefault = fromEnv;
-    }
+    const configuredDefault = this.defaultAccount?.trim();
     if (configuredDefault) {
       const fromDefault = this.findAccountByKey(configuredDefault);
       if (fromDefault) return fromDefault;
       throw new Error(
-        `Account "${configuredDefault}" not found. Available accounts: ${this.formatAvailableAccounts()}`,
+        `Configured default account not found. Available accounts: ${this.formatAvailableAccounts()}`,
       );
     }
 

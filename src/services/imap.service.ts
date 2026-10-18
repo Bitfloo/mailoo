@@ -30,7 +30,7 @@ import type {
   SenderStat,
 } from '../types/index.js';
 import { parseSenderAuth } from '../utils/auth-headers.js';
-import { looksLikeRawMime, preferRicherPlain } from '../utils/email-body.js';
+import { looksLikeRawMime, preferRicherPlain, stripHtml } from '../utils/email-body.js';
 import compileRfc822 from '../utils/mail-compose.js';
 import type { LabelStrategy } from './label-strategy.js';
 import { detectLabelStrategy } from './label-strategy.js';
@@ -259,12 +259,7 @@ function cleanPreviewCandidate(raw: string): string | undefined {
     text = text.slice(0, nextBoundary);
   }
   if (looksLikeRawMime(text)) return undefined;
-  const stripped = text
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const stripped = stripHtml(text).replace(/\s+/g, ' ').trim();
   return stripped ? stripped.slice(0, 200) : undefined;
 }
 
