@@ -243,6 +243,10 @@ describe('dependabot groups', () => {
     );
   });
 
+  it.each(['~9.0.0', '9.0.0'])('should refuse %j as a peer range with no ceiling', (range) => {
+    expect(() => peerCeiling(range)).toThrow(`no ceiling in peer range ${range}`);
+  });
+
   it('should keep a github-actions update at the root so the action SHA pins get bumps', () => {
     // Every uses: is pinned to a commit SHA, so without this update no pin would ever move.
     const { updates } = parse(config) as {
