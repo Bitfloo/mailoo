@@ -1,7 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { jobSteps, onBlock, releaseSteps, workflowDir, workflowFiles } from './workflow-yaml.js';
+import {
+  jobSteps,
+  onBlock,
+  readKeyLines,
+  releaseSteps,
+  workflowDir,
+  workflowFiles,
+} from './workflow-yaml.js';
 
 const workflows = workflowFiles().map(
   (name) => [name, readFileSync(join(workflowDir, name), 'utf8')] as const,
@@ -120,5 +127,10 @@ describe('workflow rosters', () => {
 
   it.each(workflows)('should run exactly the pinned commands in %s', (name, yaml) => {
     expect(runs(yaml)).toEqual(RUNS[name]);
+  });
+
+  it.each(workflows)('should set no shell and no run defaults in %s', (_, yaml) => {
+    // The harnesses run each step as the runner runs one without them: bash -e in the checkout.
+    expect(readKeyLines(yaml, 'shell|defaults')).toEqual([]);
   });
 });

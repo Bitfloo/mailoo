@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { parse } from 'yaml';
 
 import { repoRoot } from './agents/agent-file.js';
-import { runStep, workflowDir } from './workflow-yaml.js';
+import { jobSteps, releaseStep, runBlock, runStep, workflowDir } from './workflow-yaml.js';
 
 interface GoreleaserImage {
   id: string;
@@ -38,25 +38,12 @@ const RELEASE_TAG_IN_REBUILD: Record<string, string> = {
 };
 // biome-ignore-end lint/suspicious/noTemplateCurlyInString: end of shell fragments
 
-interface Step {
-  id?: string;
-  uses?: string;
-  run?: string;
-  with?: Record<string, unknown>;
-}
-
-const rebuildSteps = (
-  parse(readFileSync(join(workflowDir, 'docker-rebuild.yml'), 'utf8')) as {
-    jobs: { rebuild: { steps: Step[] } };
-  }
-).jobs.rebuild.steps;
+const rebuildYml = readFileSync(join(workflowDir, 'docker-rebuild.yml'), 'utf8');
+const rebuildSteps = jobSteps(rebuildYml).rebuild;
 
 /** Run the meta step in a checkout holding `manifest` as package.json; return its status, stderr and outputs. */
 function meta(manifest: object) {
-  const run = rebuildSteps.find((step) => step.id === 'meta')?.run;
-  if (!run) {
-    throw new Error('missing meta step');
-  }
+  const run = runBlock(releaseStep(rebuildYml, 'meta', 'id'));
   const temp = mkdtempSync(join(tmpdir(), 'mailoo-docker-rebuild-'));
   try {
     writeFileSync(join(temp, 'package.json'), JSON.stringify(manifest));
@@ -180,24 +167,23 @@ describe('docker rebuild images', () => {
   });
 
   it('should use the GoReleaser tag names, Dockerfiles and architectures', () => {
-    const workflow = readFileSync(join(workflowDir, 'docker-rebuild.yml'), 'utf8');
     for (const id of ['mailoo-debian', 'mailoo-alpine']) {
       const image = goreleaserImages.find((entry) => entry.id === id);
       if (!image) {
         throw new Error(`missing goreleaser image ${id}`);
       }
-      expect(workflow, id).toContain(`file: ${image.dockerfile}\n`);
+      expect(rebuildYml, id).toContain(`file: ${image.dockerfile}\n`);
       expect(image.platforms).toEqual(['linux/amd64', 'linux/arm64']);
       for (const template of image.tags) {
         if (template.includes('ShortCommit')) {
-          expect(workflow).not.toContain('sha-${{');
+          expect(rebuildYml).not.toContain('sha-${{');
           continue;
         }
         const needle = RELEASE_TAG_IN_REBUILD[template];
         expect(needle, template).toBeTruthy();
-        expect(workflow).toContain(needle);
+        expect(rebuildYml).toContain(needle);
       }
     }
-    expect(workflow.match(/platforms: linux\/amd64,linux\/arm64/g)).toHaveLength(2);
+    expect(rebuildYml.match(/platforms: linux\/amd64,linux\/arm64/g)).toHaveLength(2);
   });
 });

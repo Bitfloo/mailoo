@@ -130,18 +130,20 @@ export function releaseJob(marker: string): string {
   return job;
 }
 
-/** Isolate one step so a hash elsewhere cannot satisfy the install check. */
-export function releaseStep(yaml: string, name: string): string {
+/** Isolate one step, found by its name or id, so a hash elsewhere cannot satisfy the install check. */
+export function releaseStep(yaml: string, name: string, key: 'name' | 'id' = 'name'): string {
   const steps = releaseSteps(yaml);
-  const marker = `- name: ${name}\n`;
+  const marker = `- ${key}: ${name}\n`;
   const start = steps.indexOf(marker);
   if (start < 0) {
     throw new Error(`missing step ${name}`);
   }
-  // From the line start, so the step's own indent keeps it readable as YAML.
+  // From the line start, so the step's own indent keeps it readable as YAML. It ends at the next
+  // step or job, so the last step of a job does not run on into the next one.
   const rest = steps.slice(steps.lastIndexOf('\n', start) + 1);
-  const next = rest.indexOf('\n      - ', rest.indexOf(marker) + marker.length);
-  return next < 0 ? rest : rest.slice(0, next);
+  const body = rest.indexOf(marker) + marker.length;
+  const next = rest.slice(body).search(/\n {0,6}\S/);
+  return next < 0 ? rest : rest.slice(0, body + next);
 }
 
 /** The step's `env:` block with each `${{ expression }}` filled in from `context`, as the runner does. */
@@ -160,8 +162,17 @@ export function stepEnv(step: string, context: Record<string, string>): Record<s
   );
 }
 
-/** The step's command as the runner executes it: a one-line `run:`, or a `run: |` block dedented. */
+/**
+ * The step's command as the runner executes it: a one-line `run:`, or a `run: |` block dedented.
+ * A step that sets shell: or working-directory: is refused, since runStep would run other code.
+ */
 export function runBlock(step: string): string {
+  const unmodelled = readKeyLines(step, 'shell|working-directory');
+  if (unmodelled.length > 0) {
+    throw new Error(
+      `the harness runs bash -e in the checkout, not: ${unmodelled.join(' | ').trim()}`,
+    );
+  }
   const line = step.match(/^ {8}run: (?![|>])(.+)$/m)?.[1];
   if (line) {
     return line;

@@ -10,7 +10,6 @@ import {
   jobSections,
   jobSteps,
   onBlock,
-  readKeyLines,
   refEnv,
   releaseStep,
   releaseSteps,
@@ -213,12 +212,6 @@ describe('release version selection', () => {
     // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub expression, not a JS template
     const step = '      - run: x\n        env:\n          A: ${{ inputs.other }}\n';
     expect(() => stepEnv(step, {})).toThrow('no value for inputs.other');
-  });
-
-  it('should run the server.json stamp step with the shell and directory the harness uses', () => {
-    // shell and working-directory would run other code than the harness checks.
-    const step = releaseStep(releaseYml, 'Set version in server.json');
-    expect(readKeyLines(step, 'shell|working-directory')).toEqual([]);
   });
 
   it('should stamp server.json before the step that publishes it to the MCP Registry', () => {

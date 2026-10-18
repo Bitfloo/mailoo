@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { repoRoot } from './agents/agent-file.js';
 import { changelogMd, swapOnce } from './changelog-fixture.js';
 import {
-  readKeyLines,
   refEnv,
   releaseJob,
   releaseStep,
@@ -64,12 +63,22 @@ function notesBeforeInstall(notes: string): string {
   return notes.slice(0, notes.indexOf('\n**Install:**')).trim();
 }
 
-describe('release notes', () => {
+describe('step harness', () => {
   it('should run the whole run block, blank lines included', () => {
-    const step = '- name: Example\n        run: |\n          true\n\n          false\n';
+    const step = '      - name: Example\n        run: |\n          true\n\n          false\n';
     expect(runBlock(step)).toBe('true\n\nfalse\n');
   });
 
+  it.each(['shell: sh', '"shell": bash', 'working-directory: .github'])(
+    'should refuse to run a step that sets %s',
+    (key) => {
+      const step = `      - name: Example\n        ${key}\n        run: true\n`;
+      expect(() => runBlock(step)).toThrow(`the harness runs bash -e in the checkout, not: ${key}`);
+    },
+  );
+});
+
+describe('release notes', () => {
   it('should use the CHANGELOG.md section of the tag as the release body when a tag is pushed', () => {
     const section = changelogSection('v0.2.0');
     expect(section).toMatch(/^#### ✨ Features\n- add export_email tool/);
@@ -202,15 +211,5 @@ describe('release notes', () => {
     expect(job.slice(job.indexOf(written) + written.length)).toMatch(
       /^\n {6}- name: Run GoReleaser\n/,
     );
-  });
-
-  it('should run the release-notes step with the default shell in the checkout root', () => {
-    // The harness above runs it that way: `bash -e` in the directory that holds CHANGELOG.md.
-    const step = releaseStep(releaseYml, 'Write release notes');
-    expect(readKeyLines(step, 'shell|working-directory')).toEqual([]);
-  });
-
-  it('should set no run defaults the release-notes harness does not model', () => {
-    expect(readKeyLines(releaseYml, 'defaults')).toEqual([]);
   });
 });
