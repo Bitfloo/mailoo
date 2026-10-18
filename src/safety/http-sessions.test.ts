@@ -214,6 +214,22 @@ describe('HttpSessionStore', () => {
     });
   });
 
+  // The host deletes a session from its transport's onclose; closing it again
+  // from here would close an already closed transport.
+  it('should forget a deleted session and leave its transport unclosed', () => {
+    const store = new HttpSessionStore(32, 1_000, () => 0);
+    const a = fakeTransport();
+    store.set('a', a);
+
+    store.delete('a');
+
+    expect({ a: store.get('a'), size: store.size, closes: a.close.mock.calls.length }).toEqual({
+      a: undefined,
+      size: 0,
+      closes: 0,
+    });
+  });
+
   it('should still expire a session after endRequest is called without a matching beginRequest', () => {
     let now = 0;
     const store = new HttpSessionStore(32, 1_000, () => now);

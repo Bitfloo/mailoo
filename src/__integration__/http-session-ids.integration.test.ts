@@ -1,7 +1,11 @@
 /**
  * What the HTTP host answers for a session id it does not hold: unknown,
- * evicted, or sent without one.
+ * evicted, deleted by its client, or sent without one.
  */
+
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
 import {
   initializeBody,
@@ -48,6 +52,50 @@ describe('HTTP session ids the host does not hold', () => {
 
       expect(response.status).toBe(404);
     } finally {
+      await running.stop();
+    }
+  });
+
+  it('should answer 404 when the client deleted its session', async () => {
+    const running = await startHost({ now: 1_000 }, ttlMs);
+    const transport = new StreamableHTTPClientTransport(
+      new URL(`http://127.0.0.1:${running.port}/mcp`),
+    );
+    const client = new Client({ name: 'mailoo-delete', version: '0.0.0' });
+    try {
+      await client.connect(transport);
+      const sessionId = transport.sessionId ?? '';
+      await transport.terminateSession();
+
+      const response = await postRpc(running.port, TOOLS_LIST, { sessionId });
+
+      expect(response.status).toBe(404);
+    } finally {
+      await client.close().catch(() => undefined);
+      await running.stop();
+    }
+  });
+
+  // The SDK answers a closed transport with the same 404, so only the table
+  // shows whether the host forgot the session or kept it until eviction.
+  it('should not close a session its client deleted again when the host closes', async () => {
+    const running = await startHost({ now: 1_000 }, ttlMs);
+    const transport = new StreamableHTTPClientTransport(
+      new URL(`http://127.0.0.1:${running.port}/mcp`),
+    );
+    const client = new Client({ name: 'mailoo-delete-close', version: '0.0.0' });
+    const close = vi.spyOn(StreamableHTTPServerTransport.prototype, 'close');
+    try {
+      await client.connect(transport);
+      await transport.terminateSession();
+      const closesAfterDelete = close.mock.calls.length;
+
+      await running.host.close();
+
+      expect(close.mock.calls.length - closesAfterDelete).toBe(0);
+    } finally {
+      close.mockRestore();
+      await client.close().catch(() => undefined);
       await running.stop();
     }
   });
