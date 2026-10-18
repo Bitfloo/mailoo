@@ -188,6 +188,56 @@ describe('OAuthService.getAccessToken', () => {
   });
 });
 
+describe('OAuthService refresh request', () => {
+  it.each([
+    { provider: 'google', tokenUrl: 'https://oauth2.googleapis.com/token' },
+    {
+      provider: 'microsoft',
+      tokenUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+    },
+    { provider: 'custom', tokenUrl: 'https://auth.example.com/token' },
+  ] as const)(
+    'should post a form-encoded refresh to the $provider token URL with the client and refresh token',
+    async ({ provider, tokenUrl }) => {
+      const calls = fakeTokenEndpoint(tokenResponse('tok-1'));
+      const oauth2 = googleConfig({
+        provider,
+        tokenUrl: 'https://auth.example.com/token',
+        authUrl: 'https://auth.example.com/authorize',
+      });
+      await new OAuthService().getAccessToken(oauth2);
+      const [{ url, init }] = calls;
+      expect({
+        url,
+        method: init.method,
+        headers: init.headers,
+        body: Object.fromEntries(new URLSearchParams(String(init.body))),
+      }).toEqual({
+        url: tokenUrl,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: {
+          grant_type: 'refresh_token',
+          client_id: 'client-id',
+          client_secret: 'client-secret',
+          refresh_token: oauth2.refreshToken,
+        },
+      });
+    },
+  );
+
+  it.each([
+    { only: 'tokenUrl', endpoints: { tokenUrl: 'https://auth.example.com/token' } },
+    { only: 'authUrl', endpoints: { authUrl: 'https://auth.example.com/authorize' } },
+  ])('should refuse a custom provider when only its $only is set', async ({ endpoints }) => {
+    fakeTokenEndpoint();
+    const oauth2 = googleConfig({ provider: 'custom', ...endpoints });
+    await expect(new OAuthService().getAccessToken(oauth2)).rejects.toThrow(
+      'Custom OAuth2 provider requires tokenUrl and authUrl',
+    );
+  });
+});
+
 describe('OAuthService.exchangeCode', () => {
   it('should give up on a token endpoint that does not answer', async () => {
     const controller = new AbortController();
