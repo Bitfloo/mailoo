@@ -43,6 +43,12 @@ export function newWizardState(): WizardState {
   return { overrides: new Map(), asked: [], cancelAt: new Set() };
 }
 
+export function resetWizard(state: WizardState): void {
+  state.overrides.clear();
+  state.asked.splice(0);
+  state.cancelAt.clear();
+}
+
 export function newProbes(): Probes {
   return {
     testImap: vi.fn<typeof ConnectionManager.testImap>(),
@@ -118,6 +124,7 @@ export function clackPromptsMock(
     password: prompt,
     confirm: prompt,
     select: prompt,
+    multiselect: prompt,
     spinner: () => ({ start: vi.fn(), stop: vi.fn() }),
     log: { info: vi.fn(), warn: vi.fn(), warning: vi.fn(), success: vi.fn(), error: vi.fn() },
   };
@@ -212,9 +219,7 @@ export function useAccountSandbox(state: WizardState, probes: Probes): AccountSa
   });
 
   afterEach(async () => {
-    state.overrides.clear();
-    state.asked.splice(0);
-    state.cancelAt.clear();
+    resetWizard(state);
     probes.testImap.mockReset();
     probes.testSmtp.mockReset();
     vi.restoreAllMocks();
