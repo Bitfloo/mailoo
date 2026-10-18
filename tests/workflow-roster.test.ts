@@ -4,6 +4,9 @@ import { join } from 'node:path';
 import { parse } from 'yaml';
 
 import { repoRoot } from './agents/agent-file.js';
+import { mcpHarness } from './mcp-harness.js';
+import { metaHarness } from './rebuild-harness.js';
+import { notesHarness } from './release-notes-harness.js';
 import { jobSteps, onBlock, readKeyLines, releaseSteps, workflowTexts } from './workflow-yaml.js';
 
 const { engines } = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
@@ -59,24 +62,23 @@ const ON: Record<string, string[]> = {
   'scorecard.yml': ['  schedule:', '    - cron: "20 7 * * 2"', '  branch_protection_rule:'],
 };
 
-/** Steps whose run block a harness executes, so their text is checked by running it. */
-const HARNESSED = new Set([
-  'Install mcp-publisher',
-  'Set version in server.json',
-  'Publish to MCP Registry',
-  'Write release notes',
-  'meta',
-]);
+/** A step a harness module runs, so its text is checked by running it, not by this roster. */
+function harnessed(workflow: string, job: string, label: string | undefined): boolean {
+  return [mcpHarness, notesHarness, metaHarness].some(
+    (harness) =>
+      harness.workflow === workflow && harness.job === job && harness.steps.includes(label ?? ''),
+  );
+}
 
 /** Each run step in file order as `job: command (in directory)`, or by name when a harness runs it. */
-function runs(yaml: string): string[] {
+function runs(name: string, yaml: string): string[] {
   return Object.entries(jobSteps(yaml)).flatMap(([job, steps]) =>
     steps.flatMap((step) => {
       if (step.run === undefined) {
         return [];
       }
       const label = step.name ?? step.id;
-      if (label && HARNESSED.has(label)) {
+      if (harnessed(name, job, label)) {
         return [`${job}: ${label} (run by a harness)`];
       }
       const directory = step['working-directory'];
@@ -176,7 +178,7 @@ describe('workflow rosters', () => {
   });
 
   it.each(workflows)('should run exactly the pinned commands in %s', (name, yaml) => {
-    expect(runs(yaml)).toEqual(RUNS[name]);
+    expect(runs(name, yaml)).toEqual(RUNS[name]);
   });
 
   it.each(workflows)(

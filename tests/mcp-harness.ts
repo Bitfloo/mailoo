@@ -2,11 +2,24 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { refEnv, releaseStep, releaseYml, runBlock, runStep, stepEnv } from './workflow-yaml.js';
+import {
+  type Harness,
+  harnessedStep,
+  refEnv,
+  runBlock,
+  runStep,
+  stepEnv,
+} from './workflow-yaml.js';
 
-export const installStep = releaseStep(releaseYml, 'Install mcp-publisher');
-const stampStep = releaseStep(releaseYml, 'Set version in server.json');
-const publishStep = releaseStep(releaseYml, 'Publish to MCP Registry');
+export const mcpHarness: Harness = {
+  workflow: 'release.yml',
+  job: 'mcp',
+  steps: ['Install mcp-publisher', 'Set version in server.json', 'Publish to MCP Registry'],
+};
+
+export const installStep = harnessedStep(mcpHarness, 'Install mcp-publisher');
+const stampStep = harnessedStep(mcpHarness, 'Set version in server.json');
+const publishStep = harnessedStep(mcpHarness, 'Publish to MCP Registry');
 
 /**
  * The registry's reply when npm 404s a version it has just published, worded as npmVersion404Error

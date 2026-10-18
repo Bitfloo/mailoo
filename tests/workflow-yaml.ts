@@ -137,6 +137,31 @@ export function readKeyLines(yaml: string, key: string): string[] {
   return keyLines(yaml, key);
 }
 
+/** The steps of one workflow job that a harness module runs against fakes, by name or id. */
+export interface Harness {
+  workflow: string;
+  job: string;
+  steps: readonly string[];
+}
+
+/**
+ * The text of a step the harness declares, read from the harness's own job, so a step of the same
+ * name elsewhere is neither run nor exempted from the run roster in its place.
+ */
+export function harnessedStep(harness: Harness, label: string): string {
+  const where = `${harness.workflow} ${harness.job}`;
+  if (!harness.steps.includes(label)) {
+    throw new Error(`${where}: the harness does not declare ${label}`);
+  }
+  const yaml = readFileSync(join(workflowDir, harness.workflow), 'utf8');
+  const job = jobSections(yaml).find((section) => section.startsWith(`  ${harness.job}:\n`));
+  const step = jobSteps(yaml)[harness.job]?.find((s) => s.name === label || s.id === label);
+  if (!job || !step) {
+    throw new Error(`${where} has no step ${label}`);
+  }
+  return releaseStep(job, label, step.name === label ? 'name' : 'id');
+}
+
 /** The release.yml job that holds `marker`, comment lines stripped. */
 export function releaseJob(marker: string): string {
   const job = jobSections(releaseSteps(releaseYml)).find((section) => section.includes(marker));

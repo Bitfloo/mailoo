@@ -2,18 +2,25 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { releaseStep, runBlock, runStep, workflowDir } from './workflow-yaml.js';
+import { type Harness, harnessedStep, runBlock, runStep, workflowDir } from './workflow-yaml.js';
 
 export const rebuildYml = readFileSync(join(workflowDir, 'docker-rebuild.yml'), 'utf8');
 
+export const metaHarness: Harness = {
+  workflow: 'docker-rebuild.yml',
+  job: 'rebuild',
+  steps: ['meta'],
+};
+
+const metaRun = runBlock(harnessedStep(metaHarness, 'meta'));
+
 /** Run the meta step in a checkout holding `manifest` as package.json; return its status, stderr and outputs. */
 export function meta(manifest: object) {
-  const run = runBlock(releaseStep(rebuildYml, 'meta', 'id'));
   const temp = mkdtempSync(join(tmpdir(), 'mailoo-docker-rebuild-'));
   try {
     writeFileSync(join(temp, 'package.json'), JSON.stringify(manifest));
     writeFileSync(join(temp, 'output'), '');
-    const { status, stderr } = runStep(run, temp, {
+    const { status, stderr } = runStep(metaRun, temp, {
       PATH: process.env.PATH,
       GITHUB_OUTPUT: join(temp, 'output'),
     });

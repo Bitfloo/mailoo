@@ -5,7 +5,14 @@ import { join } from 'node:path';
 import { repoRoot } from './agents/agent-file.js';
 import { changelogMd, swapOnce } from './changelog-fixture.js';
 import { releaseNotes } from './release-notes-harness.js';
-import { releaseJob, releaseStep, releaseYml, requireTools, runBlock } from './workflow-yaml.js';
+import {
+  harnessedStep,
+  releaseJob,
+  releaseStep,
+  releaseYml,
+  requireTools,
+  runBlock,
+} from './workflow-yaml.js';
 
 requireTools(['awk', 'bash']);
 
@@ -40,6 +47,20 @@ describe('step harness', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('should refuse a step its harness does not declare', () => {
+    const harness = { workflow: 'release.yml', job: 'mcp', steps: [] };
+    expect(() => harnessedStep(harness, 'Install mcp-publisher')).toThrow(
+      'release.yml mcp: the harness does not declare Install mcp-publisher',
+    );
+  });
+
+  it('should refuse a declared step that sits in another job', () => {
+    const harness = { workflow: 'release.yml', job: 'npm', steps: ['Install mcp-publisher'] };
+    expect(() => harnessedStep(harness, 'Install mcp-publisher')).toThrow(
+      'release.yml npm has no step Install mcp-publisher',
+    );
   });
 
   it.each(['shell: sh', '"shell": bash', 'working-directory: .github'])(

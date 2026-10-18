@@ -3,7 +3,22 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
-import { refEnv, releaseStep, releaseYml, runBlock, runStep, stepEnv } from './workflow-yaml.js';
+import {
+  type Harness,
+  harnessedStep,
+  refEnv,
+  runBlock,
+  runStep,
+  stepEnv,
+} from './workflow-yaml.js';
+
+export const notesHarness: Harness = {
+  workflow: 'release.yml',
+  job: 'docker',
+  steps: ['Write release notes'],
+};
+
+const step = harnessedStep(notesHarness, 'Write release notes');
 
 export interface ReleaseRun {
   ref: string;
@@ -15,7 +30,6 @@ export interface ReleaseRun {
 
 /** Run the release-notes step with its own env wiring and return what it wrote. */
 export function releaseNotes(run: ReleaseRun): string {
-  const step = releaseStep(releaseYml, 'Write release notes');
   const temp = mkdtempSync(join(tmpdir(), 'mailoo-release-notes-'));
   try {
     if (typeof run.changelog === 'string') {
