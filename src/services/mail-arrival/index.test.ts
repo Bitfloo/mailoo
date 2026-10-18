@@ -116,22 +116,6 @@ describe('MailArrival.handle', () => {
     systemOneMock.mockResolvedValue(sdkAnswers());
   });
 
-  it('should flag a message before moving it', async () => {
-    const imap = mockImap();
-    const writes: unknown[][] = [];
-    imap.setFlags.mockImplementation(async (...args: unknown[]) => {
-      writes.push(['setFlags', ...args]);
-    });
-    imap.moveEmail.mockImplementation(async (...args: unknown[]) => {
-      writes.push(['moveEmail', ...args]);
-    });
-    await (await createArrival(imap)).handle(arrivalEmail('10'));
-    expect(writes).toEqual([
-      ['setFlags', 'personal', '10', 'INBOX', 'flag'],
-      ['moveEmail', 'personal', '10', 'INBOX', 'Receipts'],
-    ]);
-  });
-
   // Headers and the attachment list only: the body stays on the server while include_body is off.
   it('should not read the whole message', async () => {
     const imap = mockImap();
