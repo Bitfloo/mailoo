@@ -82,16 +82,17 @@ function sessionBreach(present: boolean, idle: boolean, expired: boolean, step: 
 
 function checkInvariants(run: Run, step: Step, at: number): string[] {
   const { clock, store, open, lastUsed } = run;
-  const breaches = Array.from(open.keys()).flatMap((id) => {
+  const breaches: string[] = [];
+  for (const id of [...open.keys()]) {
     const present = store.get(id) !== undefined;
     const expired = clock.now - (lastUsed.get(id) ?? clock.now) > TTL;
     const breach = sessionBreach(present, open.get(id) === 0, expired, step);
+    if (breach) breaches.push(`step ${at}: ${id} ${breach}`);
     if (!present) {
       open.delete(id);
       lastUsed.delete(id);
     }
-    return breach ? [`step ${at}: ${id} ${breach}`] : [];
-  });
+  }
   const idleKept = Array.from(open.entries()).filter(([id, n]) => n === 0 && id !== step.added);
   if (step.swept && store.size > MAX && idleKept.length > 0) {
     breaches.push(`step ${at}: ${store.size} sessions over a cap of ${MAX}`);
@@ -232,12 +233,13 @@ describe('HttpSessionStore', () => {
     // (47 at the cap), 1,131 begins, 637 ends, 731 waits and 450 sweeps.
     const visits = { set: 0, setAtCap: 0, begin: 0, end: 0, wait: 0, sweep: 0 };
 
-    const breaches = Array.from({ length: 3_000 }).flatMap((_, at) => {
+    const breaches: string[] = [];
+    for (let at = 0; at < 3_000; at += 1) {
       const step = applyRandomAction(run, random);
       visits[step.action] += 1;
       if (step.action === 'set' && step.overCap) visits.setAtCap += 1;
-      return checkInvariants(run, step, at);
-    });
+      breaches.push(...checkInvariants(run, step, at));
+    }
     const thin = Object.entries(visits).flatMap(([path, n]) => (n < 40 ? [path] : []));
 
     expect({ breaches, thin }).toEqual({ breaches: [], thin: [] });
