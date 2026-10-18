@@ -176,4 +176,74 @@ describe('ImapService', () => {
       expect(client.mailboxRename).toHaveBeenCalledWith('Receipts', 'Receipts 2026');
     });
   });
+
+  describe('findEmailFolder', () => {
+    /** LIST rows that must not be searched sit between the real folders. */
+    const folders = [
+      { name: 'INBOX', path: 'INBOX', listed: true, specialUse: '\\Inbox', flags: new Set() },
+      { name: 'Archive', path: 'Archive', listed: true, flags: new Set() },
+      // LSUB-only: subscribed but no longer in LIST.
+      { name: 'Old', path: 'Old', listed: false, flags: new Set() },
+      { name: '[Gmail]', path: '[Gmail]', listed: true, flags: new Set(['\\Noselect']) },
+      { name: 'All Mail', path: '[Gmail]/All Mail', listed: true, flags: new Set(['\\All']) },
+      {
+        name: 'Starred',
+        path: '[Gmail]/Starred',
+        listed: true,
+        specialUse: '\\Flagged',
+        flags: new Set(),
+      },
+      { name: 'Broken', path: 'Broken', listed: true, flags: new Set() },
+      { name: 'Receipts', path: 'Receipts', listed: true, flags: new Set() },
+    ];
+    const holding = new Set(['Archive', 'Receipts', '[Gmail]/All Mail', '[Gmail]/Starred']);
+
+    /** Answers a header SEARCH for the folder the last lock selected; returns the folders searched. */
+    function searchBySelectedFolder(headers: string): string[] {
+      const searched: string[] = [];
+      let selected = '';
+      client.fetchOne.mockResolvedValue({ uid: 9, headers: Buffer.from(headers) });
+      client.list.mockResolvedValue(folders);
+      client.getMailboxLock.mockImplementation(async (path: string) => {
+        selected = path;
+        return { release: client._releaseFn };
+      });
+      client.search.mockImplementation(async () => {
+        searched.push(selected);
+        if (selected === 'Broken') throw new Error('Command failed: NO [SERVERBUG]');
+        return holding.has(selected) ? [5] : [];
+      });
+      return searched;
+    }
+
+    const headers = 'Subject: Invoice\r\nMessage-ID:   <abc@example.com>  \r\n\r\n';
+
+    it('should return the trimmed Message-ID and each real folder that holds it', async () => {
+      searchBySelectedFolder(headers);
+
+      const result = await service.findEmailFolder('test', '9', 'INBOX');
+
+      expect(result).toEqual({ folders: ['Archive', 'Receipts'], messageId: '<abc@example.com>' });
+    });
+
+    it('should skip unlisted, \\Noselect and virtual folders', async () => {
+      const searched = searchBySelectedFolder(headers);
+
+      await service.findEmailFolder('test', '9', 'INBOX');
+
+      expect(searched).toEqual(['INBOX', 'Archive', 'Broken', 'Receipts']);
+    });
+
+    it.each([
+      ['has no Message-ID header', 'Subject: Invoice\r\n\r\n'],
+      ['is not in the mailbox', undefined],
+    ])('should refuse when the message %s', async (_, messageHeaders) => {
+      searchBySelectedFolder(messageHeaders ?? '');
+      if (messageHeaders === undefined) client.fetchOne.mockResolvedValue(false);
+
+      await expect(service.findEmailFolder('test', '9', 'INBOX')).rejects.toThrow(
+        'Could not retrieve Message-ID for this email.',
+      );
+    });
+  });
 });
