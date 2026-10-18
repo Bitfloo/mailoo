@@ -27,4 +27,10 @@ describe('bearerAuthorizationMatches', () => {
     expect(matches).toBe(false);
     expect(sizes).toEqual([Buffer.byteLength(TOKEN), Buffer.byteLength(TOKEN)]);
   });
+
+  // The equal-sized comparison runs against a zero buffer, so its result alone
+  // must not admit a token of another length.
+  it('should refuse a different-length token even when the byte comparison passes', () => {
+    expect(bearerAuthorizationMatches('Bearer short', TOKEN, () => true)).toBe(false);
+  });
 });
