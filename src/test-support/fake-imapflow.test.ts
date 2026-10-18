@@ -1,6 +1,6 @@
 import { ImapFlow } from 'imapflow';
 
-import { FakeImapFlow, fake, resetFakeServer } from './fake-imapflow.js';
+import { FakeImapFlow, fake, resetFakeServer, seedFolder } from './fake-imapflow.js';
 
 interface CloseCase {
   when: string;
@@ -16,7 +16,7 @@ const cases: CloseCase[] = [
   { when: 'secure is unset on port 993', port: 993, code: 'ClosedAfterConnectTLS' },
 ];
 
-function options({ port, secure }: CloseCase) {
+function options({ port, secure }: Pick<CloseCase, 'port' | 'secure'>) {
   return {
     host: 'imap.example.com',
     port,
@@ -41,5 +41,53 @@ describe('FakeImapFlow close during connect', () => {
   it.each(cases)('should count the socket as imapflow does when $when', (closeCase) => {
     const { secureConnection } = new ImapFlow(options(closeCase));
     expect(secureConnection).toBe(closeCase.code.endsWith('TLS'));
+  });
+});
+
+// The watcher's query tests read what this fetch yields, so it must answer as imapflow 1.7.8 does.
+describe('FakeImapFlow fetch', () => {
+  async function openInbox(): Promise<FakeImapFlow> {
+    const client = new FakeImapFlow(options({ port: 993 }));
+    await client.connect();
+    await client.mailboxOpen('INBOX');
+    return client;
+  }
+
+  async function fetchAll(
+    client: FakeImapFlow,
+    ...args: Parameters<FakeImapFlow['fetch']>
+  ): Promise<unknown[]> {
+    const messages: unknown[] = [];
+    for await (const message of client.fetch(...args)) messages.push(message);
+    return messages;
+  }
+
+  afterEach(() => {
+    fake.clients.forEach((client) => {
+      client.close();
+    });
+  });
+
+  it('should return only the fields the query names', async () => {
+    seedFolder('INBOX', [5, 9]);
+    const client = await openInbox();
+    expect(await fetchAll(client, '1:*', { uid: true })).toStrictEqual([
+      { seq: 1, uid: 5 },
+      { seq: 2, uid: 9 },
+    ]);
+  });
+
+  it('should read the range as sequence numbers unless the options say uid', async () => {
+    seedFolder('INBOX', [5, 9]);
+    const client = await openInbox();
+    const bySeq = await fetchAll(client, '2:*', { uid: true });
+    const byUid = await fetchAll(client, '2:*', { uid: true }, { uid: true });
+    expect({ bySeq, byUid }).toEqual({
+      bySeq: [{ seq: 2, uid: 9 }],
+      byUid: [
+        { seq: 1, uid: 5 },
+        { seq: 2, uid: 9 },
+      ],
+    });
   });
 });

@@ -39,6 +39,7 @@ interface FakeFetchedMessage {
 }
 
 interface FakeFetchQuery {
+  uid?: boolean;
   envelope?: boolean;
   flags?: boolean;
   bodyStructure?: boolean;
