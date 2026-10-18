@@ -110,18 +110,18 @@ describe('account schema credential', () => {
  * values are never trimmed: blank, padded and one-character values are kept as
  * given or refused exactly as they are.
  */
-const VALUES = [
+const NO_VALUE = [
   ['unset', undefined],
   ['empty', ''],
+] as const;
+const SOME_VALUE = [
   ['blank', '   '],
   ['padded', ' x '],
   ['short', 'x'],
 ] as const;
-type Kind = (typeof VALUES)[number][0];
-// The provider must name one exactly, so its padded and short values are near misses.
-const PROVIDER_VALUES = [
-  ['unset', undefined],
-  ['empty', ''],
+const VALUES = [...NO_VALUE, ...SOME_VALUE] as const;
+// A provider must be named exactly, so these near misses are refused, not trimmed.
+const NEAR_MISS_PROVIDER = [
   ['blank', '   '],
   ['padded', ' google '],
   ['short', 'Google'],
@@ -131,7 +131,10 @@ const CLIENT_FIELDS = [
   ['client_secret', 'clientSecret', 'MCP_EMAIL_OAUTH2_CLIENT_SECRET'],
   ['refresh_token', 'refreshToken', 'MCP_EMAIL_OAUTH2_REFRESH_TOKEN'],
 ] as const;
-const PROVIDER_REFUSAL = OAuth2ConfigSchema.shape.provider.safeParse('?').error?.issues[0]?.message;
+const eachField = <T extends readonly (readonly [string, string | undefined])[]>(values: T) =>
+  CLIENT_FIELDS.flatMap(([field, key, name]) =>
+    values.map(([kind, value]) => [field, kind, value, key, name] as const),
+  );
 
 type Outcome = { password: string | undefined; oauth2: unknown } | { refused: string[] };
 
@@ -142,56 +145,61 @@ describe('account schema credential matrix', () => {
     return { refused: result.error.issues.map((issue) => issue.path.join('.') || '(account)') };
   };
 
-  const passwordAlone: Record<Kind, 'refused' | 'kept'> = {
-    unset: 'refused',
-    empty: 'refused',
-    blank: 'kept',
-    padded: 'kept',
-    short: 'kept',
-  };
-  it.each(VALUES)('password %s (%j) without OAuth2', (kind, password) => {
-    expect(parsed({ ...account, password })).toEqual(
-      passwordAlone[kind] === 'kept' ? { password, oauth2: undefined } : { refused: ['(account)'] },
+  it.each(NO_VALUE)(
+    'should refuse an account whose password is %s (%j) and has no OAuth2',
+    (_kind, password) => {
+      expect(parsed({ ...account, password })).toEqual({ refused: ['(account)'] });
+    },
+  );
+
+  it.each(SOME_VALUE)(
+    'should keep a %s password (%j) without OAuth2 as given',
+    (_kind, password) => {
+      expect(parsed({ ...account, password })).toEqual({ password, oauth2: undefined });
+    },
+  );
+
+  it.each(VALUES)(
+    'should keep the password beside OAuth2 as given when it is %s (%j)',
+    (_kind, password) => {
+      expect(parsed({ ...account, password, oauth2 })).toEqual({ password, oauth2 });
+    },
+  );
+
+  it.each([...NO_VALUE, ...NEAR_MISS_PROVIDER])(
+    'should refuse the provider at oauth2.provider when it is %s (%j)',
+    (_kind, provider) => {
+      expect(parsed({ ...account, oauth2: { ...oauth2, provider } })).toEqual({
+        refused: ['oauth2.provider'],
+      });
+    },
+  );
+
+  it('should accept every provider the schema names', () => {
+    const { options } = OAuth2ConfigSchema.shape.provider;
+    expect(
+      options.map((provider) => parsed({ ...account, oauth2: { ...oauth2, provider } })),
+    ).toEqual(
+      options.map((provider) => ({ password: undefined, oauth2: { ...oauth2, provider } })),
     );
   });
 
-  it.each(VALUES)('password %s (%j) beside OAuth2 is kept as given', (_kind, password) => {
-    expect(parsed({ ...account, password, oauth2 })).toEqual({ password, oauth2 });
-  });
+  it.each(eachField(NO_VALUE))(
+    'should refuse oauth2.%s %s (%j) at its own path',
+    (field, _kind, value) => {
+      const block: Record<string, string | undefined> = { ...oauth2, [field]: value };
+      if (value === undefined) delete block[field];
+      expect(parsed({ ...account, oauth2: block })).toEqual({ refused: [`oauth2.${field}`] });
+    },
+  );
 
-  it.each(PROVIDER_VALUES)('provider %s (%j) is refused at oauth2.provider', (_kind, provider) => {
-    expect(parsed({ ...account, oauth2: { ...oauth2, provider } })).toEqual({
-      refused: ['oauth2.provider'],
-    });
-  });
-
-  it.each(OAuth2ConfigSchema.shape.provider.options)('provider %s is accepted', (provider) => {
-    expect(parsed({ ...account, oauth2: { ...oauth2, provider } })).toEqual({
-      password: undefined,
-      oauth2: { ...oauth2, provider },
-    });
-  });
-
-  const clientValue: Record<Kind, 'refused' | 'kept'> = {
-    unset: 'refused',
-    empty: 'refused',
-    blank: 'kept',
-    padded: 'kept',
-    short: 'kept',
-  };
-  it.each(
-    CLIENT_FIELDS.flatMap(([field]) =>
-      VALUES.map(([kind, value]) => [field, kind, value] as const),
-    ),
-  )('oauth2.%s %s (%j)', (field, kind, value) => {
-    const block: Record<string, string | undefined> = { ...oauth2, [field]: value };
-    if (value === undefined) delete block[field];
-    expect(parsed({ ...account, oauth2: block })).toEqual(
-      clientValue[kind] === 'kept'
-        ? { password: undefined, oauth2: block }
-        : { refused: [`oauth2.${field}`] },
-    );
-  });
+  it.each(eachField(SOME_VALUE))(
+    'should keep oauth2.%s %s (%j) as given',
+    (field, _kind, value) => {
+      const block = { ...oauth2, [field]: value };
+      expect(parsed({ ...account, oauth2: block })).toEqual({ password: undefined, oauth2: block });
+    },
+  );
 });
 
 describe('MCP_EMAIL_* credential matrix', () => {
@@ -202,6 +210,10 @@ describe('MCP_EMAIL_* credential matrix', () => {
     refreshToken: 'env-refresh-token',
   };
   const NO_CONFIG = { refused: ['No configuration found.'] };
+  const providerRefusal = (): string =>
+    `accounts.0.oauth2.provider: ${OAuth2ConfigSchema.shape.provider.safeParse('?').error?.issues[0]?.message}`;
+  const fieldRefusal = (field: string): string =>
+    `accounts.0.oauth2.${field}: OAuth2 ${field} is required`;
 
   const stub = (vars: Record<string, string | undefined>): void => {
     Object.entries(vars).forEach(([name, value]) => {
@@ -241,99 +253,103 @@ describe('MCP_EMAIL_* credential matrix', () => {
     vi.unstubAllEnvs();
   });
 
-  // Without a credential the environment describes no account.
-  const passwordAlone: Record<Kind, 'none' | 'kept'> = {
-    unset: 'none',
-    empty: 'none',
-    blank: 'kept',
-    padded: 'kept',
-    short: 'kept',
-  };
-  it.each(VALUES)('MCP_EMAIL_PASSWORD %s (%j) with no provider', async (kind, password) => {
-    stub({ MCP_EMAIL_PASSWORD: password });
-    expect(await loaded()).toEqual(
-      passwordAlone[kind] === 'kept' ? { password, oauth2: undefined } : NO_CONFIG,
-    );
-  });
+  it.each(NO_VALUE)(
+    'should describe no account when MCP_EMAIL_PASSWORD is %s (%j) and no provider is set',
+    async (_kind, password) => {
+      stub({ MCP_EMAIL_PASSWORD: password });
+      expect(await loaded()).toEqual(NO_CONFIG);
+    },
+  );
+
+  it.each(SOME_VALUE)(
+    'should load a %s MCP_EMAIL_PASSWORD (%j) as given when no provider is set',
+    async (_kind, password) => {
+      stub({ MCP_EMAIL_PASSWORD: password });
+      expect(await loaded()).toEqual({ password, oauth2: undefined });
+    },
+  );
 
   it.each(VALUES)(
-    'MCP_EMAIL_PASSWORD %s (%j) beside a provider is kept as given',
+    'should keep MCP_EMAIL_PASSWORD as given beside a provider when it is %s (%j)',
     async (_kind, password) => {
       stub({ ...withOAuth2('google'), MCP_EMAIL_PASSWORD: password });
       expect(await loaded()).toEqual({ password, oauth2: fromEnv });
     },
   );
 
-  const providerAlone: Record<Kind, 'none' | 'refused'> = {
-    unset: 'none',
-    empty: 'none',
-    blank: 'refused',
-    padded: 'refused',
-    short: 'refused',
-  };
-  it.each(PROVIDER_VALUES)(
-    'MCP_EMAIL_OAUTH2_PROVIDER %s (%j) with no password',
-    async (kind, provider) => {
+  it.each(NO_VALUE)(
+    'should describe no account when MCP_EMAIL_OAUTH2_PROVIDER is %s (%j) and no password is set',
+    async (_kind, provider) => {
       stub(withOAuth2(provider));
-      expect(await loaded()).toEqual(
-        providerAlone[kind] === 'none'
-          ? NO_CONFIG
-          : { refused: [`accounts.0.oauth2.provider: ${PROVIDER_REFUSAL}`] },
-      );
+      expect(await loaded()).toEqual(NO_CONFIG);
     },
   );
 
-  it.each(OAuth2ConfigSchema.shape.provider.options)(
-    'MCP_EMAIL_OAUTH2_PROVIDER %s is read as given',
-    async (provider) => {
+  it.each(NEAR_MISS_PROVIDER)(
+    'should refuse a %s MCP_EMAIL_OAUTH2_PROVIDER (%j) at the provider, not trim it',
+    async (_kind, provider) => {
       stub(withOAuth2(provider));
-      expect(await loaded()).toEqual({ password: undefined, oauth2: { ...fromEnv, provider } });
+      expect(await loaded()).toEqual({ refused: [providerRefusal()] });
     },
   );
 
-  // The OAuth2 values are not read unless the provider names a provider.
-  const clientRefusals = CLIENT_FIELDS.map(
-    ([field]) => `accounts.0.oauth2.${field}: OAuth2 ${field} is required`,
-  );
-  const providerBesidePassword: Record<Kind, Outcome> = {
-    unset: { password: 'app-password', oauth2: undefined },
-    empty: { password: 'app-password', oauth2: undefined },
-    blank: { refused: [`accounts.0.oauth2.provider: ${PROVIDER_REFUSAL}`, ...clientRefusals] },
-    padded: { refused: [`accounts.0.oauth2.provider: ${PROVIDER_REFUSAL}`, ...clientRefusals] },
-    short: { refused: [`accounts.0.oauth2.provider: ${PROVIDER_REFUSAL}`, ...clientRefusals] },
-  };
-  it.each(PROVIDER_VALUES)(
-    'MCP_EMAIL_OAUTH2_PROVIDER %s (%j) beside a password, with no OAuth2 values',
-    async (kind, provider) => {
-      stub({ MCP_EMAIL_PASSWORD: 'app-password', MCP_EMAIL_OAUTH2_PROVIDER: provider });
-      expect(await loaded()).toEqual(providerBesidePassword[kind]);
-    },
-  );
-
-  it('MCP_EMAIL_OAUTH2_PROVIDER google beside a password, with no OAuth2 values', async () => {
-    stub({ MCP_EMAIL_PASSWORD: 'app-password', MCP_EMAIL_OAUTH2_PROVIDER: 'google' });
-    expect(await loaded()).toEqual({ refused: clientRefusals });
-  });
-
-  const clientValue: Record<Kind, 'refused' | 'kept'> = {
-    unset: 'refused',
-    empty: 'refused',
-    blank: 'kept',
-    padded: 'kept',
-    short: 'kept',
-  };
-  it.each(
-    CLIENT_FIELDS.flatMap(([field, key, name]) =>
-      VALUES.map(([kind, value]) => [name, kind, value, field, key] as const),
-    ),
-  )('%s %s (%j)', async (name, kind, value, field, key) => {
-    stub({ ...withOAuth2('google'), [name]: value });
-    expect(await loaded()).toEqual(
-      clientValue[kind] === 'kept'
-        ? { password: undefined, oauth2: { ...fromEnv, [key]: value } }
-        : { refused: [`accounts.0.oauth2.${field}: OAuth2 ${field} is required`] },
+  it('should read every provider the schema names from MCP_EMAIL_OAUTH2_PROVIDER as given', async () => {
+    const outcomes: Outcome[] = [];
+    for (const provider of OAuth2ConfigSchema.shape.provider.options) {
+      stub(withOAuth2(provider));
+      outcomes.push(await loaded());
+    }
+    expect(outcomes).toEqual(
+      OAuth2ConfigSchema.shape.provider.options.map((provider) => ({
+        password: undefined,
+        oauth2: { ...fromEnv, provider },
+      })),
     );
   });
+
+  it.each(NO_VALUE)(
+    'should load the password account with no OAuth2 when MCP_EMAIL_OAUTH2_PROVIDER is %s (%j)',
+    async (_kind, provider) => {
+      stub({ MCP_EMAIL_PASSWORD: 'app-password', MCP_EMAIL_OAUTH2_PROVIDER: provider });
+      expect(await loaded()).toEqual({ password: 'app-password', oauth2: undefined });
+    },
+  );
+
+  it.each(NEAR_MISS_PROVIDER)(
+    'should refuse a %s MCP_EMAIL_OAUTH2_PROVIDER (%j) beside a password, with each missing OAuth2 value',
+    async (_kind, provider) => {
+      stub({ MCP_EMAIL_PASSWORD: 'app-password', MCP_EMAIL_OAUTH2_PROVIDER: provider });
+      expect(await loaded()).toEqual({
+        refused: [providerRefusal(), ...CLIENT_FIELDS.map(([field]) => fieldRefusal(field))],
+      });
+    },
+  );
+
+  it('should refuse a named provider beside a password when the OAuth2 values are missing', async () => {
+    stub({ MCP_EMAIL_PASSWORD: 'app-password', MCP_EMAIL_OAUTH2_PROVIDER: 'google' });
+    expect(await loaded()).toEqual({
+      refused: CLIENT_FIELDS.map(([field]) => fieldRefusal(field)),
+    });
+  });
+
+  it.each(eachField(NO_VALUE))(
+    'should refuse to load when oauth2.%s is %s (%j), naming the field',
+    async (field, _kind, value, _key, name) => {
+      stub({ ...withOAuth2('google'), [name]: value });
+      expect(await loaded()).toEqual({ refused: [fieldRefusal(field)] });
+    },
+  );
+
+  it.each(eachField(SOME_VALUE))(
+    'should read oauth2.%s %s (%j) from its own variable as given',
+    async (_field, _kind, value, key, name) => {
+      stub({ ...withOAuth2('google'), [name]: value });
+      expect(await loaded()).toEqual({
+        password: undefined,
+        oauth2: { ...fromEnv, [key]: value },
+      });
+    },
+  );
 });
 
 describe('MCP_EMAIL_* account with no credential', () => {
