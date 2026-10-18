@@ -7,12 +7,20 @@
  * Linux: no-op (Reminders.app is macOS-only). Returns a clear error.
  */
 
-import { execFile as execFileCb } from 'node:child_process';
-import { promisify } from 'node:util';
-
 import { delimitUntrusted } from '../safety/untrusted-content.js';
+import {
+  CONFIRM_DIALOG_WAIT_S,
+  classifyOsascriptFailure,
+  dateToAppleScriptLines,
+  escapeAS,
+  JSON_HANDLERS,
+  parseOsascriptJson,
+  runOsascript,
+} from './osascript.js';
 
-const execFile = promisify(execFileCb);
+export const LIST_REMINDERS_TIMEOUT_MS = 15_000;
+/** The confirm dialog waits up to CONFIRM_DIALOG_WAIT_S for the user; the write runs after it. */
+export const ADD_REMINDER_TIMEOUT_MS = 90_000;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,11 +45,6 @@ export interface AddReminderResult {
   reminderId?: string;
   listName?: string;
   message: string;
-}
-
-export interface ReminderListInfo {
-  id: string;
-  name: string;
 }
 
 export interface ReminderSummary {
@@ -101,37 +104,10 @@ function reminderStatusMessage(
 async function checkPermissionsMacOS(): Promise<boolean> {
   const script = 'tell application "Reminders" to return count of lists';
   try {
-    const { stdout } = await execFile('osascript', ['-e', script], {
-      timeout: 10_000,
-    });
-    return parseInt(stdout.trim(), 10) >= 0;
+    return parseInt(await runOsascript(script, 10_000), 10) >= 0;
   } catch {
     return false;
   }
-}
-
-async function listListsMacOS(): Promise<ReminderListInfo[]> {
-  const script = 'tell application "Reminders" to return name of every list';
-  try {
-    const { stdout } = await execFile('osascript', ['-e', script], {
-      timeout: 10_000,
-    });
-    const raw = stdout.trim();
-    if (!raw) return [];
-    return raw.split(', ').map((name) => ({ id: name, name }));
-  } catch {
-    return [];
-  }
-}
-
-function escapeAS(s: string): string {
-  return s
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\r\n/g, '\\n')
-    .replace(/\n/g, '\\n')
-    .replace(/\r/g, '\\r')
-    .replace(/\t/g, '\\t');
 }
 
 function buildReminderAppleScript(input: ReminderInput, confirm: boolean): string {
@@ -141,19 +117,21 @@ function buildReminderAppleScript(input: ReminderInput, confirm: boolean): strin
   const dueDate = input.dueDate ?? '';
   const listName = escapeAS(input.listName ?? '');
 
-  const lines: string[] = [];
+  const lines: string[] = [JSON_HANDLERS];
 
   if (confirm) {
-    const dlgParts: string[] = [`\uD83D\uDD14 ${title}`];
+    // Mail text is escaped once, where each dialog line is quoted.
+    const dlgParts: string[] = [`\uD83D\uDD14 ${input.title}`];
     if (dueDate) {
       dlgParts.push(`\uD83D\uDD50 Due: ${dueDate}`);
     }
-    if (notes) {
-      const short = notes.length > 200 ? `${notes.substring(0, 200)}\u2026` : notes;
+    if (input.notes) {
+      const short =
+        input.notes.length > 200 ? `${input.notes.substring(0, 200)}\u2026` : input.notes;
       dlgParts.push(`\uD83D\uDCDD ${short}`);
     }
-    if (listName) {
-      dlgParts.push(`\uD83D\uDCCB List: ${listName}`);
+    if (input.listName) {
+      dlgParts.push(`\uD83D\uDCCB List: ${input.listName}`);
     }
     if (priority > 0) {
       let pLabel = 'Low';
@@ -171,7 +149,7 @@ function buildReminderAppleScript(input: ReminderInput, confirm: boolean): strin
     });
     lines.push(
       'try',
-      '  display dialog dialogText with title "mailoo \u2014 Add Reminder?" buttons {"Cancel", "Add Reminder"} default button "Add Reminder" cancel button "Cancel" giving up after 60',
+      `  display dialog dialogText with title "mailoo \u2014 Add Reminder?" buttons {"Cancel", "Add Reminder"} default button "Add Reminder" cancel button "Cancel" giving up after ${CONFIRM_DIALOG_WAIT_S}`,
       '  set dlgResult to button returned of result',
       '  if dlgResult is not "Add Reminder" then',
       '    return "{\\"status\\":\\"timed_out\\"}"',
@@ -210,16 +188,9 @@ function buildReminderAppleScript(input: ReminderInput, confirm: boolean): strin
   );
 
   if (dueDate) {
-    const d = new Date(dueDate);
     lines.push(
       '  try',
-      '    set dueD to current date',
-      `    set year of dueD to ${d.getFullYear()}`,
-      `    set month of dueD to ${d.getMonth() + 1}`,
-      `    set day of dueD to ${d.getDate()}`,
-      `    set hours of dueD to ${d.getHours()}`,
-      `    set minutes of dueD to ${d.getMinutes()}`,
-      `    set seconds of dueD to ${d.getSeconds()}`,
+      ...dateToAppleScriptLines('dueD', new Date(dueDate)).map((line) => `    ${line}`),
       '    set due date of newReminder to dueD',
       '  end try',
     );
@@ -230,7 +201,7 @@ function buildReminderAppleScript(input: ReminderInput, confirm: boolean): strin
     '  set finalList to name of targetList',
     'end tell',
     '',
-    'return "{\\"status\\":\\"added\\",\\"reminderId\\":\\"" & remId & "\\",\\"listName\\":\\"" & finalList & "\\"}"',
+    'return "{\\"status\\":\\"added\\",\\"reminderId\\":" & my jsonString(remId) & ",\\"listName\\":" & my jsonString(finalList) & "}"',
   );
 
   return lines.join('\n');
@@ -243,14 +214,11 @@ async function addReminderMacOS(
   const script = buildReminderAppleScript(input, confirm);
 
   try {
-    const { stdout } = await execFile('osascript', ['-e', script], {
-      timeout: 90_000,
-    });
-    const result = JSON.parse(stdout.trim()) as {
+    const result = parseOsascriptJson<{
       status: AddReminderStatus;
       reminderId?: string;
       listName?: string;
-    };
+    }>(await runOsascript(script, ADD_REMINDER_TIMEOUT_MS), 'add reminder');
     return {
       status: result.status,
       reminderId: result.reminderId,
@@ -258,18 +226,18 @@ async function addReminderMacOS(
       message: reminderStatusMessage(result.status, input.title, result.listName),
     };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/user canceled|(-128)/i.test(msg)) {
+    const failure = classifyOsascriptFailure(err);
+    if (failure.kind === 'cancelled') {
       return { status: 'cancelled', message: 'Cancelled by user.' };
     }
-    if (/not authorized|access/i.test(msg)) {
+    if (failure.kind === 'denied') {
       return {
         status: 'no_display',
         message:
           'Reminders access denied. Go to System Settings \u2192 Privacy \u2192 Reminders and enable Terminal.',
       };
     }
-    return { status: 'no_display', message: `Could not add reminder: ${msg}` };
+    return { status: 'no_display', message: `Could not add reminder: ${failure.message}` };
   }
 }
 
@@ -279,7 +247,7 @@ async function listRemindersMacOS(opts: ListRemindersOptions): Promise<ReminderS
   const listFilter = opts.listName ? escapeAS(opts.listName) : '';
   const includeCompleted = opts.includeCompleted === true;
 
-  const script = `
+  const script = `${JSON_HANDLERS}
 set jsonResult to "["
 set resultCount to 0
 set maxResults to ${limit}
@@ -322,7 +290,7 @@ tell application "Reminders"
               set compStr to "false"
               if isComp then set compStr to "true"
               if resultCount > 0 then set jsonResult to jsonResult & ","
-              set jsonResult to jsonResult & "{\\"id\\":\\"" & rId & "\\",\\"title\\":\\"" & rTitle & "\\",\\"dueDate\\":\\"" & rDue & "\\",\\"completed\\":" & compStr & ",\\"priority\\":\\"" & pLabel & "\\",\\"list\\":\\"" & listName & "\\"}"
+              set jsonResult to jsonResult & "{\\"id\\":" & my jsonString(rId) & ",\\"title\\":" & my jsonString(rTitle) & ",\\"dueDate\\":" & my jsonString(rDue) & ",\\"completed\\":" & compStr & ",\\"priority\\":\\"" & pLabel & "\\",\\"list\\":" & my jsonString(listName) & "}"
               set resultCount to resultCount + 1
             end if
           end if
@@ -336,12 +304,10 @@ set jsonResult to jsonResult & "]"
 return jsonResult
 `;
 
-  try {
-    const { stdout } = await execFile('osascript', ['-e', script], { timeout: 15_000 });
-    return JSON.parse(stdout.trim()) as ReminderSummary[];
-  } catch {
-    return [];
-  }
+  return parseOsascriptJson<ReminderSummary[]>(
+    await runOsascript(script, LIST_REMINDERS_TIMEOUT_MS),
+    'list reminders',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -350,10 +316,6 @@ return jsonResult
 
 export default class RemindersService {
   private readonly platform = process.platform;
-
-  get isSupported(): boolean {
-    return this.platform === 'darwin';
-  }
 
   async checkPermissions(): Promise<{
     granted: boolean;
@@ -379,11 +341,6 @@ export default class RemindersService {
         '3. Quit and restart the terminal, then try again.',
       ],
     };
-  }
-
-  async listLists(): Promise<ReminderListInfo[]> {
-    if (this.platform !== 'darwin') return [];
-    return listListsMacOS();
   }
 
   async addReminder(

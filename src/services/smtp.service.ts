@@ -7,6 +7,7 @@
 import type { SendMailOptions } from 'nodemailer';
 import type { IConnectionManager } from '../connections/types.js';
 import { mcpLog } from '../logging.js';
+import RateLimitError from '../safety/rate-limit-error.js';
 import type RateLimiter from '../safety/rate-limiter.js';
 import type { OutgoingAttachment, SendResult } from '../types/index.js';
 import compileRfc822 from '../utils/mail-compose.js';
@@ -91,6 +92,8 @@ export default class SmtpService {
       html?: boolean;
       attachments?: OutgoingAttachment[];
       messageId?: string;
+      inReplyTo?: string;
+      references?: string[];
     },
   ): Promise<SendResult> {
     const { name: resolvedAccount, account } = this.resolveAccount(accountName);
@@ -104,11 +107,20 @@ export default class SmtpService {
       bcc: options.bcc?.join(', '),
       subject: options.subject,
       messageId: options.messageId,
+      inReplyTo: options.inReplyTo,
+      references: options.references?.join(' '),
       attachments,
       ...(options.html ? { html: options.body } : { text: options.body }),
     };
 
     return this.sendAndAppend(resolvedAccount, mail);
+  }
+
+  /** The same token gives the same Message-ID, so a recipient can drop a resent copy. */
+  messageIdFor(accountName: string, token: string): string {
+    const { email } = this.connections.getAccount(accountName);
+    // The config schema admits only email addresses, env overlay included, so an '@' is always there.
+    return `<${token}@${email.slice(email.lastIndexOf('@') + 1)}>`;
   }
 
   // -------------------------------------------------------------------------
@@ -233,10 +245,7 @@ export default class SmtpService {
 
   private checkRateLimit(accountName: string): void {
     if (!this.rateLimiter.tryConsume(accountName)) {
-      throw new Error(
-        `Rate limit exceeded for account "${accountName}". ` +
-          `Please wait before sending more emails.`,
-      );
+      throw new RateLimitError(accountName);
     }
   }
 
@@ -289,8 +298,20 @@ export default class SmtpService {
       ...(draft.bodyHtml ? { html: draft.bodyHtml } : { text: draft.bodyText ?? '' }),
     });
 
-    await this.imapService.deleteDraft(resolvedAccount, draftId, draftsPath);
-    return result;
+    // The mail is already delivered: a failed delete must not read as a failed send,
+    // or the caller sends it again.
+    try {
+      await this.imapService.deleteDraft(resolvedAccount, draftId, draftsPath);
+      return { ...result, draftDeleted: true };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      await mcpLog(
+        'warning',
+        'smtp',
+        `Draft ${draftId} was sent but not removed from ${draftsPath}: ${reason}`,
+      );
+      return { ...result, draftDeleted: false };
+    }
   }
 
   // -------------------------------------------------------------------------

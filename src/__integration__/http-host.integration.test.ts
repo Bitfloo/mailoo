@@ -175,13 +175,17 @@ describe('HTTP host scheduler', () => {
     const config = testConfig();
     config.settings.readOnly = false;
     const running = await startHost({ now: 1_000 }, 5_000, config);
-    const checkAndSend = vi.spyOn(running.host.scheduler, 'checkAndSend');
+    const checkAndSend = vi
+      .spyOn(running.host.scheduler, 'checkAndSend')
+      .mockResolvedValue({ sent: 0, failed: 0, deferred: 0, errors: [] });
     const client = new Client({ name: 'mailoo-scheduler', version: '0.0.0' });
     try {
       await client.connect(
         new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${running.port}/mcp`)),
       );
       await running.host.ready;
+      // The loop skips a tick while the previous check runs, so the boot check settles first.
+      await new Promise(setImmediate);
       const atBoot = checkAndSend.mock.calls.length;
       vi.advanceTimersByTime(59_999);
       const before = checkAndSend.mock.calls.length - atBoot;

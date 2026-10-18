@@ -18,13 +18,10 @@ export default class CalendarService {
     const parsed = ical.sync.parseICS(content);
     const events: CalendarEvent[] = [];
 
-    // Extract the VCALENDAR METHOD if present
-    let calendarMethod: string | undefined;
-    Object.values(parsed).forEach((comp: IcalComponent | undefined) => {
-      if (comp?.type === 'VCALENDAR') {
-        calendarMethod = (comp as unknown as Record<string, unknown>).method as string | undefined;
-      }
-    });
+    // node-ical moves a plain METHOD into `vcalendar` but leaves one with a parameter on the root.
+    const root = parsed as unknown as Record<string, unknown>;
+    const vcalendar = root.vcalendar as Record<string, unknown> | undefined;
+    const calendarMethod = CalendarService.text(vcalendar?.method ?? root.method);
 
     Object.values(parsed).forEach((comp: IcalComponent | undefined) => {
       if (comp?.type !== 'VEVENT') return;
@@ -37,15 +34,15 @@ export default class CalendarService {
       const rrule = event.rrule as { toString: () => string } | undefined;
 
       events.push({
-        uid: (event.uid as string) ?? '',
-        summary: (event.summary as string) ?? '(No title)',
-        description: event.description as string | undefined,
-        start: start ? start.toISOString() : '',
-        end: end ? end.toISOString() : '',
-        location: event.location as string | undefined,
+        uid: CalendarService.text(event.uid) ?? '',
+        summary: CalendarService.text(event.summary) ?? '(No title)',
+        description: CalendarService.text(event.description),
+        start: CalendarService.iso(start),
+        end: CalendarService.iso(end),
+        location: CalendarService.text(event.location),
         organizer,
         attendees,
-        status: CalendarService.normalizeStatus(event.status as string | undefined),
+        status: CalendarService.normalizeStatus(CalendarService.text(event.status)),
         method: calendarMethod,
         recurrence: rrule?.toString(),
       });
@@ -84,6 +81,18 @@ export default class CalendarService {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  /** node-ical gives `{ val, params }` instead of a string once a property has a parameter. */
+  private static text(value: unknown): string | undefined {
+    if (typeof value === 'string') return value;
+    const val = (value as { val?: unknown } | undefined)?.val;
+    return typeof val === 'string' ? val : undefined;
+  }
+
+  /** node-ical gives an invalid `end` when an event has neither DTSTART nor DTEND. */
+  private static iso(date: Date | undefined): string {
+    return date && !Number.isNaN(date.getTime()) ? date.toISOString() : '';
+  }
 
   private static parseOrganizer(organizer: unknown): EmailAddress | undefined {
     if (!organizer) return undefined;

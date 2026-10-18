@@ -16,7 +16,7 @@ import type { EmailMeta, HookRule, HooksConfig } from '../types/index.js';
 import type { EmailEventBus, NewEmailEvent } from './event-bus.js';
 import eventBus from './event-bus.js';
 import type ImapService from './imap.service.js';
-import LocalCalendarService from './local-calendar.service.js';
+import LocalCalendarService, { isSettledAddStatus } from './local-calendar.service.js';
 import type { MailArrival } from './mail-arrival/index.js';
 import type { AlertPayload, UrgencyLevel } from './notifier.service.js';
 import NotifierService from './notifier.service.js';
@@ -95,6 +95,9 @@ export default class HooksService {
 
   private batchTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Each flush waits for the previous one, so two batches never handle mail at once. */
+  private flushChain: Promise<void> = Promise.resolve();
+
   private rateCounter = 0;
 
   private rateResetTimer: ReturnType<typeof setInterval> | null = null;
@@ -112,6 +115,13 @@ export default class HooksService {
   private readonly events: EmailEventBus;
 
   private static readonly MAX_SAMPLING_PER_MIN = 10;
+
+  /**
+   * A resync after a long disconnect can report thousands of UIDs at once. Hooks act on
+   * fresh mail; past this a single flush would hold the queue for minutes. Skipped mail
+   * stays in the mailbox unchanged.
+   */
+  static readonly MAX_PENDING_EMAILS = 500;
 
   private readonly handleNewEmail = (event: NewEmailEvent): void => {
     this.onNewEmail(event);
@@ -179,6 +189,7 @@ export default class HooksService {
     this.rateResetTimer = setInterval(() => {
       this.rateCounter = 0;
     }, 60_000);
+    this.rateResetTimer.unref();
 
     const ruleCount = this.config.rules.length;
     mcpLog(
@@ -217,7 +228,18 @@ export default class HooksService {
   // -------------------------------------------------------------------------
 
   private onNewEmail(event: NewEmailEvent): void {
-    const items = event.emails.map((meta) => ({
+    const room = Math.max(0, HooksService.MAX_PENDING_EMAILS - this.pendingEmails.length);
+    const accepted = event.emails.slice(0, room);
+    const skipped = event.emails.length - accepted.length;
+    if (skipped > 0) {
+      mcpLog(
+        'warning',
+        'hooks',
+        `Hook queue full (${HooksService.MAX_PENDING_EMAILS}): skipped ${skipped} new email(s) ` +
+          `in ${event.account}/${event.mailbox}`,
+      ).catch(() => {});
+    }
+    const items = accepted.map((meta) => ({
       account: event.account,
       mailbox: event.mailbox,
       meta,
@@ -225,10 +247,12 @@ export default class HooksService {
     this.pendingEmails.push(...items);
 
     this.batchTimer ??= setTimeout(() => {
-      this.flushBatch().catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        mcpLog('warning', 'hooks', `flushBatch failed: ${msg}`).catch(() => {});
-      });
+      this.flushChain = this.flushChain
+        .then(async () => this.flushBatch())
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          mcpLog('warning', 'hooks', `flushBatch failed: ${msg}`).catch(() => {});
+        });
     }, this.config.batchDelay * 1000);
   }
 
@@ -304,22 +328,22 @@ export default class HooksService {
   private static emailMatchesRule(email: BatchEmail, rule: HookRule): boolean {
     const { match } = rule;
     const fromAddr = email.meta.from.address;
-    const toAddrs = email.meta.to.map((t) => t.address).join(', ');
+    const toPattern = match.to;
     const { subject } = email.meta;
 
     // All specified match conditions must pass (AND logic)
     if (match.from && !matchesPattern(match.from, fromAddr)) {
       return false;
     }
-    if (match.to && !matchesPattern(match.to, toAddrs)) {
+    if (toPattern && !email.meta.to.some((t) => matchesPattern(toPattern, t.address))) {
       return false;
     }
     if (match.subject && !matchesPattern(match.subject, subject)) {
       return false;
     }
 
-    // At least one match condition must be specified
-    return Boolean(match.from ?? match.to ?? match.subject);
+    // At least one condition must be non-empty: the checks above skip an empty pattern too
+    return [match.from, match.to, match.subject].some(Boolean);
   }
 
   private async applyStaticRule(email: BatchEmail, rule: HookRule): Promise<void> {
@@ -393,20 +417,7 @@ export default class HooksService {
 
     // Add to calendar if rule requests it or global auto_calendar is on
     if (actions.addToCalendar ?? this.config.autoCalendar) {
-      const { isCalendarProcessed, markCalendarProcessed } = await import(
-        '../utils/calendar-state.js'
-      );
-      const already = await isCalendarProcessed(email.account, email.meta.id);
-      if (!already) {
-        await this.applyCalendarAction(email);
-        await markCalendarProcessed(email.account, email.meta.id, 'event', email.meta.subject);
-      } else {
-        await mcpLog(
-          'info',
-          'hooks',
-          `Calendar: skipping auto-add for ${email.meta.id} (already processed once)`,
-        );
-      }
+      await this.addToCalendarOnce(email, 'already processed once');
     }
   }
 
@@ -548,20 +559,7 @@ export default class HooksService {
 
     // Add to calendar if AI triage requested it or global auto_calendar is on
     if (triage.addToCalendar ?? this.config.autoCalendar) {
-      const { isCalendarProcessed, markCalendarProcessed } = await import(
-        '../utils/calendar-state.js'
-      );
-      const already = await isCalendarProcessed(email.account, email.meta.id);
-      if (!already) {
-        await this.applyCalendarAction(email);
-        await markCalendarProcessed(email.account, email.meta.id, 'event', email.meta.subject);
-      } else {
-        await mcpLog(
-          'info',
-          'hooks',
-          `Calendar: skipping auto-add for ${email.meta.id} (already processed once — instruct AI to add again)`,
-        );
-      }
+      await this.addToCalendarOnce(email, 'already processed once — instruct AI to add again');
     }
   }
 
@@ -569,7 +567,29 @@ export default class HooksService {
   // Calendar auto-add helper
   // -------------------------------------------------------------------------
 
-  private async applyCalendarAction(email: BatchEmail): Promise<void> {
+  /** Marks the email processed only after a settled outcome, so a failed add leaves it eligible. */
+  private async addToCalendarOnce(email: BatchEmail, skipReason: string): Promise<void> {
+    const { isCalendarProcessed, markCalendarProcessed } = await import(
+      '../utils/calendar-state.js'
+    );
+    if (await isCalendarProcessed(email.account, email.meta.id)) {
+      await mcpLog(
+        'info',
+        'hooks',
+        `Calendar: skipping auto-add for ${email.meta.id} (${skipReason})`,
+      );
+      return;
+    }
+    if (await this.applyCalendarAction(email)) {
+      await markCalendarProcessed(email.account, email.meta.id, 'event', email.meta.subject);
+    }
+  }
+
+  /**
+   * True when the user's calendar settled the event (added, already there, or declined
+   * in the dialog). A timed-out dialog, a missing display or a thrown error is false.
+   */
+  private async applyCalendarAction(email: BatchEmail): Promise<boolean> {
     const { buildCalendarNotes } = await import('../utils/calendar-notes.js');
     const { extractConferenceDetails } = await import('../utils/conference-details.js');
     const { extractMeetingUrl } = await import('../utils/meeting-url.js');
@@ -599,8 +619,11 @@ export default class HooksService {
         if (icsContents.length > 0) {
           const events = calSvc.extractFromParts(icsContents);
           if (events.length > 0) {
-            start = new Date(events[0].start);
-            end = new Date(events[0].end);
+            // An invitation without DTSTART has an empty start: keep the mail date.
+            if (events[0].start !== '') {
+              start = new Date(events[0].start);
+              end = new Date(events[0].end);
+            }
             location = events[0].location;
             icsUid = events[0].uid;
           }
@@ -661,10 +684,13 @@ export default class HooksService {
         { confirm: this.config.calendarConfirm !== false },
       );
 
-      await mcpLog('info', 'hooks', `Calendar: ${result.message}`);
+      const settled = isSettledAddStatus(result.status);
+      await mcpLog(settled ? 'info' : 'warning', 'hooks', `Calendar: ${result.message}`);
+      return settled;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await mcpLog('warning', 'hooks', `Calendar auto-add failed: ${msg}`);
+      return false;
     }
   }
 

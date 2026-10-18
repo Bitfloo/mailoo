@@ -17,11 +17,17 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 import { CALENDAR_ATTACHMENTS_DIR } from '../config/xdg.js';
+import audit from '../safety/audit.js';
 import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type CalendarService from '../services/calendar.service.js';
 import type ImapService from '../services/imap.service.js';
+import {
+  LIST_EVENTS_DAYS_AHEAD,
+  LIST_EVENTS_DAYS_BACK,
+} from '../services/local-calendar.macos-read.js';
 import type LocalCalendarService from '../services/local-calendar.service.js';
-import { ADD_EVENT_STATUSES } from '../services/local-calendar.service.js';
+import type { AddEventStatus } from '../services/local-calendar.service.js';
+import { ADD_EVENT_STATUSES, isSettledAddStatus } from '../services/local-calendar.service.js';
 import type RemindersService from '../services/reminders.service.js';
 import { buildCalendarNotes } from '../utils/calendar-notes.js';
 import { extractConferenceDetails } from '../utils/conference-details.js';
@@ -31,6 +37,35 @@ import { accountParam, emailIdInputFields, resolveEmailId } from './schema-helpe
 // Keywords that suggest an action item / reminder rather than a calendar event
 const REMINDER_KEYWORDS =
   /\b(deadline|due by|respond by|reply by|action required|follow.?up|please review|please send|please confirm|submit by|complete by|return by|RSVP by|by (monday|tuesday|wednesday|thursday|friday|saturday|sunday)|by (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))\b/i;
+
+/**
+ * Await one Calendar or Reminders write and append its outcome to the audit log.
+ * A cancelled dialog or a duplicate event is an answer, not a failure.
+ */
+async function auditedSchedulingWrite<T extends { status: AddEventStatus; message: string }>(
+  tool: 'add_to_calendar' | 'create_reminder',
+  account: string,
+  params: Record<string, unknown>,
+  writing: Promise<T>,
+): Promise<T> {
+  let result: T;
+  try {
+    result = await writing;
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    await audit.log(tool, account, params, 'error', errMsg);
+    throw err;
+  }
+  const failed = !isSettledAddStatus(result.status);
+  await audit.log(
+    tool,
+    account,
+    { ...params, status: result.status },
+    failed ? 'error' : 'ok',
+    failed ? result.message : undefined,
+  );
+  return result;
+}
 
 function registerCalendarGroup(
   group: 'read' | 'write',
@@ -200,8 +235,11 @@ function registerCalendarGroup(
             const events = calendarService.extractFromParts(icsContents);
             if (events.length > 0) {
               const ev = events[0];
-              eventStart = new Date(ev.start);
-              eventEnd = new Date(ev.end);
+              // An invitation without DTSTART has an empty start: keep the mail date.
+              if (ev.start !== '') {
+                eventStart = new Date(ev.start);
+                eventEnd = new Date(ev.end);
+              }
               eventLocation = ev.location;
               icsUid = ev.uid;
               if (ev.organizer) {
@@ -269,26 +307,37 @@ function registerCalendarGroup(
           });
 
           // 6. Add to calendar (shows dialog if confirm=true, dedup check is automatic)
-          const result = await localCalendarService.addEvent(
-            {
-              title: email.subject,
-              start: eventStart,
-              end: eventEnd,
-              location: eventLocation,
-              notes,
-              url: meetingUrl?.url,
-              urlLabel: meetingUrl?.label,
-              alarmMinutes,
-              attendeeCount: eventAttendees.length,
-              savedAttachments,
-              dialIn: conference?.dialIn,
-              meetingId: conference?.meetingId,
-              passcode: conference?.passcode,
-              conferenceProvider: conference?.provider,
-              icsUid,
-            },
-            calendarName,
-            { confirm },
+          const auditParams = {
+            email_id: emailId,
+            mailbox,
+            calendar_name: calendarName,
+            attachments_saved: savedAttachments.length,
+          };
+          const result = await auditedSchedulingWrite(
+            'add_to_calendar',
+            account,
+            auditParams,
+            localCalendarService.addEvent(
+              {
+                title: email.subject,
+                start: eventStart,
+                end: eventEnd,
+                location: eventLocation,
+                notes,
+                url: meetingUrl?.url,
+                urlLabel: meetingUrl?.label,
+                alarmMinutes,
+                attendeeCount: eventAttendees.length,
+                savedAttachments,
+                dialIn: conference?.dialIn,
+                meetingId: conference?.meetingId,
+                passcode: conference?.passcode,
+                conferenceProvider: conference?.provider,
+                icsUid,
+              },
+              calendarName,
+              { confirm },
+            ),
           );
 
           // 7. Build response
@@ -479,13 +528,13 @@ function registerCalendarGroup(
             .string()
             .optional()
             .describe(
-              'Show events on or after this date (ISO 8601, e.g. 2026-02-19). Defaults to 7 days ago.',
+              `Show events on or after this date (ISO 8601, e.g. 2026-02-19). Defaults to ${LIST_EVENTS_DAYS_BACK} days ago.`,
             ),
           to: z
             .string()
             .optional()
             .describe(
-              'Show events on or before this date (ISO 8601, e.g. 2026-02-28). Defaults to 30 days from now.',
+              `Show events on or before this date (ISO 8601, e.g. 2026-02-28). Defaults to ${LIST_EVENTS_DAYS_AHEAD} days from now.`,
             ),
           calendar_name: z.string().optional().describe('Restrict to a specific calendar by name'),
           limit: z
@@ -720,15 +769,21 @@ function registerCalendarGroup(
               .filter(Boolean)
               .join('\n');
 
-          const result = await remindersService.addReminder(
-            {
-              title: reminderTitle,
-              notes: reminderNotes,
-              dueDate,
-              priority,
-              listName,
-            },
-            { confirm },
+          const auditParams = { email_id: emailId, mailbox, list_name: listName };
+          const result = await auditedSchedulingWrite(
+            'create_reminder',
+            account,
+            auditParams,
+            remindersService.addReminder(
+              {
+                title: reminderTitle,
+                notes: reminderNotes,
+                dueDate,
+                priority,
+                listName,
+              },
+              { confirm },
+            ),
           );
 
           return {

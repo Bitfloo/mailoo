@@ -62,6 +62,23 @@ The mailbox is opened read-only (EXAMINE) and the source is fetched with
 over the limit returns an error and nothing is written to disk. The size the
 server reports (`RFC822.SIZE`) is checked before the source is fetched.
 
+## HTML bodies (`get_email`, `get_emails`, `get_thread`)
+
+An HTML part is converted (to text, or to sanitized HTML for `format="full"`)
+from its first 2,097,152 characters only. A longer part ends with a note
+that it was cut. Use `export_email` for the complete source.
+
+## Calendar and Reminders (macOS)
+
+`list_calendars`, `list_events` and `list_reminders` return an error when
+`osascript` fails or times out (`list_events` 90 s, `list_reminders` 15 s,
+`list_calendars` 10 s). An empty result means the app reported no items.
+
+`add_to_calendar` returns `duplicate` when an event with the same ICS UID,
+or the same title starting within 5 minutes, already exists in any
+calendar. If that check fails or times out (90 s), the event is not added
+and the status is `no_display` with the reason.
+
 ## `list_emails` / `search_emails` dates
 
 Both accept ISO 8601 `since` and `before`.
@@ -146,3 +163,7 @@ at most **50 MB**. The service reads the bytes itself.
 `save_draft` accepts `path` or `base64` with the same rules. Drafts and
 Sent APPENDs go through nodemailer MailComposer so **non-ASCII subjects
 are RFC 2047 encoded**.
+
+`send_draft` removes the draft after the mail is sent. If that removal
+fails, the result still reports the mail as sent and says the draft is
+still in Drafts; delete it there instead of sending it again.

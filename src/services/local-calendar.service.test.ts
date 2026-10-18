@@ -4,137 +4,31 @@
 
 import { describe, expect, it } from 'vitest';
 
-const { execFileMock } = vi.hoisted(() => {
-  const mock = vi.fn(
-    (
+const { osascriptImpl } = vi.hoisted(() => ({
+  osascriptImpl: vi.fn(
+    async (
       _file: string,
-      _args: unknown,
-      options: unknown,
-      callback?: (err: Error | null, stdout: string, stderr: string) => void,
-    ) => {
-      const cb = typeof options === 'function' ? options : callback;
-      if (typeof cb === 'function') {
-        cb(null, '[]', '');
-      }
-    },
-  );
-  const custom = Symbol.for('nodejs.util.promisify.custom');
-  Object.assign(mock, {
-    [custom]: async (file: string, args: unknown, options: unknown) => {
-      mock(file, args, options);
-      return { stdout: '[]', stderr: '' };
-    },
-  });
-  return { execFileMock: mock };
-});
-
-vi.mock('node:child_process', () => ({
-  execFile: execFileMock,
+      _args: string[],
+      _options: { timeout?: number },
+    ): Promise<{ stdout: string; stderr: string }> => ({ stdout: '[]', stderr: '' }),
+  ),
 }));
 
-import LocalCalendarService, {
-  dateToAppleScriptLines,
-  escapeAS,
-  LIST_EVENTS_TIMEOUT_MS,
-} from './local-calendar.service.js';
+vi.mock('node:child_process', () => ({
+  execFile: Object.assign(() => undefined, {
+    [Symbol.for('nodejs.util.promisify.custom')]: osascriptImpl,
+  }),
+}));
 
-// ---------------------------------------------------------------------------
-// escapeAS
-// ---------------------------------------------------------------------------
+import { dateSetBy, literalAfter } from '../test-support/applescript.js';
+import onDarwin from '../test-support/platform.js';
+import { LIST_EVENTS_TIMEOUT_MS } from './local-calendar.macos-read.js';
+import type { ListEventsOptions } from './local-calendar.service.js';
+import LocalCalendarService from './local-calendar.service.js';
 
-describe('escapeAS', () => {
-  it('escapes backslashes', () => {
-    expect(escapeAS('a\\b')).toBe('a\\\\b');
-  });
-
-  it('escapes double quotes', () => {
-    expect(escapeAS('say "hello"')).toBe('say \\"hello\\"');
-  });
-
-  it('handles both together', () => {
-    expect(escapeAS('path\\to\\"file"')).toBe('path\\\\to\\\\\\"file\\"');
-  });
-
-  it('returns empty string unchanged', () => {
-    expect(escapeAS('')).toBe('');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// dateToAppleScriptLines
-// ---------------------------------------------------------------------------
-
-describe('dateToAppleScriptLines', () => {
-  it('emits correct component-setting lines for a given date', () => {
-    // Use a specific date — 19 Feb 2026 16:30:45 local time
-    const d = new Date(2026, 1, 19, 16, 30, 45); // month is 0-indexed
-
-    const lines = dateToAppleScriptLines('eventStart', d);
-
-    expect(lines).toEqual([
-      'set eventStart to current date',
-      'set year of eventStart to 2026',
-      'set month of eventStart to 2',
-      'set day of eventStart to 19',
-      'set hours of eventStart to 16',
-      'set minutes of eventStart to 30',
-      'set seconds of eventStart to 45',
-    ]);
-  });
-
-  it('handles midnight correctly (all zeros for time)', () => {
-    const d = new Date(2025, 0, 1, 0, 0, 0); // 1 Jan 2025 00:00:00
-
-    const lines = dateToAppleScriptLines('eventEnd', d);
-
-    expect(lines).toEqual([
-      'set eventEnd to current date',
-      'set year of eventEnd to 2025',
-      'set month of eventEnd to 1',
-      'set day of eventEnd to 1',
-      'set hours of eventEnd to 0',
-      'set minutes of eventEnd to 0',
-      'set seconds of eventEnd to 0',
-    ]);
-  });
-
-  it('handles end-of-year date', () => {
-    const d = new Date(2024, 11, 31, 23, 59, 59); // 31 Dec 2024 23:59:59
-
-    const lines = dateToAppleScriptLines('d', d);
-
-    expect(lines).toEqual([
-      'set d to current date',
-      'set year of d to 2024',
-      'set month of d to 12',
-      'set day of d to 31',
-      'set hours of d to 23',
-      'set minutes of d to 59',
-      'set seconds of d to 59',
-    ]);
-  });
-
-  it('uses custom variable name', () => {
-    const d = new Date(2026, 5, 15, 9, 0, 0);
-
-    const lines = dateToAppleScriptLines('myDate', d);
-
-    expect(lines[0]).toBe('set myDate to current date');
-    expect(lines).toHaveLength(7);
-    expect(lines.every((l) => l.includes('myDate'))).toBe(true);
-  });
-
-  it('uses local time, not UTC', () => {
-    // Create a date from a UTC string — the local components should differ
-    // from UTC if the test machine is not in UTC.
-    // We just verify the function uses getFullYear/getHours (local), not
-    // getUTCFullYear/getUTCHours.
-    const d = new Date(2026, 1, 19, 16, 0, 0);
-    const lines = dateToAppleScriptLines('ev', d);
-
-    // The hour must match the local hour we set (16), regardless of UTC offset
-    expect(lines).toContain('set hours of ev to 16');
-  });
+beforeEach(() => {
+  osascriptImpl.mockReset();
+  osascriptImpl.mockResolvedValue({ stdout: '[]', stderr: '' });
 });
 
 describe('listEvents timeout', () => {
@@ -143,18 +37,183 @@ describe('listEvents timeout', () => {
   });
 
   it('passes timeout 90000 into execFile, not only the exported constant', async () => {
-    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
-    execFileMock.mockClear();
+    await onDarwin(async () => new LocalCalendarService().listEvents({ limit: 1 }));
+    expect(osascriptImpl.mock.calls[0]?.[2].timeout).toBe(90_000);
+  });
+});
+
+describe('osascript results', () => {
+  it('should reject listEvents when osascript fails instead of reporting no events', async () => {
+    osascriptImpl.mockRejectedValueOnce(
+      Object.assign(new Error('Command failed: osascript'), {
+        killed: false,
+        code: 1,
+        stderr: 'execution error: Calendar got an error: Connection is invalid. (-609)\n',
+      }),
+    );
+    await expect(onDarwin(async () => new LocalCalendarService().listEvents())).rejects.toThrow(
+      'osascript failed: execution error: Calendar got an error: Connection is invalid. (-609)',
+    );
+  });
+
+  it('should reject listCalendars when osascript fails instead of reporting no calendars', async () => {
+    osascriptImpl.mockRejectedValueOnce(
+      Object.assign(new Error('Command failed: osascript'), {
+        killed: false,
+        code: 1,
+        stderr: 'execution error: Not authorized to send Apple events to Calendar. (-1743)\n',
+      }),
+    );
+    await expect(onDarwin(async () => new LocalCalendarService().listCalendars())).rejects.toThrow(
+      'osascript failed: execution error: Not authorized to send Apple events',
+    );
+  });
+
+  it('should give list_calendars a 10 s budget', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '["Work"]', stderr: '' });
+    await onDarwin(async () => new LocalCalendarService().listCalendars());
+    expect(osascriptImpl.mock.calls[0]?.[2].timeout).toBe(10_000);
+  });
+
+  it('should return an event whose title holds a line break', async () => {
+    // jsonString escapes backslash and quote only; AppleScript emits the line break raw.
+    osascriptImpl.mockResolvedValueOnce({
+      stdout:
+        '[{"id":"E1","title":"Board \\"pack\\"\nreview","start":"Monday, 5 October 2026 at 09:00:00","end":"Monday, 5 October 2026 at 10:00:00","location":"","calendar":"Work"}]\n',
+      stderr: '',
+    });
+    const events = await onDarwin(async () => new LocalCalendarService().listEvents());
+    expect(events.map((e) => e.title)).toEqual(['Board "pack"\nreview']);
+  });
+
+  it('should keep a calendar name that contains a comma', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '["Work","Home, Family"]\n', stderr: '' });
+    const calendars = await onDarwin(async () => new LocalCalendarService().listCalendars());
+    expect(calendars).toEqual([
+      { id: 'Work', name: 'Work' },
+      { id: 'Home, Family', name: 'Home, Family' },
+    ]);
+  });
+
+  it('should pass every listed event field through jsonString', async () => {
+    await onDarwin(async () => new LocalCalendarService().listEvents());
+    const script = osascriptImpl.mock.calls[0]?.[1][1] ?? '';
+    expect(
+      ['evId', 'evTitle', 'evStart as text', 'evEnd as text', 'evLoc', 'calName'].filter(
+        (field) => !script.includes(`my jsonString(${field})`),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe('listEvents script', () => {
+  async function listScript(opts: ListEventsOptions): Promise<string> {
+    await onDarwin(async () => new LocalCalendarService().listEvents(opts));
+    return osascriptImpl.mock.calls[0]?.[1][1] ?? '';
+  }
+
+  it('should keep a quoted title and calendar filter intact in the list_events script', async () => {
+    const opts = { title: 'Q3 "board" \\', calendarName: 'Home "Q4" \\ team' };
+    const script = await listScript(opts);
+    expect({
+      title: literalAfter(script, 'set titleFilter to '),
+      calendar: literalAfter(script, 'set calFilter to '),
+    }).toEqual({ title: opts.title, calendar: opts.calendarName });
+  });
+
+  it('should pass the requested from date into the list_events script', async () => {
+    const script = await listScript({ from: '2026-11-02T08:30:00' });
+    expect(dateSetBy(script, 'fromDate', new Date(2026, 9, 31, 12, 0, 0))).toEqual(
+      new Date(2026, 10, 2, 8, 30, 0),
+    );
+  });
+
+  it('should pass the requested to date into the list_events script', async () => {
+    const script = await listScript({ to: '2026-11-30T18:00:00' });
+    expect(dateSetBy(script, 'toDate', new Date(2026, 9, 31, 12, 0, 0))).toEqual(
+      new Date(2026, 10, 30, 18, 0, 0),
+    );
+  });
+
+  it.each([
+    [3, 'set maxResults to 3'],
+    [0, 'set maxResults to 0'],
+  ])('should pass limit %s into the list_events script', async (limit, line) => {
+    const script = await listScript({ limit });
+    expect(script.split('\n').find((text) => text.startsWith('set maxResults to '))).toBe(line);
+  });
+
+  it('should list 20 events from 7 days back to 30 days ahead by default', async () => {
+    const now = new Date(2026, 9, 17, 12, 0, 0);
+    vi.useFakeTimers({ now, toFake: ['Date'] });
     try {
-      const svc = new LocalCalendarService();
-      await svc.listEvents({ limit: 1 });
-      expect(execFileMock).toHaveBeenCalled();
-      const optionsArg = execFileMock.mock.calls[0].find(
-        (arg) => arg !== null && typeof arg === 'object' && 'timeout' in arg,
-      ) as { timeout?: number } | undefined;
-      expect(optionsArg?.timeout).toBe(90_000);
+      const script = await listScript({});
+      expect({
+        from: dateSetBy(script, 'fromDate', now),
+        to: dateSetBy(script, 'toDate', now),
+        limit: script.split('\n').find((line) => line.startsWith('set maxResults to ')),
+      }).toEqual({
+        from: new Date(2026, 9, 10, 12, 0, 0),
+        to: new Date(2026, 10, 16, 12, 0, 0),
+        limit: 'set maxResults to 20',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('should return no events off macOS without running osascript', async () => {
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+    try {
+      const events = await new LocalCalendarService().listEvents();
+      expect({ events, osascriptRuns: osascriptImpl.mock.calls.length }).toEqual({
+        events: [],
+        osascriptRuns: 0,
+      });
     } finally {
       platform.mockRestore();
     }
+  });
+});
+
+describe('checkPermissions', () => {
+  it('should report calendar access granted when Calendar returns its calendar count', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '4\n', stderr: '' });
+    const result = await onDarwin(async () => new LocalCalendarService().checkPermissions());
+    expect(result).toEqual({ granted: true, platform: 'darwin', instructions: [] });
+  });
+
+  it('should report calendar access granted when Calendar has no calendars', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '0\n', stderr: '' });
+    const result = await onDarwin(async () => new LocalCalendarService().checkPermissions());
+    expect(result.granted).toBe(true);
+  });
+
+  it('should give the permission check a 10 s budget', async () => {
+    osascriptImpl.mockResolvedValueOnce({ stdout: '4\n', stderr: '' });
+    await onDarwin(async () => new LocalCalendarService().checkPermissions());
+    expect(osascriptImpl.mock.calls[0]?.[2].timeout).toBe(10_000);
+  });
+
+  it('should report calendar access denied when osascript rejects', async () => {
+    osascriptImpl.mockRejectedValueOnce(
+      Object.assign(new Error('Command failed: osascript'), {
+        killed: false,
+        code: 1,
+        stderr: '0:47: execution error: Not authorized to send Apple events to Calendar. (-1743)\n',
+      }),
+    );
+    const result = await onDarwin(async () => new LocalCalendarService().checkPermissions());
+    expect(result).toEqual({
+      granted: false,
+      platform: 'darwin',
+      instructions: [
+        'Calendar access was denied or unavailable.',
+        '1. Open System Settings (Apple menu \u2192 System Settings)',
+        '2. Go to Privacy & Security \u2192 Calendars',
+        '3. Enable access for Terminal (or your terminal emulator, e.g. iTerm2)',
+        '4. Quit and restart the terminal, then try again.',
+      ],
+    });
   });
 });

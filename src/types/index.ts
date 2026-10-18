@@ -19,12 +19,6 @@ export interface EmailAddress {
 // Account
 // ---------------------------------------------------------------------------
 
-export interface Account {
-  name: string;
-  email: string;
-  fullName?: string;
-}
-
 export interface ImapConfig {
   host: string;
   port: number;
@@ -269,6 +263,8 @@ export interface SendResult {
   status: 'sent' | 'failed';
   /** False when SMTP succeeded but IMAP APPEND to Sent failed. */
   savedToSent: boolean;
+  /** send_draft only: false when the mail was sent but the draft could not be removed. */
+  draftDeleted?: boolean;
 }
 
 export interface PaginatedResult<T> {
@@ -315,17 +311,6 @@ export interface AuditEntry {
 }
 
 // ---------------------------------------------------------------------------
-// Threads
-// ---------------------------------------------------------------------------
-
-export interface ThreadResult {
-  threadId: string;
-  messages: Email[];
-  participants: EmailAddress[];
-  messageCount: number;
-}
-
-// ---------------------------------------------------------------------------
 // Templates
 // ---------------------------------------------------------------------------
 
@@ -347,11 +332,6 @@ export interface ProviderConfig {
   imap: ImapConfig;
   smtp: SmtpConfig;
   notes?: string;
-  oauth2?: {
-    authUrl: string;
-    tokenUrl: string;
-    scopes: string[];
-  };
 }
 
 // ---------------------------------------------------------------------------

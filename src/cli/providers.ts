@@ -25,11 +25,6 @@ export const PROVIDERS: ProviderConfig[] = [
       verifySsl: true,
     },
     notes: 'Requires an App Password (enable 2FA first) or OAuth2',
-    oauth2: {
-      authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
-      tokenUrl: 'https://oauth2.googleapis.com/token',
-      scopes: ['https://mail.google.com/'],
-    },
   },
   {
     name: 'Outlook / Hotmail',
@@ -47,15 +42,6 @@ export const PROVIDERS: ProviderConfig[] = [
       tls: false,
       starttls: true,
       verifySsl: true,
-    },
-    oauth2: {
-      authUrl: 'https://login.microsoftonline.com/common/oauth2/v2/authorize',
-      tokenUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
-      scopes: [
-        'https://outlook.office.com/IMAP.AccessAsUser.All',
-        'https://outlook.office.com/SMTP.Send',
-        'offline_access',
-      ],
     },
   },
   {

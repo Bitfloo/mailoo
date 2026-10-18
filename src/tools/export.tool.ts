@@ -5,6 +5,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
+import audit from '../safety/audit.js';
 import type ImapService from '../services/imap.service.js';
 import {
   INLINE_MAX_BYTES,
@@ -59,10 +60,11 @@ export default function registerExportTools(
       },
     },
     async (params) => {
+      const account = params.account ?? '';
+      const { mailbox, savePath } = params;
+      const auditParams = { id: params.emailId ?? params.id ?? params.email_id, mailbox, savePath };
       try {
-        const account = params.account ?? '';
         const id = resolveEmailId(params);
-        const { mailbox, savePath } = params;
         if (readOnly && savePath !== undefined) {
           throw new Error(SAVE_PATH_READ_ONLY_MESSAGE);
         }
@@ -77,6 +79,7 @@ export default function registerExportTools(
 
         if (savePath) {
           const savedTo = await writeAttachmentFile(savePath, result.filename, result.source);
+          await audit.log('export_email', account, { ...auditParams, savedTo }, 'ok');
           return {
             content: [
               {
@@ -101,12 +104,17 @@ export default function registerExportTools(
           ],
         };
       } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        // A read_only server writes nothing, its audit log included.
+        if (savePath && !readOnly) {
+          await audit.log('export_email', account, auditParams, 'error', errMsg);
+        }
         return {
           isError: true,
           content: [
             {
               type: 'text' as const,
-              text: `Failed to export email: ${err instanceof Error ? err.message : String(err)}`,
+              text: `Failed to export email: ${errMsg}`,
             },
           ],
         };
