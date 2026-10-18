@@ -1,0 +1,20 @@
+# pnpm 11 and later fail an install on a dependency build script that is not
+# listed here. pnpm 10 skipped these same scripts without asking, and nothing
+# needs them: esbuild and unrs-resolver ship their binaries as optional
+# dependencies, `prepare` installs the lefthook hooks, and ssh2, cpu-features
+# and protobufjs come in through testcontainers, which runs without their
+# native addons. Listing a new one is a decision, not a default.
+allowBuilds:
+  cpu-features: false
+  esbuild: false
+  lefthook: false
+  protobufjs: false
+  ssh2: false
+  unrs-resolver: false
+
+# Any other value writes a document that locks pnpm itself ahead of the
+# project's in pnpm-lock.yaml. Dependabot and the GitHub dependency graph read
+# only the first document, so they would see pnpm alone and drop every alert
+# (dependabot-core #14919). CI, both images and pnpm 10's own version switch
+# still run the packageManager version.
+pmOnFail: ignore
