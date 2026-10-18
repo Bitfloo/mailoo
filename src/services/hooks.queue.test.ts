@@ -289,6 +289,31 @@ describe('HooksService batch queue', () => {
     expect(handled).toEqual(['1']);
   });
 
+  it('should not handle new mail when on_new_email is none', async () => {
+    const handled: string[] = [];
+    hooks = new HooksService(
+      hooksConfig({ onNewEmail: 'none' }),
+      mockImap() as unknown as ImapService,
+      recorder(handled),
+    );
+    hooks.start({} as never, { sampling: false });
+
+    await flushHooks([meta({ id: '1' })]);
+
+    expect(handled).toEqual([]);
+  });
+
+  it('should hand new mail to the mail arrival set by setMailArrival', async () => {
+    const handled: string[] = [];
+    hooks = new HooksService(hooksConfig(), mockImap() as unknown as ImapService);
+    hooks.setMailArrival(recorder(handled).mailArrival);
+    hooks.start({} as never, { sampling: false });
+
+    await flushHooks([meta({ id: '1' })]);
+
+    expect(handled).toEqual(['1']);
+  });
+
   it('should unsubscribe from email:new on stop', async () => {
     const handled: string[] = [];
     hooks = new HooksService(

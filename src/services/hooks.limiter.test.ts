@@ -60,6 +60,43 @@ describe('HooksService sampling limiter', () => {
     });
   });
 
+  function startTriage() {
+    vi.spyOn(NotifierService.prototype, 'alert').mockResolvedValue(undefined);
+    const createMessage = urgentClient();
+    hooks = new HooksService(
+      hooksConfig({ onNewEmail: 'triage' }),
+      mockImap() as unknown as ImapService,
+    );
+    hooks.start({ createMessage } as never, { sampling: true });
+    return createMessage;
+  }
+
+  it('should not sample an eleventh batch that flushes 1 ms before the 60 s reset', async () => {
+    const createMessage = startTriage();
+    await flushEach(Array.from({ length: 10 }, (_, i) => String(i + 1)));
+
+    // Emitted at 58 999 ms, the batch flushes at 59 999 ms, one tick before the reset.
+    await vi.advanceTimersByTimeAsync(58_999 - 10_000);
+    await flushEach(['11']);
+
+    expect(createMessage.mock.calls).toHaveLength(10);
+  });
+
+  it('should reset the sampling limit every minute, not once', async () => {
+    const createMessage = startTriage();
+    const perMinute: number[] = [];
+
+    for (let minute = 0; minute < 3; minute += 1) {
+      // eslint-disable-next-line no-await-in-loop -- each minute starts after the last.
+      await flushEach(Array.from({ length: 11 }, (_, i) => `${minute}-${i}`));
+      perMinute.push(createMessage.mock.calls.length);
+      // eslint-disable-next-line no-await-in-loop -- the reset falls between the minutes.
+      await vi.advanceTimersByTimeAsync(60_000 - 11_000);
+    }
+
+    expect(perMinute).toEqual([10, 20, 30]);
+  });
+
   it('should fall back to a plain notify once the sampling limit is reached', async () => {
     const alert = vi.spyOn(NotifierService.prototype, 'alert').mockResolvedValue(undefined);
     hooks = new HooksService(
