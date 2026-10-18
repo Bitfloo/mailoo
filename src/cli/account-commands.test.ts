@@ -5,6 +5,7 @@ import path from 'node:path';
 import { parse as parseTOML } from 'smol-toml';
 
 import { SettingsSchema } from '../config/schema.js';
+import type ConnectionManager from '../connections/manager.js';
 import {
   CONFIG_FAILING_SCHEMA,
   CONFIG_WITH_PERSONAL,
@@ -56,12 +57,14 @@ vi.mock('@clack/prompts', () => ({
   log: { info: vi.fn(), warn: vi.fn(), warning: vi.fn(), success: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock('../connections/manager.js', () => ({
-  default: {
-    testImap: async () => ({ success: true, details: { messages: 0, folders: 1 } }),
-    testSmtp: async () => ({ success: true }),
-  },
+const probes = vi.hoisted(() => ({
+  testImap: vi.fn<typeof ConnectionManager.testImap>(async () => ({
+    success: true,
+    details: { messages: 0, folders: 1 },
+  })),
+  testSmtp: vi.fn<typeof ConnectionManager.testSmtp>(async () => ({ success: true })),
 }));
+vi.mock('../connections/manager.js', () => ({ default: probes }));
 
 describe('mailoo account and setup', () => {
   let home: string;
@@ -235,6 +238,26 @@ describe('mailoo account and setup', () => {
     expect({ tls, starttls }).toEqual(flags);
   });
 
+  it('should hand the connection probe the TLS answer and certificate checks on', async () => {
+    await (await entryPoint('account add'))();
+
+    const [account] = probes.testImap.mock.lastCall ?? [];
+    expect({ imap: account?.imap, smtpVerifySsl: account?.smtp.verifySsl }).toEqual({
+      imap: { host: 'imap.example.com', port: 993, tls: true, starttls: false, verifySsl: true },
+      smtpVerifySsl: true,
+    });
+  });
+
+  it('should leave the config byte-identical when the probe fails and saving anyway is declined', async () => {
+    await fs.writeFile(configFile, CONFIG_WITH_PERSONAL, { mode: 0o600 });
+    probes.testImap.mockResolvedValueOnce({ success: false, error: 'Connection refused' });
+    OVERRIDES.set('Some connections failed. Save config anyway?', false);
+
+    await (await entryPoint('account add'))();
+
+    expect(await fs.readFile(configFile, 'utf-8')).toBe(CONFIG_WITH_PERSONAL);
+  });
+
   it('should refuse to delete the last account and leave the config byte-identical', async () => {
     await fs.writeFile(configFile, CONFIG_WITH_PERSONAL, { mode: 0o600 });
     const run = await entryPoint('account delete', 'personal');
@@ -293,5 +316,20 @@ describe('mailoo account and setup', () => {
     await run();
 
     expect(await fs.readFile(configFile, 'utf-8')).toBe(CONFIG_WITH_PERSONAL_AND_WORK);
+  });
+
+  it('should replace only the second account when it is the one edited', async () => {
+    await fs.writeFile(configFile, CONFIG_WITH_PERSONAL_AND_WORK, { mode: 0o600 });
+    OVERRIDES.set('Editing "work" — what would you like to change?', 'identity');
+
+    await (await entryPoint('account edit', 'work'))();
+
+    const saved = parseTOML(await fs.readFile(configFile, 'utf-8')) as {
+      accounts: { name: string; email: string }[];
+    };
+    expect(saved.accounts.map((a) => `${a.name} ${a.email}`)).toEqual([
+      'personal me@example.com',
+      'work user@example.com',
+    ]);
   });
 });
