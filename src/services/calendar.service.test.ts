@@ -143,6 +143,23 @@ describe('CalendarService.parseIcs', () => {
     });
   });
 
+  it('should read an invitation with a single attendee', () => {
+    const [event] = CalendarService.parseIcs(
+      invite(...vevent('one-1', '20261005T080000Z'), 'ATTENDEE;CN=Bob:mailto:bob@example.com'),
+    );
+    expect(event?.attendees).toEqual([{ name: 'Bob', address: 'bob@example.com' }]);
+  });
+
+  it('should leave start empty and keep end when the invitation has a DTEND only', () => {
+    const [event] = CalendarService.parseIcs(
+      invite('UID:end-only-1', 'DTEND:20261005T083000Z', 'SUMMARY:Planning sync'),
+    );
+    expect({ start: event?.start, end: event?.end }).toEqual({
+      start: '',
+      end: '2026-10-05T08:30:00.000Z',
+    });
+  });
+
   it('should leave start and end empty when the invitation has neither DTSTART nor DTEND', () => {
     const [event] = CalendarService.parseIcs(invite('UID:undated-1', 'SUMMARY:Planning sync'));
     expect({ start: event?.start, end: event?.end }).toEqual({ start: '', end: '' });
