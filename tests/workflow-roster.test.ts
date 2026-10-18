@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { parse } from 'yaml';
+
 import { repoRoot } from './agents/agent-file.js';
 import {
   jobSteps,
@@ -144,7 +146,37 @@ const IFS: Record<string, string[]> = {
   ],
   'scorecard.yml': [],
 };
+
+/**
+ * Concurrency by workflow and by job, parsed. cancel-in-progress cancels the older run of a group:
+ * on release.yml it would stop a release between the npm and MCP Registry publishes, so release,
+ * CodeQL and Scorecard set none, and a ci.yml group shared across refs would cancel another pull
+ * request's checks.
+ */
+const CONCURRENCY: Record<string, Record<string, unknown>> = {
+  'ci.yml': {
+    workflow: { group: '${{ github.workflow }}-${{ github.ref }}', 'cancel-in-progress': true },
+  },
+  'codeql.yml': {},
+  'docker-rebuild.yml': { workflow: { group: 'docker-rebuild', 'cancel-in-progress': true } },
+  'docker-sha.yml': {
+    workflow: { group: 'docker-sha-${{ github.sha }}', 'cancel-in-progress': true },
+  },
+  'release.yml': {},
+  'scorecard.yml': {},
+};
 // biome-ignore-end lint/suspicious/noTemplateCurlyInString: end of workflow values
+
+function concurrency(yaml: string): Record<string, unknown> {
+  const { concurrency: workflow, jobs } = parse(yaml) as {
+    concurrency?: unknown;
+    jobs: Record<string, { concurrency?: unknown }>;
+  };
+  const byJob = Object.entries(jobs).map(([job, { concurrency: value }]) => [job, value]);
+  return Object.fromEntries(
+    [['workflow', workflow], ...byJob].filter(([, value]) => value !== undefined),
+  );
+}
 
 describe('workflow rosters', () => {
   // Each roster is keyed by the files in the tree, so a new workflow fails until it is listed.
@@ -162,6 +194,10 @@ describe('workflow rosters', () => {
       expect(readKeyLines(yaml, 'if').map((line) => line.trimEnd())).toEqual(IFS[name]);
     },
   );
+
+  it.each(workflows)('should group runs of %s only by its pinned concurrency', (name, yaml) => {
+    expect(concurrency(yaml)).toEqual(CONCURRENCY[name]);
+  });
 
   it.each(workflows)('should keep continue-on-error off every job and step of %s', (_, yaml) => {
     // needs.<job>.result reads success after a failure that continue-on-error let through, so the
