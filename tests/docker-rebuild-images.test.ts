@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,7 +5,7 @@ import { join } from 'node:path';
 import { parse } from 'yaml';
 
 import { repoRoot } from './agents/agent-file.js';
-import { workflowDir } from './workflow-yaml.js';
+import { runStep, workflowDir } from './workflow-yaml.js';
 
 function goreleaserImage(yaml: string, id: string): string {
   const match = yaml.match(new RegExp(`- id: ${id}\\n[\\s\\S]*?(?=\\n  - id: |\\nrelease:)`));
@@ -70,25 +69,25 @@ const rebuildSteps = (
   }
 ).jobs.rebuild.steps;
 
-/** Run the meta step in a checkout whose package.json holds `version`; return what it wrote. */
-function metaOutputs(version: string): Record<string, string> {
+/** Run the meta step in a checkout holding `manifest` as package.json; return its status, stderr and outputs. */
+function meta(manifest: object) {
   const run = rebuildSteps.find((step) => step.id === 'meta')?.run;
   if (!run) {
     throw new Error('missing meta step');
   }
   const temp = mkdtempSync(join(tmpdir(), 'mailoo-docker-rebuild-'));
   try {
-    writeFileSync(join(temp, 'package.json'), JSON.stringify({ version }));
-    // A run step without `shell:` gets `bash -e {0}` on the runner.
-    execFileSync('bash', ['-e', '-c', run], {
-      cwd: temp,
-      env: { PATH: process.env.PATH, GITHUB_OUTPUT: join(temp, 'output') },
-      stdio: 'pipe',
+    writeFileSync(join(temp, 'package.json'), JSON.stringify(manifest));
+    writeFileSync(join(temp, 'output'), '');
+    const { status, stderr } = runStep(run, temp, {
+      PATH: process.env.PATH,
+      GITHUB_OUTPUT: join(temp, 'output'),
     });
-    const lines = readFileSync(join(temp, 'output'), 'utf8').trim().split('\n');
-    return Object.fromEntries(
+    const lines = readFileSync(join(temp, 'output'), 'utf8').split('\n').filter(Boolean);
+    const outputs = Object.fromEntries(
       lines.map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]),
     );
+    return { status, stderr, outputs };
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
@@ -141,8 +140,33 @@ describe('docker rebuild images', () => {
       ),
       images('1.5.0-rc.1-alpine', '1.5-alpine', '1-alpine'),
     ],
+    [
+      '1.5.0-beta.2',
+      images(
+        '1.5.0-beta.2',
+        '1.5.0-beta.2-bookworm',
+        '1.5',
+        '1.5-bookworm',
+        '1',
+        '1-bookworm',
+        'bookworm',
+      ),
+      images('1.5.0-beta.2-alpine', '1.5-alpine', '1-alpine'),
+    ],
   ])('should write the release tag names for package version %s', (version, bookworm, alpine) => {
-    expect(metaOutputs(version)).toEqual({ bookworm_tags: bookworm, alpine_tags: alpine });
+    expect(meta({ version })).toEqual({
+      status: 0,
+      stderr: '',
+      outputs: { bookworm_tags: bookworm, alpine_tags: alpine },
+    });
+  });
+
+  it.each([{}, { version: '' }])('should refuse to tag a package.json holding %j', (manifest) => {
+    expect(meta(manifest)).toEqual({
+      status: 1,
+      stderr: 'package.json version is empty\n',
+      outputs: {},
+    });
   });
 
   it('should use the GoReleaser tag names, Dockerfiles and architectures', () => {
