@@ -1,7 +1,7 @@
 import { install, installStep, npmNotShownYet, type Publisher, publish } from './mcp-harness.js';
 import { requireTools, runBlock } from './workflow-yaml.js';
 
-requireTools(['bash', 'grep', 'sha256sum', 'tar']);
+requireTools(['bash', 'cat', 'cp', 'grep', 'mktemp', 'rm', 'sha256sum', 'tar']);
 
 /** The exit status, the calls and each pause of one publish run. */
 function retries(publisher: Publisher) {
