@@ -1,7 +1,8 @@
 /**
  * What the HTTP host does outside any one session: whether read_only keeps
- * the process-wide mail writers off, whether close() stops them, and its
- * answers on paths that are not the MCP endpoint.
+ * the process-wide mail writers off, whether close() stops them and finishes
+ * with a stream still open, and its answers on paths that are not the MCP
+ * endpoint.
  */
 
 import fs from 'node:fs/promises';
@@ -12,7 +13,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import HooksService from '../services/hooks.service.js';
 import WatcherService from '../services/watcher.service.js';
 import { send } from '../test-support/http-transport-harness.js';
-import { startHost, testConfig } from './helpers/http-host.js';
+import { openEventStream, postInitialize, startHost, testConfig } from './helpers/http-host.js';
 
 // The integration config already reads only, so a host that ignored
 // read_only in HTTP mode would have looked the same to every other suite.
@@ -98,6 +99,30 @@ describe('HTTP host close', () => {
 
   it('should stop the watcher once when the host closes', async () => {
     expect((await writersAfterClose()).watcherStops).toBe(1);
+  });
+
+  // Closing with nothing left to wait for takes milliseconds; a host that left
+  // the stream open would never finish, so the deadline only ends the wait.
+  const CLOSE_DEADLINE_MS = 3_000;
+
+  it('should finish closing when a client still holds an open event stream', async () => {
+    const running = await startHost({ now: 1_000 }, 5_000);
+    const { sessionId } = await postInitialize(running.port, 1);
+    const stream = await openEventStream(running.port, sessionId);
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const outcome = await Promise.race([
+        running.stop().then(() => 'closed'),
+        new Promise<string>((resolve) => {
+          deadline = setTimeout(() => resolve('hung'), CLOSE_DEADLINE_MS);
+        }),
+      ]);
+
+      expect(outcome).toBe('closed');
+    } finally {
+      clearTimeout(deadline);
+      stream.close();
+    }
   });
 });
 
