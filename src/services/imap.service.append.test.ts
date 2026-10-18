@@ -7,8 +7,17 @@ import path from 'node:path';
 import {
   createMockConnectionManager,
   createMockImapClient,
+  fetchOneByUid,
+  gmailMailboxes,
 } from '../test-support/imap-client-fake.js';
 import ImapService from './imap.service.js';
+
+/** LIST of a server without SPECIAL-USE whose only folder imapflow gives a role is INBOX. */
+const inboxOnly = [
+  { name: 'INBOX', path: 'INBOX', specialUse: '\\Inbox', flags: new Set<string>() },
+];
+
+const draft = { to: ['a@example.com'], subject: 'Draft', body: 'Body' };
 
 describe('ImapService', () => {
   let client: ReturnType<typeof createMockImapClient>;
@@ -49,6 +58,106 @@ describe('ImapService', () => {
         '\\Seen',
       ]);
       expect(client.list).not.toHaveBeenCalled();
+    });
+
+    it('files the copy in Sent when no folder has the \\Sent role', async () => {
+      client.list.mockResolvedValue(inboxOnly);
+
+      await service.appendSentMessage('test', Buffer.from('raw'));
+
+      expect(client.append).toHaveBeenCalledWith('Sent', expect.any(Buffer), ['\\Seen']);
+    });
+  });
+
+  describe('saveDraft folder and flags', () => {
+    it('should append the draft to the \\Drafts folder flagged \\Draft and \\Seen', async () => {
+      client.list.mockResolvedValue(gmailMailboxes());
+
+      await service.saveDraft('test', draft);
+
+      expect(client.append).toHaveBeenCalledWith('[Gmail]/Drafts', expect.any(Buffer), [
+        '\\Draft',
+        '\\Seen',
+      ]);
+    });
+
+    it('should return the appended UID and Drafts when no folder has the \\Drafts role', async () => {
+      client.list.mockResolvedValue(inboxOnly);
+
+      const result = await service.saveDraft('test', draft);
+
+      expect(result).toEqual({ id: 7, mailbox: 'Drafts' });
+    });
+
+    // A server without UIDPLUS reports no UID for an APPEND.
+    it('should return id 0 when the server reports no UID for the draft', async () => {
+      client.list.mockResolvedValue(gmailMailboxes());
+      client.append.mockResolvedValue({ destination: '[Gmail]/Drafts' });
+
+      const result = await service.saveDraft('test', draft);
+
+      expect(result).toEqual({ id: 0, mailbox: '[Gmail]/Drafts' });
+    });
+
+    it('should write From with the full name, Cc, In-Reply-To and an HTML body into the draft', async () => {
+      connections.getAccount.mockReturnValue({
+        ...connections.getAccount('test'),
+        fullName: 'Test User',
+      });
+      client.list.mockResolvedValue(gmailMailboxes());
+
+      await service.saveDraft('test', {
+        ...draft,
+        cc: ['c@example.com', 'd@example.com'],
+        body: '<p>Hi</p>',
+        html: true,
+        inReplyTo: '<parent@example.com>',
+      });
+
+      const raw = (client.append.mock.calls[0][1] as Buffer).toString('utf8');
+      const header = (name: string) => new RegExp(`^${name}: ([^;\\r\\n]*)`, 'm').exec(raw)?.[1];
+      expect({
+        from: header('From'),
+        cc: header('Cc'),
+        inReplyTo: header('In-Reply-To'),
+        contentType: header('Content-Type'),
+      }).toEqual({
+        from: 'Test User <test@example.com>',
+        cc: 'c@example.com, d@example.com',
+        inReplyTo: '<parent@example.com>',
+        contentType: 'text/html',
+      });
+    });
+  });
+
+  describe('fetchDraft', () => {
+    it.each([
+      ['the \\Drafts folder', gmailMailboxes(), '[Gmail]/Drafts'],
+      ['Drafts when no folder has the \\Drafts role', inboxOnly, 'Drafts'],
+    ])('should read the draft from %s', async (_where, mailboxes, expected) => {
+      client.list.mockResolvedValue(mailboxes);
+      fetchOneByUid(client, {
+        uid: 9,
+        envelope: { subject: 'Draft', to: [{ address: 'a@example.com' }] },
+        flags: new Set(['\\Draft']),
+        source: Buffer.from('Subject: Draft\r\n\r\nBody'),
+      });
+
+      const result = await service.fetchDraft('test', 9);
+
+      expect([result.mailbox, client.getMailboxLock.mock.calls[0][0]]).toEqual([
+        expected,
+        expected,
+      ]);
+    });
+  });
+
+  describe('deleteDraft', () => {
+    // Without UID mode the server reads 9 as a sequence number, which names another message.
+    it('should expunge the draft by UID', async () => {
+      await service.deleteDraft('test', 9, 'Drafts');
+
+      expect(client.messageDelete).toHaveBeenCalledWith('9', { uid: true });
     });
   });
 
