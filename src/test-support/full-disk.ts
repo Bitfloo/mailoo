@@ -47,7 +47,7 @@ export default async function withFullDisk(
     writeSpy.mockRestore();
     handleSpy.mockRestore();
   }
-  // A predicate that matches nothing leaves the disk empty, and the test would then
+  // A predicate that matches nothing never fills the disk, and the test would then
   // pass on writes that all succeeded.
   if (!filled) throw new Error('no write matched the full-disk predicate');
 }

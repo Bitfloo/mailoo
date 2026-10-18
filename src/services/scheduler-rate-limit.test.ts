@@ -102,7 +102,8 @@ describe('scheduled email content', () => {
 
   type ScheduleOptions = Parameters<InstanceType<typeof SchedulerService>['schedule']>[1];
 
-  /** Schedules one email for the next day, runs a check the day after and returns what SMTP got. */
+  // schedule() refuses a send time that is not in the future, so the clock sits a day
+  // before the send time while scheduling and a day after it for the check.
   async function scheduleAndSend(
     options: Omit<ScheduleOptions, 'sendAt'>,
   ): Promise<{ sent: SendMailOptions[]; stored: ScheduledEmail }> {
