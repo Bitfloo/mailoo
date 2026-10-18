@@ -3,6 +3,12 @@ import { testImap, testSmtp } from './probe.js';
 
 const h = vi.hoisted(() => ({
   connectError: null as Error | null,
+  // A socket error after login: imapflow emits it from the socket's handler, then the pending
+  // command fails because the connection is gone.
+  socketError: null as Error | null,
+  // What emit('error') threw. In imapflow that throw leaves a socket callback, so it would be an
+  // uncaught exception that ends the process.
+  uncaught: [] as unknown[],
   verifyError: null as Error | null,
   // Folders whose STATUS the server refuses, as for a mailbox that does not exist.
   missing: new Set<string>(),
@@ -15,36 +21,45 @@ vi.mock('../logging.js', () => ({
 }));
 
 // A Gmail-style account: the folders hang under [Gmail]/ and their counts differ.
-vi.mock('imapflow', () => ({
-  ImapFlow: class {
-    on(): this {
-      return this;
-    }
-
-    // eslint-disable-next-line class-methods-use-this
-    async connect(): Promise<void> {
-      if (h.connectError) throw h.connectError;
-    }
-
-    // eslint-disable-next-line class-methods-use-this
-    async list(): Promise<{ path: string }[]> {
-      return [{ path: '[Gmail]/All Mail' }, { path: '[Gmail]/Sent Mail' }];
-    }
-
-    // eslint-disable-next-line class-methods-use-this
-    async status(path: string): Promise<{ messages: number }> {
-      if (h.missing.has(path)) {
-        throw Object.assign(new Error('Command failed'), { serverResponseCode: 'NONEXISTENT' });
+vi.mock('imapflow', async () => {
+  const { EventEmitter } = await import('node:events');
+  return {
+    ImapFlow: class extends EventEmitter {
+      // eslint-disable-next-line class-methods-use-this
+      async connect(): Promise<void> {
+        if (h.connectError) throw h.connectError;
       }
-      return { messages: path === 'INBOX' ? 12 : 1834 };
-    }
 
-    // eslint-disable-next-line class-methods-use-this
-    async logout(): Promise<void> {
-      await h.logout();
-    }
-  },
-}));
+      async list(): Promise<{ path: string }[]> {
+        const { socketError } = h;
+        if (!socketError) return [{ path: '[Gmail]/All Mail' }, { path: '[Gmail]/Sent Mail' }];
+        return new Promise((_resolve, reject) => {
+          setImmediate(() => {
+            try {
+              this.emit('error', socketError);
+            } catch (thrown) {
+              h.uncaught.push(thrown);
+            }
+            reject(new Error('Connection not available'));
+          });
+        });
+      }
+
+      // eslint-disable-next-line class-methods-use-this
+      async status(path: string): Promise<{ messages: number }> {
+        if (h.missing.has(path)) {
+          throw Object.assign(new Error('Command failed'), { serverResponseCode: 'NONEXISTENT' });
+        }
+        return { messages: path === 'INBOX' ? 12 : 1834 };
+      }
+
+      // eslint-disable-next-line class-methods-use-this
+      async logout(): Promise<void> {
+        await h.logout();
+      }
+    },
+  };
+});
 
 vi.mock('nodemailer', () => ({
   default: {
@@ -69,6 +84,8 @@ const account: AccountConfig = {
 
 beforeEach(() => {
   h.connectError = null;
+  h.socketError = null;
+  h.uncaught = [];
   h.verifyError = null;
   h.missing.clear();
   h.logout.mockClear();
@@ -113,6 +130,15 @@ describe('testImap', () => {
     expect(await testImap(account)).toEqual({
       success: true,
       details: { messages: 0, folders: 2 },
+    });
+  });
+
+  it('should report a connection that fails after login without raising an uncaught error', async () => {
+    h.socketError = Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
+    const result = await testImap(account);
+    expect({ result, uncaught: h.uncaught }).toEqual({
+      result: { success: false, error: 'Connection not available' },
+      uncaught: [],
     });
   });
 });
