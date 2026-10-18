@@ -43,6 +43,15 @@ describe('scheduler list command', () => {
     ]);
   });
 
+  // The next check sends a pending email whose send time does not parse, so the list
+  // must not show it as waiting for a later time.
+  it('should flag a pending email whose send time does not parse as overdue', () => {
+    expect(formatScheduledList([queued('pending', { sendAt: 'not-a-date' })])).toEqual([
+      '\n📬 Pending (1):',
+      '  aaaaaaaa | personal → user@example.com | "Hello" | not-a-date ⚠️ OVERDUE',
+    ]);
+  });
+
   it('should print when a sent email was sent', () => {
     const sent = queued('sent', {
       sentAt: '2030-01-01T09:00:04.000Z',

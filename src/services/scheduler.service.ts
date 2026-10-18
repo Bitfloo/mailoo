@@ -116,14 +116,18 @@ function isDelivered(scheduled: ScheduledEmail, id: string): boolean {
   return scheduled.id === id && scheduled.status === 'sent';
 }
 
+/** Whether a check sends an email with this send time; `scheduler list` and `status` call it overdue. */
+export function isSendTimeReached(sendAt: string, now: number): boolean {
+  // Not `<=`: a NaN sendAt (a damaged queue file) must still count as due.
+  return !(new Date(sendAt).getTime() > now);
+}
+
 function isDue(scheduled: ScheduledEmail, id: string, now: number): boolean {
-  const sendAt = new Date(scheduled.sendAt).getTime();
   return (
     scheduled.id === id &&
     scheduled.status !== 'failed' &&
     scheduled.status !== 'sent' &&
-    // Not `<=`: a NaN sendAt (a damaged queue file) must still count as due.
-    !(sendAt > now)
+    isSendTimeReached(scheduled.sendAt, now)
   );
 }
 

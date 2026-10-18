@@ -11,7 +11,7 @@ import path from 'node:path';
 
 import { loadConfig } from '../config/loader.js';
 import { createMailServices } from '../services/mail-services.js';
-import SchedulerService from '../services/scheduler.service.js';
+import SchedulerService, { isSendTimeReached } from '../services/scheduler.service.js';
 import type { AppConfig, ScheduledEmail } from '../types/index.js';
 import type { CommandRunner } from './scheduler-install.js';
 import {
@@ -117,7 +117,7 @@ export function formatScheduledList(emails: ScheduledEmail[]): string[] {
   if (pending.length > 0) {
     lines.push(`\n📬 Pending (${pending.length}):`);
     pending.forEach((e) => {
-      const overdue = new Date(e.sendAt).getTime() < Date.now() ? ' ⚠️ OVERDUE' : '';
+      const overdue = isSendTimeReached(e.sendAt, Date.now()) ? ' ⚠️ OVERDUE' : '';
       lines.push(
         `  ${e.id.slice(0, 8)} | ${e.account} → ${e.to.join(', ')} | "${e.subject}" | ${e.sendAt}${overdue}`,
       );
@@ -261,7 +261,7 @@ async function runStatus(): Promise<void> {
 
   // Show queue status
   const pending = await listScheduled('pending');
-  const overdue = pending.filter((e) => new Date(e.sendAt).getTime() < Date.now());
+  const overdue = pending.filter((e) => isSendTimeReached(e.sendAt, Date.now()));
 
   console.log(`\n📬 Queue: ${pending.length} pending, ${overdue.length} overdue`);
 }
