@@ -58,7 +58,7 @@ describe('retried and delivered sends', () => {
     }
   });
 
-  it('should not send again when the sent record cannot be written after SMTP accepted', async () => {
+  it('should not send again when the move into sent/ fails after SMTP accepted', async () => {
     await withDueQueue(async ({ queueDir, sentDir }) => {
       const { service, smtp } = createService(queueDir);
       await withNextMoveFailing(sentDir, async () => {
@@ -69,7 +69,7 @@ describe('retried and delivered sends', () => {
     });
   });
 
-  it('should count a delivered email as sent when its sent record cannot be written', async () => {
+  it('should count a delivered email as sent when its move into sent/ fails', async () => {
     await withDueQueue(async ({ queueDir, id, sentDir }) => {
       const { service } = createService(queueDir);
       let result = { sent: 0, failed: 0, deferred: 0, errors: [] as string[] };
