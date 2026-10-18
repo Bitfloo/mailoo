@@ -26,7 +26,8 @@ describe('MCP Registry publish', () => {
   });
 
   it('should exit after one call when the registry 404s something other than the npm version', () => {
-    // The step greps for the whole propagation message, not the status, so this is not retried.
+    // The step greps for the propagation message's fixed text, not the status, so this is not
+    // retried.
     expect(retries({ reply: 'server.json not found (status: 404)', status: 1 })).toEqual({
       status: 1,
       calls: 1,
@@ -57,6 +58,22 @@ describe('MCP Registry publish', () => {
       '[publish]',
       '[publish]',
     ]);
+  });
+
+  it('should say on stderr that it retries, and in how long, after a propagation 404', () => {
+    expect(publish({ reply: npmNotShownYet, status: 7, succeedsOn: 2 }).stderr).toBe(
+      'npm has not propagated this version yet (attempt 1/6); retrying in 20s\n',
+    );
+  });
+
+  it('should say on stderr that it gave up after the last of six propagation 404s', () => {
+    const lines = publish({ reply: npmNotShownYet, status: 7 }).stderr.split('\n');
+    expect(lines.slice(-2)).toEqual(['npm has not shown this version after 6 attempts', '']);
+  });
+
+  it('should keep the registry reply in one temp file and remove it when the step ends', () => {
+    // A fixed path would be shared by every job on a runner, and a file left behind outlives it.
+    expect(publish({ reply: 'unauthorized', status: 3 }).temps).toEqual({ made: 1, left: 0 });
   });
 
   it("should print the registry's reply when a publish call fails", () => {

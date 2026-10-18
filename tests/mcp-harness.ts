@@ -39,15 +39,18 @@ export interface Publisher {
 }
 
 /**
- * Run the publish step against a fake mcp-publisher. Return its exit status, its stdout, the calls,
- * each call's arguments as `[arg]...` and each pause.
+ * Run the publish step against a fake mcp-publisher. Return its exit status, its stdout and stderr,
+ * the calls, each call's arguments as `[arg]...`, each pause, and how many temp files the step
+ * made through mktemp and left behind.
  */
 export function publish(publisher: Publisher): {
   status: number | null;
   stdout: string;
+  stderr: string;
   calls: number;
   args: string[];
   pauses: string[];
+  temps: { made: number; left: number };
 } {
   const temp = mkdtempSync(join(tmpdir(), 'mailoo-mcp-publish-'));
   try {
@@ -65,17 +68,28 @@ export function publish(publisher: Publisher): {
     mkdirSync(join(temp, 'bin'));
     // The step pauses between attempts; the shim records each pause instead of waiting it out.
     script(join(temp, 'bin/sleep'), ['echo "$1" >> pauses']);
-    const { status, stdout } = runStep(runBlock(publishStep), temp, {
+    // The real mktemp, found past this bin directory, with each file it makes recorded.
+    writeFileSync(join(temp, 'temps'), '');
+    script(join(temp, 'bin/mktemp'), [
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a shell expansion, not a JS template
+      'file=$(PATH="${PATH#*:}" mktemp "$@")',
+      'echo "$file" >> temps',
+      'echo "$file"',
+    ]);
+    const { status, stdout, stderr } = runStep(runBlock(publishStep), temp, {
       PATH: `${join(temp, 'bin')}:${process.env.PATH}`,
       TMPDIR: temp,
     });
     const read = (name: string) => readFileSync(join(temp, name), 'utf8');
+    const temps = read('temps').split('\n').filter(Boolean);
     return {
       status,
       stdout,
+      stderr,
       calls: Number(read('calls')),
       args: read('args').split('\n').filter(Boolean),
       pauses: read('pauses').split('\n').filter(Boolean),
+      temps: { made: temps.length, left: temps.filter((file) => existsSync(file)).length },
     };
   } finally {
     rmSync(temp, { recursive: true, force: true });
