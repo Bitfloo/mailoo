@@ -129,6 +129,13 @@ describe('writer lease', () => {
     expect(follower.lease.leading).toBe(true);
   });
 
+  it('should not report itself leading once it released the lease', async () => {
+    const holder = startProcess();
+    await holder.lease.tick();
+    await holder.lease.release();
+    expect(holder.lease.leading).toBe(false);
+  });
+
   it('should leave the lease free when a halted process wins it', async () => {
     const halted = startProcess();
     const next = startProcess();
