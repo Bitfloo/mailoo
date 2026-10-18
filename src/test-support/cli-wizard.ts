@@ -1,7 +1,7 @@
 /**
  * What the CLI wizard suites share: a stand-in for @clack/prompts that answers
- * each prompt by its message, the add wizard's answers, and a temp config home
- * per test.
+ * each prompt by its message and records what it asked, the add wizard's
+ * answers, a temp config home per test, and the prompt roster of a source file.
  *
  * A suite creates its state and probes in vi.hoisted and passes them in:
  * entryPoint resets the module registry, and state kept in this module would
@@ -15,12 +15,21 @@ import path from 'node:path';
 import type { Mock } from 'vitest';
 
 import type ConnectionManager from '../connections/manager.js';
+import type { ProviderConfig } from '../types/index.js';
 
 export type Answer = string | boolean | symbol | string[];
+
+export interface AskedPrompt {
+  message: string;
+  options: Record<string, unknown>;
+}
 
 export interface WizardState {
   /** Answers one test sets in place of the suite's own. */
   overrides: Map<string, Answer>;
+  asked: AskedPrompt[];
+  /** promptPattern templates; a prompt one of them matches is answered with Ctrl-C. */
+  cancelAt: Set<string>;
 }
 
 export interface Probes {
@@ -29,7 +38,7 @@ export interface Probes {
 }
 
 export function newWizardState(): WizardState {
-  return { overrides: new Map() };
+  return { overrides: new Map(), asked: [], cancelAt: new Set() };
 }
 
 export function newProbes(): Probes {
@@ -58,12 +67,41 @@ export const ACCOUNT_ANSWERS: Readonly<Record<string, Answer>> = {
   'Delete account "personal" (me@example.com)? This cannot be undone.': true,
 };
 
-/** Clack reports Ctrl-C as a symbol, which isCancel recognises. */
+/** Clack reports Ctrl-C as a unique symbol; the stand-in's isCancel accepts any symbol. */
+export const CTRL_C = Symbol('clack:cancel');
+
+/** A provider for a reserved test domain, so detection runs without naming a real one. */
+export const EXAMPLE_PROVIDER: ProviderConfig = {
+  name: 'Example Mail',
+  domains: ['example.test'],
+  imap: { host: 'imap.example.test', port: 993, tls: true, starttls: false, verifySsl: true },
+  smtp: { host: 'smtp.example.test', port: 587, tls: false, starttls: true, verifySsl: true },
+};
+
+/** A prompt message template with each `${…}` written as `*`, as a whole-message match. */
+export function promptPattern(template: string): RegExp {
+  const parts = template.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'));
+  return new RegExp(`^${parts.join('.*')}$`);
+}
+
+/** Every clack prompt message in a source file, as promptPattern templates. */
+export function promptRoster(source: string): string[] {
+  const call =
+    /\b(?:text|confirm|select|multiselect|p_password)(?:<\w+>)?\(\{\s*message:\s*(?:'([^']*)'|`([^`]*)`)/g;
+  return [...source.matchAll(call)].map(
+    ([, quoted, template]) => quoted ?? template.replace(/\$\{[^}]*\}/g, '*'),
+  );
+}
+
 export function clackPromptsMock(
   state: WizardState,
   answers: Readonly<Record<string, Answer>>,
 ): Record<string, unknown> {
   const prompt = vi.fn(async (options: { message: string }) => {
+    state.asked.push({ message: options.message, options });
+    if ([...state.cancelAt].some((template) => promptPattern(template).test(options.message))) {
+      return CTRL_C;
+    }
     const value = state.overrides.get(options.message) ?? answers[options.message];
     if (value === undefined) throw new Error(`unexpected prompt: ${options.message}`);
     return value;
@@ -93,7 +131,11 @@ export type AccountCommand =
 export interface AccountSandbox {
   readonly configFile: string;
   /** CONFIG_FILE is fixed when xdg.ts loads, so each run imports a fresh copy. */
-  entryPoint: (command: AccountCommand, name?: string) => Promise<() => Promise<void>>;
+  entryPoint: (
+    command: AccountCommand,
+    name?: string,
+    provider?: ProviderConfig,
+  ) => Promise<() => Promise<void>>;
 }
 
 /**
@@ -120,8 +162,11 @@ export function useAccountSandbox(state: WizardState, probes: Probes): AccountSa
     if (ttyDescriptor) Object.defineProperty(process.stdin, 'isTTY', ttyDescriptor);
     else Reflect.deleteProperty(process.stdin, 'isTTY');
     state.overrides.clear();
+    state.asked.splice(0);
+    state.cancelAt.clear();
     probes.testImap.mockReset();
     probes.testSmtp.mockReset();
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
     await fs.rm(home, { recursive: true, force: true });
   });
@@ -130,9 +175,10 @@ export function useAccountSandbox(state: WizardState, probes: Probes): AccountSa
     get configFile() {
       return path.join(home, 'mailoo', 'config.toml');
     },
-    async entryPoint(command, name) {
+    async entryPoint(command, name, provider) {
       vi.stubEnv('XDG_CONFIG_HOME', home);
       vi.resetModules();
+      if (provider) (await import('../cli/providers.js')).PROVIDERS.push(provider);
       if (command === 'setup') return (await import('../cli/setup.js')).default;
       const runAccountCommand = (await import('../cli/account-commands.js')).default;
       return async () => runAccountCommand(command.slice('account '.length), name);
