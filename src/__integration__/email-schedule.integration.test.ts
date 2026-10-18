@@ -33,9 +33,9 @@ describe('scheduled mail on GreenMail', () => {
   });
 
   afterAll(async () => {
-    await Promise.all(
-      createdHere.map((name) => services.imapService.deleteMailbox(TEST_ACCOUNT_NAME, name)),
-    );
+    // deleteMailbox refuses special-use folders, so the ones made here go through the client.
+    const client = await services.connections.getImapClient(TEST_ACCOUNT_NAME);
+    await Promise.all(createdHere.map((name) => client.mailboxDelete(name)));
     await services.connections.closeAll();
     vi.unstubAllEnvs();
     await fs.rm(stateHome, { recursive: true, force: true });
@@ -97,7 +97,7 @@ describe('scheduled mail on GreenMail', () => {
     );
     const result = await scheduler.checkAndSend();
     expect(result.errors).toEqual([]);
-    await waitForDelivery();
+    await waitForDelivery(options.subject);
     const listed = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
       subject: options.subject,
     });
@@ -135,8 +135,8 @@ describe('scheduled mail on GreenMail', () => {
       inReplyTo: '<parent@localhost>',
       references: ['<root@localhost>', '<parent@localhost>'],
     });
-    // Raw headers: GreenMail leaves In-Reply-To out of ENVELOPE, so email.inReplyTo stays empty here.
-    expect([email.headers['in-reply-to'], email.headers.references]).toEqual([
+    // GreenMail leaves In-Reply-To out of ENVELOPE, so inReplyTo comes from the fetched header.
+    expect([email.inReplyTo, email.headers.references]).toEqual([
       '<parent@localhost>',
       '<root@localhost> <parent@localhost>',
     ]);

@@ -1,4 +1,5 @@
 import type { Socket } from 'node:net';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 import { ImapFlow } from 'imapflow';
 
@@ -154,7 +155,7 @@ describe('WatcherService on a live IMAP server', () => {
   it('should report a delivered message within a few seconds', async () => {
     const { watcher, subjects } = startWatcher();
     await watcher.start();
-    await waitForDelivery(IDLE_START_MS);
+    await sleep(IDLE_START_MS);
 
     const subject = `watcher-single-${Date.now()}`;
     await seedEmail({ subject });
@@ -172,7 +173,7 @@ describe('WatcherService on a live IMAP server', () => {
   it('should report a message another client filed as read with its attachment flag', async () => {
     const { watcher, emails } = startWatcher();
     await watcher.start();
-    await waitForDelivery(IDLE_START_MS);
+    await sleep(IDLE_START_MS);
 
     const subject = `watcher-read-${Date.now()}`;
     await inSecondSession(async (client) =>
@@ -197,12 +198,12 @@ describe('WatcherService on a live IMAP server', () => {
       // eslint-disable-next-line no-await-in-loop
       await seedEmail({ subject: `${marker}-old-${n}` });
     }
-    await waitForDelivery();
+    await waitForDelivery(`${marker}-old`, { count: 3 });
     expect(await expungeBySubject(`${marker}-old`)).toBe(3);
 
     const { watcher, subjects } = startWatcher();
     await watcher.start();
-    await waitForDelivery(IDLE_START_MS);
+    await sleep(IDLE_START_MS);
 
     const burst = [1, 2, 3].map((n) => `${marker}-new-${n}`);
     // eslint-disable-next-line no-restricted-syntax -- concurrent SMTP sessions make GreenMail drop or stall the idling session
@@ -288,7 +289,7 @@ describe('WatcherService after a dropped session', () => {
     const attempts = recordConnects();
     const { watcher, subjects } = startWatcher();
     await watcher.start();
-    await waitForDelivery(IDLE_START_MS);
+    await sleep(IDLE_START_MS);
 
     dropSession(attempts[0].client);
     // Down before SMTP takes the message, with the retry at least FIRST_RETRY_MIN_MS away, so
@@ -308,7 +309,7 @@ describe('WatcherService after a dropped session', () => {
       },
       { timeout: ARRIVAL_DEADLINE_MS, interval: 50 },
     );
-    await waitForDelivery(DUPLICATE_WINDOW_MS);
+    await sleep(DUPLICATE_WINDOW_MS);
     expect(subjects().filter((reported) => reported === subject)).toEqual([subject]);
   });
 });

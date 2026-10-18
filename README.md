@@ -85,8 +85,8 @@ Mailoo is designed to work across both frontier models (Claude, GPT, Gemini) and
 
 | Topic | Where |
 |-------|--------|
-| Sent APPEND, IMAP4rev2, Sieve, `read_only`, reconnect backoff, shutdown, one mailbox writer per machine | [docs/configuration.md](docs/configuration.md) |
-| `savePath`, search dates, `get_email_security`, sieve tools, send/draft attachments, RFC 2047 | [docs/tools.md](docs/tools.md) |
+| Sent APPEND, IMAP4rev2, Sieve, `read_only`, reconnect backoff, stdio EOF, shutdown, one mailbox writer per machine | [docs/configuration.md](docs/configuration.md) |
+| `savePath`, search dates, `get_email_security`, sieve tools, send/draft attachments, RFC 2047, protected folders, busy-mailbox timeout, `bulk_action` ids, calendar attachment saves | [docs/tools.md](docs/tools.md) |
 | Performance notes | [docs/performance-roadmap.md](docs/performance-roadmap.md) |
 
 ## Background
@@ -892,8 +892,8 @@ Single-account setup reads `MCP_EMAIL_*` (`src/config/loader.ts`). HTTP listens 
 | `mark_email` | Mark as read/unread, flag/unflag |
 | `bulk_action` | Batch operation on up to 100 emails |
 | `create_mailbox` | Create a new mailbox folder |
-| `rename_mailbox` | Rename an existing mailbox folder |
-| `delete_mailbox` | Permanently delete a mailbox and contents |
+| `rename_mailbox` | Rename an existing mailbox folder (not INBOX or a special-use folder) |
+| `delete_mailbox` | Permanently delete a mailbox and contents (not INBOX or a special-use folder) |
 
 #### Labels (5)
 
@@ -903,7 +903,7 @@ Single-account setup reads `MCP_EMAIL_*` (`src/config/loader.ts`). HTTP listens 
 | `add_label` | Add a label to an email (ProtonMail folders, Gmail X-GM-LABELS, or IMAP keywords) |
 | `remove_label` | Remove a label from an email |
 | `create_label` | Create a new label |
-| `delete_label` | Delete a label |
+| `delete_label` | Delete a label (on Gmail, not INBOX or a special-use folder) |
 
 #### Watcher & Alerts (6)
 

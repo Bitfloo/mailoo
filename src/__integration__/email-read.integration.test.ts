@@ -14,6 +14,13 @@ import {
   waitForDelivery,
 } from './helpers/index.js';
 
+/**
+ * imapflow runs one command at a time, so an IMAP command issued inside an open
+ * FETCH loop never starts and the call hangs until the 300 s socket timeout.
+ * 10 s is far above a healthy get_thread on GreenMail and keeps that red fast.
+ */
+const GET_THREAD_TIMEOUT_MS = 10_000;
+
 interface TextToolResult {
   isError?: boolean;
   content: { type: string; text?: string }[];
@@ -54,7 +61,11 @@ describe('Email Read Operations', () => {
     await seedEmail({ from: 'alice@localhost', subject: 'From Alice' });
     await seedEmail({ from: 'bob@localhost', subject: 'Flagged email' });
     await seedThread(3, { subject: 'Discussion Topic' });
-    await waitForDelivery();
+    await waitForDelivery('Test Email', { count: 5 });
+    await waitForDelivery('From Alice');
+    await waitForDelivery('Flagged email');
+    // seedThread alternates the recipient, so test receives messages 1 and 3.
+    await waitForDelivery('Discussion Topic', { count: 2 });
   });
 
   afterAll(async () => {
@@ -176,31 +187,62 @@ describe('Email Read Operations', () => {
   // ---------------------------------------------------------------------------
 
   describe('getThread', () => {
-    it('should attempt to reconstruct a reply thread', async () => {
-      // The thread seeded by seedThread uses alice@localhost ↔ test@localhost.
-      // Find a thread message delivered to test's inbox.
-      const all = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { pageSize: 50 });
-      const threadEmail = all.items.find((e) => e.subject?.includes('Discussion'));
+    it(
+      'should return every thread message with its text body',
+      async () => {
+        const subject = 'Thread bodies after the fetch loop';
+        const first = await seedEmail({ from: 'alice@localhost', subject, text: 'thread-body-1' });
+        const second = await seedEmail({
+          from: 'bob@localhost',
+          subject: `Re: ${subject}`,
+          text: 'thread-body-2',
+          inReplyTo: first,
+          references: [first],
+        });
+        const third = await seedEmail({
+          from: 'alice@localhost',
+          subject: `Re: ${subject}`,
+          text: 'thread-body-3',
+          inReplyTo: second,
+          references: [first, second],
+        });
+        await waitForDelivery(subject, { count: 3 });
 
-      if (!threadEmail) {
-        // No thread email found — skip gracefully
-        return;
-      }
+        const thread = await services.imapService.getThread(TEST_ACCOUNT_NAME, third);
 
-      const email = await services.imapService.getEmail(TEST_ACCOUNT_NAME, threadEmail.id);
+        const bodies = thread.messages.map((m) => m.bodyText?.trim()).sort();
+        expect(bodies).toEqual(['thread-body-1', 'thread-body-2', 'thread-body-3']);
+      },
+      GET_THREAD_TIMEOUT_MS,
+    );
 
-      // GreenMail may not support header-based thread searches well.
-      // Verify the method doesn't crash for a simple message.
-      if (email.messageId) {
-        try {
-          const thread = await services.imapService.getThread(TEST_ACCOUNT_NAME, email.messageId);
-          expect(thread.messages.length).toBeGreaterThanOrEqual(1);
-        } catch (err) {
-          // GreenMail has limited IMAP SEARCH support — accept timeout/search errors
-          expect((err as Error).message).toMatch(/connection|timeout|command failed/i);
-        }
-      }
-    }, 60_000);
+    // Some clients set only In-Reply-To on a reply, so the thread links one hop per message.
+    it(
+      'should find every reply of an In-Reply-To chain asked for by its root',
+      async () => {
+        const subject = 'In-Reply-To chain asked for by its root';
+        const first = await seedEmail({ from: 'alice@localhost', subject, text: 'chain-body-1' });
+        const second = await seedEmail({
+          from: 'bob@localhost',
+          subject: `Re: ${subject}`,
+          text: 'chain-body-2',
+          inReplyTo: first,
+        });
+        await seedEmail({
+          from: 'alice@localhost',
+          subject: `Re: ${subject}`,
+          text: 'chain-body-3',
+          inReplyTo: second,
+        });
+        await waitForDelivery(subject, { count: 3 });
+
+        const thread = await services.imapService.getThread(TEST_ACCOUNT_NAME, first);
+
+        const bodies = thread.messages.map((m) => m.bodyText?.trim()).sort();
+        expect(bodies).toEqual(['chain-body-1', 'chain-body-2', 'chain-body-3']);
+      },
+      GET_THREAD_TIMEOUT_MS,
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -234,7 +276,7 @@ describe('Email Read Operations', () => {
     it('should leave \\Seen unset when read_only get_email is called with markRead', async () => {
       const subject = 'Read-only markRead leaves unseen';
       await seedEmail({ subject });
-      await waitForDelivery();
+      await waitForDelivery(subject);
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { subject });
       expect(list.items.length).toBeGreaterThanOrEqual(1);
       const emailId = list.items[0].id;
