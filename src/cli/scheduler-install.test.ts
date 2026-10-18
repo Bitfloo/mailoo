@@ -93,6 +93,19 @@ describe('scheduler install commands', () => {
     }
   });
 
+  it('should narrow a plist an earlier install left readable by others to owner-only', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-launchd-'));
+    try {
+      const plistPath = path.join(dir, 'agent.plist');
+      await fs.writeFile(plistPath, '<plist version="1.0"></plist>\n', { mode: 0o644 });
+      await fs.chmod(plistPath, 0o644);
+      await loadLaunchAgent(plistPath, '<plist version="1.0"></plist>\n', recordRunner().run);
+      expect((await fs.stat(plistPath)).mode % 0o1000).toBe(0o600);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('should install a crontab line that runs this node binary on this CLI script', async () => {
     const { run, calls } = recordRunner();
     await runInstall('linux', run, () => {});
