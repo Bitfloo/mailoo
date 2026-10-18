@@ -198,27 +198,34 @@ export async function runInstall(
   }
 }
 
-async function runUninstall(): Promise<void> {
-  const platform = os.platform();
-
+/**
+ * `mailoo scheduler uninstall`. A test passes the platform, a command runner, a line sink
+ * and a temp plist path.
+ */
+export async function runUninstall(
+  platform: NodeJS.Platform = os.platform(),
+  run: CommandRunner = runCommandFile,
+  print: (line: string) => void = console.log,
+  plistPath: string = LAUNCHD_PLIST,
+): Promise<void> {
   if (platform === 'darwin') {
     try {
-      runCommandFile('launchctl', ['unload', LAUNCHD_PLIST]);
+      run('launchctl', ['unload', plistPath]);
     } catch {
       // May not be loaded
     }
 
     try {
-      await fs.unlink(LAUNCHD_PLIST);
-      console.log('✅ Removed macOS launchd scheduler');
+      await fs.unlink(plistPath);
+      print('✅ Removed macOS launchd scheduler');
     } catch {
-      console.log('ℹ️  No launchd scheduler found');
+      print('ℹ️  No launchd scheduler found');
     }
   } else if (platform === 'linux') {
-    if (removeCrontabLine(CRONTAB_MARKER)) {
-      console.log('✅ Removed Linux crontab scheduler');
+    if (removeCrontabLine(CRONTAB_MARKER, run)) {
+      print('✅ Removed Linux crontab scheduler');
     } else {
-      console.log('ℹ️  No crontab scheduler found');
+      print('ℹ️  No crontab scheduler found');
     }
   } else {
     console.error(`❌ Unsupported platform: ${platform}`);
