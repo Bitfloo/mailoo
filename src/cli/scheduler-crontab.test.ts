@@ -63,26 +63,26 @@ exit 2
 }
 
 describe('scheduler install commands', () => {
-  it('should write crontab through stdin arguments', () => {
+  it('should hand `crontab -` the existing crontab plus the scheduler line on stdin', () => {
     const { run, calls } = recordRunner();
     const line =
       "* * * * * '/usr/bin/node' '/opt/mailoo/main.js' scheduler check # mailoo scheduler";
     installCrontabLine(line, '# mailoo scheduler', run);
-    expect(calls[0]).toEqual({ file: 'crontab', args: ['-l'], input: undefined });
-    expect(calls[1]?.file).toBe('crontab');
-    expect(calls[1]?.args).toEqual(['-']);
-    expect(calls[1]?.input).toContain(line);
-    expect(calls[1]?.input).not.toMatch(/\|/);
+    expect(calls).toEqual([
+      { file: 'crontab', args: ['-l'], input: undefined },
+      { file: 'crontab', args: ['-'], input: `0 0 * * * /usr/bin/true\n${line}\n` },
+    ]);
   });
 
-  it('should remove a crontab entry through stdin arguments', () => {
+  it('should hand `crontab -` the crontab without the scheduler line on stdin', () => {
     const { run, calls } = recordRunner(
       '0 0 * * * /usr/bin/true\n* * * * * /opt/mailoo check # mailoo scheduler\n',
     );
     removeCrontabLine('# mailoo scheduler', run);
-    expect(calls[1]?.args).toEqual(['-']);
-    expect(calls[1]?.input).toBe('0 0 * * * /usr/bin/true\n');
-    expect(calls[1]?.input).not.toContain('mailoo scheduler');
+    expect(calls).toEqual([
+      { file: 'crontab', args: ['-l'], input: undefined },
+      { file: 'crontab', args: ['-'], input: '0 0 * * * /usr/bin/true\n' },
+    ]);
   });
 
   it('should report no removal and write nothing when no crontab line carries the marker', () => {
