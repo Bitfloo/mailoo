@@ -110,6 +110,38 @@ describe('resolveHttpListen', () => {
     expect(DEFAULT_HTTP_BODY_LIMIT_BYTES).toBe(8 * 1024 * 1024);
     expect(resolveHttpListen({ port: 8080 }).bodyLimitBytes).toBe(DEFAULT_HTTP_BODY_LIMIT_BYTES);
   });
+
+  // Port 0 asks the OS for a free port, so 0 to 65535 are all valid here.
+  it.each([0, 65535])('should accept port %i', (port) => {
+    expect(resolveHttpListen({ port }).port).toBe(port);
+  });
+
+  it.each([-1, 65536, 1.5])('should refuse port %s', (port) => {
+    expect(() => resolveHttpListen({ port })).toThrow(`Invalid port: ${port}`);
+  });
+
+  it('should accept a body limit of one byte', () => {
+    expect(resolveHttpListen({ port: 8080, bodyLimitBytes: 1 }).bodyLimitBytes).toBe(1);
+  });
+
+  it.each([0, 1.5])('should refuse a body limit of %s', (bodyLimitBytes) => {
+    expect(() => resolveHttpListen({ port: 8080, bodyLimitBytes })).toThrow(
+      `Invalid HTTP body limit: ${bodyLimitBytes}`,
+    );
+  });
+
+  // A token pasted from a secrets file often ends in a newline.
+  it('should trim whitespace around the bearer token', () => {
+    expect(resolveHttpListen({ port: 8080, token: `  ${TOKEN}\n` }).token).toBe(TOKEN);
+  });
+
+  it('should treat a blank bearer token on loopback as no token', () => {
+    expect(resolveHttpListen({ port: 8080, token: '   ' }).token).toBeUndefined();
+  });
+
+  it('should listen on 127.0.0.1 and ::1 when the host is blank', () => {
+    expect(resolveHttpListen({ port: 8080, host: '   ' }).hosts).toEqual(['127.0.0.1', '::1']);
+  });
 });
 
 describe('readHttpLaunchOptions', () => {
@@ -158,6 +190,22 @@ describe('readHttpLaunchOptions', () => {
 
   it('defaults the port to 8080', () => {
     expect(readHttpLaunchOptions({}, {}).port).toBe(8080);
+  });
+
+  it.each(['1', '65535'])('should accept port argument %s', (portArg) => {
+    expect(readHttpLaunchOptions({ portArg }, {}).port).toBe(Number(portArg));
+  });
+
+  // Number() reads all three as a port; only plain digits are one.
+  it.each(['8e3', '80.5', '+80'])('should refuse port argument %s', (portArg) => {
+    expect(() => readHttpLaunchOptions({ portArg }, {})).toThrow(`Invalid port: ${portArg}`);
+  });
+
+  it('should use MCP_EMAIL_HTTP_HOST when the host argument is blank', () => {
+    const env = { MCP_EMAIL_HTTP_HOST: '127.0.0.2' };
+    expect(readHttpLaunchOptions({ portArg: '8080', hostArg: '  ' }, env).hosts).toEqual([
+      '127.0.0.2',
+    ]);
   });
 });
 
