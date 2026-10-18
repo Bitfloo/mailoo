@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { accessSync, constants, readdirSync, readFileSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
 
 import { isNode, isScalar, LineCounter, parse, parseDocument, visit } from 'yaml';
 
@@ -187,6 +187,26 @@ export function runBlock(step: string): string {
 /** Run a command as the runner runs a step without `shell:` (`bash -e {0}`: no -u, no pipefail), with only `env`. */
 export function runStep(command: string, cwd: string, env: Record<string, string | undefined>) {
   return spawnSync('bash', ['-e', '-c', command], { cwd, env, encoding: 'utf8' });
+}
+
+/**
+ * Throw once, naming every tool `path` does not hold as an executable, so a machine without one
+ * fails with that name instead of a step's exit status 127. Nothing is installed.
+ */
+export function requireTools(tools: string[], path = process.env.PATH ?? ''): void {
+  const onPath = (tool: string) =>
+    path.split(delimiter).some((dir) => {
+      try {
+        accessSync(join(dir, tool), constants.X_OK);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+  const missing = tools.filter((tool) => !onPath(tool));
+  if (missing.length > 0) {
+    throw new Error(`these tests need ${missing.join(', ')} on PATH`);
+  }
 }
 
 /** The ref variables the runner sets together, so a step may read either form. */

@@ -2,7 +2,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { releaseStep, releaseYml, runBlock, runStep } from './workflow-yaml.js';
+import { releaseStep, releaseYml, requireTools, runBlock, runStep } from './workflow-yaml.js';
+
+requireTools(['bash', 'grep', 'sha256sum', 'tar']);
 
 const installStep = releaseStep(releaseYml, 'Install mcp-publisher');
 const publishStep = releaseStep(releaseYml, 'Publish to MCP Registry');

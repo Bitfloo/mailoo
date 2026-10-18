@@ -5,7 +5,16 @@ import { join } from 'node:path';
 import { parse } from 'yaml';
 
 import { repoRoot } from './agents/agent-file.js';
-import { jobSteps, releaseStep, runBlock, runStep, workflowDir } from './workflow-yaml.js';
+import {
+  jobSteps,
+  releaseStep,
+  requireTools,
+  runBlock,
+  runStep,
+  workflowDir,
+} from './workflow-yaml.js';
+
+requireTools(['bash', 'jq']);
 
 interface GoreleaserImage {
   id: string;

@@ -14,6 +14,7 @@ import {
   releaseStep,
   releaseSteps,
   releaseYml,
+  requireTools,
   runBlock,
   runStep,
   stepEnv,
@@ -21,6 +22,8 @@ import {
   workflowDir,
   workflowFiles,
 } from './workflow-yaml.js';
+
+requireTools(['bash']);
 
 const ciYml = readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8');
 const dockerSha = readFileSync(join(repoRoot, '.github/workflows/docker-sha.yml'), 'utf8');

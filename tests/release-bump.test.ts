@@ -7,6 +7,9 @@ import { promisify } from 'node:util';
 import { parse as parseTOML } from 'smol-toml';
 
 import { repoRoot as root } from './agents/agent-file.js';
+import { requireTools } from './workflow-yaml.js';
+
+requireTools(['bash', 'jq', 'perl']);
 
 const execFileAsync = promisify(execFile);
 

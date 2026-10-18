@@ -9,10 +9,13 @@ import {
   releaseJob,
   releaseStep,
   releaseYml,
+  requireTools,
   runBlock,
   runStep,
   stepEnv,
 } from './workflow-yaml.js';
+
+requireTools(['awk', 'bash']);
 
 interface ReleaseRun {
   ref: string;
@@ -67,6 +70,19 @@ describe('step harness', () => {
   it('should run the whole run block, blank lines included', () => {
     const step = '      - name: Example\n        run: |\n          true\n\n          false\n';
     expect(runBlock(step)).toBe('true\n\nfalse\n');
+  });
+
+  it('should name every tool it needs that PATH does not hold as an executable', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mailoo-tools-'));
+    try {
+      writeFileSync(join(dir, 'jq'), '', { mode: 0o755 });
+      writeFileSync(join(dir, 'awk'), '', { mode: 0o644 });
+      expect(() => requireTools(['jq', 'awk', 'tar'], dir)).toThrow(
+        /^these tests need awk, tar on PATH$/,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it.each(['shell: sh', '"shell": bash', 'working-directory: .github'])(
