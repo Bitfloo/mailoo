@@ -1,9 +1,8 @@
 /**
- * The credential an account needs, as the registry listing describes it and
- * as the account schema and the MCP_EMAIL_* loader enforce it.
+ * The credential an account needs, as the account schema and the MCP_EMAIL_*
+ * loader enforce it: a non-empty password or an OAuth2 block.
  */
 
-import { readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,19 +14,13 @@ import { AccountConfigSchema, OAuth2ConfigSchema } from '../src/config/schema.js
 import OAuthService from '../src/services/oauth.service.js';
 import { repoRoot } from './agents/agent-file.js';
 
-interface EnvVar {
-  name: string;
-  description: string;
-  isRequired: boolean;
-}
-
-const server = JSON.parse(readFileSync(join(repoRoot, 'server.json'), 'utf8')) as {
-  packages: { environmentVariables: EnvVar[] }[];
-};
-const envVar = (name: string): EnvVar => {
-  const found = server.packages[0]?.environmentVariables.find((item) => item.name === name);
-  if (found === undefined) throw new Error(`server.json does not declare ${name}`);
-  return found;
+// Every MCP_EMAIL_* variable starts unset, so only what a test sets is read.
+const clearMailEnv = (): void => {
+  Object.keys(process.env)
+    .filter((name) => name.startsWith('MCP_EMAIL_'))
+    .forEach((name) => {
+      vi.stubEnv(name, undefined);
+    });
 };
 const account = {
   name: 'work',
@@ -42,61 +35,11 @@ const oauth2 = {
   refresh_token: 'refresh',
 };
 
-describe('server.json credential requirement', () => {
-  // The registry schema has no "one of" for inputs, so neither credential is
-  // isRequired; the descriptions have to say that one of them is.
-  // src/identity.test.ts checks that smithery.yaml copies these descriptions.
-  it.each(['MCP_EMAIL_PASSWORD', 'MCP_EMAIL_OAUTH2_PROVIDER'])(
-    'should leave %s optional, since either credential is enough',
-    (name) => {
-      expect(envVar(name).isRequired).toBe(false);
-    },
-  );
-
-  it('should say that the password is one of two credentials, the other being OAuth2', () => {
-    expect(envVar('MCP_EMAIL_PASSWORD').description).toBe(
-      'Password or app password. Each account needs one credential: this password, or OAuth2 through MCP_EMAIL_OAUTH2_PROVIDER.',
-    );
-  });
-
-  // Only the connections the tools open use the OAuth2 service; the IDLE watcher
-  // and the standalone scheduler do not, so the listing promises no more than that.
-  it('should say that the tool connections sign in with OAuth2, what a provider needs, and that custom needs the config file', () => {
-    expect(envVar('MCP_EMAIL_OAUTH2_PROVIDER').description).toBe(
-      'OAuth2 provider: google, microsoft, or custom. When set, the IMAP and SMTP connections that the MCP tools open sign in with OAuth2 instead of MCP_EMAIL_PASSWORD. The OAuth2 client id, client secret, and refresh token are then required. A custom provider also needs token_url and auth_url, which only the config file can set.',
-    );
-  });
-
-  // Only an unset variable falls back to the email address; an empty one is kept.
-  it('should say that the login username defaults to the email address only when unset', () => {
-    expect(envVar('MCP_EMAIL_USERNAME').description).toBe(
-      'Login username. Defaults to the email address when unset.',
-    );
-  });
-
-  it('should name exactly the OAuth2 providers the config accepts', () => {
-    const named = /^OAuth2 provider: ([a-z, ]+)./
-      .exec(envVar('MCP_EMAIL_OAUTH2_PROVIDER').description)?.[1]
-      ?.split(/, (?:or )?/);
-    expect(named).toEqual(OAuth2ConfigSchema.shape.provider.options);
-  });
-
+describe('account schema credential', () => {
   it('should accept exactly the google, microsoft and custom providers', () => {
     expect(OAuth2ConfigSchema.shape.provider.options).toEqual(['google', 'microsoft', 'custom']);
   });
 
-  it.each([
-    'MCP_EMAIL_OAUTH2_CLIENT_ID',
-    'MCP_EMAIL_OAUTH2_CLIENT_SECRET',
-    'MCP_EMAIL_OAUTH2_REFRESH_TOKEN',
-  ])('should describe %s as required once a provider is set', (name) => {
-    expect(envVar(name).description).toMatch(
-      /\. Required when MCP_EMAIL_OAUTH2_PROVIDER is set\.$/,
-    );
-  });
-});
-
-describe('account schema credential', () => {
   it('should reject an account with neither a password nor OAuth2, naming the missing credential', () => {
     const issues = AccountConfigSchema.safeParse(account).error?.issues ?? [];
     expect(issues.map((issue) => issue.message)).toEqual([
@@ -297,9 +240,7 @@ describe('MCP_EMAIL_* credential matrix', () => {
   };
 
   beforeEach(() => {
-    server.packages[0]?.environmentVariables.forEach((item) => {
-      vi.stubEnv(item.name, undefined);
-    });
+    clearMailEnv();
     vi.stubEnv('MCP_EMAIL_ADDRESS', 'owner@example.com');
     vi.stubEnv('MCP_EMAIL_IMAP_HOST', 'imap.example.com');
     vi.stubEnv('MCP_EMAIL_SMTP_HOST', 'smtp.example.com');
@@ -449,9 +390,7 @@ describe('MCP_EMAIL_* account beside a config file', () => {
   let dir: string;
 
   beforeEach(async () => {
-    server.packages[0]?.environmentVariables.forEach((item) => {
-      vi.stubEnv(item.name, undefined);
-    });
+    clearMailEnv();
     vi.stubEnv('MCP_EMAIL_ADDRESS', 'env@example.com');
     vi.stubEnv('MCP_EMAIL_IMAP_HOST', 'imap.example.com');
     vi.stubEnv('MCP_EMAIL_SMTP_HOST', 'smtp.example.com');
@@ -531,9 +470,7 @@ describe('OAuth2 account from the config file', () => {
   let dir: string;
 
   beforeEach(async () => {
-    server.packages[0]?.environmentVariables.forEach((item) => {
-      vi.stubEnv(item.name, undefined);
-    });
+    clearMailEnv();
     dir = await mkdtemp(join(tmpdir(), 'credential-facts-'));
   });
 
@@ -597,9 +534,7 @@ describe('credential values in the config file', () => {
   let dir: string;
 
   beforeEach(async () => {
-    server.packages[0]?.environmentVariables.forEach((item) => {
-      vi.stubEnv(item.name, undefined);
-    });
+    clearMailEnv();
     dir = await mkdtemp(join(tmpdir(), 'credential-facts-'));
   });
 

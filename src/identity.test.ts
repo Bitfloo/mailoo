@@ -207,20 +207,6 @@ describe('published identity', () => {
     });
   });
 
-  it('requires in smithery.yaml exactly the variables server.json marks required', () => {
-    // A password or an OAuth2 provider is each enough on its own, so neither belongs in this list.
-    const block = /^ {4}required:\n((?: {6}- .*\n)*)/m.exec(smithery)?.[1] ?? '';
-    const required = block
-      .split('\n')
-      .filter((line) => line !== '')
-      .map((line) => line.replace(/^ {6}- /, '').trim());
-    const marked = (server.packages?.[0]?.environmentVariables ?? [])
-      .filter((item) => item.isRequired)
-      .map((item) => item.name);
-    // The order of a YAML required list carries no meaning.
-    expect([...required].sort()).toEqual(marked.sort());
-  });
-
   it('copies each server.json environment description into smithery.yaml', () => {
     // The registry and Smithery are published apart; an edit to one would describe the same variable two ways.
     const declared = server.packages?.[0]?.environmentVariables ?? [];

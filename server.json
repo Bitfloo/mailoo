@@ -32,7 +32,7 @@
         },
         {
           "name": "MCP_EMAIL_PASSWORD",
-          "description": "Password or app password. Each account needs one credential: this password, or OAuth2 through MCP_EMAIL_OAUTH2_PROVIDER.",
+          "description": "Password or app password. Required unless MCP_EMAIL_OAUTH2_PROVIDER is set.",
           "isRequired": false,
           "isSecret": true
         },
@@ -62,7 +62,7 @@
         },
         {
           "name": "MCP_EMAIL_USERNAME",
-          "description": "Login username. Defaults to the email address when unset.",
+          "description": "Login username. Defaults to the email address.",
           "isRequired": false,
           "isSecret": false
         },
@@ -152,25 +152,25 @@
         },
         {
           "name": "MCP_EMAIL_OAUTH2_PROVIDER",
-          "description": "OAuth2 provider: google, microsoft, or custom. When set, the IMAP and SMTP connections that the MCP tools open sign in with OAuth2 instead of MCP_EMAIL_PASSWORD. The OAuth2 client id, client secret, and refresh token are then required. A custom provider also needs token_url and auth_url, which only the config file can set.",
+          "description": "OAuth2 provider: google, microsoft, or custom.",
           "isRequired": false,
           "isSecret": false
         },
         {
           "name": "MCP_EMAIL_OAUTH2_CLIENT_ID",
-          "description": "OAuth2 client id. Required when MCP_EMAIL_OAUTH2_PROVIDER is set.",
+          "description": "OAuth2 client id.",
           "isRequired": false,
           "isSecret": false
         },
         {
           "name": "MCP_EMAIL_OAUTH2_CLIENT_SECRET",
-          "description": "OAuth2 client secret. Required when MCP_EMAIL_OAUTH2_PROVIDER is set.",
+          "description": "OAuth2 client secret.",
           "isRequired": false,
           "isSecret": true
         },
         {
           "name": "MCP_EMAIL_OAUTH2_REFRESH_TOKEN",
-          "description": "OAuth2 refresh token. Required when MCP_EMAIL_OAUTH2_PROVIDER is set.",
+          "description": "OAuth2 refresh token.",
           "isRequired": false,
           "isSecret": true
         },

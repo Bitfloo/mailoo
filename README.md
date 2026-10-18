@@ -495,9 +495,6 @@ max_connections = 1
 max_messages = 100
 ```
 
-- A `custom` provider also needs `token_url` and `auth_url` under `[accounts.oauth2]`. The `MCP_EMAIL_OAUTH2_*` variables cannot set them: a `custom` provider from the environment loads, but no access token can be fetched for it. Use the config file for `custom`.
-- OAuth2 is used by the IMAP and SMTP connections that the MCP tools open. The IMAP IDLE watcher, the standalone `mailoo scheduler check` and ManageSieve do not use it yet.
-
 #### Environment Variables
 
 For single-account setups (overrides config file):
@@ -508,10 +505,6 @@ For single-account setups (overrides config file):
 | `MCP_EMAIL_PASSWORD` | *required* without OAuth2 | Password or app password. Not needed when `MCP_EMAIL_OAUTH2_PROVIDER` is set |
 | `MCP_EMAIL_IMAP_HOST` | *required* | IMAP server hostname |
 | `MCP_EMAIL_SMTP_HOST` | *required* | SMTP server hostname |
-| `MCP_EMAIL_OAUTH2_PROVIDER` | — | OAuth2 provider: `google`, `microsoft`, or `custom` (`custom` needs the config file, see above). When set, the three variables below are required |
-| `MCP_EMAIL_OAUTH2_CLIENT_ID` | *required* with a provider | OAuth2 client id |
-| `MCP_EMAIL_OAUTH2_CLIENT_SECRET` | *required* with a provider | OAuth2 client secret |
-| `MCP_EMAIL_OAUTH2_REFRESH_TOKEN` | *required* with a provider | OAuth2 refresh token |
 | `MCP_EMAIL_ACCOUNT_NAME` | `default` | Account name |
 | `MCP_EMAIL_FULL_NAME` | — | Display name |
 | `MCP_EMAIL_USERNAME` | *email* | Login username |
