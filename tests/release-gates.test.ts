@@ -1,5 +1,5 @@
 import { jobGate, runsJob } from './workflow-gates.js';
-import { readKeyLines, releaseJob } from './workflow-yaml.js';
+import { releaseJob } from './workflow-yaml.js';
 
 const npmJob = () => releaseJob('npm publish --access public');
 const stampJob = () => releaseJob('- name: Set version in server.json\n');
@@ -125,17 +125,6 @@ describe('release job gates', () => {
   it('should make the job that stamps server.json need npm when its if: reads the npm result', () => {
     // Without needs, needs.npm.result is empty, so the if: never passes and nothing is published.
     expect(stampJob()).toContain('needs: [npm]');
-  });
-
-  it.each([
-    { job: 'npm', section: npmJob },
-    { job: 'MCP Registry', section: stampJob },
-    { job: 'Docker', section: dockerJob },
-  ])('should run every step of the $job publish job whenever the job runs', ({ section }) => {
-    // A tag push and a manual run both publish, so a step-level if: would skip a step on one of
-    // them, and a job whose publish step was skipped still reports success to the jobs after it.
-    // An if: always() would also run a step after an earlier one failed.
-    expect(readKeyLines(section(), 'if').map((line) => line.search(/\S/))).toEqual([4]);
   });
 
   it('should make the Docker job need npm and MCP when its if: reads both results', () => {

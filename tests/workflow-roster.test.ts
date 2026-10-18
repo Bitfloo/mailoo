@@ -92,7 +92,7 @@ function runs(yaml: string): string[] {
   );
 }
 
-// biome-ignore-start lint/suspicious/noTemplateCurlyInString: values are shell commands from the workflows, not JS templates
+// biome-ignore-start lint/suspicious/noTemplateCurlyInString: values are commands and expressions from the workflows, not JS templates
 const RUNS: Record<string, string[]> = {
   // check and integration run the commands CONTRIBUTING says a pull request runs.
   'ci.yml': [
@@ -122,7 +122,29 @@ const RUNS: Record<string, string[]> = {
   ],
   'scorecard.yml': [],
 };
-// biome-ignore-end lint/suspicious/noTemplateCurlyInString: end of shell commands
+
+/**
+ * Each if: line as written, indentation kept: four spaces gate a job, eight a step. Every gate is
+ * a job gate. A step-level if: would skip a publish or a check on one trigger while the job still
+ * reports success to the jobs after it, and an if: always() would run a step after an earlier one
+ * failed, so a new one fails until it is listed here.
+ */
+const IFS: Record<string, string[]> = {
+  'ci.yml': [
+    "    if: ${{ github.event_name == 'pull_request' || inputs.include-unit }}",
+    "    if: github.event_name == 'pull_request'",
+  ],
+  'codeql.yml': [],
+  'docker-rebuild.yml': [],
+  'docker-sha.yml': [],
+  'release.yml': [
+    "    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.skip-npm }}",
+    "    if: always() && (needs.npm.result == 'success' || needs.npm.result == 'skipped')",
+    "    if: always() && (needs.npm.result == 'success' || needs.npm.result == 'skipped') && needs.mcp.result == 'success'",
+  ],
+  'scorecard.yml': [],
+};
+// biome-ignore-end lint/suspicious/noTemplateCurlyInString: end of workflow values
 
 describe('workflow rosters', () => {
   // Each roster is keyed by the files in the tree, so a new workflow fails until it is listed.
@@ -133,6 +155,13 @@ describe('workflow rosters', () => {
   it.each(workflows)('should run exactly the pinned commands in %s', (name, yaml) => {
     expect(runs(yaml)).toEqual(RUNS[name]);
   });
+
+  it.each(workflows)(
+    'should gate the jobs and steps of %s only with its pinned if: lines',
+    (name, yaml) => {
+      expect(readKeyLines(yaml, 'if').map((line) => line.trimEnd())).toEqual(IFS[name]);
+    },
+  );
 
   it.each(workflows)('should keep continue-on-error off every job and step of %s', (_, yaml) => {
     // needs.<job>.result reads success after a failure that continue-on-error let through, so the
