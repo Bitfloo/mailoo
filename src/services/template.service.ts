@@ -50,7 +50,7 @@ function validateTemplate(raw: Record<string, unknown>, filename: string): Email
  */
 function substituteVariables(text: string, variables: Record<string, string>): string {
   return text.replace(/\{\{(\w+)\}\}/g, (match, varName: string) => {
-    if (varName in variables) {
+    if (Object.hasOwn(variables, varName)) {
       return variables[varName];
     }
     return match; // Leave unresolved placeholders as-is
@@ -62,6 +62,16 @@ export default class TemplateService {
 
   constructor(templatesDir = TEMPLATES_DIR) {
     this.templatesDir = templatesDir;
+  }
+
+  /** null for a file that does not parse as a template, or one removed after readdir listed it. */
+  private async loadTemplate(file: string): Promise<EmailTemplate | null> {
+    try {
+      const content = await fs.readFile(path.join(this.templatesDir, file), 'utf-8');
+      return validateTemplate(parseTOML(content), file);
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -77,22 +87,8 @@ export default class TemplateService {
 
     const entries = await fs.readdir(this.templatesDir);
     const tomlFiles = entries.filter((f) => f.endsWith('.toml'));
-    const templates: EmailTemplate[] = [];
-
-    // eslint-disable-next-line no-restricted-syntax
-    for (const file of tomlFiles) {
-      try {
-        const filePath = path.join(this.templatesDir, file);
-        // eslint-disable-next-line no-await-in-loop
-        const content = await fs.readFile(filePath, 'utf-8');
-        const raw = parseTOML(content) as Record<string, unknown>;
-        templates.push(validateTemplate(raw, file));
-      } catch {
-        // Skip invalid templates silently
-      }
-    }
-
-    return templates;
+    const loaded = await Promise.all(tomlFiles.map(async (file) => this.loadTemplate(file)));
+    return loaded.filter((t): t is EmailTemplate => t !== null);
   }
 
   /**
@@ -122,16 +118,6 @@ export default class TemplateService {
     const sanitized = Object.fromEntries(
       Object.entries(variables).map(([k, v]) => [k, sanitizeTemplateVariable(v, html)]),
     );
-
-    // Warn about missing variables
-    const missing = template.variables.filter((v) => !(v in sanitized));
-    if (missing.length > 0) {
-      const composed = {
-        subject: substituteVariables(template.subject, sanitized),
-        body: substituteVariables(template.body, sanitized),
-      };
-      return composed;
-    }
 
     return {
       subject: substituteVariables(template.subject, sanitized),

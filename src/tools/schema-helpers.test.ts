@@ -20,6 +20,16 @@ import registerSendTools from './send.tool.js';
 import { registerSieveWriteTools } from './sieve.tool.js';
 import registerThreadTools from './thread.tool.js';
 
+// send_email and send_draft append to audit.log, which would otherwise land in the user's data directory.
+const { auditHome } = await vi.hoisted(async () => {
+  const { pinAuditHome } = await import('../test-support/audit-home.js');
+  return { auditHome: await pinAuditHome() };
+});
+
+afterAll(async () => {
+  await auditHome.restore();
+});
+
 interface ToolResponse {
   isError?: boolean;
   content: { type: string; text?: string }[];

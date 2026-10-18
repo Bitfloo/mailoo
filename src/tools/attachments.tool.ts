@@ -10,6 +10,7 @@ import path from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
+import audit from '../safety/audit.js';
 import {
   broadRootPaths,
   isDisallowedLocalPath,
@@ -253,10 +254,16 @@ export default function registerAttachmentTools(
       },
     },
     async (params) => {
+      const account = params.account ?? '';
+      const { mailbox, filename, savePath } = params;
+      const auditParams = {
+        id: params.emailId ?? params.id ?? params.email_id,
+        mailbox,
+        filename,
+        savePath,
+      };
       try {
-        const account = params.account ?? '';
         const id = resolveEmailId(params);
-        const { mailbox, filename, savePath } = params;
         if (readOnly && savePath !== undefined) {
           throw new Error(SAVE_PATH_READ_ONLY_MESSAGE);
         }
@@ -277,6 +284,7 @@ export default function registerAttachmentTools(
             result.filename,
             Buffer.from(result.contentBase64, 'base64'),
           );
+          await audit.log('download_attachment', account, { ...auditParams, savedTo }, 'ok');
           return {
             content: [
               {
@@ -319,12 +327,17 @@ export default function registerAttachmentTools(
           ],
         };
       } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        // A read_only server writes nothing, its audit log included.
+        if (savePath && !readOnly) {
+          await audit.log('download_attachment', account, auditParams, 'error', errMsg);
+        }
         return {
           isError: true,
           content: [
             {
               type: 'text' as const,
-              text: `Failed to download attachment: ${err instanceof Error ? err.message : String(err)}`,
+              text: `Failed to download attachment: ${errMsg}`,
             },
           ],
         };

@@ -2,7 +2,9 @@ import {
   applyBodyFormat,
   applyBodyFormatWithDefaultCap,
   DEFAULT_BODY_MAX_LENGTH,
+  HTML_TRUNCATED_NOTE,
   looksLikeRawMime,
+  MAX_HTML_INPUT_CHARS,
   preferRicherPlain,
   stripHtml,
 } from './email-body.js';
@@ -99,6 +101,39 @@ describe('stripHtml', () => {
     expect(text).not.toContain('alert(1)');
     expect(text).toBe(letters);
   });
+
+  it('should lowercase the HTML once per walk however many style blocks it drops', () => {
+    // A newsletter with one <style> per table cell once lowercased the whole body per tag;
+    // the walk runs on the single event loop, so every MCP session and the watcher stall with it.
+    const replace = vi.spyOn(String.prototype, 'replace');
+    try {
+      stripHtml(`${'<style>a{}</style>'.repeat(1_000)}<p>Hello</p>`);
+      const lowercasings = replace.mock.calls.filter(
+        ([pattern]) => pattern instanceof RegExp && pattern.source === '[A-Z]+',
+      );
+      expect(lowercasings).toHaveLength(1);
+    } finally {
+      replace.mockRestore();
+    }
+  });
+
+  it('should keep text after a script when a character before it lengthens on lowercasing', () => {
+    // 'İ'.toLowerCase() is two code units, so a lowercased copy no longer lines up with the source.
+    expect(stripHtml('<p>İ</p><script>x</script>Hi')).toBe('İ\n\nHi');
+  });
+
+  it('should convert an HTML part of exactly MAX_HTML_INPUT_CHARS without a cut note', () => {
+    const html = `<p>${'A'.repeat(MAX_HTML_INPUT_CHARS - '<p></p>'.length)}</p>`;
+    expect(stripHtml(html).length).toBe(MAX_HTML_INPUT_CHARS - '<p></p>'.length);
+  });
+
+  it('should convert at most MAX_HTML_INPUT_CHARS of HTML and say the rest was cut', () => {
+    const text = stripHtml(`<p>${'A'.repeat(MAX_HTML_INPUT_CHARS + 1_000)}</p>`);
+    expect({ length: text.length, tail: text.slice(-HTML_TRUNCATED_NOTE.length) }).toEqual({
+      length: MAX_HTML_INPUT_CHARS - '<p>'.length + HTML_TRUNCATED_NOTE.length,
+      tail: HTML_TRUNCATED_NOTE,
+    });
+  });
 });
 
 describe('applyBodyFormat', () => {
@@ -151,6 +186,18 @@ describe('applyBodyFormat', () => {
   it('for full format, keeps the paragraph when HTML starts with a data-URI image larger than a megabyte', () => {
     const html = `<img src="data:image/png;base64,${'A'.repeat(1_100_000)}"><p>Meet at noon.</p>`;
     expect(applyBodyFormat(undefined, html, 'full')).toBe('<p>Meet at noon.</p>');
+  });
+
+  it('for full format, should sanitize at most MAX_HTML_INPUT_CHARS of HTML and say the rest was cut', () => {
+    const body = applyBodyFormat(
+      undefined,
+      `<p>${'A'.repeat(MAX_HTML_INPUT_CHARS + 1_000)}</p>`,
+      'full',
+    );
+    expect({ length: body.length, tail: body.slice(-HTML_TRUNCATED_NOTE.length) }).toEqual({
+      length: MAX_HTML_INPUT_CHARS + HTML_TRUNCATED_NOTE.length,
+      tail: HTML_TRUNCATED_NOTE,
+    });
   });
 
   it('truncates the body and reports remaining characters when maxLength is exceeded', () => {

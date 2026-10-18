@@ -1,6 +1,7 @@
 import { mcpLog } from '../logging.js';
-import type { EmailMeta, HookRule, HooksConfig } from '../types/index.js';
-import eventBus from './event-bus.js';
+import type { MockImap } from '../test-support/hooks-harness.js';
+import { flushHooks, hooksConfig, meta, mockImap } from '../test-support/hooks-harness.js';
+import type { HookRule } from '../types/index.js';
 import HooksService from './hooks.service.js';
 import type ImapService from './imap.service.js';
 import type { MailArrival } from './mail-arrival/index.js';
@@ -9,94 +10,6 @@ import NotifierService from './notifier.service.js';
 vi.mock('../logging.js', () => ({
   mcpLog: vi.fn().mockResolvedValue(undefined),
 }));
-
-const alerts = {
-  desktop: false,
-  sound: false,
-  urgencyThreshold: 'high' as const,
-  webhookUrl: '',
-  webhookEvents: ['urgent' as const, 'high' as const],
-};
-
-function hooksConfig(overrides: Partial<HooksConfig> = {}): HooksConfig {
-  return {
-    onNewEmail: 'notify',
-    preset: 'priority-focus',
-    autoLabel: false,
-    autoFlag: false,
-    batchDelay: 1,
-    rules: [],
-    alerts,
-    ...overrides,
-  };
-}
-
-function meta(overrides: Partial<EmailMeta> = {}): EmailMeta {
-  return {
-    id: '10',
-    subject: 'Hello',
-    from: { name: 'Alice', address: 'alice@example.com' },
-    to: [{ address: 'me@example.com' }],
-    date: '2026-09-21T00:00:00.000Z',
-    seen: false,
-    flagged: false,
-    answered: false,
-    hasAttachments: false,
-    labels: [],
-    ...overrides,
-  };
-}
-
-function mockImap() {
-  return {
-    addLabel: vi.fn().mockResolvedValue(undefined),
-    setFlags: vi.fn().mockResolvedValue(undefined),
-    moveEmail: vi.fn().mockResolvedValue(undefined),
-    getEmail: vi.fn(),
-  };
-}
-
-async function flushHooks(emails: EmailMeta[], mailbox = 'INBOX'): Promise<void> {
-  eventBus.emit('email:new', { account: 'personal', mailbox, emails });
-  await vi.advanceTimersByTimeAsync(1000);
-}
-
-describe('HooksService.matchStaticRules from.address', () => {
-  const rule: HookRule = {
-    name: 'known-alice',
-    match: { from: 'alice@example.com' },
-    actions: { labels: ['known'] },
-  };
-
-  it('matches the envelope address', () => {
-    const outcome = HooksService.matchStaticRules(
-      { account: 'personal', mailbox: 'INBOX', meta: meta() },
-      [rule],
-    );
-    expect(outcome.matched).toBe(true);
-  });
-
-  it('does not match a display-name spoof on a different address', () => {
-    const globRule: HookRule = {
-      name: 'alice-glob',
-      match: { from: 'alice@example.com*' },
-      actions: {},
-    };
-    const spoof = meta({
-      from: { name: 'alice@example.com', address: 'mallory@example.com' },
-    });
-    const exact = HooksService.matchStaticRules(
-      { account: 'personal', mailbox: 'INBOX', meta: spoof },
-      [rule],
-    );
-    const glob = HooksService.matchStaticRules(
-      { account: 'personal', mailbox: 'INBOX', meta: spoof },
-      [globRule],
-    );
-    expect(exact.matched).toBe(false);
-    expect(glob.matched).toBe(false);
-  });
-});
 
 describe('HooksService IMAP apply', () => {
   let hooks: HooksService | undefined;
@@ -216,5 +129,141 @@ describe('HooksService IMAP apply', () => {
       'hooks',
       expect.stringContaining('flushBatch failed'),
     );
+  });
+});
+
+describe('HooksService static rule actions', () => {
+  let hooks: HooksService | undefined;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    hooks?.stop();
+    hooks = undefined;
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  const fromAlice = { from: 'alice@example.com' };
+
+  async function applyRules(rules: HookRule[], imap: MockImap = mockImap()): Promise<MockImap> {
+    hooks = new HooksService(hooksConfig({ rules }), imap as unknown as ImapService);
+    hooks.start({} as never, { sampling: false });
+    await flushHooks([meta()]);
+    return imap;
+  }
+
+  it('should not flag an email when the matching rule has no flag action', async () => {
+    const imap = await applyRules([
+      { name: 'known', match: fromAlice, actions: { labels: ['A'] } },
+    ]);
+    expect(imap.setFlags.mock.calls).toEqual([]);
+  });
+
+  it('should apply the first matching rule when two rules match', async () => {
+    const imap = await applyRules([
+      { name: 'first', match: fromAlice, actions: { labels: ['First'] } },
+      { name: 'second', match: { from: '*@example.com' }, actions: { labels: ['Second'] } },
+    ]);
+    expect(imap.addLabel.mock.calls).toEqual([['personal', '10', 'INBOX', 'First']]);
+  });
+
+  it('should apply every label of a rule', async () => {
+    const imap = await applyRules([
+      { name: 'tags', match: fromAlice, actions: { labels: ['Board', 'Q4'] } },
+    ]);
+    expect(imap.addLabel.mock.calls).toEqual([
+      ['personal', '10', 'INBOX', 'Board'],
+      ['personal', '10', 'INBOX', 'Q4'],
+    ]);
+  });
+
+  it.each<['addLabel' | 'setFlags' | 'moveEmail', HookRule['actions'], string]>([
+    ['addLabel', { labels: ['Board'] }, 'Could not add label "Board" to email 10'],
+    ['setFlags', { flag: true }, 'Could not flag email 10'],
+    ['setFlags', { markRead: true }, 'Could not mark email 10 as read'],
+    ['moveEmail', { moveTo: 'Receipts' }, 'Could not move email 10 to Receipts'],
+  ])('should log a warning when %s fails for %j', async (method, actions, message) => {
+    const imap = mockImap();
+    imap[method].mockRejectedValue(new Error('NO [CANNOT] refused'));
+    await applyRules([{ name: 'r', match: fromAlice, actions }], imap);
+    const failures = vi
+      .mocked(mcpLog)
+      .mock.calls.filter(([, , text]) => String(text).startsWith('Could not'));
+    expect(failures).toEqual([['warning', 'hooks', message]]);
+  });
+
+  it('should still move the email when setting the flag fails', async () => {
+    const imap = mockImap();
+    imap.setFlags.mockRejectedValue(new Error('NO [CANNOT] refused'));
+    await applyRules(
+      [{ name: 'r', match: fromAlice, actions: { flag: true, moveTo: 'Done' } }],
+      imap,
+    );
+    expect(imap.moveEmail.mock.calls).toEqual([['personal', '10', 'INBOX', 'Done']]);
+  });
+});
+
+describe('HooksService static rule alerts', () => {
+  let hooks: HooksService | undefined;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    hooks?.stop();
+    hooks = undefined;
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  async function alertFor(rule: HookRule) {
+    const alert = vi.spyOn(NotifierService.prototype, 'alert').mockResolvedValue(undefined);
+    hooks = new HooksService(hooksConfig({ rules: [rule] }), mockImap() as unknown as ImapService);
+    hooks.start({} as never, { sampling: false });
+    await flushHooks([meta()]);
+    return alert.mock.calls[0];
+  }
+
+  it('should alert a flag rule at high priority with its labels and rule name', async () => {
+    const [payload] =
+      (await alertFor({
+        name: 'board',
+        match: { from: 'alice@example.com' },
+        actions: { flag: true, labels: ['Board'] },
+      })) ?? [];
+    expect(payload).toMatchObject({
+      uid: '10',
+      priority: 'high',
+      labels: ['Board'],
+      ruleName: 'board',
+    });
+  });
+
+  it('should alert a rule without flag at normal priority', async () => {
+    const [payload] =
+      (await alertFor({
+        name: 'known',
+        match: { from: 'alice@example.com' },
+        actions: { labels: ['Known'] },
+      })) ?? [];
+    expect(payload?.priority).toBe('normal');
+  });
+
+  it.each([
+    [true, true],
+    [undefined, false],
+  ] as const)('with alert %s, should force the notification: %s', async (alert, forced) => {
+    const call = await alertFor({
+      name: 'board',
+      match: { from: 'alice@example.com' },
+      actions: { alert },
+    });
+    expect(call?.[1]).toBe(forced);
   });
 });

@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { z } from 'zod';
 
+import { readAuditEntries } from '../test-support/audit-home.js';
 import {
   ACCOUNT,
   EIGHT_BIT_SOURCE,
@@ -16,6 +17,15 @@ import {
 } from '../test-support/export-tool-harness.js';
 import { SAVE_PATH_MAX_BYTES } from './attachments.tool.js';
 import { INLINE_MAX_BYTES } from './export.tool.js';
+
+const { auditHome } = await vi.hoisted(async () => {
+  const { pinAuditHome } = await import('../test-support/audit-home.js');
+  return { auditHome: await pinAuditHome() };
+});
+
+afterAll(async () => {
+  await auditHome.restore();
+});
 
 describe('export_email registration', () => {
   it('should default mailbox to INBOX and leave savePath optional', () => {
@@ -160,5 +170,80 @@ describe('export_email size caps', () => {
       expect(reason(result)).toContain('over the 52428800-byte limit');
       expect(await fs.readdir(cwd)).toEqual([]);
     });
+  });
+});
+
+describe('export_email audit log', () => {
+  it('should record a saved export with the requested and the written path', async () => {
+    const run = exportTool({
+      internalDate: new Date('2026-01-02T08:00:00.000Z'),
+      source: EIGHT_BIT_SOURCE,
+    });
+
+    await withPinnedRoots(async (cwd) => {
+      await run({ account: ACCOUNT, id: UID, mailbox: 'INBOX', savePath: cwd });
+
+      expect((await readAuditEntries(auditHome)).at(-1)).toEqual({
+        ts: expect.any(String),
+        tool: 'export_email',
+        account: ACCOUNT,
+        params: {
+          id: UID,
+          mailbox: 'INBOX',
+          savePath: cwd,
+          savedTo: path.join(cwd, '2026-01-02_42.eml'),
+        },
+        result: 'ok',
+      });
+    });
+  });
+
+  it('should record a refused savePath as an error with the reason', async () => {
+    const run = exportTool({ source: EIGHT_BIT_SOURCE });
+
+    await withPinnedRoots(async () => {
+      await run({
+        account: ACCOUNT,
+        id: UID,
+        mailbox: 'INBOX',
+        savePath: path.join('..', 'receipt.eml'),
+      });
+
+      expect((await readAuditEntries(auditHome)).at(-1)).toMatchObject({
+        tool: 'export_email',
+        params: { savePath: path.join('..', 'receipt.eml') },
+        result: 'error',
+        error: 'savePath must stay under the working directory',
+      });
+    });
+  });
+
+  it('should write no entry when the source comes back as base64', async () => {
+    const run = exportTool({ source: EIGHT_BIT_SOURCE });
+    const before = (await readAuditEntries(auditHome)).length;
+
+    await run({ account: ACCOUNT, id: UID, mailbox: 'INBOX' });
+
+    expect(await readAuditEntries(auditHome)).toHaveLength(before);
+  });
+
+  it('should write no entry when an inline export is refused', async () => {
+    const run = exportTool({ size: INLINE_MAX_BYTES + 1 });
+    const before = (await readAuditEntries(auditHome)).length;
+
+    await run({ account: ACCOUNT, id: UID, mailbox: 'INBOX' });
+
+    expect(await readAuditEntries(auditHome)).toHaveLength(before);
+  });
+
+  it('should write no entry when read_only refuses savePath', async () => {
+    const run = exportTool({ source: EIGHT_BIT_SOURCE }, true);
+    const before = (await readAuditEntries(auditHome)).length;
+
+    await withPinnedRoots(async (cwd) => {
+      await run({ account: ACCOUNT, id: UID, mailbox: 'INBOX', savePath: cwd });
+    });
+
+    expect(await readAuditEntries(auditHome)).toHaveLength(before);
   });
 });

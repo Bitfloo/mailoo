@@ -289,8 +289,20 @@ export default class SmtpService {
       ...(draft.bodyHtml ? { html: draft.bodyHtml } : { text: draft.bodyText ?? '' }),
     });
 
-    await this.imapService.deleteDraft(resolvedAccount, draftId, draftsPath);
-    return result;
+    // The mail is already delivered: a failed delete must not read as a failed send,
+    // or the caller sends it again.
+    try {
+      await this.imapService.deleteDraft(resolvedAccount, draftId, draftsPath);
+      return { ...result, draftDeleted: true };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      await mcpLog(
+        'warning',
+        'smtp',
+        `Draft ${draftId} was sent but not removed from ${draftsPath}: ${reason}`,
+      );
+      return { ...result, draftDeleted: false };
+    }
   }
 
   // -------------------------------------------------------------------------
