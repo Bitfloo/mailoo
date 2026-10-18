@@ -10,6 +10,12 @@ import { jobSteps, resolvedSteps, workflowTexts } from './workflow-yaml.js';
 const HARNESSES = [mcpHarness, notesHarness, metaHarness];
 const testsDir = join(repoRoot, 'tests');
 
+const { engines } = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
+  engines: { node: string };
+};
+// CLAUDE.md keeps Node 24 as the floor, so CI on another major tests a runtime nobody is promised.
+const node = engines.node.match(/^>=(\d+)\.0\.0$/)?.[1];
+
 /** A step a harness module runs, so its text is checked by running it, not by this roster. */
 function harnessed(workflow: string, job: string, label: string | undefined): boolean {
   return HARNESSES.some(
@@ -58,7 +64,7 @@ const STEPS: Record<string, Record<string, string[]>> = {
     check: [
       'actions/checkout',
       'pnpm/action-setup',
-      'actions/setup-node {"cache":"pnpm","node-version":"24"}',
+      `actions/setup-node {"cache":"pnpm","node-version":"${node}"}`,
       'run: pnpm install --frozen-lockfile',
       'run: pnpm check',
       'run: pnpm typecheck',
@@ -72,7 +78,7 @@ const STEPS: Record<string, Record<string, string[]>> = {
     integration: [
       'actions/checkout',
       'pnpm/action-setup',
-      'actions/setup-node {"cache":"pnpm","node-version":"24"}',
+      `actions/setup-node {"cache":"pnpm","node-version":"${node}"}`,
       'run: pnpm install --frozen-lockfile',
       'run: pnpm test:integration',
     ],
@@ -114,13 +120,13 @@ const STEPS: Record<string, Record<string, string[]>> = {
     npm: [
       'actions/checkout',
       'pnpm/action-setup',
-      'actions/setup-node {"cache":"pnpm","node-version":"24","registry-url":"https://registry.npmjs.org"}',
+      `actions/setup-node {"cache":"pnpm","node-version":"${node}","registry-url":"https://registry.npmjs.org"}`,
       'run: pnpm install --frozen-lockfile',
       'run: pnpm build',
       'run: npm ci --ignore-scripts (in .github/npm-cli)',
       'run: .github/npm-cli/node_modules/.bin/npm publish --access public',
     ],
-    // server.json is stamped before the step that publishes it.
+    // Stamped after the publish, the registry would get server.json as committed.
     mcp: [
       'actions/checkout',
       'run: Install mcp-publisher (run by a harness)',
