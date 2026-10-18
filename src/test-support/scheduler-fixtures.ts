@@ -28,6 +28,7 @@ export const {
   default: SchedulerService,
   CLAIM_RENEW_MS,
   MAX_ATTEMPTS,
+  MAX_PENDING_SCHEDULES,
   SCHEDULE_CLAIM_SUFFIX,
   STALE_LOCK_MS,
 } = await import('../services/scheduler.service.js');

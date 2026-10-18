@@ -9,6 +9,7 @@ import {
   daysFromNow,
   fillQueue,
   jsonNames,
+  MAX_PENDING_SCHEDULES,
   pendingRecord,
   scheduledDir,
   stateHome,
@@ -100,10 +101,10 @@ describe('SchedulerService queue files', () => {
     }
   });
 
-  it('rejects a schedule when the queue already holds 100 messages', async () => {
+  it(`rejects a schedule when the queue already holds ${MAX_PENDING_SCHEDULES} messages`, async () => {
     const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-pending-'));
     try {
-      await fillQueue(queueDir, 100, 'pending');
+      await fillQueue(queueDir, MAX_PENDING_SCHEDULES, 'pending');
       const { service } = createService(queueDir);
       await expect(
         service.schedule('personal', {
@@ -112,16 +113,16 @@ describe('SchedulerService queue files', () => {
           body: 'Body',
           sendAt: daysFromNow(2),
         }),
-      ).rejects.toThrow(/100/);
+      ).rejects.toThrow(`(maximum ${MAX_PENDING_SCHEDULES})`);
     } finally {
       await fs.rm(queueDir, { recursive: true, force: true });
     }
   });
 
-  it('schedules an email when the queue holds 100 failed messages and no pending ones', async () => {
+  it(`schedules an email when the queue holds ${MAX_PENDING_SCHEDULES} failed messages and no pending ones`, async () => {
     const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-failed-'));
     try {
-      await fillQueue(queueDir, 100, 'failed');
+      await fillQueue(queueDir, MAX_PENDING_SCHEDULES, 'failed');
       const { service } = createService(queueDir);
       const scheduled = await service.schedule('personal', {
         to: ['user@example.com'],
@@ -135,10 +136,10 @@ describe('SchedulerService queue files', () => {
     }
   });
 
-  it('rejects a schedule when 100 messages are still being sent', async () => {
+  it(`rejects a schedule when ${MAX_PENDING_SCHEDULES} messages are still being sent`, async () => {
     const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-sending-'));
     try {
-      await fillQueue(queueDir, 100, 'sending');
+      await fillQueue(queueDir, MAX_PENDING_SCHEDULES, 'sending');
       const { service } = createService(queueDir);
       await expect(
         service.schedule('personal', {
@@ -153,10 +154,10 @@ describe('SchedulerService queue files', () => {
     }
   });
 
-  it('admits one schedule when ten calls race at 99 live files', async () => {
+  it(`admits one schedule when ten calls race at ${MAX_PENDING_SCHEDULES - 1} live files`, async () => {
     const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-pending-'));
     try {
-      await fillQueue(queueDir, 99, 'pending');
+      await fillQueue(queueDir, MAX_PENDING_SCHEDULES - 1, 'pending');
       const { service } = createService(queueDir);
       const results = await Promise.allSettled(
         Array.from({ length: 10 }, async () => scheduleHello(service)),
@@ -170,7 +171,7 @@ describe('SchedulerService queue files', () => {
       expect(messages).toEqual(
         Array.from({ length: 9 }, () => expect.stringMatching(/Too many scheduled emails/)),
       );
-      expect(await liveFileCount(queueDir)).toBe(100);
+      expect(await liveFileCount(queueDir)).toBe(MAX_PENDING_SCHEDULES);
     } finally {
       await fs.rm(queueDir, { recursive: true, force: true });
     }
@@ -179,7 +180,7 @@ describe('SchedulerService queue files', () => {
   it('schedules an email after a raced batch once one schedule is cancelled', async () => {
     const queueDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-sched-pending-'));
     try {
-      await fillQueue(queueDir, 99, 'pending');
+      await fillQueue(queueDir, MAX_PENDING_SCHEDULES - 1, 'pending');
       const { service } = createService(queueDir);
       await Promise.allSettled(Array.from({ length: 10 }, async () => scheduleHello(service)));
       await service.cancel(queueId(0));
