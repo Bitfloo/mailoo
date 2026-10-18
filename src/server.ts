@@ -56,10 +56,10 @@ export default function createServer(): McpServer {
         effectiveConfig?.outputSchema
       ) {
         const contentArr = (res as { content?: { type?: string; text?: string }[] }).content;
-        const textBlock = Array.isArray(contentArr)
-          ? contentArr.find((c) => c.type === 'text')
-          : undefined;
-        const summary = typeof textBlock?.text === 'string' ? textBlock.text : '';
+        // Every block: download_attachment and export_email put the base64 in the second one.
+        const summary = (Array.isArray(contentArr) ? contentArr : [])
+          .flatMap((c) => (c.type === 'text' && typeof c.text === 'string' ? [c.text] : []))
+          .join('\n');
         const isDryRun = summary.startsWith('[DRY RUN]');
         return {
           ...(res as Record<string, unknown>),
