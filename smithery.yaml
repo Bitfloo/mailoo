@@ -160,6 +160,12 @@ startCommand:
       MCP_EMAIL_HTTP_ALLOWED_HOSTS:
         type: string
         description: "Comma-separated Host names. Required for 0.0.0.0 and ::."
+      MCP_EMAIL_DEFAULT_ACCOUNT:
+        type: string
+        description: "Default account name or email address when the account parameter is omitted."
+      MCP_EMAIL_TOOLSET:
+        type: string
+        description: "Toolset profile to register: full, core, or minimal. Defaults to full."
     additionalProperties: false
   commandFunction: |-
     (config) => ({

@@ -180,25 +180,169 @@ async function downloadMimePart(
   }
 }
 
-async function orderUidsByDate(client: ImapFlow, uids: number[]): Promise<number[]> {
+const DEFAULT_DATE_SORT_WINDOW = 250;
+const FALLBACK_SOURCE_MAX_BYTES = 65_536;
+const LIST_PREVIEW_SOURCE_MAX_BYTES = 4096;
+
+function parseHeaderBlock(headerBlock: string): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const unfolded = headerBlock.replace(/\r?\n[ \t]+/g, ' ');
+  unfolded.split(/\r?\n/).forEach((line) => {
+    const colonIdx = line.indexOf(':');
+    if (colonIdx > 0) {
+      const key = line.slice(0, colonIdx).trim().toLowerCase();
+      const value = line.slice(colonIdx + 1).trim();
+      if (key) {
+        headers[key] = headers[key] ? `${headers[key]} ${value}` : value;
+      }
+    }
+  });
+  return headers;
+}
+
+export function extractReferences(
+  msg: Record<string, unknown>,
+  parsedHeaders?: Record<string, string>,
+): string[] | undefined {
+  if (parsedHeaders?.references) {
+    const refs = parsedHeaders.references.split(/\s+/).filter(Boolean);
+    if (refs.length > 0) return refs;
+  }
+
+  if (msg.headers) {
+    let rawHeaders = '';
+    if (Buffer.isBuffer(msg.headers)) {
+      rawHeaders = msg.headers.toString('utf-8');
+    } else if (typeof msg.headers === 'string') {
+      rawHeaders = msg.headers;
+    }
+    if (rawHeaders) {
+      const hdrs = parseHeaderBlock(rawHeaders);
+      if (hdrs.references) {
+        const refs = hdrs.references.split(/\s+/).filter(Boolean);
+        if (refs.length > 0) return refs;
+      }
+    }
+  }
+
+  if (msg.source && Buffer.isBuffer(msg.source)) {
+    const src = msg.source.toString('utf-8');
+    const headerEnd = src.indexOf('\r\n\r\n');
+    const headerSlice = headerEnd >= 0 ? src.slice(0, headerEnd) : src;
+    const hdrs = parseHeaderBlock(headerSlice);
+    if (hdrs.references) {
+      const refs = hdrs.references.split(/\s+/).filter(Boolean);
+      if (refs.length > 0) return refs;
+    }
+  }
+
+  return undefined;
+}
+
+function cleanPreviewCandidate(raw: string): string | undefined {
+  let text = raw;
+  // If candidate starts with a MIME boundary, skip boundary + MIME part headers
+  for (let depth = 0; depth < 3 && text.trimStart().startsWith('--'); depth += 1) {
+    const trimmed = text.trimStart();
+    const partBodySep = trimmed.indexOf('\r\n\r\n');
+    const lfPartSep = trimmed.indexOf('\n\n');
+    if (partBodySep >= 0) {
+      text = trimmed.slice(partBodySep + 4);
+    } else if (lfPartSep >= 0) {
+      text = trimmed.slice(lfPartSep + 2);
+    } else {
+      break;
+    }
+  }
+  const nextBoundary = text.search(/\r?\n--[^\s]/);
+  if (nextBoundary >= 0) {
+    text = text.slice(0, nextBoundary);
+  }
+  if (looksLikeRawMime(text)) return undefined;
+  const stripped = text
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return stripped ? stripped.slice(0, 200) : undefined;
+}
+
+function extractPreview(msg: Record<string, unknown>): string | undefined {
+  // 1. Prefer decoded/fetched MIME text part from bodyParts Map when present
+  if (msg.bodyParts instanceof Map && msg.bodyParts.size > 0) {
+    const textParts = findTextMimeParts(msg.bodyStructure);
+    const preferredKeys = [
+      textParts.plain,
+      '1.1',
+      '1',
+      'text',
+      textParts.html,
+      ...Array.from(msg.bodyParts.keys()).map(String),
+    ].filter((k): k is string => Boolean(k));
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const key of preferredKeys) {
+      const buf = msg.bodyParts.get(key) ?? msg.bodyParts.get(key.toLowerCase());
+      if (Buffer.isBuffer(buf) && buf.length > 0) {
+        const candidate = cleanPreviewCandidate(buf.toString('utf-8'));
+        if (candidate) return candidate;
+      }
+    }
+  }
+
+  // 2. Fallback to source slice (after RFC 822 headers)
+  if (msg.source && Buffer.isBuffer(msg.source)) {
+    const rawText = msg.source.toString('utf-8');
+    const crlfStart = rawText.indexOf('\r\n\r\n');
+    const lfStart = rawText.indexOf('\n\n');
+    let bodySlice: string | undefined;
+    if (crlfStart >= 0) {
+      bodySlice = rawText.slice(crlfStart + 4);
+    } else if (lfStart >= 0) {
+      bodySlice = rawText.slice(lfStart + 2);
+    }
+    if (bodySlice) {
+      return cleanPreviewCandidate(bodySlice);
+    }
+  }
+
+  return undefined;
+}
+
+async function orderUidsByDate(
+  client: ImapFlow,
+  uids: number[],
+  maxWindow = DEFAULT_DATE_SORT_WINDOW,
+): Promise<number[]> {
   if (uids.length === 0) return [];
+  const sortedAsc = [...uids].sort((a, b) => a - b);
+  const windowSize = Math.max(maxWindow, DEFAULT_DATE_SORT_WINDOW);
+  const tailUids = sortedAsc.length > windowSize ? sortedAsc.slice(-windowSize) : sortedAsc;
+  const olderUidsDesc =
+    sortedAsc.length > windowSize ? sortedAsc.slice(0, -windowSize).reverse() : [];
+
+  const seenInFetch = new Set<number>();
   const dated: { uid: number; t: number }[] = [];
   // eslint-disable-next-line no-restricted-syntax
   for await (const msg of client.fetch(
-    uids.join(','),
+    tailUids.join(','),
     { uid: true, envelope: true },
     { uid: true },
   )) {
     const raw = msg as unknown as Record<string, unknown>;
+    const uid = raw.uid as number;
+    seenInFetch.add(uid);
     const envelope = (raw.envelope ?? {}) as Record<string, unknown>;
     const parsed = envelope.date ? new Date(envelope.date as string).getTime() : Number.NaN;
     dated.push({
-      uid: raw.uid as number,
-      t: Number.isNaN(parsed) ? (raw.uid as number) : parsed,
+      uid,
+      t: Number.isNaN(parsed) ? uid : parsed,
     });
   }
   dated.sort((a, b) => b.t - a.t || b.uid - a.uid);
-  return dated.map((d) => d.uid);
+  const missingTailDesc = tailUids.filter((u) => !seenInFetch.has(u)).reverse();
+  return [...dated.map((d) => d.uid), ...missingTailDesc, ...olderUidsDesc];
 }
 
 function messageToEmailMeta(msg: Record<string, unknown>): EmailMeta {
@@ -208,19 +352,7 @@ function messageToEmailMeta(msg: Record<string, unknown>): EmailMeta {
   // Extract non-system flags as labels (IMAP keywords)
   const labels = [...flags].filter((f) => !f.startsWith('\\'));
 
-  // Extract preview from source buffer
-  let preview: string | undefined;
-  if (msg.source && Buffer.isBuffer(msg.source)) {
-    const rawText = msg.source.toString('utf-8');
-    // Try to extract body text after the header blank line
-    const bodyStart = rawText.indexOf('\r\n\r\n');
-    if (bodyStart >= 0) {
-      preview = rawText
-        .slice(bodyStart + 4, bodyStart + 204)
-        .replace(/\s+/g, ' ')
-        .trim();
-    }
-  }
+  const preview = extractPreview(msg);
 
   return {
     id: String(msg.uid ?? msg.seq),
@@ -248,35 +380,19 @@ async function messageToEmail(
   const meta = messageToEmailMeta(msg);
   const envelope = (msg.envelope ?? {}) as Record<string, unknown>;
 
-  // Parse full source for body content
   let bodyText: string | undefined;
   let bodyHtml: string | undefined;
-  const headers: Record<string, string> = {};
+  let headers: Record<string, string> = {};
 
-  if (msg.source && Buffer.isBuffer(msg.source)) {
-    const raw = msg.source.toString('utf-8');
-    const headerEnd = raw.indexOf('\r\n\r\n');
-    if (headerEnd >= 0) {
-      // Parse headers
-      const headerSection = raw.slice(0, headerEnd);
-      headerSection.split('\r\n').forEach((line) => {
-        const colonIdx = line.indexOf(':');
-        if (colonIdx > 0 && !line.startsWith(' ') && !line.startsWith('\t')) {
-          const key = line.slice(0, colonIdx).trim().toLowerCase();
-          const value = line.slice(colonIdx + 1).trim();
-          headers[key] = value;
-        }
-      });
-
-      const body = raw.slice(headerEnd + 4);
-      const contentType = (headers['content-type'] ?? '').toLowerCase();
-      if (contentType.includes('multipart/')) {
-        // Container — leaf parts are downloaded below.
-      } else if (contentType.includes('text/html')) {
-        bodyHtml = body;
-      } else {
-        bodyText = body;
-      }
+  if (msg.headers) {
+    let rawHeaders = '';
+    if (Buffer.isBuffer(msg.headers)) {
+      rawHeaders = msg.headers.toString('utf-8');
+    } else if (typeof msg.headers === 'string') {
+      rawHeaders = msg.headers;
+    }
+    if (rawHeaders) {
+      headers = parseHeaderBlock(rawHeaders);
     }
   }
 
@@ -290,15 +406,56 @@ async function messageToEmail(
     if (html !== undefined) bodyHtml = html;
   }
 
+  let sourceBuffer = Buffer.isBuffer(msg.source) ? msg.source : undefined;
+  if (!parts.plain && !parts.html && !sourceBuffer) {
+    try {
+      const fallbackMsg = await client.fetchOne(
+        String(uid),
+        { uid: true, source: { start: 0, maxLength: FALLBACK_SOURCE_MAX_BYTES } },
+        { uid: true },
+      );
+      if (fallbackMsg && typeof fallbackMsg === 'object' && 'source' in fallbackMsg) {
+        const fbSource = (fallbackMsg as unknown as Record<string, unknown>).source;
+        if (Buffer.isBuffer(fbSource)) {
+          sourceBuffer = fbSource;
+        }
+      }
+    } catch {
+      // Ignore fallback fetch errors
+    }
+  }
+
+  if (sourceBuffer) {
+    const raw = sourceBuffer.toString('utf-8');
+    const headerEnd = raw.indexOf('\r\n\r\n');
+    if (headerEnd >= 0) {
+      const parsedFromSource = parseHeaderBlock(raw.slice(0, headerEnd));
+      headers = { ...parsedFromSource, ...headers };
+
+      if (bodyText === undefined && bodyHtml === undefined) {
+        const body = raw.slice(headerEnd + 4);
+        const contentType = (headers['content-type'] ?? '').toLowerCase();
+        if (contentType.includes('multipart/')) {
+          // Container — leaf parts are downloaded above.
+        } else if (contentType.includes('text/html')) {
+          bodyHtml = body;
+        } else {
+          bodyText = body;
+        }
+      }
+    }
+  }
+
   return {
     ...meta,
+    preview: meta.preview ?? (bodyText ? cleanPreviewCandidate(bodyText) : undefined),
     cc: parseAddresses(envelope.cc as Record<string, string>[]),
     bcc: parseAddresses(envelope.bcc as Record<string, string>[]),
     bodyText,
     bodyHtml,
     messageId: (envelope.messageId as string) ?? '',
     inReplyTo: (envelope.inReplyTo as string) ?? undefined,
-    references: headers.references?.split(/\s+/).filter(Boolean),
+    references: extractReferences(msg, headers),
     attachments: extractAttachments(msg.bodyStructure),
     headers,
   };
@@ -339,6 +496,13 @@ export default class ImapService {
   private labelStrategyPending = new Map<string, Promise<LabelStrategy>>();
 
   constructor(private connections: IConnectionManager) {}
+
+  resolveAccountName(accountName?: string): string {
+    if (typeof this.connections.resolveAccountName === 'function') {
+      return this.connections.resolveAccountName(accountName);
+    }
+    return this.connections.getAccount(accountName ?? '').name;
+  }
 
   private async getLabelStrategy(accountName: string): Promise<LabelStrategy> {
     const cached = this.labelStrategies.get(accountName);
@@ -469,7 +633,11 @@ export default class ImapService {
       }
 
       // Sort by date (newest first), then paginate — UID order is not date order
-      uids = await orderUidsByDate(client, uids);
+      uids = await orderUidsByDate(
+        client,
+        uids,
+        Math.max(page * pageSize * 3, DEFAULT_DATE_SORT_WINDOW),
+      );
       const total = uids.length;
       const start = (page - 1) * pageSize;
       const pageUids = uids.slice(start, start + pageSize);
@@ -495,7 +663,7 @@ export default class ImapService {
           envelope: true,
           flags: true,
           bodyStructure: true,
-          source: { start: 0, maxLength: 256 },
+          source: { start: 0, maxLength: LIST_PREVIEW_SOURCE_MAX_BYTES },
         },
         { uid: true },
       )) {
@@ -536,7 +704,7 @@ export default class ImapService {
           envelope: true,
           flags: true,
           bodyStructure: true,
-          source: true,
+          headers: ['references', 'content-type'],
         },
         { uid: true },
       );
@@ -546,6 +714,37 @@ export default class ImapService {
       }
 
       return await messageToEmail(msg as unknown as Record<string, unknown>, client, uid);
+    } finally {
+      lock.release();
+    }
+  }
+
+  async getEmails(accountName: string, emailIds: string[], mailbox = 'INBOX'): Promise<Email[]> {
+    const uidList = emailIds.map((id) => parseMessageUid(id));
+    if (uidList.length === 0) return [];
+    const safeMailbox = sanitizeMailboxName(mailbox);
+    const client = await this.connections.getImapClient(accountName);
+
+    const lock = await client.getMailboxLock(safeMailbox);
+    try {
+      const emails: Email[] = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for await (const msg of client.fetch(
+        uidList.join(','),
+        {
+          uid: true,
+          envelope: true,
+          flags: true,
+          bodyStructure: true,
+          headers: ['references', 'content-type'],
+        },
+        { uid: true },
+      )) {
+        const raw = msg as unknown as Record<string, unknown>;
+        const uid = raw.uid as number;
+        emails.push(await messageToEmail(raw, client, uid));
+      }
+      return emails;
     } finally {
       lock.release();
     }
@@ -705,7 +904,11 @@ export default class ImapService {
         };
       }
 
-      uids = await orderUidsByDate(client, uids);
+      uids = await orderUidsByDate(
+        client,
+        uids,
+        Math.max(page * pageSize * 3, DEFAULT_DATE_SORT_WINDOW),
+      );
       const total = uids.length;
       const start = (page - 1) * pageSize;
       const pageUids = uids.slice(start, start + pageSize);
@@ -731,7 +934,7 @@ export default class ImapService {
           envelope: true,
           flags: true,
           bodyStructure: true,
-          source: { start: 0, maxLength: 256 },
+          source: { start: 0, maxLength: LIST_PREVIEW_SOURCE_MAX_BYTES },
         },
         { uid: true },
       )) {
@@ -1573,7 +1776,7 @@ export default class ImapService {
       if (rootUids.length > 0) {
         const rootMsg = await client.fetchOne(
           String(rootUids[0]),
-          { uid: true, envelope: true, source: true },
+          { uid: true, envelope: true, headers: ['references', 'content-type'] },
           { uid: true },
         );
 
@@ -1583,18 +1786,11 @@ export default class ImapService {
           const inReplyTo = envelope.inReplyTo as string | undefined;
           if (inReplyTo) targetMsgIds.add(inReplyTo);
 
-          // Parse References header from source
-          if (raw.source && Buffer.isBuffer(raw.source)) {
-            const src = raw.source.toString('utf-8');
-            const refMatch = /^References:\s*(.+?)(?:\r?\n(?!\s))/ms.exec(src);
-            if (refMatch) {
-              refMatch[1]
-                .split(/\s+/)
-                .filter(Boolean)
-                .forEach((ref) => {
-                  targetMsgIds.add(ref);
-                });
-            }
+          const refs = extractReferences(raw);
+          if (refs) {
+            refs.forEach((ref) => {
+              targetMsgIds.add(ref);
+            });
           }
         }
       }
@@ -1671,7 +1867,7 @@ export default class ImapService {
           envelope: true,
           flags: true,
           bodyStructure: true,
-          source: true,
+          headers: ['references', 'content-type'],
         },
         { uid: true },
       )) {

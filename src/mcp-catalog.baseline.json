@@ -7,12 +7,47 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "emailId": {
-            "type": "string",
-            "description": "Email ID (UID) from list_emails"
+            "description": "Email ID (UID) from list_emails",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "email_id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "mailbox": {
             "type": "string",
@@ -23,8 +58,36 @@
             "description": "Label name to add (e.g., \"Important\", \"Project-X\")"
           }
         },
-        "required": ["account", "emailId", "mailbox", "label"],
+        "required": ["mailbox", "label"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -40,12 +103,47 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
+          },
+          "emailId": {
+            "description": "Email UID",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "email_id": {
-            "type": "string",
-            "description": "Email UID"
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "mailbox": {
             "default": "INBOX",
@@ -74,8 +172,35 @@
             "type": "boolean"
           }
         },
-        "required": ["account", "email_id"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -91,12 +216,47 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Email account name"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
+          },
+          "emailId": {
+            "description": "Email ID from list_emails or get_email",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "email_id": {
-            "type": "string",
-            "description": "Email ID from list_emails or get_email"
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "mailbox": {
             "default": "INBOX",
@@ -104,8 +264,35 @@
             "type": "string"
           }
         },
-        "required": ["account", "email_id"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -121,8 +308,8 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "template": {
             "type": "string",
@@ -148,12 +335,57 @@
             "description": "Recipient addresses (required for send, optional for draft)",
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
+            }
+          },
+          "cc": {
+            "description": "CC recipient addresses (optional for draft or send)",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
+            }
+          },
+          "bcc": {
+            "description": "BCC recipient addresses (optional for draft or send)",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
             }
           }
         },
-        "required": ["account", "template", "variables"],
+        "required": ["template", "variables"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -169,8 +401,8 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "mailbox": {
             "default": "INBOX",
@@ -187,19 +419,59 @@
             "maxItems": 100,
             "type": "array",
             "items": {
-              "type": "integer",
-              "minimum": -9007199254740991,
-              "maximum": 9007199254740991
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              ]
             },
             "description": "Array of email UIDs (max 100). Get UIDs from list_emails or search_emails."
           },
           "destination": {
             "description": "Destination mailbox — required when action is 'move'",
             "type": "string"
+          },
+          "dryRun": {
+            "default": false,
+            "description": "Validate parameters and preview the effect without executing the action",
+            "type": "boolean"
           }
         },
-        "required": ["account", "action", "ids"],
+        "required": ["action", "ids"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -222,6 +494,34 @@
         "required": ["schedule_id"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -236,6 +536,34 @@
         "type": "object",
         "properties": {},
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -257,6 +585,34 @@
         },
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -271,6 +627,34 @@
         "type": "object",
         "properties": {},
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -318,6 +702,34 @@
         },
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -332,16 +744,44 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "name": {
             "type": "string",
             "description": "Label name (e.g., \"Project-X\"). For nested labels use \"/\" separator (e.g., \"Work/Urgent\")."
           }
         },
-        "required": ["account", "name"],
+        "required": ["name"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -357,8 +797,8 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "path": {
             "type": "string",
@@ -366,8 +806,36 @@
             "description": "Folder path to create (e.g., 'Archive/2026' or 'Projects')"
           }
         },
-        "required": ["account", "path"],
+        "required": ["path"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -383,12 +851,47 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Email account name"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
+          },
+          "emailId": {
+            "description": "Email ID from list_emails or get_email",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "email_id": {
-            "type": "string",
-            "description": "Email ID from list_emails or get_email"
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "mailbox": {
             "default": "INBOX",
@@ -423,8 +926,35 @@
             "type": "boolean"
           }
         },
-        "required": ["account", "email_id"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -440,12 +970,47 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "emailId": {
-            "type": "string",
-            "description": "Email ID to delete (from list_emails)"
+            "description": "Email ID to delete (from list_emails)",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "email_id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "mailbox": {
             "default": "INBOX",
@@ -456,10 +1021,42 @@
             "default": false,
             "description": "⚠️ Permanently delete (skip Trash)",
             "type": "boolean"
+          },
+          "dryRun": {
+            "default": false,
+            "description": "Validate parameters and preview the effect without executing the action",
+            "type": "boolean"
           }
         },
-        "required": ["account", "emailId"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -475,16 +1072,44 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "name": {
             "type": "string",
             "description": "Label name to delete"
           }
         },
-        "required": ["account", "name"],
+        "required": ["name"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -500,17 +1125,50 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "path": {
             "type": "string",
             "minLength": 1,
             "description": "Folder path to delete (⚠️ all emails inside will be lost)"
+          },
+          "dryRun": {
+            "default": false,
+            "description": "Validate parameters and preview the effect without executing the action",
+            "type": "boolean"
           }
         },
-        "required": ["account", "path"],
+        "required": ["path"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -526,12 +1184,47 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
+          },
+          "emailId": {
+            "description": "Email ID (UID) from list_emails or get_email",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "id": {
-            "type": "string",
-            "description": "Email ID (UID) from list_emails or get_email"
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "email_id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "mailbox": {
             "default": "INBOX",
@@ -547,8 +1240,36 @@
             "type": "string"
           }
         },
-        "required": ["account", "id", "filename"],
+        "required": ["filename"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -564,12 +1285,47 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "id": {
-            "type": "string",
-            "description": "Email ID (UID) from list_emails or get_email"
+            "description": "Email ID (UID) from list_emails or get_email",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "emailId": {
+            "description": "Alias of id — Email ID (UID) from list_emails or get_email",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "email_id": {
+            "description": "Alias of id — Email ID (UID) from list_emails or get_email",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "mailbox": {
             "default": "INBOX",
@@ -581,8 +1337,35 @@
             "type": "string"
           }
         },
-        "required": ["account", "id"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -598,12 +1381,47 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
+          },
+          "emailId": {
+            "description": "Email UID",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "email_id": {
-            "type": "string",
-            "description": "Email UID"
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "mailbox": {
             "default": "INBOX",
@@ -611,8 +1429,35 @@
             "type": "string"
           }
         },
-        "required": ["account", "email_id"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -628,8 +1473,8 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "mailbox": {
             "description": "Mailbox to scan (default: INBOX)",
@@ -643,8 +1488,35 @@
             "maximum": 500
           }
         },
-        "required": ["account"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -660,12 +1532,47 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "emailId": {
-            "type": "string",
-            "description": "Email ID (UID) from list_emails"
+            "description": "Email ID (UID) from list_emails",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "email_id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "sourceMailbox": {
             "default": "INBOX",
@@ -673,8 +1580,35 @@
             "type": "string"
           }
         },
-        "required": ["account", "emailId"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -690,12 +1624,47 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "emailId": {
-            "type": "string",
-            "description": "Email ID to forward (from list_emails or get_email)"
+            "description": "Email ID to forward (from list_emails or get_email)",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "email_id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "mailbox": {
             "default": "INBOX",
@@ -764,10 +1733,43 @@
           "messageId": {
             "description": "Stable RFC 5322 Message-ID for retries",
             "type": "string"
+          },
+          "dryRun": {
+            "default": false,
+            "description": "Validate parameters and preview the effect without executing the action",
+            "type": "boolean"
           }
         },
-        "required": ["account", "emailId", "to"],
+        "required": ["to"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -783,12 +1785,47 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "emailId": {
-            "type": "string",
-            "description": "Email ID from list_emails or search_emails"
+            "description": "Email ID from list_emails or search_emails",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "email_id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "mailbox": {
             "default": "INBOX",
@@ -796,13 +1833,13 @@
             "type": "string"
           },
           "format": {
-            "default": "full",
-            "description": "Body format: full=raw (default), text=plain text (strips HTML), stripped=plain text without quoted replies or signatures",
+            "default": "text",
+            "description": "Body format: text=plain text (strips HTML, default), full=raw, stripped=plain text without quoted replies or signatures",
             "type": "string",
             "enum": ["full", "text", "stripped"]
           },
           "maxLength": {
-            "description": "Truncate body at this many characters. A hint shows how many characters remain.",
+            "description": "Truncate body at this many characters (default: 20000). A hint shows how many characters remain.",
             "type": "integer",
             "minimum": 100,
             "maximum": 9007199254740991
@@ -813,8 +1850,35 @@
             "type": "boolean"
           }
         },
-        "required": ["account", "emailId"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -830,12 +1894,47 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "emailId": {
-            "type": "string",
-            "description": "Email ID (UID) from list_emails or get_email"
+            "description": "Email ID (UID) from list_emails or get_email",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "email_id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "mailbox": {
             "default": "INBOX",
@@ -843,8 +1942,35 @@
             "type": "string"
           }
         },
-        "required": ["account", "emailId"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -860,8 +1986,8 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "period": {
             "default": "week",
@@ -875,8 +2001,35 @@
             "type": "string"
           }
         },
-        "required": ["account"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -892,12 +2045,47 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "emailId": {
-            "type": "string",
-            "description": "Email ID from list_emails or search_emails"
+            "description": "Email ID from list_emails or search_emails",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "email_id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "mailbox": {
             "default": "INBOX",
@@ -905,8 +2093,35 @@
             "type": "string"
           }
         },
-        "required": ["account", "emailId"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -922,15 +2137,24 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "ids": {
             "minItems": 1,
             "maxItems": 20,
             "type": "array",
             "items": {
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              ]
             },
             "description": "Email IDs to fetch (max 20). Obtain IDs from list_emails or search_emails."
           },
@@ -946,14 +2170,42 @@
             "enum": ["full", "text", "stripped"]
           },
           "maxLength": {
-            "description": "Truncate each email body at this many characters.",
+            "description": "Truncate each email body at this many characters (default: 20000).",
             "type": "integer",
             "minimum": 100,
             "maximum": 9007199254740991
           }
         },
-        "required": ["account", "ids"],
+        "required": ["ids"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -970,6 +2222,34 @@
         "properties": {},
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -984,8 +2264,8 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "message_id": {
             "type": "string",
@@ -997,13 +2277,13 @@
             "type": "string"
           },
           "format": {
-            "default": "full",
-            "description": "Body format: full=raw (default), text=plain text (strips HTML), stripped=plain text without quoted replies or signatures",
+            "default": "text",
+            "description": "Body format: text=plain text (strips HTML, default), full=raw, stripped=plain text without quoted replies or signatures",
             "type": "string",
             "enum": ["full", "text", "stripped"]
           },
           "maxLength": {
-            "description": "Truncate each message body at this many characters. A hint shows how many characters remain.",
+            "description": "Truncate each message body at this many characters (default: 20000). A hint shows how many characters remain.",
             "type": "integer",
             "minimum": 100,
             "maximum": 9007199254740991
@@ -1014,8 +2294,36 @@
             "type": "boolean"
           }
         },
-        "required": ["account", "message_id"],
+        "required": ["message_id"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1032,6 +2340,34 @@
         "properties": {},
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -1046,6 +2382,34 @@
         "type": "object",
         "properties": {},
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1062,6 +2426,34 @@
         "properties": {},
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -1076,8 +2468,8 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "mailbox": {
             "default": "INBOX",
@@ -1122,8 +2514,12 @@
             "description": "Filter: true=flagged only, false=unflagged only",
             "type": "boolean"
           },
-          "has_attachment": {
+          "hasAttachment": {
             "description": "Filter: true=has attachments, false=no attachments",
+            "type": "boolean"
+          },
+          "has_attachment": {
+            "description": "Alias of hasAttachment (filter: true=has attachments, false=no attachments)",
             "type": "boolean"
           },
           "answered": {
@@ -1131,8 +2527,35 @@
             "type": "boolean"
           }
         },
-        "required": ["account"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1173,6 +2596,34 @@
         },
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -1187,12 +2638,39 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           }
         },
-        "required": ["account"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1208,12 +2686,39 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           }
         },
-        "required": ["account"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1229,6 +2734,34 @@
         "type": "object",
         "properties": {},
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1266,6 +2799,34 @@
         },
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -1292,6 +2853,34 @@
         },
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -1307,6 +2896,34 @@
         "properties": {},
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -1321,12 +2938,47 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
+          },
+          "emailId": {
+            "description": "Email ID (UID) from list_emails or search_emails",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "id": {
-            "type": "string",
-            "description": "Email ID (UID) from list_emails or search_emails"
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "email_id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "mailbox": {
             "default": "INBOX",
@@ -1339,8 +2991,36 @@
             "description": "Action: read, unread, flag (star), or unflag (unstar)"
           }
         },
-        "required": ["account", "id", "action"],
+        "required": ["action"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1356,12 +3036,47 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "emailId": {
-            "type": "string",
-            "description": "Email ID to move (from list_emails)"
+            "description": "Email ID to move (from list_emails)",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "email_id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "sourceMailbox": {
             "type": "string",
@@ -1372,8 +3087,36 @@
             "description": "Target mailbox (e.g., Archive). Use list_mailboxes to see options."
           }
         },
-        "required": ["account", "emailId", "sourceMailbox", "destinationMailbox"],
+        "required": ["sourceMailbox", "destinationMailbox"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1389,12 +3132,47 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "emailId": {
-            "type": "string",
-            "description": "Email ID (UID) from list_emails"
+            "description": "Email ID (UID) from list_emails",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "email_id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "mailbox": {
             "type": "string",
@@ -1405,8 +3183,36 @@
             "description": "Label name to remove"
           }
         },
-        "required": ["account", "emailId", "mailbox", "label"],
+        "required": ["mailbox", "label"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1422,8 +3228,8 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "path": {
             "type": "string",
@@ -1436,8 +3242,36 @@
             "description": "New folder path"
           }
         },
-        "required": ["account", "path", "new_path"],
+        "required": ["path", "new_path"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1453,12 +3287,47 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "emailId": {
-            "type": "string",
-            "description": "Email ID to reply to (from list_emails or get_email)"
+            "description": "Email ID to reply to (from list_emails or get_email)",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
+          },
+          "email_id": {
+            "description": "Alias of emailId",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            ]
           },
           "mailbox": {
             "default": "INBOX",
@@ -1482,10 +3351,43 @@
           "messageId": {
             "description": "Stable RFC 5322 Message-ID for retries",
             "type": "string"
+          },
+          "dryRun": {
+            "default": false,
+            "description": "Validate parameters and preview the effect without executing the action",
+            "type": "boolean"
           }
         },
-        "required": ["account", "emailId", "body"],
+        "required": ["body"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1501,8 +3403,8 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "to": {
             "default": [],
@@ -1568,8 +3470,36 @@
             }
           }
         },
-        "required": ["account", "subject", "body"],
+        "required": ["subject", "body"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1585,14 +3515,15 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name to send from"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "to": {
             "minItems": 1,
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
             },
             "description": "Recipient email addresses"
           },
@@ -1612,14 +3543,16 @@
             "description": "CC recipients",
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
             }
           },
           "bcc": {
             "description": "BCC recipients",
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
             }
           },
           "html": {
@@ -1632,8 +3565,36 @@
             "type": "string"
           }
         },
-        "required": ["account", "to", "subject", "body", "send_at"],
+        "required": ["to", "subject", "body", "send_at"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1649,8 +3610,8 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "query": {
             "default": "",
@@ -1680,8 +3641,12 @@
             "description": "Filter by recipient address",
             "type": "string"
           },
-          "has_attachment": {
+          "hasAttachment": {
             "description": "Filter: true=has attachments, false=no attachments",
+            "type": "boolean"
+          },
+          "has_attachment": {
+            "description": "Alias of hasAttachment (filter: true=has attachments, false=no attachments)",
             "type": "boolean"
           },
           "larger_than": {
@@ -1713,8 +3678,35 @@
             "type": "string"
           }
         },
-        "required": ["account"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1730,22 +3722,82 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "id": {
-            "type": "integer",
-            "minimum": -9007199254740991,
-            "maximum": 9007199254740991,
-            "description": "Draft email UID (from list_emails on Drafts mailbox)"
+            "description": "Draft email UID (from list_emails on Drafts mailbox)",
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "emailId": {
+            "description": "Alias of id for the draft UID",
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "email_id": {
+            "description": "Alias of id for the draft UID",
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string"
+              }
+            ]
           },
           "mailbox": {
             "description": "Drafts folder path (auto-detected if omitted)",
             "type": "string"
           }
         },
-        "required": ["account", "id"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1761,8 +3813,8 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "to": {
             "minItems": 1,
@@ -1838,10 +3890,43 @@
           "messageId": {
             "description": "Stable RFC 5322 Message-ID for retries (receivers can dedupe)",
             "type": "string"
+          },
+          "dryRun": {
+            "default": false,
+            "description": "Validate parameters and preview the effect without executing the action",
+            "type": "boolean"
           }
         },
-        "required": ["account", "to", "subject", "body"],
+        "required": ["to", "subject", "body"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1857,16 +3942,44 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "name": {
             "type": "string",
             "description": "Script name, or empty string to deactivate"
           }
         },
-        "required": ["account", "name"],
+        "required": ["name"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1882,16 +3995,49 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "name": {
             "type": "string",
             "description": "Script name"
+          },
+          "dryRun": {
+            "default": false,
+            "description": "Validate parameters and preview the effect without executing the action",
+            "type": "boolean"
           }
         },
-        "required": ["account", "name"],
+        "required": ["name"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1907,16 +4053,44 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "name": {
             "type": "string",
             "description": "Script name from sieve_list_scripts"
           }
         },
-        "required": ["account", "name"],
+        "required": ["name"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1932,12 +4106,39 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           }
         },
-        "required": ["account"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1953,8 +4154,8 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           },
           "name": {
             "type": "string",
@@ -1963,10 +4164,43 @@
           "content": {
             "type": "string",
             "description": "SIEVE script source (RFC 5228)"
+          },
+          "dryRun": {
+            "default": false,
+            "description": "Validate parameters and preview the effect without executing the action",
+            "type": "boolean"
           }
         },
-        "required": ["account", "name", "content"],
+        "required": ["name", "content"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1982,12 +4216,39 @@
         "type": "object",
         "properties": {
           "account": {
-            "type": "string",
-            "description": "Account name from list_accounts"
+            "description": "Account name or email from list_accounts (optional when only one account or a default account is configured)",
+            "type": "string"
           }
         },
-        "required": ["account"],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -2009,6 +4270,34 @@
           }
         },
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the tool operation succeeded"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary or result text"
+          },
+          "dryRun": {
+            "description": "True when executed in dry-run preview mode",
+            "type": "boolean"
+          },
+          "data": {
+            "description": "Structured payload for programmatic consumption",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": ["ok", "summary"],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,

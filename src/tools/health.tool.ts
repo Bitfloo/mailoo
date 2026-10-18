@@ -32,80 +32,92 @@ export default function registerHealthTools(
       },
     },
     async ({ account }) => {
-      const names = account ? [account] : connections.getAccountNames();
+      try {
+        const names = account ? [account] : connections.getAccountNames();
 
-      const results = await Promise.all(
-        names.map(async (name) => {
-          const cfg = connections.getAccount(name);
-          const result: Record<string, unknown> = {
-            name,
-            auth_type: cfg.oauth2 ? 'oauth2' : 'password',
-          };
-
-          // IMAP health
-          try {
-            const start = Date.now();
-            await connections.getImapClient(name);
-            const latency = Date.now() - start;
-
-            const capabilities = await imapService.getCapabilities(name);
-            const quota = await imapService.getQuota(name);
-
-            result.imap = {
-              connected: true,
-              latency_ms: latency,
-              host: cfg.imap.host,
-              capabilities: capabilities.slice(0, 20),
-              tls: cfg.imap.tls,
+        const results = await Promise.all(
+          names.map(async (name) => {
+            const cfg = connections.getAccount(name);
+            const result: Record<string, unknown> = {
+              name: cfg.name,
+              auth_type: cfg.oauth2 ? 'oauth2' : 'password',
             };
 
-            if (quota) {
-              result.quota = {
-                used_mb: quota.usedMb,
-                total_mb: quota.totalMb,
-                percentage: quota.percentage,
+            // IMAP health
+            try {
+              const start = Date.now();
+              await connections.getImapClient(cfg.name);
+              const latency = Date.now() - start;
+
+              const capabilities = await imapService.getCapabilities(cfg.name);
+              const quota = await imapService.getQuota(cfg.name);
+
+              result.imap = {
+                connected: true,
+                latency_ms: latency,
+                host: cfg.imap.host,
+                capabilities: capabilities.slice(0, 20),
+                tls: cfg.imap.tls,
+              };
+
+              if (quota) {
+                result.quota = {
+                  used_mb: quota.usedMb,
+                  total_mb: quota.totalMb,
+                  percentage: quota.percentage,
+                };
+              }
+            } catch (err) {
+              result.imap = {
+                connected: false,
+                error: err instanceof Error ? err.message : String(err),
+                host: cfg.imap.host,
               };
             }
-          } catch (err) {
-            result.imap = {
-              connected: false,
-              error: err instanceof Error ? err.message : String(err),
-              host: cfg.imap.host,
-            };
-          }
 
-          // SMTP health
-          try {
-            const start = Date.now();
-            await connections.verifySmtpTransport(name);
-            const latency = Date.now() - start;
+            // SMTP health
+            try {
+              const start = Date.now();
+              await connections.verifySmtpTransport(cfg.name);
+              const latency = Date.now() - start;
 
-            result.smtp = {
-              connected: true,
-              latency_ms: latency,
-              host: cfg.smtp.host,
-              tls: cfg.smtp.tls,
-            };
-          } catch (err) {
-            result.smtp = {
-              connected: false,
-              error: err instanceof Error ? err.message : String(err),
-              host: cfg.smtp.host,
-            };
-          }
+              result.smtp = {
+                connected: true,
+                latency_ms: latency,
+                host: cfg.smtp.host,
+                tls: cfg.smtp.tls,
+              };
+            } catch (err) {
+              result.smtp = {
+                connected: false,
+                error: err instanceof Error ? err.message : String(err),
+                host: cfg.smtp.host,
+              };
+            }
 
-          return result;
-        }),
-      );
+            return result;
+          }),
+        );
 
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({ accounts: results }, null, 2),
-          },
-        ],
-      };
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({ accounts: results }, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text' as const,
+              text: `Failed to check account health: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ],
+        };
+      }
     },
   );
 }

@@ -141,3 +141,49 @@ describe('ConnectionManager IMAP error', () => {
     expect(second).not.toBe(first);
   });
 });
+
+describe('ConnectionManager.getAccount smart resolution', () => {
+  const workAccount: AccountConfig = {
+    ...account,
+    name: 'work',
+    email: 'jan@firma.example.com',
+  };
+  const personalAccount: AccountConfig = {
+    ...account,
+    name: 'personal',
+    email: 'jan@home.example.com',
+  };
+
+  it('matches exact name, case-insensitive name, and email address', () => {
+    const manager = new ConnectionManager([workAccount, personalAccount]);
+    expect(manager.getAccount('work')).toBe(workAccount);
+    expect(manager.getAccount('WORK')).toBe(workAccount);
+    expect(manager.getAccount('jan@firma.example.com')).toBe(workAccount);
+    expect(manager.getAccount('JAN@HOME.EXAMPLE.COM')).toBe(personalAccount);
+  });
+
+  it('returns the single account automatically when accountName is omitted or default', () => {
+    const manager = new ConnectionManager([workAccount]);
+    expect(manager.getAccount()).toBe(workAccount);
+    expect(manager.getAccount('')).toBe(workAccount);
+    expect(manager.getAccount('default')).toBe(workAccount);
+    expect(manager.resolveAccountName()).toBe('work');
+  });
+
+  it('uses defaultAccount when multiple accounts are configured and accountName is omitted or default', () => {
+    const manager = new ConnectionManager([workAccount, personalAccount], undefined, 'personal');
+    expect(manager.getAccount()).toBe(personalAccount);
+    expect(manager.getAccount('')).toBe(personalAccount);
+    expect(manager.getAccount('default')).toBe(personalAccount);
+  });
+
+  it('throws a self-healing error listing available accounts with emails when not found', () => {
+    const manager = new ConnectionManager([workAccount, personalAccount]);
+    expect(() => manager.getAccount('unknown')).toThrow(
+      'Account "unknown" not found. Available accounts: work (jan@firma.example.com), personal (jan@home.example.com)',
+    );
+    expect(() => manager.getAccount()).toThrow(
+      'Account "" not found. Available accounts: work (jan@firma.example.com), personal (jan@home.example.com)',
+    );
+  });
+});

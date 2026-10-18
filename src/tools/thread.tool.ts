@@ -10,7 +10,8 @@ import { z } from 'zod';
 
 import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
-import { applyBodyFormat } from '../utils/email-body.js';
+import { applyBodyFormatWithDefaultCap } from '../utils/email-body.js';
+import { accountParam } from './schema-helpers.js';
 
 // ---------------------------------------------------------------------------
 
@@ -26,14 +27,14 @@ export default function registerThreadTools(server: McpServer, imapService: Imap
         'Use newestFirst=true to show the most recent message in full and older messages as header-only summaries. ' +
         'Use get_email first to obtain the message_id.',
       inputSchema: {
-        account: z.string().describe('Account name from list_accounts'),
+        account: accountParam,
         message_id: z.string().describe('Message-ID header value (from get_email)'),
         mailbox: z.string().default('INBOX').describe('Mailbox to search (default: INBOX)'),
         format: z
           .enum(['full', 'text', 'stripped'])
-          .default('full')
+          .default('text')
           .describe(
-            'Body format: full=raw (default), text=plain text (strips HTML), stripped=plain text without quoted replies or signatures',
+            'Body format: text=plain text (strips HTML, default), full=raw, stripped=plain text without quoted replies or signatures',
           ),
         maxLength: z
           .number()
@@ -41,7 +42,7 @@ export default function registerThreadTools(server: McpServer, imapService: Imap
           .min(100)
           .optional()
           .describe(
-            'Truncate each message body at this many characters. A hint shows how many characters remain.',
+            'Truncate each message body at this many characters (default: 20000). A hint shows how many characters remain.',
           ),
         newestFirst: z
           .boolean()
@@ -60,7 +61,7 @@ export default function registerThreadTools(server: McpServer, imapService: Imap
     },
     async ({ account, message_id: messageId, mailbox, format, maxLength, newestFirst }) => {
       try {
-        const thread = await imapService.getThread(account, messageId, mailbox);
+        const thread = await imapService.getThread(account ?? '', messageId, mailbox);
 
         if (thread.messageCount === 0) {
           return {
@@ -112,7 +113,7 @@ export default function registerThreadTools(server: McpServer, imapService: Imap
           } else {
             messageLines.push(
               '',
-              applyBodyFormat(email.bodyText, email.bodyHtml, format, maxLength),
+              applyBodyFormatWithDefaultCap(email.bodyText, email.bodyHtml, format, maxLength),
             );
           }
           parts.push(`--- ${label} ---`);
