@@ -292,9 +292,9 @@ async function resolveServerSettings(
         smtpPort: provider.smtp.port,
         smtpTls: provider.smtp.tls,
         smtpStarttls: provider.smtp.starttls,
-        smtpPoolEnabled: true,
-        smtpPoolMaxConnections: 1,
-        smtpPoolMaxMessages: 100,
+        smtpPoolEnabled: defaults?.smtpPoolEnabled ?? true,
+        smtpPoolMaxConnections: defaults?.smtpPoolMaxConnections ?? 1,
+        smtpPoolMaxMessages: defaults?.smtpPoolMaxMessages ?? 100,
       };
     }
   } else {

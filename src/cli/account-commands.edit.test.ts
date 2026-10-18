@@ -267,7 +267,8 @@ describe('mailoo account edit', () => {
       wizard.overrides.set('Email address', 'user@example.test');
     });
 
-    it('should save the detected settings without asking for servers when they are accepted', async () => {
+    // Detection knows the provider's hosts, ports and TLS, not how the user sized the pool.
+    it('should save the detected settings and keep the SMTP pool without asking for servers when they are accepted', async () => {
       wizard.overrides.set('Use detected settings?', true);
 
       await (await sandbox.entryPoint('account edit', 'personal', EXAMPLE_PROVIDER))();
@@ -288,7 +289,6 @@ describe('mailoo account edit', () => {
           smtp: {
             ...CUSTOM_SMTP,
             host: 'smtp.example.test',
-            pool: { enabled: true, max_connections: 1, max_messages: 100 },
           },
         },
         askedForServers: false,
