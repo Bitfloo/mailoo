@@ -399,11 +399,11 @@ async function messageToEmail(
     const raw = msg.source.toString('utf-8');
     const headerEnd = raw.indexOf('\r\n\r\n');
     if (headerEnd >= 0) {
-      // Parse headers
-      const headerSection = raw.slice(0, headerEnd);
+      // RFC 5322: a folded header continues on lines that start with white space.
+      const headerSection = raw.slice(0, headerEnd).replace(/\r\n[ \t]+/g, ' ');
       headerSection.split('\r\n').forEach((line) => {
         const colonIdx = line.indexOf(':');
-        if (colonIdx > 0 && !line.startsWith(' ') && !line.startsWith('\t')) {
+        if (colonIdx > 0) {
           const key = line.slice(0, colonIdx).trim().toLowerCase();
           const value = line.slice(colonIdx + 1).trim();
           headers[key] = value;
