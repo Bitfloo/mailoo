@@ -96,6 +96,28 @@ describe('addEvent script', () => {
     const script = await addScript({ ...offsite, alarmMinutes: 0 });
     expect(script.includes('display alarm')).toBe(false);
   });
+
+  it('should fall back to the first calendar when the named one is missing', async () => {
+    const lines = (await addScript()).split('\n').map((line) => line.trim());
+    const named = lines.indexOf('set theCal to first calendar whose name is "Work"');
+    expect(lines.slice(named - 1, named + 4)).toEqual([
+      'try',
+      'set theCal to first calendar whose name is "Work"',
+      'on error',
+      'set theCal to first calendar',
+      'end try',
+    ]);
+  });
+
+  it('should make the event in that calendar from the title, start and end', async () => {
+    const lines = (await addScript()).split('\n').map((line) => line.trim());
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        'set eventProps to {summary:eventTitle, start date:eventStart, end date:eventEnd}',
+        'set theEvent to make new event at end of events of theCal with properties eventProps',
+      ]),
+    );
+  });
 });
 
 describe('addEvent dates', () => {
@@ -212,5 +234,15 @@ describe('addEvent result', () => {
       status: 'timed_out',
       message: '⏱️ Dialog timed out after 60 s — event was not added. Try again.',
     });
+  });
+
+  it.each([
+    ['cancelled', '\u{1F6AB} Cancelled \u2014 event was not added to the calendar.'],
+    [
+      'no_display',
+      '\u26A0\uFE0F No display available. Run check_calendar_permissions for setup instructions.',
+    ],
+  ])('should word a %s reply from the add script', async (status, message) => {
+    await expect(addReporting(`{"status":"${status}"}\n`)).resolves.toEqual({ status, message });
   });
 });

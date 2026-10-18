@@ -14,6 +14,7 @@ vi.mock('node:child_process', () => ({
   }),
 }));
 
+import { delimitUntrusted } from '../safety/untrusted-content.js';
 import { dateSetBy, literalAfter } from '../test-support/applescript.js';
 import onDarwin from '../test-support/platform.js';
 import { LIST_EVENTS_TIMEOUT_MS } from './local-calendar.macos-read.js';
@@ -150,6 +151,19 @@ describe('addEvent duplicate check', () => {
       calendarName: 'Home',
       duplicate: { eventId: 'E1', calendarName: 'Home' },
     });
+  });
+
+  it('should word the duplicate reply with the calendar and the title', async () => {
+    osascriptImpl.mockResolvedValueOnce({
+      stdout: '{"found":true,"eventId":"E1","calendarName":"Home"}',
+      stderr: '',
+    });
+    const result = await onDarwin(async () =>
+      new LocalCalendarService().addEvent(standup, 'Work', { confirm: false }),
+    );
+    expect(result.message).toBe(
+      `\u26A0\uFE0F Event already exists in Home: "${delimitUntrusted('Weekly standup')}". Skipped.`,
+    );
   });
 
   it('should not run the add script when an event matches', async () => {

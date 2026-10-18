@@ -119,4 +119,59 @@ describe('addEvent confirm dialog', () => {
       '\u{1F511} ID: 881 2345 \u00b7 PIN: 9921',
     ]);
   });
+
+  it('should show no attendee or attachment line when there are none', async () => {
+    const lines = await dialogFor({ ...review, attendeeCount: 0, savedAttachments: [] });
+    expect(lines).toEqual([
+      '\u{1F4C5} Q3 "board" \\ review',
+      '\u{1F550} <eventStart> \u2013 <eventEnd>',
+      '\u{1F4CD} Room "Oak"',
+      '\u{1F4C6} Work \u00b7 \u23f0 15 min before',
+    ]);
+  });
+
+  it('should show no place line when the location is empty', async () => {
+    const lines = await dialogFor({ ...review, location: '' });
+    expect(lines.filter((line) => line.startsWith('\u{1F4CD}'))).toEqual([]);
+  });
+
+  it('should show a meeting ID without a PIN when there is no passcode', async () => {
+    const lines = await dialogFor({ ...review, meetingId: '881 2345' });
+    expect(lines[3]).toBe('\u{1F511} ID: 881 2345');
+  });
+
+  async function dialogScriptLines(): Promise<string[]> {
+    await dialogFor(review);
+    return (osascriptImpl.mock.calls[0]?.[1][1] ?? '').split('\n').map((line) => line.trim());
+  }
+
+  it('should add only when the default button of the dialog is pressed', async () => {
+    // A compared label that is not the button's would return timed_out on every confirmed add.
+    const lines = await dialogScriptLines();
+    const display = lines.find((line) => line.startsWith('display dialog')) ?? '';
+    const compare = lines.find((line) => line.startsWith('if dlgResult is not')) ?? '';
+    expect({
+      buttons: /buttons \{([^}]*)\}/.exec(display)?.[1],
+      defaultButton: /default button "([^"]*)"/.exec(display)?.[1],
+      cancelButton: /cancel button "([^"]*)"/.exec(display)?.[1],
+      compared: /"([^"]*)"/.exec(compare)?.[1],
+    }).toEqual({
+      buttons: '"Cancel", "Add to Calendar"',
+      defaultButton: 'Add to Calendar',
+      cancelButton: 'Cancel',
+      compared: 'Add to Calendar',
+    });
+  });
+
+  it('should return timed_out when the dialog gives up and cancelled when it is dismissed', async () => {
+    const lines = await dialogScriptLines();
+    const statusAfter = (prefix: string) =>
+      /status\W+(\w+)/.exec(
+        lines[lines.findIndex((line) => line.startsWith(prefix)) + 1] ?? '',
+      )?.[1];
+    expect({
+      givenUp: statusAfter('if dlgResult is not'),
+      dismissed: statusAfter('on error'),
+    }).toEqual({ givenUp: 'timed_out', dismissed: 'cancelled' });
+  });
 });
