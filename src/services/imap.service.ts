@@ -74,6 +74,18 @@ function mimeTypeOf(bs: Record<string, unknown>): string {
   return raw.toLowerCase();
 }
 
+/**
+ * Content-Type and Content-Disposition parameters of a part; the disposition's
+ * value wins on a shared key. imapflow sets dispositionParameters whenever that
+ * header carries any parameter, so it may hold a size= and no filename.
+ */
+function partParameters(bs: Record<string, unknown>): Record<string, string> {
+  return {
+    ...(bs.parameters as Record<string, string> | undefined),
+    ...(bs.dispositionParameters as Record<string, string> | undefined),
+  };
+}
+
 interface AttachmentPart extends AttachmentMeta {
   /** IMAP part number (BODY[part]); empty for the root of a single-part message. */
   part: string;
@@ -90,7 +102,7 @@ function listAttachmentParts(bodyStructure: unknown, partPath = ''): AttachmentP
   const bs = bodyStructure as Record<string, unknown>;
   const effectivePath = (bs.part as string | undefined) ?? partPath;
   if (bs.disposition === 'attachment') {
-    const params = (bs.dispositionParameters ?? bs.parameters ?? {}) as Record<string, string>;
+    const params = partParameters(bs);
     attachments.push({
       filename: params.filename ?? params.name ?? 'unnamed',
       mimeType: mimeTypeOf(bs) || 'application/octet-stream',
@@ -2018,9 +2030,10 @@ export default class ImapService {
     const parts: string[] = [];
 
     const disposition = (s.disposition as string | undefined)?.toLowerCase() ?? '';
-    const params = (s.dispositionParameters ?? {}) as Record<string, string>;
+    const params = partParameters(s);
     const isIcsAttachment =
-      disposition === 'attachment' && (params.filename ?? '').toLowerCase().endsWith('.ics');
+      disposition === 'attachment' &&
+      (params.filename ?? params.name ?? '').toLowerCase().endsWith('.ics');
 
     // imapflow reports the type as "text/calendar" with no subtype field.
     if (mimeTypeOf(s) === 'text/calendar' || isIcsAttachment) {

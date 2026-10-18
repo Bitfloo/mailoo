@@ -27,6 +27,48 @@ describe('ImapService', () => {
     service = new ImapService(connections);
   });
 
+  // imapflow sets dispositionParameters whenever Content-Disposition carries any
+  // parameter, so a lone size= must not hide the name in the Content-Type.
+  const dispositionsWithoutFilename = [
+    { label: 'only a size parameter', dispositionParameters: { size: '16' } },
+    { label: 'an empty parameter list', dispositionParameters: {} },
+  ];
+
+  describe('peekAttachments', () => {
+    it.each(dispositionsWithoutFilename)(
+      'should name an attachment by its Content-Type name when the disposition has $label',
+      async ({ dispositionParameters }) => {
+        fetchOneByUid(client, {
+          uid: 9,
+          bodyStructure: mixedStructure(
+            attachmentNode('2', 'a.pdf', { type: 'application/pdf', dispositionParameters }),
+          ),
+        });
+
+        const attachments = await service.peekAttachments('test', '9', 'INBOX');
+
+        expect(attachments).toEqual([{ filename: 'a.pdf', mime: 'application/pdf' }]);
+      },
+    );
+
+    // RFC 2183 defines filename on Content-Disposition; some mailers repeat one in the Content-Type.
+    it('should prefer the disposition filename over a Content-Type filename', async () => {
+      fetchOneByUid(client, {
+        uid: 9,
+        bodyStructure: mixedStructure(
+          attachmentNode('2', 'report.pdf', {
+            type: 'application/pdf',
+            parameters: { filename: 'scan-0042.pdf' },
+          }),
+        ),
+      });
+
+      const attachments = await service.peekAttachments('test', '9', 'INBOX');
+
+      expect(attachments).toEqual([{ filename: 'report.pdf', mime: 'application/pdf' }]);
+    });
+  });
+
   describe('downloadAttachment', () => {
     it('should reject a filename two attachments share and list their MIME parts', async () => {
       fetchOneByUid(client, {
@@ -82,6 +124,23 @@ describe('ImapService', () => {
 
       expect(Buffer.from(result.contentBase64, 'base64').toString()).toBe('body-of-part-2');
     });
+
+    it.each(dispositionsWithoutFilename)(
+      'should find an attachment by its Content-Type name when the disposition has $label',
+      async ({ dispositionParameters }) => {
+        fetchOneByUid(client, {
+          uid: 9,
+          bodyStructure: mixedStructure(
+            attachmentNode('2', 'a.pdf', { type: 'application/pdf', dispositionParameters }),
+          ),
+        });
+        downloadReturnsPartName(client);
+
+        const result = await service.downloadAttachment('test', '9', 'INBOX', 'a.pdf');
+
+        expect(Buffer.from(result.contentBase64, 'base64').toString()).toBe('body-of-part-2');
+      },
+    );
 
     it('should download the MIME part of a filename that matches once', async () => {
       fetchOneByUid(client, {

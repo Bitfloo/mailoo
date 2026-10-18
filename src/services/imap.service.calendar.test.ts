@@ -85,6 +85,32 @@ describe('ImapService', () => {
       expect(parts).toEqual(['body-of-part-2']);
     });
 
+    // Content-Type: application/octet-stream; name="invite.ics" with a bare
+    // Content-Disposition: attachment, or one that carries only size=.
+    it.each([
+      { label: 'no parameters', dispositionParameters: undefined },
+      { label: 'only a size parameter', dispositionParameters: { size: '434' } },
+    ])(
+      'should return an .ics attachment named only in its Content-Type when the disposition has $label',
+      async ({ dispositionParameters }) => {
+        fetchOneByUid(client, {
+          uid: 9,
+          bodyStructure: mixedStructure(
+            attachmentNode('2', 'invite.ics', {
+              type: 'application/octet-stream',
+              size: 434,
+              dispositionParameters,
+            }),
+          ),
+        });
+        downloadReturnsPartName(client);
+
+        const parts = await service.getCalendarParts('test', 'INBOX', '9');
+
+        expect(parts).toEqual(['body-of-part-2']);
+      },
+    );
+
     it('should number calendar parts by position when the structure has none', async () => {
       fetchOneByUid(client, {
         uid: 9,
