@@ -763,8 +763,8 @@ Outbound calls, child processes, files, and environment variables below are what
 | `powershell` | Windows balloon notifications | `src/services/notifier.service.ts` |
 | `which` (Windows: `where`) | Checks that `osascript`, `afplay`, `notify-send`, `paplay`, or `powershell` exists. `afplay` is only probed; macOS sound goes through `osascript` | `src/services/notifier.service.ts` |
 | `xdg-open` | Opens a temporary calendar file on Linux | `src/services/local-calendar.service.ts` |
-| `launchctl` | Installs or removes the macOS scheduler agent | `src/cli/scheduler.ts`, `src/cli/scheduler-install.ts` |
-| `crontab` | Installs or removes the Linux scheduler line | `src/cli/scheduler.ts`, `src/cli/scheduler-install.ts` |
+| `launchctl` | Installs, removes or checks (`scheduler status`) the macOS scheduler agent | `src/cli/scheduler.ts`, `src/cli/scheduler-install.ts` |
+| `crontab` | Installs, removes or checks (`scheduler status`) the Linux scheduler line | `src/cli/scheduler.ts`, `src/cli/scheduler-install.ts` |
 
 ### Files
 
