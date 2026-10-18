@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
+import { mcpLog } from '../../logging.js';
 import {
   account,
   arrivalEmail,
@@ -93,7 +94,7 @@ describe('MailArrival.tryCreate', () => {
       accounts: [account],
     });
     expect(result).not.toBeNull();
-    expect(TypeSafeClientMock).toHaveBeenCalledOnce();
+    expect(TypeSafeClientMock.mock.calls).toEqual([[{ apiKey: 'test-key', logLevel: 'error' }]]);
   });
 
   it('should still return an instance when listMailboxes rejects', async () => {
@@ -106,7 +107,32 @@ describe('MailArrival.tryCreate', () => {
       accounts: [account],
     });
     expect(result).not.toBeNull();
-    expect(TypeSafeClientMock).toHaveBeenCalledOnce();
+    expect(TypeSafeClientMock.mock.calls).toEqual([[{ apiKey: 'test-key', logLevel: 'error' }]]);
+  });
+
+  it('should construct the SDK client with the trimmed API key and logLevel error', async () => {
+    await MailArrival.tryCreate({
+      config: systemOneConfig(),
+      imap: mockImap() as unknown as ImapService,
+      apiKey: '  test-key  ',
+      accounts: [account],
+    });
+    expect(TypeSafeClientMock.mock.calls).toEqual([[{ apiKey: 'test-key', logLevel: 'error' }]]);
+  });
+
+  it('should warn about a move_to path when the account has no such mailbox', async () => {
+    await MailArrival.tryCreate({
+      config: systemOneConfig(),
+      imap: mockImap() as unknown as ImapService,
+      apiKey: 'test-key',
+      accounts: [account],
+      moveToPaths: ['Archive', 'Receipts'],
+    });
+    const warnings = vi
+      .mocked(mcpLog)
+      .mock.calls.map(([, , message]) => message)
+      .filter((message) => String(message).includes('move_to'));
+    expect(warnings).toEqual(['system_one: unknown move_to path "Archive" on personal']);
   });
 });
 
@@ -168,6 +194,13 @@ describe('MailArrival.handle question map', () => {
       'requests_credentials',
       'sender_identity_mismatch',
     ]);
+  });
+
+  it('should ask System One with the configured model', async () => {
+    const arrival = await createArrival(mockImap(), { model: 'jev-test' });
+    await arrival.handle(arrivalEmail('10'));
+    const payload = systemOneMock.mock.calls[0]?.[0] as { model?: string } | undefined;
+    expect(payload?.model).toBe('jev-test');
   });
 });
 

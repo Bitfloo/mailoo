@@ -111,4 +111,37 @@ describe('MailArrival.handle', () => {
     ]);
     expect(imap.getEmail).not.toHaveBeenCalled();
   });
+
+  it('should still classify a message when reading its text part fails', async () => {
+    const imap = mockImap();
+    imap.peekText.mockRejectedValue(new Error('FETCH failed'));
+    const arrival = await createArrival(imap, { includeBody: true });
+    expect(await arrival.handle(arrivalEmail('10'))).toEqual({
+      kind: 'apply',
+      destinationMailbox: 'Receipts',
+      flag: true,
+    });
+  });
+
+  it('should still classify a message when listing its attachments fails', async () => {
+    const imap = mockImap();
+    imap.peekAttachments.mockRejectedValue(new Error('FETCH failed'));
+    const arrival = await createArrival(imap);
+    expect(await arrival.handle(arrivalEmail('10'))).toEqual({
+      kind: 'apply',
+      destinationMailbox: 'Receipts',
+      flag: true,
+    });
+  });
+
+  it('should cut the body sent to System One at body_max_chars when include_body is true', async () => {
+    const imap = mockImap();
+    imap.peekText.mockResolvedValue('Your receipt is attached.');
+    const arrival = await createArrival(imap, { includeBody: true, bodyMaxChars: 4 });
+    await arrival.handle(arrivalEmail('10'));
+    const payload = systemOneMock.mock.calls[0]?.[0] as
+      | { state?: { message?: { body?: string } } }
+      | undefined;
+    expect(payload?.state?.message?.body).toBe('Your');
+  });
 });

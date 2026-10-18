@@ -122,6 +122,60 @@ describe('MailArrival.handle actions', () => {
   });
 });
 
+// injection_high is 0.75 and is_critical_min 0.85 in the default config.
+describe('MailArrival.handle thresholds', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should stop at the injection filter when contains_prompt_injection reaches injection_high', async () => {
+    systemOneMock.mockResolvedValue(
+      answersWith({ contains_prompt_injection: { type: 'noul', noul: 0.75 } }),
+    );
+    const arrival = await createArrival(mockImap());
+    expect(await arrival.handle(arrivalEmail('10'))).toEqual({
+      kind: 'noop',
+      reason: 'injection_filter',
+    });
+  });
+
+  it('should file a message when contains_prompt_injection is just below injection_high', async () => {
+    systemOneMock.mockResolvedValue(
+      answersWith({ contains_prompt_injection: { type: 'noul', noul: 0.74 } }),
+    );
+    const arrival = await createArrival(mockImap());
+    expect(await arrival.handle(arrivalEmail('10'))).toEqual({
+      kind: 'apply',
+      destinationMailbox: 'Receipts',
+      flag: true,
+    });
+  });
+
+  it('should flag an unimportant message when is_critical reaches is_critical_min', async () => {
+    systemOneMock.mockResolvedValue(
+      answersWith({ ...UNIMPORTANT, is_critical: { type: 'noul', noul: 0.85 } }),
+    );
+    const arrival = await createArrival(mockImap());
+    expect(await arrival.handle(arrivalEmail('10'))).toEqual({
+      kind: 'apply',
+      destinationMailbox: 'Receipts',
+      flag: true,
+    });
+  });
+
+  it('should not flag an unimportant message when is_critical is just below is_critical_min', async () => {
+    systemOneMock.mockResolvedValue(
+      answersWith({ ...UNIMPORTANT, is_critical: { type: 'noul', noul: 0.84 } }),
+    );
+    const arrival = await createArrival(mockImap());
+    expect(await arrival.handle(arrivalEmail('10'))).toEqual({
+      kind: 'apply',
+      destinationMailbox: 'Receipts',
+      flag: false,
+    });
+  });
+});
+
 /** An unexpected reward alone weighs 0.25 in the spam score; no other spam signal is set. */
 function rewardOnlyAnswers(): SdkReply {
   return answersWith({ offers_unexpected_reward: { type: 'noul', noul: 1 } });
