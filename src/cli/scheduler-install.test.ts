@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { SCHEDULER_INTERVAL_MS } from '../services/scheduler.service.js';
 import { lineSink, recordRunner, shQuote } from '../test-support/scheduler-cli.js';
-import { runInstall } from './scheduler.js';
+import { runInstall } from '../test-support/scheduler-home.js';
 import {
   buildCronLine,
   buildLaunchdPlist,

@@ -1,15 +1,17 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import type { SchedulerCommands } from './scheduler.js';
-import runSchedulerCommand, {
+import {
   runCheck,
   runInstall,
   runList,
+  runSchedulerCommand,
   runStatus,
   runUninstall,
   SCHEDULER_COMMANDS,
-} from './scheduler.js';
+} from '../test-support/scheduler-home.js';
+import type { SchedulerCommands } from './scheduler.js';
+import { LAUNCHD_LABEL, runCommandFile } from './scheduler-install.js';
 
 const SRC = path.resolve('src');
 
@@ -117,6 +119,52 @@ describe('shell commands in production code', () => {
     );
     const hits = texts.flatMap(({ file, text }) => shellHits(file, text));
     expect(hits).toEqual([]);
+  });
+});
+
+const SCHEDULER_CLI = path.join(SRC, 'cli', 'scheduler.js');
+const VALUE_IMPORT = /(?:^|\n)[ \t]*(?:import|export)\s+(?!type\s)[^;]*?\bfrom\s+['"]([^'"]+)['"]/g;
+const DYNAMIC_IMPORT = /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g;
+
+async function testSources(dir: string): Promise<string[]> {
+  const entries = await fs.readdir(dir, { recursive: true, withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.join(entry.parentPath, entry.name))
+    .filter(
+      (file) => file.endsWith('.test.ts') || file.includes(`${path.sep}test-support${path.sep}`),
+    );
+}
+
+describe('scheduler CLI imports in tests', () => {
+  it('should load the scheduler CLI in tests only through the module that pins HOME and PATH', async () => {
+    const files = await testSources(SRC);
+    const importers = await Promise.all(
+      files.map(async (file) => {
+        const text = await fs.readFile(file, 'utf8');
+        const specifiers = [...text.matchAll(VALUE_IMPORT), ...text.matchAll(DYNAMIC_IMPORT)];
+        const loadsCli = specifiers.some(
+          ([, specifier = '']) => path.resolve(path.dirname(file), specifier) === SCHEDULER_CLI,
+        );
+        return loadsCli ? [path.relative(SRC, file)] : [];
+      }),
+    );
+    expect(importers.flat()).toEqual([path.join('test-support', 'scheduler-home.ts')]);
+  });
+
+  it('should leave launchctl and crontab off PATH, so a test that drops its runner cannot run them', () => {
+    const codes = [
+      ['launchctl', 'list', LAUNCHD_LABEL],
+      ['crontab', '-l'],
+    ].map(([file = '', ...args]) => {
+      try {
+        runCommandFile(file, args);
+        return 'ran';
+      } catch (err) {
+        return (err as { code?: unknown }).code;
+      }
+    });
+    expect(codes).toEqual(['ENOENT', 'ENOENT']);
   });
 });
 

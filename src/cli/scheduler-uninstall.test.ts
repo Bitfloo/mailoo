@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { lineSink, recordRunner } from '../test-support/scheduler-cli.js';
-import { runUninstall } from './scheduler.js';
+import { runUninstall } from '../test-support/scheduler-home.js';
 import type { CommandRunner } from './scheduler-install.js';
 import { buildCronLine } from './scheduler-install.js';
 

@@ -19,7 +19,7 @@ const { CONFIG_FILE, SCHEDULED_DIR } = await import('../config/xdg.js');
 const { loadConfig } = await import('../config/loader.js');
 const { default: ConnectionManager } = await import('../connections/manager.js');
 const { checkScheduledEmails, formatCheckResult, runCheck, runList } = await import(
-  './scheduler.js'
+  '../test-support/scheduler-home.js'
 );
 
 afterAll(async () => {

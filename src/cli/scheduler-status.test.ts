@@ -18,7 +18,7 @@ vi.stubEnv('MCP_EMAIL_IMAP_HOST', '');
 vi.stubEnv('MCP_EMAIL_SMTP_HOST', '');
 
 const { loadConfig } = await import('../config/loader.js');
-const { runStatus } = await import('./scheduler.js');
+const { runStatus } = await import('../test-support/scheduler-home.js');
 
 afterAll(async () => {
   vi.unstubAllEnvs();

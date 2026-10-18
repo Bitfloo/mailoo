@@ -1,5 +1,5 @@
+import { formatScheduledList } from '../test-support/scheduler-home.js';
 import type { ScheduledEmail } from '../types/index.js';
-import { formatScheduledList } from './scheduler.js';
 
 function queued(
   status: ScheduledEmail['status'],

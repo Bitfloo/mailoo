@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { lineSink } from '../test-support/scheduler-cli.js';
-import { runInstall } from './scheduler.js';
+import { runInstall } from '../test-support/scheduler-home.js';
 import type { CommandRunner } from './scheduler-install.js';
 
 // launchctl refuses to load an agent that is already loaded and to unload one that is not.
