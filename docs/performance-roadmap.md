@@ -33,7 +33,7 @@ Performance for Mailoo operates across **three distinct layers**, each with diff
 | UID-based tracking | ✅ Done | All operations use `{ uid: true }` |
 | Lazy connection creation | ✅ Done | `manager.ts` — connects on first use per account |
 | Connection health checks | ✅ Done | `manager.ts` — checks `.usable` before reuse; SMTP `verify()` |
-| Auto-reconnect | ✅ Done | `manager.ts` — drops stale connections and recreates on failure; `watcher.service.ts` uses exponential backoff |
+| Auto-reconnect with backoff | ✅ Done | `manager.ts`, `backoff.ts` — drops stale connections; after a failed connect waits 1 s doubling to 60 s, with jitter; `watcher.service.ts` reconnects its IDLE connections with exponential backoff |
 | Thread cap | ✅ Done | Thread reconstruction capped at 50 messages |
 | Contact extraction cap | ✅ Done | Caps at 500 recent messages for contact extraction |
 | Rate limiting (sends) | ✅ Done | `rate-limiter.ts` — token-bucket, 10/min/account |
@@ -181,13 +181,24 @@ class ImapConnectionPool {
 }
 ```
 
-#### P3.2 — Robust Auto-Reconnect with Backoff (Partially Implemented)
+#### P3.2 — Robust Auto-Reconnect with Backoff ✅ Done
 
 **Impact**: Medium | **Effort**: Low-Medium
 
-**Current behavior**: `WatcherService` (`src/services/watcher.service.ts`) implements exponential backoff reconnect (`1s` → `60s`, `MAX_BACKOFF_MS = 60_000`) for persistent IMAP IDLE connections. `ConnectionManager` recreates stale on-demand tool connections immediately when `.usable` is false.
+**Current behavior**: After a failed IMAP connect or SMTP verify, the manager refuses a new attempt for that account until the window passes (1 s doubling to 60 s, up to 25 % jitter, no attempt limit), see [Reconnect backoff](configuration.md#reconnect-backoff).
 
-**Remaining target**: Add bounded retry with jitter for transient connect failures in `ConnectionManager`.
+**Original plan (superseded)**: Exponential backoff with jitter:
+```typescript
+// Reconnect strategy:
+// Attempt 1: immediate
+// Attempt 2: 1s + jitter
+// Attempt 3: 2s + jitter
+// Attempt 4: 4s + jitter
+// Max attempts: 5
+// Max delay: 30s
+```
+
+**Why**: Prevents thundering herd on temporary network issues. Avoids IMAP server ban from rapid reconnect attempts.
 
 #### P3.3 — NOOP Keepalive for Idle Connections
 
