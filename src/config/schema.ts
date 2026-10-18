@@ -57,7 +57,7 @@ export const AccountConfigSchema = z
     imap: ImapConfigSchema,
     smtp: SmtpConfigSchema,
   })
-  .refine((data) => data.password ?? data.oauth2, {
+  .refine((data) => (data.password ?? '') !== '' || data.oauth2 !== undefined, {
     message: 'Either password or oauth2 config is required',
   });
 
