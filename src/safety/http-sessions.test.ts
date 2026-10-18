@@ -1,4 +1,5 @@
 import seededRandom from '../test-support/seeded-random.js';
+import type { SessionTransport } from './http-sessions.js';
 import HttpSessionStore from './http-sessions.js';
 
 function fakeTransport() {
@@ -99,6 +100,10 @@ function checkInvariants(run: Run, step: Step, at: number): string[] {
 }
 
 describe('HttpSessionStore', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('evicts the oldest idle session when over max', () => {
     let now = 1_000;
     const store = new HttpSessionStore(2, 60_000, () => now);
@@ -215,5 +220,25 @@ describe('HttpSessionStore', () => {
       expect(write.mock.calls.some((call) => String(call[0]).includes('close failed'))).toBe(true);
     });
     write.mockRestore();
+  });
+
+  it('should write the failure to stderr and keep evicting when transport.close throws synchronously', () => {
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let now = 0;
+    const store = new HttpSessionStore<SessionTransport>(32, 1_000, () => now);
+    store.set('a', {
+      close: () => {
+        throw new Error('boom');
+      },
+    });
+    store.set('b', fakeTransport());
+
+    now = 1_001;
+    store.evict();
+
+    expect({ logged: write.mock.calls.map((call) => call[0]), b: store.get('b') }).toEqual({
+      logged: ['[mailoo] HTTP session close failed: boom\n'],
+      b: undefined,
+    });
   });
 });
