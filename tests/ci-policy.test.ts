@@ -1,22 +1,18 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { parse } from 'yaml';
 
 import { repoRoot } from './agents/agent-file.js';
+import { stamp } from './mcp-harness.js';
 import { unpinnedUses } from './workflow-scan.js';
 import {
   jobSections,
   jobSteps,
   onBlock,
-  refEnv,
-  releaseStep,
   releaseSteps,
   releaseYml,
   requireTools,
-  runBlock,
-  runStep,
   stepEnv,
   triggers,
   workflowDir,
@@ -192,23 +188,7 @@ describe('release version selection', () => {
     { event: 'tag push', ref: 'refs/tags/v1.4.2', inputVersion: '', version: '1.4.2' },
     { event: 'manual run', ref: 'refs/heads/develop', inputVersion: '2.0.0', version: '2.0.0' },
   ])('should hand the server.json stamp $version on a $event', ({ ref, inputVersion, version }) => {
-    const step = releaseStep(releaseYml, 'Set version in server.json');
-    const temp = mkdtempSync(join(tmpdir(), 'mailoo-server-json-step-'));
-    try {
-      mkdirSync(join(temp, 'scripts'));
-      writeFileSync(join(temp, 'scripts/bump-server-json-version.sh'), 'printf "%s\\n" "$1"\n');
-      const stamped = runStep(runBlock(step), temp, {
-        PATH: process.env.PATH,
-        ...refEnv(ref),
-        ...stepEnv(step, { 'inputs.version': inputVersion }),
-      });
-      expect({ status: stamped.status, stdout: stamped.stdout }).toEqual({
-        status: 0,
-        stdout: `${version}\n`,
-      });
-    } finally {
-      rmSync(temp, { recursive: true, force: true });
-    }
+    expect(stamp(ref, inputVersion)).toEqual({ status: 0, stdout: `${version}\n` });
   });
 
   it('should refuse a step env value the harness has no context for', () => {

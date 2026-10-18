@@ -4,53 +4,10 @@ import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
 import { changelogMd, swapOnce } from './changelog-fixture.js';
-import {
-  refEnv,
-  releaseJob,
-  releaseStep,
-  releaseYml,
-  requireTools,
-  runBlock,
-  runStep,
-  stepEnv,
-} from './workflow-yaml.js';
+import { releaseNotes } from './release-notes-harness.js';
+import { releaseJob, releaseStep, releaseYml, requireTools, runBlock } from './workflow-yaml.js';
 
 requireTools(['awk', 'bash']);
-
-interface ReleaseRun {
-  ref: string;
-  /** GitHub passes an absent workflow_dispatch input as an empty string, so a tag push gets ''. */
-  inputVersion?: string;
-  /** CHANGELOG.md text to run against instead of the real file; null runs it where there is none. */
-  changelog?: string | null;
-}
-
-/** Run the release-notes step with its own env wiring and return what it wrote. */
-function releaseNotes(run: ReleaseRun): string {
-  const step = releaseStep(releaseYml, 'Write release notes');
-  const temp = mkdtempSync(join(tmpdir(), 'mailoo-release-notes-'));
-  try {
-    if (typeof run.changelog === 'string') {
-      writeFileSync(join(temp, 'CHANGELOG.md'), run.changelog);
-    }
-    const { status, stderr } = runStep(
-      runBlock(step),
-      run.changelog === undefined ? repoRoot : temp,
-      {
-        PATH: process.env.PATH,
-        RUNNER_TEMP: temp,
-        ...refEnv(run.ref),
-        ...stepEnv(step, { 'inputs.version': run.inputVersion ?? '' }),
-      },
-    );
-    if (status !== 0) {
-      throw new Error(stderr);
-    }
-    return readFileSync(join(temp, 'release-notes.md'), 'utf8');
-  } finally {
-    rmSync(temp, { recursive: true, force: true });
-  }
-}
 
 /** Cut by string search, not by the awk in release.yml, so a wrong awk boundary fails the tests. */
 function changelogSection(tag: string): string {
