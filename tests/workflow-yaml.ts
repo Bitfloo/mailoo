@@ -87,8 +87,8 @@ function keyLines(yaml: string, key: string): string[] {
  * value, or an alias anywhere, which repeats keys the text readers see only at the anchor.
  * The regex reader and the parser must agree on every key: a key the runner reads in a form the
  * regex misses would carry a banned key past every check built on keyLines, so readKeyLines
- * refuses the whole text rather than read it without that key. No workflow writes a key in such
- * a form today.
+ * refuses the whole text rather than read it without that key. Anyone can open a pull request
+ * that edits a workflow, so the guard covers forms no workflow writes today.
  */
 export function unreadKeys(yaml: string): string[] {
   const lineCounter = new LineCounter();
@@ -250,8 +250,9 @@ export function requireTools(tools: string[], path = process.env.PATH ?? ''): vo
 }
 
 /**
- * One chunk per job, for the token roster, the job names and the step a harness runs. Throws unless
- * every job key in the block starts a chunk, so a key form it cannot split on does not hide a job.
+ * One chunk per job, for the token roster, the job names and the step a harness runs. It splits on
+ * plain job keys and throws unless every job key starts a chunk, so a quoted, commented or
+ * flow-style key does not hide a job.
  */
 export function jobSections(yaml: string): string[] {
   const parts = yaml.split(/^jobs:\n/m);
@@ -259,7 +260,7 @@ export function jobSections(yaml: string): string[] {
     throw new Error('missing jobs');
   }
   const keys = parts[1].match(/^ {2}[^\s#]/gm)?.length ?? 0;
-  const sections = parts[1].split(/\n(?= {2}(?:[\w-]+|"[^"\n]+"|'[^'\n]+'):[ \t]*(?:#.*)?\n)/);
+  const sections = parts[1].split(/\n(?= {2}[\w-]+:\n)/);
   if (sections.length !== keys) {
     throw new Error(`read ${sections.length} of ${keys} jobs`);
   }

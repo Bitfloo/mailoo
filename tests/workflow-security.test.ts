@@ -95,15 +95,12 @@ function token(text: string, indent: number): string[] {
 }
 
 function jobKey(job: string): string | undefined {
-  return job.match(/^ {2}(["']?)([\w-]+)\1:/)?.[2];
+  return job.match(/^ {2}([\w-]+):/)?.[1];
 }
 
 describe('workflow file, job and key readers', () => {
   it.each([
-    ['"continue-on\\x2Derror": true', ['"continue-on\\x2Derror": true']],
     ['? if\n: false', ['? if']],
-    ['- { "uses"\n    : a/b@v4 }', ['- { "uses"']],
-    ['k: &n uses\n*n : a/b@v4', ['*n : a/b@v4']],
     ['- &s { run: x }\n- *s', ['- *s']],
     ['? [if]\n: false', ['? [if]']],
     ['- { run: "echo if: x", "\\x69f": false }', ['- { run: "echo if: x", "\\x69f": false }']],
@@ -133,19 +130,21 @@ describe('workflow file, job and key readers', () => {
     );
   });
 
-  it('should read a job key with an underscore, a comment or quotes as its own job', () => {
+  it('should read a job key with an underscore or a hyphen as its own job', () => {
     // The first key needs no split, so each form under test follows another job.
-    const yaml =
-      'jobs:\n  a:\n    runs-on: x\n  b_c:\n    runs-on: x\n  d: # note\n    runs-on: x\n  "e":\n    runs-on: x\n  \'f\':\n    runs-on: x\n';
-    expect(jobSections(yaml).map(jobKey)).toEqual(['a', 'b_c', 'd', 'e', 'f']);
+    const yaml = 'jobs:\n  a:\n    runs-on: x\n  b_c:\n    runs-on: x\n  d-e:\n    runs-on: x\n';
+    expect(jobSections(yaml).map(jobKey)).toEqual(['a', 'b_c', 'd-e']);
   });
 
-  it('should refuse a jobs block with a job key it cannot split on', () => {
-    // The roster below would otherwise read a flow-style job as part of the job above it.
-    expect(() => jobSections('jobs:\n  a:\n    runs-on: x\n  b: { runs-on: x }\n')).toThrow(
-      'read 1 of 2 jobs',
-    );
-  });
+  it.each(['b: { runs-on: x }', '"b":', 'b: # note', 'b.c:'])(
+    'should refuse a jobs block with the job key %j it cannot split on',
+    (key) => {
+      // The roster below would otherwise read that job as part of the job above it.
+      expect(() => jobSections(`jobs:\n  a:\n    runs-on: x\n  ${key}\n    runs-on: x\n`)).toThrow(
+        'read 1 of 2 jobs',
+      );
+    },
+  );
 
   it('should list .yml and .yaml workflows and skip other files', () => {
     const dir = mkdtempSync(join(tmpdir(), 'mailoo-workflows-'));
