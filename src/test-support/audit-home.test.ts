@@ -141,6 +141,15 @@ describe('pinAuditHome', () => {
 });
 
 describe('readAuditEntries', () => {
+  it('should return no entries before the first audit write', async () => {
+    const home = await pinAuditHome();
+    try {
+      await expect(readAuditEntries(home)).resolves.toEqual([]);
+    } finally {
+      await home.restore();
+    }
+  });
+
   it('should rethrow a read error that is not ENOENT', async () => {
     const home = await pinAuditHome();
     try {
