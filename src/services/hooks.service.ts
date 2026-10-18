@@ -342,8 +342,8 @@ export default class HooksService {
       return false;
     }
 
-    // At least one match condition must be specified
-    return Boolean(match.from ?? match.to ?? match.subject);
+    // At least one condition must be non-empty: the checks above skip an empty pattern too
+    return [match.from, match.to, match.subject].some(Boolean);
   }
 
   private async applyStaticRule(email: BatchEmail, rule: HookRule): Promise<void> {

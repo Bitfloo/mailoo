@@ -72,6 +72,22 @@ describe('HooksService.matchStaticRules conditions', () => {
     expect(outcome.matched).toBe(true);
   });
 
+  it('should treat an empty from as no condition when the rule also names a subject', () => {
+    const outcome = HooksService.matchStaticRules(
+      { account: 'personal', mailbox: 'INBOX', meta: meta({ subject: 'Hello' }) },
+      [{ name: 'hello', match: { from: '', subject: 'Hello' }, actions: {} }],
+    );
+    expect(outcome.matched).toBe(true);
+  });
+
+  it('should not match a rule whose only condition is empty', () => {
+    const outcome = HooksService.matchStaticRules(
+      { account: 'personal', mailbox: 'INBOX', meta: meta() },
+      [{ name: 'blank', match: { from: '' }, actions: { flag: true } }],
+    );
+    expect(outcome.matched).toBe(false);
+  });
+
   it('should not match a to pattern when the mail has no recipients', () => {
     const outcome = HooksService.matchStaticRules(
       { account: 'personal', mailbox: 'INBOX', meta: meta({ to: [] }) },
