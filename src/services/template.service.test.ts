@@ -2,6 +2,7 @@ import type { PathLike } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { TEMPLATES_DIR } from '../config/xdg.js';
 import TemplateService from './template.service.js';
 
 const VALID_TEMPLATE = `name = "greeting"
@@ -236,6 +237,7 @@ describe('TemplateService', () => {
       'name = "n"\nsubject = "S"\nbody = "B"\nvariables = ["a", 3]\n',
     ],
     ['no body', 'name = "n"\nsubject = "S"\nvariables = []\n'],
+    ['no subject', 'name = "n"\nbody = "B"\nvariables = []\n'],
   ])('should skip a template with %s', async (_case, toml) => {
     await fs.writeFile(path.join(tempDir, 'greeting.toml'), VALID_TEMPLATE);
     await fs.writeFile(path.join(tempDir, 'broken.toml'), toml);
@@ -260,5 +262,32 @@ describe('TemplateService', () => {
     await expect(service.getTemplate('nope')).rejects.toThrow(
       'Template "nope" not found. Available: none',
     );
+  });
+
+  it('should not find a template by a prefix of its name', async () => {
+    await fs.writeFile(path.join(tempDir, 'greeting.toml'), VALID_TEMPLATE);
+
+    await expect(service.getTemplate('greet')).rejects.toThrow(
+      'Template "greet" not found. Available: greeting',
+    );
+  });
+
+  it('should read an edited template on the next call', async () => {
+    const file = path.join(tempDir, 'greeting.toml');
+    await fs.writeFile(file, VALID_TEMPLATE);
+    await service.applyTemplate('greeting', { name: 'Al' });
+    await fs.writeFile(file, VALID_TEMPLATE.replace('Hello {{name}}', 'Hi {{name}}'));
+
+    const { subject } = await service.applyTemplate('greeting', { name: 'Al' });
+
+    expect(subject).toBe('Hi Al');
+  });
+
+  it('should report the directory it reads templates from', () => {
+    expect(service.directory).toBe(tempDir);
+  });
+
+  it('should read templates from the config templates directory by default', () => {
+    expect(new TemplateService().directory).toBe(TEMPLATES_DIR);
   });
 });
