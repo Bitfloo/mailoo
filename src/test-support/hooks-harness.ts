@@ -60,8 +60,8 @@ export function mockImap(): MockImap {
   };
 }
 
-export async function flushHooks(emails: EmailMeta[], mailbox = 'INBOX'): Promise<void> {
-  eventBus.emit('email:new', { account: 'personal', mailbox, emails });
+export async function flushHooks(emails: EmailMeta[]): Promise<void> {
+  eventBus.emit('email:new', { account: 'personal', mailbox: 'INBOX', emails });
   await vi.advanceTimersByTimeAsync(1000);
 }
 
