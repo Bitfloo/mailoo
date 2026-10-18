@@ -113,7 +113,7 @@ describe('SchedulerService queue files', () => {
           body: 'Body',
           sendAt: daysFromNow(2),
         }),
-      ).rejects.toThrow(`(maximum ${MAX_PENDING_SCHEDULES})`);
+      ).rejects.toThrow(/^Too many scheduled emails \(maximum 100\)$/);
     } finally {
       await fs.rm(queueDir, { recursive: true, force: true });
     }
