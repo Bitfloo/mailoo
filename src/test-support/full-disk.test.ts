@@ -5,13 +5,20 @@ import path from 'node:path';
 import withFullDisk from './full-disk.js';
 
 describe('full disk helper', () => {
-  it('should fail when no write matched, so a test cannot pass on a disk that never filled', async () => {
-    await expect(
-      withFullDisk(
-        () => false,
-        async () => {},
-      ),
-    ).rejects.toThrow('no write matched the full-disk predicate');
+  it('should fail when the body writes but no write matched, so a test cannot pass on a disk that never filled', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailoo-full-disk-'));
+    try {
+      await expect(
+        withFullDisk(
+          () => false,
+          async () => {
+            await fs.writeFile(path.join(dir, 'record.json'), '{"id":"0123456789"}');
+          },
+        ),
+      ).rejects.toThrow('no write matched the full-disk predicate');
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 
   // A disk that rejects the whole write leaves no torn file, so the code's handling of a
