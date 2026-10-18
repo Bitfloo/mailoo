@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type { CommandRunner } from './scheduler.js';
-import { installCrontabLine, loadLaunchAgent, removeCrontabLine } from './scheduler.js';
+import { installCrontabLine, loadLaunchAgent, removeCrontabLine, runInstall } from './scheduler.js';
 
 const SRC = path.resolve('src');
 
@@ -210,6 +210,16 @@ describe('scheduler install commands', () => {
     expect(calls[1]?.args).toEqual(['-']);
     expect(calls[1]?.input).toBe('0 0 * * * /usr/bin/true\n');
     expect(calls[1]?.input).not.toContain('mailoo scheduler');
+  });
+
+  it('should install a crontab line that runs this node binary on this CLI script', async () => {
+    const { run, calls } = recordRunner();
+    await runInstall('linux', run, () => {});
+    const installed = calls[1]?.input?.split('\n')[1] ?? '';
+    const cli = process.argv[1] ?? 'mailoo';
+    expect(installed.split(' ').slice(5).join(' ')).toBe(
+      `${shQuote(process.execPath)} ${shQuote(cli)} scheduler check # mailoo scheduler`,
+    );
   });
 
   it.runIf(process.platform !== 'win32')(

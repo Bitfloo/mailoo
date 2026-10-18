@@ -213,26 +213,30 @@ async function runList(): Promise<void> {
   }
 }
 
-async function runInstall(): Promise<void> {
-  const platform = os.platform();
+/** `mailoo scheduler install`. A test passes the platform, a command runner and a line sink. */
+export async function runInstall(
+  platform: NodeJS.Platform = os.platform(),
+  run: CommandRunner = runCommandFile,
+  print: (line: string) => void = console.log,
+): Promise<void> {
   const execPath = getExecutablePath();
 
   if (platform === 'darwin') {
     // macOS: launchd plist
-    await loadLaunchAgent(LAUNCHD_PLIST, buildLaunchdPlist(process.execPath, execPath));
+    await loadLaunchAgent(LAUNCHD_PLIST, buildLaunchdPlist(process.execPath, execPath), run);
 
-    console.log('✅ Installed macOS launchd scheduler');
-    console.log(`   Plist: ${LAUNCHD_PLIST}`);
-    console.log(`   Runs every ${CHECK_INTERVAL_SECONDS} seconds`);
+    print('✅ Installed macOS launchd scheduler');
+    print(`   Plist: ${LAUNCHD_PLIST}`);
+    print(`   Runs every ${CHECK_INTERVAL_SECONDS} seconds`);
   } else if (platform === 'linux') {
     // Linux: crontab
-    if (!installCrontabLine(buildCronLine(process.execPath, execPath), CRONTAB_MARKER)) {
-      console.log('⚠️  Scheduler crontab entry already exists');
+    if (!installCrontabLine(buildCronLine(process.execPath, execPath), CRONTAB_MARKER, run)) {
+      print('⚠️  Scheduler crontab entry already exists');
       return;
     }
 
-    console.log('✅ Installed Linux crontab scheduler');
-    console.log(`   Runs every ${CHECK_INTERVAL_SECONDS} seconds`);
+    print('✅ Installed Linux crontab scheduler');
+    print(`   Runs every ${CHECK_INTERVAL_SECONDS} seconds`);
   } else {
     console.error(`❌ Unsupported platform: ${platform}`);
     console.error("   Manually run 'mailoo scheduler check' on a schedule.");
