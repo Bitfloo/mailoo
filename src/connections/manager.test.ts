@@ -68,7 +68,7 @@ describe('buildImapFlowOptions', () => {
     vi.mocked(mcpLog).mockClear();
   });
 
-  it('passes disableIMAP4rev2 through to ImapFlow', () => {
+  it('should pass disableIMAP4rev2 to ImapFlow when the account sets it', () => {
     const opts = buildImapFlowOptions(account) as {
       disableIMAP4rev2?: boolean;
       host?: string;
@@ -77,7 +77,7 @@ describe('buildImapFlowOptions', () => {
     expect(opts.host).toBe('imap.strato.de');
   });
 
-  it('keeps certificate verification on when verifySsl is omitted', () => {
+  it('should keep certificate verification on when verifySsl is omitted', () => {
     const imap = { ...account.imap };
     delete (imap as { verifySsl?: boolean }).verifySsl;
     const opts = buildImapFlowOptions({ ...account, imap }) as {
@@ -87,7 +87,7 @@ describe('buildImapFlowOptions', () => {
     expect(mcpLog).not.toHaveBeenCalled();
   });
 
-  it('does not let extra TLS options turn certificate verification off', () => {
+  it('should keep certificate verification on when extra TLS options turn it off', () => {
     const opts = buildImapFlowOptions(account, {
       tls: { rejectUnauthorized: false, servername: 'imap.example.com' },
     }) as { tls?: { rejectUnauthorized?: boolean; servername?: string } };
@@ -96,7 +96,7 @@ describe('buildImapFlowOptions', () => {
     expect(mcpLog).not.toHaveBeenCalled();
   });
 
-  it('disables certificate verification only when verifySsl is false and logs that', () => {
+  it('should disable certificate verification and log it when verifySsl is false', () => {
     const opts = buildImapFlowOptions({
       ...account,
       imap: { ...account.imap, verifySsl: false },
@@ -289,7 +289,7 @@ describe('ConnectionManager IMAP reconnect backoff', () => {
 });
 
 describe('ConnectionManager IMAP error', () => {
-  it('forgets the client on emit(error) and stays alive', async () => {
+  it('should forget the client and keep the process alive when the client emits error', async () => {
     const manager = new ConnectionManager([account]);
     const first = await manager.getImapClient('test');
     const exitCodeBefore = process.exitCode;

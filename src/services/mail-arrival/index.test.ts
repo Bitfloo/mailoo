@@ -42,7 +42,7 @@ describe('MailArrival.tryCreate', () => {
     vi.clearAllMocks();
   });
 
-  it('returns null when enabled is false', async () => {
+  it('should return null when enabled is false', async () => {
     const imap = mockImap();
     const result = await MailArrival.tryCreate({
       config: systemOneConfig({ enabled: false }),
@@ -55,7 +55,7 @@ describe('MailArrival.tryCreate', () => {
     expect(imap.listMailboxes).not.toHaveBeenCalled();
   });
 
-  it('returns null when apiKey is blank', async () => {
+  it('should return null when apiKey is blank', async () => {
     const imap = mockImap();
     const result = await MailArrival.tryCreate({
       config: systemOneConfig(),
@@ -67,7 +67,7 @@ describe('MailArrival.tryCreate', () => {
     expect(TypeSafeClientMock).not.toHaveBeenCalled();
   });
 
-  it('returns null on folder slug collision', async () => {
+  it('should return null when two folders share a slug', async () => {
     const imap = mockImap();
     const result = await MailArrival.tryCreate({
       config: systemOneConfig({
@@ -84,7 +84,7 @@ describe('MailArrival.tryCreate', () => {
     expect(TypeSafeClientMock).not.toHaveBeenCalled();
   });
 
-  it('returns an instance when folders[] is empty', async () => {
+  it('should return an instance when folders[] is empty', async () => {
     const imap = mockImap();
     const result = await MailArrival.tryCreate({
       config: systemOneConfig({ folders: [] }),
@@ -143,7 +143,7 @@ describe('MailArrival.handle', () => {
     }).toEqual({ attachmentLists: [['personal', '10', 'INBOX']], bodies: 0, wholeMessages: 0 });
   });
 
-  it('calls peekText when include_body is true and still never getEmail', async () => {
+  it('should read the text part but not the whole message when include_body is true', async () => {
     const imap = mockImap();
     imap.peekText.mockResolvedValue('plain body');
     const arrival = await MailArrival.tryCreate({
