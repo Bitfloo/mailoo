@@ -12,6 +12,7 @@ import { ZodError } from 'zod';
 
 import { loadConfig } from '../src/config/loader.js';
 import { AccountConfigSchema, OAuth2ConfigSchema } from '../src/config/schema.js';
+import OAuthService from '../src/services/oauth.service.js';
 import { repoRoot } from './agents/agent-file.js';
 
 interface EnvVar {
@@ -58,9 +59,18 @@ describe('server.json credential requirement', () => {
     );
   });
 
-  it('should say that the OAuth2 provider takes precedence over the password and needs the three OAuth2 values', () => {
+  // Only the connections the tools open use the OAuth2 service; the IDLE watcher
+  // and the standalone scheduler do not, so the listing promises no more than that.
+  it('should say that the tool connections sign in with OAuth2, what a provider needs, and that custom needs the config file', () => {
     expect(envVar('MCP_EMAIL_OAUTH2_PROVIDER').description).toBe(
-      'OAuth2 provider: google, microsoft, or custom. Takes precedence over MCP_EMAIL_PASSWORD. The OAuth2 client id, client secret, and refresh token are then required.',
+      'OAuth2 provider: google, microsoft, or custom. When set, the IMAP and SMTP connections that the MCP tools open sign in with OAuth2 instead of MCP_EMAIL_PASSWORD. The OAuth2 client id, client secret, and refresh token are then required. A custom provider also needs token_url and auth_url, which only the config file can set.',
+    );
+  });
+
+  // Only an unset variable falls back to the email address; an empty one is kept.
+  it('should say that the login username defaults to the email address only when unset', () => {
+    expect(envVar('MCP_EMAIL_USERNAME').description).toBe(
+      'Login username. Defaults to the email address when unset.',
     );
   });
 
@@ -69,6 +79,10 @@ describe('server.json credential requirement', () => {
       .exec(envVar('MCP_EMAIL_OAUTH2_PROVIDER').description)?.[1]
       ?.split(/, (?:or )?/);
     expect(named).toEqual(OAuth2ConfigSchema.shape.provider.options);
+  });
+
+  it('should accept exactly the google, microsoft and custom providers', () => {
+    expect(OAuth2ConfigSchema.shape.provider.options).toEqual(['google', 'microsoft', 'custom']);
   });
 
   it.each([
@@ -210,8 +224,9 @@ describe('MCP_EMAIL_* credential matrix', () => {
     refreshToken: 'env-refresh-token',
   };
   const NO_CONFIG = { refused: ['No configuration found.'] };
+  // Written out, so that a weaker refusal message cannot follow the schema unnoticed.
   const providerRefusal = (): string =>
-    `accounts.0.oauth2.provider: ${OAuth2ConfigSchema.shape.provider.safeParse('?').error?.issues[0]?.message}`;
+    'accounts.0.oauth2.provider: Invalid option: expected one of "google"|"microsoft"|"custom"';
   const fieldRefusal = (field: string): string =>
     `accounts.0.oauth2.${field}: OAuth2 ${field} is required`;
 
@@ -307,6 +322,22 @@ describe('MCP_EMAIL_* credential matrix', () => {
     );
   });
 
+  // The variables carry no token_url or auth_url, so a custom provider loads from
+  // them, but the token service cannot use it: custom needs the config file.
+  it('should load a custom MCP_EMAIL_OAUTH2_PROVIDER without endpoints, which the token service refuses', async () => {
+    stub(withOAuth2('custom'));
+    const block = (await loadConfig(join(repoRoot, 'no-such-config.toml'))).accounts[0]?.oauth2;
+    if (block === undefined) throw new Error('no OAuth2 block was loaded');
+    expect([block.provider, block.tokenUrl, block.authUrl]).toEqual([
+      'custom',
+      undefined,
+      undefined,
+    ]);
+    expect(() => OAuthService.getProviderEndpoints(block)).toThrow(
+      'Custom OAuth2 provider requires tokenUrl and authUrl',
+    );
+  });
+
   it.each(NO_VALUE)(
     'should load the password account with no OAuth2 when MCP_EMAIL_OAUTH2_PROVIDER is %s (%j)',
     async (_kind, provider) => {
@@ -332,6 +363,24 @@ describe('MCP_EMAIL_* credential matrix', () => {
     });
   });
 
+  it('should use MCP_EMAIL_USERNAME as the login user when it is set', async () => {
+    stub({ MCP_EMAIL_PASSWORD: 'app-password', MCP_EMAIL_USERNAME: 'login-user' });
+    const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
+    expect(config.accounts[0]?.username).toBe('login-user');
+  });
+
+  it('should use the email address as the login user when MCP_EMAIL_USERNAME is unset', async () => {
+    stub({ MCP_EMAIL_PASSWORD: 'app-password' });
+    const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
+    expect(config.accounts[0]?.username).toBe('owner@example.com');
+  });
+
+  it('should keep an empty MCP_EMAIL_USERNAME as the login user, not the email address', async () => {
+    stub({ MCP_EMAIL_PASSWORD: 'app-password', MCP_EMAIL_USERNAME: '' });
+    const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
+    expect(config.accounts[0]?.username).toBe('');
+  });
+
   it.each(eachField(NO_VALUE))(
     'should refuse to load when oauth2.%s is %s (%j), naming the field',
     async (field, _kind, value, _key, name) => {
@@ -352,7 +401,7 @@ describe('MCP_EMAIL_* credential matrix', () => {
   );
 });
 
-describe('MCP_EMAIL_* account with no credential', () => {
+describe('MCP_EMAIL_* account beside a config file', () => {
   let dir: string;
 
   beforeEach(async () => {
@@ -407,6 +456,31 @@ describe('MCP_EMAIL_* account with no credential', () => {
       expect(config.accounts.map((item) => item.email)).toEqual(['file@example.com']);
     });
   });
+
+  // With a credential, the environment describes the account and the file is not read.
+  describe.each([
+    ['a password', { MCP_EMAIL_PASSWORD: 'env-password' }],
+    [
+      'OAuth2 and no password',
+      {
+        MCP_EMAIL_OAUTH2_PROVIDER: 'google',
+        MCP_EMAIL_OAUTH2_CLIENT_ID: 'env-client-id',
+        MCP_EMAIL_OAUTH2_CLIENT_SECRET: 'env-client-secret',
+        MCP_EMAIL_OAUTH2_REFRESH_TOKEN: 'env-refresh-token',
+      },
+    ],
+  ])('with %s in the environment', (_label, vars: Record<string, string>) => {
+    beforeEach(() => {
+      Object.entries(vars).forEach(([name, value]) => {
+        vi.stubEnv(name, value);
+      });
+    });
+
+    it('should load the environment account, not the config file', async () => {
+      const config = await loadConfig(await writeConfig());
+      expect(config.accounts.map((item) => item.email)).toEqual(['env@example.com']);
+    });
+  });
 });
 
 describe('OAuth2 account from the config file', () => {
@@ -424,7 +498,7 @@ describe('OAuth2 account from the config file', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it('should map every OAuth2 field of a custom provider', async () => {
+  it('should map every OAuth2 field of a custom provider and hand its endpoints to the token service', async () => {
     const file = join(dir, 'config.toml');
     await writeFile(
       file,
@@ -460,6 +534,118 @@ describe('OAuth2 account from the config file', () => {
       tokenUrl: 'https://auth.example.com/token',
       authUrl: 'https://auth.example.com/authorize',
       scopes: ['mail', 'offline'],
+    });
+    const block = config.accounts[0]?.oauth2;
+    if (block === undefined) throw new Error('no OAuth2 block was loaded');
+    expect(OAuthService.getProviderEndpoints(block)).toEqual({
+      tokenUrl: 'https://auth.example.com/token',
+      authUrl: 'https://auth.example.com/authorize',
+      scopes: ['mail', 'offline'],
+    });
+  });
+});
+
+/**
+ * Empty and blank credential values in the config file, through loadConfig. TOML
+ * gives the schema the values as written, with the same rule as the environment.
+ */
+describe('credential values in the config file', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    server.packages[0]?.environmentVariables.forEach((item) => {
+      vi.stubEnv(item.name, undefined);
+    });
+    dir = await mkdtemp(join(tmpdir(), 'credential-facts-'));
+  });
+
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const OAUTH2_LINES = [
+    '[accounts.oauth2]',
+    'provider = "google"',
+    'client_id = "file-id"',
+    'client_secret = "file-secret"',
+    'refresh_token = "file-refresh"',
+    '',
+  ];
+  const loadedFile = async (password: string, oauth2Lines: string[]): Promise<Outcome> => {
+    const file = join(dir, 'config.toml');
+    await writeFile(
+      file,
+      [
+        '[[accounts]]',
+        'name = "file"',
+        'email = "file@example.com"',
+        `password = ${JSON.stringify(password)}`,
+        '',
+        ...oauth2Lines,
+        '[accounts.imap]',
+        'host = "imap.example.com"',
+        '',
+        '[accounts.smtp]',
+        'host = "smtp.example.com"',
+        '',
+      ].join('\n'),
+      { mode: 0o600 },
+    );
+    try {
+      const config = await loadConfig(file);
+      return { password: config.accounts[0]?.password, oauth2: config.accounts[0]?.oauth2 };
+    } catch (error) {
+      if (!(error instanceof ZodError)) throw error;
+      return { refused: error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`) };
+    }
+  };
+  const fileOAuth2 = {
+    provider: 'google',
+    clientId: 'file-id',
+    clientSecret: 'file-secret',
+    refreshToken: 'file-refresh',
+  };
+
+  it('should load an empty password beside an OAuth2 block, keeping both as written', async () => {
+    expect(await loadedFile('', OAUTH2_LINES)).toEqual({ password: '', oauth2: fileOAuth2 });
+  });
+
+  it('should keep a blank password beside an OAuth2 block as written', async () => {
+    expect(await loadedFile('   ', OAUTH2_LINES)).toEqual({ password: '   ', oauth2: fileOAuth2 });
+  });
+
+  it('should load a blank password without OAuth2 as written, not trimmed', async () => {
+    expect(await loadedFile('   ', [])).toEqual({ password: '   ', oauth2: undefined });
+  });
+
+  it('should keep an empty username from the file as the login user, not the email address', async () => {
+    const file = join(dir, 'config.toml');
+    await writeFile(
+      file,
+      [
+        '[[accounts]]',
+        'name = "file"',
+        'email = "file@example.com"',
+        'username = ""',
+        'password = "file-password"',
+        '',
+        '[accounts.imap]',
+        'host = "imap.example.com"',
+        '',
+        '[accounts.smtp]',
+        'host = "smtp.example.com"',
+        '',
+      ].join('\n'),
+      { mode: 0o600 },
+    );
+    const config = await loadConfig(file);
+    expect(config.accounts[0]?.username).toBe('');
+  });
+
+  it('should refuse an empty password without OAuth2, naming the missing credential', async () => {
+    expect(await loadedFile('', [])).toEqual({
+      refused: ['accounts.0: Either password or oauth2 config is required'],
     });
   });
 });
