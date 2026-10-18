@@ -296,22 +296,40 @@ Commands:
   status     Show scheduler installation status
 `.trim();
 
-export default async function runSchedulerCommand(subcommand?: string): Promise<void> {
+/** What each `mailoo scheduler` subcommand runs. A test passes recorders. */
+export type SchedulerCommands = Record<
+  'check' | 'list' | 'install' | 'uninstall' | 'status',
+  () => Promise<void>
+>;
+
+// Each runs with its defaults: the user's config, queue, platform and console.
+export const SCHEDULER_COMMANDS: SchedulerCommands = {
+  check: runCheck,
+  list: runList,
+  install: runInstall,
+  uninstall: runUninstall,
+  status: runStatus,
+};
+
+export default async function runSchedulerCommand(
+  subcommand?: string,
+  commands: SchedulerCommands = SCHEDULER_COMMANDS,
+): Promise<void> {
   switch (subcommand) {
     case 'check':
-      await runCheck();
+      await commands.check();
       break;
     case 'list':
-      await runList();
+      await commands.list();
       break;
     case 'install':
-      await runInstall();
+      await commands.install();
       break;
     case 'uninstall':
-      await runUninstall();
+      await commands.uninstall();
       break;
     case 'status':
-      await runStatus();
+      await commands.status();
       break;
     case 'help':
     case '--help':

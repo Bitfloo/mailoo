@@ -1,6 +1,16 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import type { SchedulerCommands } from './scheduler.js';
+import runSchedulerCommand, {
+  runCheck,
+  runInstall,
+  runList,
+  runStatus,
+  runUninstall,
+  SCHEDULER_COMMANDS,
+} from './scheduler.js';
+
 const SRC = path.resolve('src');
 
 const CHILD_PROCESS_NAMES = new Set(['execFile', 'execFileSync', 'spawn', 'spawnSync']);
@@ -107,5 +117,78 @@ describe('shell commands in production code', () => {
     );
     const hits = texts.flatMap(({ file, text }) => shellHits(file, text));
     expect(hits).toEqual([]);
+  });
+});
+
+function recordedCommands(): { commands: SchedulerCommands; ran: string[] } {
+  const ran: string[] = [];
+  const record = (name: string) => async () => {
+    ran.push(name);
+  };
+  const commands = {
+    check: record('check'),
+    list: record('list'),
+    install: record('install'),
+    uninstall: record('uninstall'),
+    status: record('status'),
+  };
+  return { commands, ran };
+}
+
+/** Runs the router with console output captured; the help names a command at two-space indent. */
+async function route(subcommand: string | undefined): Promise<{
+  ran: string[];
+  helpNames: string[];
+  stderr: unknown[];
+}> {
+  const { commands, ran } = recordedCommands();
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    await runSchedulerCommand(subcommand, commands);
+    const printed = log.mock.calls.flat().join('\n');
+    const helpNames = [...printed.matchAll(/^ {2}(\S+)/gm)].map((match) => match[1] ?? '');
+    return { ran, helpNames, stderr: error.mock.calls.flat() };
+  } finally {
+    log.mockRestore();
+    error.mockRestore();
+  }
+}
+
+describe('scheduler subcommand router', () => {
+  it('should run each subcommand through its exported run function by default', () => {
+    expect(SCHEDULER_COMMANDS).toEqual({
+      check: runCheck,
+      list: runList,
+      install: runInstall,
+      uninstall: runUninstall,
+      status: runStatus,
+    });
+  });
+
+  it('should run the command each subcommand names', async () => {
+    const { commands, ran } = recordedCommands();
+    const names = Object.keys(commands);
+    await Promise.all(names.map(async (name) => runSchedulerCommand(name, commands)));
+    expect(ran).toEqual(names);
+  });
+
+  it.each([undefined, 'help', '--help'])(
+    'should print the help naming every subcommand and run nothing for %s',
+    async (subcommand) => {
+      expect(await route(subcommand)).toEqual({
+        ran: [],
+        helpNames: Object.keys(recordedCommands().commands),
+        stderr: [],
+      });
+    },
+  );
+
+  it('should name an unknown subcommand on stderr, print the help and run nothing', async () => {
+    expect(await route('bogus')).toEqual({
+      ran: [],
+      helpNames: Object.keys(recordedCommands().commands),
+      stderr: ['Unknown scheduler command: bogus\n'],
+    });
   });
 });
