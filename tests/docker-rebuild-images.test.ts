@@ -10,6 +10,7 @@ import { jobSteps, releaseStep, runBlock, runStep, workflowDir } from './workflo
 interface GoreleaserImage {
   id: string;
   dockerfile: string;
+  images: string[];
   platforms: string[];
   tags: string[];
 }
@@ -62,8 +63,11 @@ function meta(manifest: object) {
   }
 }
 
+/** The image repository the rebuild tags, as the meta step rows below expect it. */
+const repository = 'ghcr.io/bitfloo/mailoo';
+
 function images(...tags: string[]): string {
-  return tags.map((tag) => `ghcr.io/bitfloo/mailoo:${tag}`).join(',');
+  return tags.map((tag) => `${repository}:${tag}`).join(',');
 }
 
 describe('docker rebuild images', () => {
@@ -163,6 +167,22 @@ describe('docker rebuild images', () => {
       status: 1,
       stderr: 'package.json version is empty\n',
       outputs: {},
+    });
+  });
+
+  it('should push the release and SHA images to the repository the rebuild tags', () => {
+    // An image pushed anywhere else would sit beside the release tags instead of replacing them.
+    const shaYml = readFileSync(join(workflowDir, 'docker-sha.yml'), 'utf8');
+    const shaRepositories = Object.values(jobSteps(shaYml))
+      .flat()
+      .filter((step) => step.uses?.startsWith('docker/build-push-action@'))
+      .map((step) => String(step.with?.tags).split(':')[0]);
+    expect({
+      release: goreleaserImages.map((image) => image.images),
+      sha: shaRepositories,
+    }).toEqual({
+      release: [[repository], [repository]],
+      sha: [repository],
     });
   });
 
