@@ -215,3 +215,13 @@ describe('dependabot groups', () => {
     );
   });
 });
+
+// Dependabot and the dependency graph read the first YAML document only. A pnpm-lock.yaml that
+// opens with pnpm's own env lock shows them pnpm alone, and every alert closes without a word.
+describe('pnpm lockfile Dependabot can read', () => {
+  it('should keep pnpm-lock.yaml one YAML document', () => {
+    const lockfile = readFileSync(join(repoRoot, 'pnpm-lock.yaml'), 'utf8');
+    expect(lockfile.match(/^---$/gm) ?? []).toEqual([]);
+    expect(lockfile).toMatch(/^importers:\n\n {2}\.:\n {4}dependencies:/m);
+  });
+});

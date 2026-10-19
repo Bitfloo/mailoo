@@ -7,7 +7,10 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-export default function registerComposePrompts(server: McpServer): void {
+export default function registerComposePrompts(
+  server: McpServer,
+  tools: ReadonlySet<string>,
+): void {
   // ---------------------------------------------------------------------------
   // compose_reply
   // ---------------------------------------------------------------------------
@@ -42,7 +45,11 @@ export default function registerComposePrompts(server: McpServer): void {
 
 Follow these steps:
 1. Call get_email with account="${account}", emailId="${emailId}", mailbox="${mailbox}" to read the original email.
-2. If the email has an inReplyTo or references, optionally call get_thread to understand the full conversation context.
+${
+  tools.has('get_thread')
+    ? '2. If the email has an inReplyTo or references, optionally call get_thread to understand the full conversation context.'
+    : '2. If the email quotes earlier messages, use them for the context of the conversation.'
+}
 3. Draft a reply with:
    - **Intent:** ${intent}
    - **Tone:** ${tone}
@@ -64,9 +71,7 @@ Output the draft in this format:
 ---
 
 **Actions:**
-- To send this reply, call reply_email with the appropriate parameters.
-- To save as draft first, call save_draft.
-- If you'd like me to adjust the tone or content, let me know.`,
+${tools.has('reply_email') ? '- To send this reply, call reply_email with the appropriate parameters.\n' : ''}${tools.has('save_draft') ? '- To save as draft first, call save_draft.\n' : ''}- If you'd like me to adjust the tone or content, let me know.`,
           },
         },
       ],
@@ -130,9 +135,7 @@ Output the draft in this format:
 - [Brief note about which past emails were referenced, if any]
 
 **Actions:**
-- To send: call send_email with the draft content.
-- To save as draft: call save_draft.
-- To adjust: let me know what to change.`,
+${tools.has('send_email') ? '- To send: call send_email with the draft content.\n' : ''}${tools.has('save_draft') ? '- To save as draft: call save_draft.\n' : ''}- To adjust: let me know what to change.`,
           },
         },
       ],

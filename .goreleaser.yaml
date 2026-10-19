@@ -13,6 +13,7 @@ dockers_v2:
       - src/
       - package.json
       - pnpm-lock.yaml
+      - pnpm-workspace.yaml
       - tsconfig.build.json
       - tsconfig.json
       - biome.json
@@ -58,6 +59,7 @@ dockers_v2:
       - src/
       - package.json
       - pnpm-lock.yaml
+      - pnpm-workspace.yaml
       - tsconfig.build.json
       - tsconfig.json
       - biome.json

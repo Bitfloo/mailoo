@@ -10,7 +10,7 @@ RUN npm ci --ignore-scripts \
 WORKDIR /app
 
 # Install dependencies (layer cached unless lock changes)
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # Build TypeScript

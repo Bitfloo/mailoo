@@ -1,7 +1,9 @@
 /**
  * Prompt registration — single wiring point.
  *
- * Registers all MCP prompts with the server instance.
+ * Registers the MCP prompts the registered tools can carry out. A prompt that
+ * names a tool the toolset profile or read_only left out sends the model after
+ * a tool it cannot call, so it is left out or drops that step.
  */
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -12,11 +14,11 @@ import registerComposePrompts from './compose.prompt.js';
 import registerThreadPrompt from './thread.prompt.js';
 import registerTriagePrompt from './triage.prompt.js';
 
-export default function registerAllPrompts(server: McpServer): void {
+export default function registerAllPrompts(server: McpServer, tools: ReadonlySet<string>): void {
   registerTriagePrompt(server);
-  registerThreadPrompt(server);
-  registerComposePrompts(server);
+  if (tools.has('get_thread')) registerThreadPrompt(server);
+  registerComposePrompts(server, tools);
   registerActionsPrompt(server);
-  registerCalendarPrompt(server);
-  registerCleanupPrompt(server);
+  if (tools.has('extract_calendar')) registerCalendarPrompt(server);
+  registerCleanupPrompt(server, tools);
 }

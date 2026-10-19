@@ -9,7 +9,7 @@
 
 ![Mailoo Architecture](https://raw.githubusercontent.com/Bitfloo/mailoo/develop/docs/assets/mailoo-architecture.svg)
 
-Enables AI assistants and autonomous agents to read, search, send, manage, schedule, and analyze emails, calendars, Reminders, and ManageSieve filter scripts across multiple accounts. Exposes up to 57 tools (with `full`, `core`, and `minimal` toolset profiles), 7 prompts, and 6 resources over the MCP 2025/2026 protocol with `outputSchema` / `structuredContent`, OAuth2 support _(experimental)_, email scheduling, calendar extraction, analytics, provider-aware label management, real-time IMAP IDLE watcher with AI-powered triage, customizable presets and static rules, ManageSieve filters, and a guided setup wizard.
+Enables AI assistants and autonomous agents to read, search, send, manage, schedule, and analyze emails, calendars, Reminders, and ManageSieve filter scripts across multiple accounts. Exposes up to 57 tools (with `full`, `core`, and `minimal` toolset profiles), up to 7 prompts, and 6 resources over the MCP 2025/2026 protocol with `outputSchema` / `structuredContent`, OAuth2 support _(experimental)_, email scheduling, calendar extraction, analytics, provider-aware label management, real-time IMAP IDLE watcher with AI-powered triage, customizable presets and static rules, ManageSieve filters, and a guided setup wizard.
 
 Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, read-only side effects, and reconnect backoff is documented in [`docs/configuration.md`](docs/configuration.md) and [`docs/tools.md`](docs/tools.md).
 
@@ -127,7 +127,7 @@ pnpm dlx @bitfloo/mailoo account add
 
 ### From a clone
 
-Building this repository needs [pnpm](https://pnpm.io) 10 (the `packageManager` version in `package.json`):
+Building this repository needs [pnpm](https://pnpm.io) 12 (the `packageManager` version in `package.json`):
 
 ```bash
 git clone https://github.com/Bitfloo/mailoo.git
@@ -939,6 +939,8 @@ Single-account setup reads `MCP_EMAIL_*` (`src/config/loader.ts`). HTTP listens 
 Parameter-level notes for the tools above: [docs/tools.md](docs/tools.md).
 
 ### Prompts (7)
+
+A prompt is listed only when the toolset registers the tools it calls: `summarize_thread` needs `core` or `full`, and `summarize_meetings` needs `full`. Where a send, draft, or bulk tool is missing (`minimal`, `read_only`), the prompt leaves that step out.
 
 | Prompt | Description |
 |--------|-------------|
