@@ -56,6 +56,19 @@ describe('account schema credential', () => {
     ]);
   });
 
+  // The env loader hands the schema an explicit `oauth2: undefined`, so the key alone must not count.
+  it('should reject an account whose oauth2 key is present but undefined, naming the missing credential', () => {
+    for (const input of [
+      { ...account, oauth2: undefined },
+      { ...account, password: '', oauth2: undefined },
+    ]) {
+      const issues = AccountConfigSchema.safeParse(input).error?.issues ?? [];
+      expect(issues.map((issue) => issue.message)).toEqual([
+        'Either password or oauth2 config is required',
+      ]);
+    }
+  });
+
   // The rest of the account block, beside the credential: each field is refused at its own path.
   it.each([
     ['an empty name', { name: '' }, 'name: Account name is required'],
