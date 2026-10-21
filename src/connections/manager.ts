@@ -259,7 +259,7 @@ export default class ConnectionManager implements IConnectionManager {
       await connecting.connect();
     } catch (err) {
       this.backoff.recordFailure('IMAP', resolvedName, asError(err));
-      // imapflow leaves the socket open when the server rejects LOGIN.
+      // imapflow closes a failed connect itself, but only on the next tick.
       try {
         client?.close();
       } catch {

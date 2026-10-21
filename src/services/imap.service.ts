@@ -690,8 +690,9 @@ export default class ImapService {
           name: mb.name,
           path: mb.path,
           specialUse: mb.specialUse ?? undefined,
-          totalMessages: status.messages ?? 0,
-          unseenMessages: status.unseen ?? 0,
+          // imapflow resolves false when the server refuses STATUS for a folder it lists.
+          totalMessages: status ? (status.messages ?? 0) : 0,
+          unseenMessages: status ? (status.unseen ?? 0) : 0,
         };
       }),
     );
@@ -2154,10 +2155,7 @@ export default class ImapService {
     const client = await this.connections.getImapClient(accountName);
     try {
       const quota = await client.getQuota('INBOX');
-      // imapflow reports bytes in storage.usage; its type declaration names the field `used`.
-      const storage = quota
-        ? (quota.storage as { usage?: number; limit?: number } | undefined)
-        : undefined;
+      const storage = quota ? quota.storage : undefined;
       if (!storage?.limit) return null;
 
       const usedMb = Math.round((storage.usage ?? 0) / 1024 / 1024);

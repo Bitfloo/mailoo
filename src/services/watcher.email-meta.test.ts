@@ -45,6 +45,18 @@ describe('buildEmailMeta', () => {
     });
   });
 
+  it('should date a message whose Date header imapflow could not parse when it was seen', () => {
+    // imapflow yields the raw header text instead of a Date when the header does not parse.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
+    try {
+      const envelope = { ...fetched.envelope, date: 'Thursday, sometime last week' };
+      expect(buildEmailMeta({ ...fetched, envelope }).date).toBe('2028-01-15T00:00:00.000Z');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("should name a message without a subject '(no subject)'", () => {
     const { subject, ...envelope } = fetched.envelope ?? {};
     expect(buildEmailMeta({ ...fetched, envelope }).subject).toBe('(no subject)');

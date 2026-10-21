@@ -66,7 +66,8 @@ export interface WatcherFetchMessage {
     subject?: string;
     from?: { name?: string; address?: string }[];
     to?: { name?: string; address?: string }[];
-    date?: Date;
+    /** imapflow keeps the header text when it cannot parse the Date header. */
+    date?: Date | string;
     messageId?: string;
   };
   bodyStructure?: unknown;
@@ -85,13 +86,14 @@ export function buildEmailMeta(msg: WatcherFetchMessage): EmailMeta {
 
   const from = msg.envelope?.from?.[0];
   const to = msg.envelope?.to ?? [];
+  const date = msg.envelope?.date instanceof Date ? msg.envelope.date : new Date();
 
   return {
     id: String(msg.uid),
     subject: msg.envelope?.subject ?? '(no subject)',
     from: { name: from?.name, address: from?.address ?? '' },
     to: to.map((a) => ({ name: a.name, address: a.address ?? '' })),
-    date: msg.envelope?.date?.toISOString() ?? new Date().toISOString(),
+    date: date.toISOString(),
     seen: flags.has('\\Seen'),
     flagged: flags.has('\\Flagged'),
     answered: flags.has('\\Answered'),
@@ -267,7 +269,7 @@ export default class WatcherService {
         this.handleNewEmails(key).catch(() => {});
       }
     } catch (err) {
-      // imapflow leaves the socket open when LOGIN or SELECT is refused.
+      // imapflow leaves the socket open when SELECT is refused.
       if (client) closeQuietly(client);
       const errMsg = err instanceof Error ? err.message : String(err);
       await mcpLog(
