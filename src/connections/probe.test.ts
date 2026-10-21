@@ -12,6 +12,8 @@ const h = vi.hoisted(() => ({
   verifyError: null as Error | null,
   // Folders whose STATUS the server refuses, as for a mailbox that does not exist.
   missing: new Set<string>(),
+  // Folders LIST still shows whose STATUS the server refuses: imapflow 2 resolves false for them.
+  refused: new Set<string>(),
   logout: vi.fn(async () => {}),
   close: vi.fn(),
 }));
@@ -46,10 +48,11 @@ vi.mock('imapflow', async () => {
       }
 
       // eslint-disable-next-line class-methods-use-this
-      async status(path: string): Promise<{ messages: number }> {
+      async status(path: string): Promise<{ messages: number } | false> {
         if (h.missing.has(path)) {
           throw Object.assign(new Error('Command failed'), { serverResponseCode: 'NONEXISTENT' });
         }
+        if (h.refused.has(path)) return false;
         return { messages: path === 'INBOX' ? 12 : 1834 };
       }
 
@@ -88,6 +91,7 @@ beforeEach(() => {
   h.uncaught = [];
   h.verifyError = null;
   h.missing.clear();
+  h.refused.clear();
   h.logout.mockClear();
   h.close.mockClear();
 });
@@ -127,6 +131,15 @@ describe('testImap', () => {
   it('should report success with no message count when no folder answers STATUS', async () => {
     h.missing.add('INBOX');
     h.missing.add('[Gmail]/All Mail');
+    expect(await testImap(account)).toEqual({
+      success: true,
+      details: { messages: 0, folders: 2 },
+    });
+  });
+
+  // A false answer means INBOX exists, so the first-folder fallback for a missing INBOX stays out.
+  it('should report no message count when STATUS on INBOX resolves false', async () => {
+    h.refused.add('INBOX');
     expect(await testImap(account)).toEqual({
       success: true,
       details: { messages: 0, folders: 2 },
