@@ -206,6 +206,12 @@ function assertKeywordLabel(label: string): void {
   if (label.startsWith('\\')) {
     throw new Error('System flags are not labels; use mark_email.');
   }
+  // Any other non-atom is dropped by imapflow before STORE, which would read as a server refusal.
+  if (!/^[\x21-\x7E]+$/.test(label) || /[(){%*"\\\]]/.test(label)) {
+    throw new Error(
+      'IMAP keywords cannot contain spaces, non-ASCII characters or ( ) { % * " \\ ].',
+    );
+  }
 }
 
 function createKeywordStrategy(): LabelStrategy {
