@@ -749,6 +749,66 @@ const LONE_SURROGATE: SentSecrets = {
   ],
 };
 
+/**
+ * Every regex syntax character, a trailing backslash and an unmatched `)` among them. Built into a
+ * pattern unescaped they match something else, or throw an error that quotes the secret.
+ */
+const REGEX_SYNTAX: SentSecrets = {
+  client: 'GOCSPX-a^b$c.d*e+f?g(h)i[j]k{2}m|n\\',
+  grant: '1//0)p(q]r[s}t{u',
+  reshaped: [
+    'GOCSPX-a^b$c.d*e+f?g(h)i[j]k{2}m|n',
+    'GOCSPX-a%5Eb%24c.d*e%2Bf%3Fg%28h%29i%5Bj%5Dk%7B2%7Dm%7Cn%5C',
+    'GOCSPX-a%5Eb%24c.d*e%2Bf%3Fg(h)i%5Bj%5Dk%7B2%7Dm%7Cn%5C',
+    '1%2F%2F0%29p%28q%5Dr%5Bs%7Dt%7Bu',
+    '1%2F%2F0)p(q%5Dr%5Bs%7Dt%7Bu',
+  ],
+};
+
+/**
+ * Each hex letter A to F stands in some escape, and an echo can write it in either case: `%2F`
+ * `%2B` `%7E` `%3D`, `%C3%BF` for `ÿ`, `%C3%A9` for `é`. A form body escapes `~`, a URL keeps it.
+ */
+const CASED_ESCAPES: SentSecrets = {
+  client: 'GOCSPX-sec/ret+1~=ÿé',
+  grant: '1//0gAb+c/De~ÿ',
+  reshaped: [
+    'GOCSPX-sec/ret+1~=',
+    'GOCSPX-sec%2Fret%2B1%7E%3D%C3%BF%C3%A9',
+    'GOCSPX-sec%2Fret%2B1~%3D%C3%BF%C3%A9',
+    'GOCSPX-sec%2fret%2b1%7e%3d%c3%bf%c3%a9',
+    'GOCSPX-sec%2fret%2b1~%3d%c3%bf%c3%a9',
+    'GOCSPX-sec%2fret%2b1%7e%3d%C3%Bf%C3%A9',
+    'GOCSPX-sec%2fret%2b1~%3d%C3%Bf%C3%A9',
+    '1//0gAb+c/De~',
+    '1%2F%2F0gAb%2Bc%2FDe%7E%C3%BF',
+    '1%2F%2F0gAb%2Bc%2FDe~%C3%BF',
+    '1%2f%2f0gAb%2bc%2fDe%7e%c3%bf',
+    '1%2f%2f0gAb%2bc%2fDe~%c3%bf',
+    '1%2f%2f0gAb%2bc%2fDe%7e%C3%Bf',
+    '1%2f%2f0gAb%2bc%2fDe~%C3%Bf',
+  ],
+};
+
+function lowercaseEscapes(encoded: string): string {
+  return encoded.replace(/%[0-9A-F]{2}/g, (escaped) => escaped.toLowerCase());
+}
+
+/** The second hex digit lowercased: `%2f` beside `%C3`, and `%Bf` mixes case inside one escape. */
+function mixedCaseEscapes(encoded: string): string {
+  return encoded.replace(
+    /(%[0-9A-F])([0-9A-F])/g,
+    (_, head: string, low: string) => `${head}${low.toLowerCase()}`,
+  );
+}
+
+function swapCase(text: string): string {
+  return text.replace(/[a-z]/gi, (letter) => {
+    const lower = letter.toLowerCase();
+    return letter === lower ? letter.toUpperCase() : lower;
+  });
+}
+
 let grantSeq = 0;
 
 /**
@@ -857,6 +917,44 @@ const ECHOES: Echo[] = [
     kept: () => 'bad form client_secret=[redacted]&grant=[redacted]',
   },
   {
+    name: 'URL-encoded with lowercase escapes',
+    secrets: CASED_ESCAPES,
+    echo: ({ client, grant }) =>
+      lowercaseEscapes(
+        `retry at /authorize?secret=${encodeURIComponent(client)}&grant=${encodeURIComponent(grant)}`,
+      ),
+    kept: () => 'retry at /authorize?secret=[redacted]&grant=[redacted]',
+  },
+  {
+    name: 'URL-encoded with mixed-case escapes',
+    secrets: CASED_ESCAPES,
+    echo: ({ client, grant }) =>
+      mixedCaseEscapes(
+        `retry at /authorize?secret=${encodeURIComponent(client)}&grant=${encodeURIComponent(grant)}`,
+      ),
+    kept: () => 'retry at /authorize?secret=[redacted]&grant=[redacted]',
+  },
+  {
+    name: 'form-encoded with lowercase escapes',
+    secrets: CASED_ESCAPES,
+    echo: ({ client, grant }) =>
+      `bad form ${lowercaseEscapes(new URLSearchParams({ client_secret: client, grant }).toString())}`,
+    kept: () => 'bad form client_secret=[redacted]&grant=[redacted]',
+  },
+  {
+    name: 'form-encoded with mixed-case escapes',
+    secrets: CASED_ESCAPES,
+    echo: ({ client, grant }) =>
+      `bad form ${mixedCaseEscapes(new URLSearchParams({ client_secret: client, grant }).toString())}`,
+    kept: () => 'bad form client_secret=[redacted]&grant=[redacted]',
+  },
+  {
+    name: 'secrets made of regex syntax',
+    secrets: REGEX_SYNTAX,
+    echo: ({ client, grant }) => `grant ${grant} of ${client} revoked`,
+    kept: () => 'grant [redacted] of [redacted] revoked',
+  },
+  {
     name: 'a secret that starts with the other',
     secrets: NESTED,
     echo: ({ grant }) => `grant ${grant} revoked`,
@@ -878,6 +976,42 @@ const ECHOES: Echo[] = [
 ];
 
 const ECHO_CASES = ECHOES.flatMap((echo) => ECHO_FIELDS.map((field) => ({ ...echo, ...field })));
+
+/**
+ * Near misses: only an escape's hex digits match in either case, and nothing else matches loosely.
+ * These were never sent, so they stay.
+ */
+const UNSENT_ECHOES: {
+  name: string;
+  secrets: SentSecrets;
+  echo: (sent: { client: string; grant: string }) => string;
+}[] = [
+  {
+    name: 'the grant in swapped case',
+    secrets: PLAIN,
+    echo: ({ grant }) => swapCase(grant),
+  },
+  {
+    name: 'the URL-encoded grant in swapped case',
+    secrets: PLAIN,
+    echo: ({ grant }) => swapCase(encodeURIComponent(grant)),
+  },
+  {
+    name: 'hex letters after an escape lowered',
+    secrets: { ...PLAIN, client: 'GOCSPX-9/CAFE' },
+    echo: ({ client }) => encodeURIComponent(client).replace('CAFE', 'cafe'),
+  },
+  {
+    name: 'the client with a colon for its dot',
+    secrets: { ...PLAIN, client: 'GOCSPX-q7.Lw2Rt9' },
+    echo: ({ client }) => client.replace('.', ':'),
+  },
+  {
+    name: 'a literal %2F in the client as %2f',
+    secrets: { ...PLAIN, client: 'GOCSPX-q7%2Fw2Rt9' },
+    echo: ({ client }) => client.replace('%2F', '%2f'),
+  },
+];
 
 describe.each(ECHOING_FLOWS)(
   'OAuthService $action when the refusal echoes the secrets the request sent',
@@ -958,6 +1092,19 @@ describe.each(ECHOING_FLOWS)(
         leaked: [],
       });
     });
+
+    it.each(UNSENT_ECHOES)(
+      'should keep $name as echoed in the error_description',
+      async ({ secrets: fixture, echo }) => {
+        const { error, secrets } = await refusedEchoing(fixture, (sent) => ({
+          error: 'invalid_grant',
+          error_description: `token ${echo(sent)} refused`,
+        }));
+        expect(error.message).toBe(
+          `${failed} (400): invalid_grant: token ${echo(secrets)} refused`,
+        );
+      },
+    );
 
     it.each([
       { name: 'empty', client: '' },

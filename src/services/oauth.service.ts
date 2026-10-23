@@ -59,37 +59,51 @@ function dropOutsideCharset(value: string): string {
   return value.replace(OUTSIDE_ERROR_CHARSET, '');
 }
 
+function exactPattern(text: string): string {
+  return text.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+}
+
+function hexDigitsInEitherCase(escaped: string): string {
+  return escaped.replace(/[A-F]/g, (digit) => `[${digit}${digit.toLowerCase()}]`);
+}
+
+function encodedPattern(encoded: string): string {
+  return exactPattern(encoded).replace(/%[0-9A-F]{2}/g, hexDigitsInEitherCase);
+}
+
 /**
  * An endpoint can quote back what the request sent, as given, form-encoded the way the body
  * carried it, or URL-encoded. The given form also counts with the charset-dropped characters
  * gone, since the filter turns an escaped or broken-up echo back into that; the encoded forms
- * hold none. Longest first, so a secret that contains another is replaced whole.
+ * hold none. Encoders write an escape's hex digits in uppercase and an echo can write them in
+ * either case, so those digits match either way; everything else matches exactly. Longest
+ * first, so a secret that contains another is replaced whole.
  */
-function sentSecretShapes(sent: URLSearchParams): string[] {
-  const shapes = new Set<string>();
+function sentSecretShapes(sent: URLSearchParams): RegExp[] {
+  const lengths = new Map<string, number>();
   SENT_SECRET_FIELDS.forEach((field) => {
     // Read back from the form, so no lone surrogate is left for encodeURIComponent to throw on.
     const secret = sent.get(field);
     if (!secret) return;
-    [
-      secret,
-      dropOutsideCharset(secret),
-      new URLSearchParams({ x: secret }).toString().slice(2),
-      encodeURIComponent(secret),
-    ].forEach((shape) => {
-      shapes.add(shape);
+    [secret, dropOutsideCharset(secret)].forEach((given) => {
+      lengths.set(exactPattern(given), given.length);
     });
+    [new URLSearchParams({ x: secret }).toString().slice(2), encodeURIComponent(secret)].forEach(
+      (encoded) => {
+        lengths.set(encodedPattern(encoded), encoded.length);
+      },
+    );
   });
-  shapes.delete('');
-  return [...shapes].sort((a, b) => b.length - a.length);
+  lengths.delete('');
+  return [...lengths].sort(([, a], [, b]) => b - a).map(([pattern]) => new RegExp(pattern, 'g'));
 }
 
-function redact(text: string, secrets: readonly string[]): string {
-  return secrets.reduce((kept, secret) => kept.replaceAll(secret, REDACTED), text);
+function redact(text: string, secrets: readonly RegExp[]): string {
+  return secrets.reduce((kept, secret) => kept.replace(secret, REDACTED), text);
 }
 
 /** Redacted before and after the charset filter, and both before the cut, so no piece survives. */
-function cleanErrorField(value: unknown, maxChars: number, secrets: readonly string[]): string {
+function cleanErrorField(value: unknown, maxChars: number, secrets: readonly RegExp[]): string {
   if (typeof value !== 'string') return '';
   return redact(dropOutsideCharset(redact(value, secrets)), secrets)
     .slice(0, maxChars)
@@ -102,7 +116,7 @@ function cleanErrorField(value: unknown, maxChars: number, secrets: readonly str
  * logs and the audit log, and a custom endpoint or a proxy in front of one can put tokens or a
  * whole HTML page in the body, or quote the request back inside those two fields.
  */
-function refusalDetail(body: string, secrets: readonly string[]): string {
+function refusalDetail(body: string, secrets: readonly RegExp[]): string {
   if (body.length > TOKEN_ERROR_BODY_MAX_CHARS) return '';
   let parsed: unknown;
   try {
