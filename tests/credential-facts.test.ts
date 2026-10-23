@@ -305,6 +305,24 @@ describe('MCP_EMAIL_* credential matrix', () => {
     },
   );
 
+  // The loader tests these for truthiness only, so a blank value counts as set and the schema judges it.
+  it('should refuse a blank MCP_EMAIL_ADDRESS ("   ") beside a password at the email field, not treat it as unset', async () => {
+    stub({ MCP_EMAIL_PASSWORD: 'app-password', MCP_EMAIL_ADDRESS: '   ' });
+    expect(await loaded()).toEqual({ refused: ['accounts.0.email: Invalid email address'] });
+  });
+
+  it.each([
+    ['MCP_EMAIL_IMAP_HOST', 'imap'],
+    ['MCP_EMAIL_SMTP_HOST', 'smtp'],
+  ] as const)(
+    'should load a blank %s ("   ") beside a password as the %s host as given, not treat it as unset',
+    async (name, side) => {
+      stub({ MCP_EMAIL_PASSWORD: 'app-password', [name]: '   ' });
+      const config = await loadConfig(missingConfig);
+      expect(config.accounts[0]?.[side].host).toBe('   ');
+    },
+  );
+
   // loaded() keeps only the first line, so a refusal naming another file would still equal NO_CONFIG.
   it('should name the missing config path it was given when no password or provider is set', async () => {
     stub({ MCP_EMAIL_PASSWORD: undefined, MCP_EMAIL_OAUTH2_PROVIDER: undefined });

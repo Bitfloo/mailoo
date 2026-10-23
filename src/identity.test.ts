@@ -499,15 +499,23 @@ describe('README Environment Variables table', () => {
     });
     // The source scan misses a name read by destructuring, an alias or bracket access; the proxy does not.
     // One run per provider: a read made only for one provider is missed by a run with another.
+    const READ_RUNS: [string, Env][] = [
+      ['a password account', PASSWORD_ONLY],
+      ...OAuth2ConfigSchema.shape.provider.options.map((provider): [string, Env] => [
+        `a ${provider} OAuth2 account`,
+        oauth2Only(provider),
+      ]),
+    ];
     const loaderReads = async (): Promise<string[]> => {
-      const runs = [PASSWORD_ONLY, ...OAuth2ConfigSchema.shape.provider.options.map(oauth2Only)];
       const names: string[] = [];
-      for (const vars of runs) {
+      for (const [label, vars] of READ_RUNS) {
         // readsOf swaps process.env for its proxy, so two runs at once would record into each other.
         // eslint-disable-next-line no-await-in-loop
         const run = await readsOf(vars);
         // A proxy outside the read path records nothing, and every check over these names would pass empty.
-        expect(run).toContain(PROVIDER);
+        if (!run.includes(PROVIDER)) {
+          throw new Error(`the proxy recorded no ${PROVIDER} read for ${label}`);
+        }
         names.push(...run);
       }
       return [...new Set(names)].sort();
@@ -700,6 +708,13 @@ describe('README Environment Variables table', () => {
         expect(rows.get('MCP_EMAIL_OAUTH2_REFRESH_TOKEN')?.desc.includes(CLIENT_REFUSED)).toBe(
           refusedAtField,
         );
+      },
+    );
+
+    it.each(READ_RUNS)(
+      'should record the MCP_EMAIL_OAUTH2_PROVIDER read when loadConfig runs for %s',
+      async (_label, vars) => {
+        expect(await readsOf(vars)).toContain(PROVIDER);
       },
     );
 
