@@ -297,6 +297,19 @@ describe('MCP_EMAIL_* credential matrix', () => {
     await expect(loadConfig(missingConfig)).rejects.toThrow(missingConfig);
   });
 
+  it('should refuse with the whole setup guidance when no password or provider is set', async () => {
+    stub({ MCP_EMAIL_PASSWORD: undefined, MCP_EMAIL_OAUTH2_PROVIDER: undefined });
+    const guidance = [
+      'No configuration found.',
+      '',
+      'Set environment variables (MCP_EMAIL_ADDRESS, MCP_EMAIL_PASSWORD, etc.)',
+      `or create a config file at: ${missingConfig}`,
+      '',
+      "Run 'mailoo account add' for interactive configuration.",
+    ].join('\n');
+    await expect(loadConfig(missingConfig)).rejects.toHaveProperty('message', guidance);
+  });
+
   it.each(SOME_VALUE)(
     'should load a %s MCP_EMAIL_PASSWORD (%j) as given when no provider is set',
     async (_kind, password) => {
