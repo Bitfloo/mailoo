@@ -230,3 +230,28 @@ describe('published identity', () => {
     expect(readme).not.toMatch(/until npm/i);
   });
 });
+
+describe('README Environment Variables table', () => {
+  let documented: string[];
+  let read: string[];
+
+  beforeAll(async () => {
+    const readme = await readFile(join(root, 'README.md'), 'utf8');
+    const section = readme.split('#### Environment Variables')[1]?.split(/\n#{1,6} /)[0] ?? '';
+    documented = [...section.matchAll(/^\| `(MCP_EMAIL_[A-Z0-9_]+)` \|/gm)].map(
+      (match) => match[1],
+    );
+    read = await mcpEmailEnvNames();
+  });
+
+  it('should name only variables the server reads', () => {
+    expect(documented.length).toBeGreaterThan(0);
+    expect(documented.filter((name) => !read.includes(name))).toEqual([]);
+  });
+
+  it('should have a row for every MCP_EMAIL_OAUTH2_* variable the server reads', () => {
+    const oauth2 = read.filter((name) => name.startsWith('MCP_EMAIL_OAUTH2_'));
+    expect(oauth2.length).toBeGreaterThan(0);
+    expect(oauth2.filter((name) => !documented.includes(name))).toEqual([]);
+  });
+});
