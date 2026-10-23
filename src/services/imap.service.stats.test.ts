@@ -105,6 +105,26 @@ describe('ImapService', () => {
       });
     });
 
+    it('should count a message whose Date header imapflow could not parse on today', async () => {
+      // imapflow yields the raw header text instead of a Date when the header does not parse.
+      client.search.mockResolvedValue([21]);
+      fetchServesRows(client, [
+        {
+          uid: 21,
+          envelope: {
+            date: 'Thursday, sometime last week',
+            from: [{ address: 'bob@example.com' }],
+          },
+          flags: new Set(['\\Seen']),
+          bodyStructure: plainBody,
+        },
+      ]);
+
+      const stats = await service.getEmailStats('test', 'INBOX', 'week');
+
+      expect(stats.dailyVolume).toEqual([{ date: '2026-03-10', count: 1 }]);
+    });
+
     it('should list the ten most frequent senders', async () => {
       const uids = Array.from({ length: 11 }, (_, i) => i + 1);
       client.search.mockResolvedValue(uids);

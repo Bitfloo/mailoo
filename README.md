@@ -916,6 +916,12 @@ Single-account setup reads `MCP_EMAIL_*` (`src/config/loader.ts`). HTTP listens 
 | `create_label` | Create a new label |
 | `delete_label` | Delete a label (on Gmail, not INBOX or a special-use folder) |
 
+> **Note:** On servers that store labels as IMAP keywords, a keyword must be an IMAP atom
+> (RFC 9051): no spaces, control or non-ASCII characters, and none of `( ) { % * " \ ]`.
+> Any other label is refused with an error before anything is sent, so `Receipts (2024)`
+> fails (an older release accepted it). See [`add_label` / `remove_label`](docs/tools.md#add_label--remove_label)
+> for removing an existing non-atom keyword.
+
 #### Watcher & Alerts (6)
 
 | Tool | Description |

@@ -99,6 +99,47 @@ describe('ImapService', () => {
       expect(contacts.map((c) => c.email)).toEqual(['newest@example.com']);
     });
 
+    it('should see a contact last when its message has a Date header imapflow could not parse', async () => {
+      // imapflow yields the raw header text instead of a Date when the header does not parse.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
+      try {
+        client.search.mockResolvedValue([1]);
+        fetchServesRows(client, [
+          {
+            uid: 1,
+            envelope: {
+              date: 'Thursday, sometime last week',
+              from: [{ address: 'dave@example.com' }],
+            },
+          },
+        ]);
+
+        const contacts = await service.extractContacts('test');
+
+        expect(contacts.map((c) => c.lastSeen)).toEqual(['2028-01-15T00:00:00.000Z']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should see a contact last when its message has no Date header', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
+      try {
+        client.search.mockResolvedValue([1]);
+        fetchServesRows(client, [
+          { uid: 1, envelope: { from: [{ address: 'dave@example.com' }] } },
+        ]);
+
+        const contacts = await service.extractContacts('test');
+
+        expect(contacts.map((c) => c.lastSeen)).toEqual(['2028-01-15T00:00:00.000Z']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('should return no contacts for an empty mailbox', async () => {
       client.search.mockResolvedValue([]);
 
