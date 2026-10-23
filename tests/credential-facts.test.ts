@@ -291,6 +291,20 @@ describe('MCP_EMAIL_* credential matrix', () => {
     },
   );
 
+  // With a password set, an empty address or host is the only reason no account is described;
+  // without one, the missing credential would give NO_CONFIG whatever the loader does with ''.
+  it.each(
+    (['MCP_EMAIL_ADDRESS', 'MCP_EMAIL_IMAP_HOST', 'MCP_EMAIL_SMTP_HOST'] as const).flatMap((name) =>
+      NO_VALUE.map(([kind, value]) => [name, kind, value] as const),
+    ),
+  )(
+    'should describe no account when %s is %s (%j) beside a password',
+    async (name, _kind, value) => {
+      stub({ MCP_EMAIL_PASSWORD: 'app-password', [name]: value });
+      expect(await loaded()).toEqual(NO_CONFIG);
+    },
+  );
+
   // loaded() keeps only the first line, so a refusal naming another file would still equal NO_CONFIG.
   it('should name the missing config path it was given when no password or provider is set', async () => {
     stub({ MCP_EMAIL_PASSWORD: undefined, MCP_EMAIL_OAUTH2_PROVIDER: undefined });

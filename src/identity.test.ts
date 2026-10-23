@@ -490,13 +490,27 @@ describe('README Environment Variables table', () => {
       }
       return [...names];
     };
+    const oauth2Only = (provider: string): Env => ({
+      MCP_EMAIL_PASSWORD: undefined,
+      [PROVIDER]: provider,
+      MCP_EMAIL_OAUTH2_CLIENT_ID: 'client-id',
+      MCP_EMAIL_OAUTH2_CLIENT_SECRET: 'client-secret',
+      MCP_EMAIL_OAUTH2_REFRESH_TOKEN: 'refresh-token',
+    });
     // The source scan misses a name read by destructuring, an alias or bracket access; the proxy does not.
+    // One run per provider: a read made only for one provider is missed by a run with another.
     const loaderReads = async (): Promise<string[]> => {
-      const password = await readsOf(PASSWORD_ONLY);
-      const oauth2 = await readsOf({ MCP_EMAIL_PASSWORD: undefined, [PROVIDER]: 'custom' });
-      // A proxy outside the read path records nothing, and every check over these names would pass empty.
-      expect(oauth2).toContain(PROVIDER);
-      return [...new Set([...password, ...oauth2])].sort();
+      const runs = [PASSWORD_ONLY, ...OAuth2ConfigSchema.shape.provider.options.map(oauth2Only)];
+      const names: string[] = [];
+      for (const vars of runs) {
+        // readsOf swaps process.env for its proxy, so two runs at once would record into each other.
+        // eslint-disable-next-line no-await-in-loop
+        const run = await readsOf(vars);
+        // A proxy outside the read path records nothing, and every check over these names would pass empty.
+        expect(run).toContain(PROVIDER);
+        names.push(...run);
+      }
+      return [...new Set(names)].sort();
     };
     const referencePasswordRoles = (): string[] => {
       const reference = readme.split(/^### Environment$/m)[1]?.split(/\n#{1,6} /)[0] ?? '';
