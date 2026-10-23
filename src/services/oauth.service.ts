@@ -76,36 +76,68 @@ function encodedPattern(encoded: string): string {
  * carried it, or URL-encoded. The given form also counts with the charset-dropped characters
  * gone, since the filter turns an escaped or broken-up echo back into that; the encoded forms
  * hold none. Encoders write an escape's hex digits in uppercase and an echo can write them in
- * either case, so those digits match either way; everything else matches exactly. Longest
- * first, so a secret that contains another is replaced whole.
+ * either case, so those digits match either way; everything else matches exactly.
  */
 function sentSecretShapes(sent: URLSearchParams): RegExp[] {
-  const lengths = new Map<string, number>();
+  const patterns = new Set<string>();
   SENT_SECRET_FIELDS.forEach((field) => {
     // Read back from the form, so no lone surrogate is left for encodeURIComponent to throw on.
     const secret = sent.get(field);
     if (!secret) return;
-    [secret, dropOutsideCharset(secret)].forEach((given) => {
-      lengths.set(exactPattern(given), given.length);
+    [
+      exactPattern(secret),
+      exactPattern(dropOutsideCharset(secret)),
+      encodedPattern(new URLSearchParams({ x: secret }).toString().slice(2)),
+      encodedPattern(encodeURIComponent(secret)),
+    ].forEach((pattern) => {
+      patterns.add(pattern);
     });
-    [new URLSearchParams({ x: secret }).toString().slice(2), encodeURIComponent(secret)].forEach(
-      (encoded) => {
-        lengths.set(encodedPattern(encoded), encoded.length);
-      },
-    );
   });
-  lengths.delete('');
-  return [...lengths].sort(([, a], [, b]) => b - a).map(([pattern]) => new RegExp(pattern, 'g'));
+  patterns.delete('');
+  return [...patterns].map((pattern) => new RegExp(pattern));
 }
 
-function redact(text: string, secrets: readonly RegExp[]): string {
-  return secrets.reduce((kept, secret) => kept.replace(secret, REDACTED), text);
+/** A lookahead match is empty, so the scan steps on one character and finds overlapping echoes. */
+function echoesOf(text: string, secret: RegExp): number[][] {
+  const scan = new RegExp(`(?=(${secret.source}))`, 'g');
+  return Array.from(text.matchAll(scan), (match) => [match.index, match.index + match[1].length]);
 }
 
-/** Redacted before and after the charset filter, and both before the cut, so no piece survives. */
+/**
+ * The text around every echo of a sent secret. Echoes that overlap or touch, of one secret or of
+ * several, are cut out as one, so joining the pieces with the marker leaves no piece of a secret.
+ */
+function piecesAroundSecrets(text: string, secrets: readonly RegExp[]): string[] {
+  const echoes = secrets.flatMap((secret) => echoesOf(text, secret)).sort(([a], [b]) => a - b);
+  const cuts: number[][] = [];
+  echoes.forEach(([start, end]) => {
+    const last = cuts.at(-1);
+    if (last && start <= last[1]) {
+      last[1] = Math.max(last[1], end);
+    } else {
+      cuts.push([start, end]);
+    }
+  });
+  let from = 0;
+  const pieces = cuts.map(([start, end]) => {
+    const piece = text.slice(from, start);
+    from = end;
+    return piece;
+  });
+  return [...pieces, text.slice(from)];
+}
+
+/**
+ * Redacted before and after the charset filter, and both before the cut, so no piece survives.
+ * The second pass reads only the text between the first pass's markers: a secret made of marker
+ * letters would otherwise match inside one.
+ */
 function cleanErrorField(value: unknown, maxChars: number, secrets: readonly RegExp[]): string {
   if (typeof value !== 'string') return '';
-  return redact(dropOutsideCharset(redact(value, secrets)), secrets)
+  const firstPass = piecesAroundSecrets(value, secrets);
+  return firstPass
+    .map((piece) => piecesAroundSecrets(dropOutsideCharset(piece), secrets).join(REDACTED))
+    .join(REDACTED)
     .slice(0, maxChars)
     .trim();
 }

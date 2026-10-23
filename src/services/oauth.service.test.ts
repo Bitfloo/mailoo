@@ -790,6 +790,30 @@ const CASED_ESCAPES: SentSecrets = {
   ],
 };
 
+/**
+ * The client secret ends where the grant starts: replacing either one first leaves a piece of
+ * the other.
+ */
+const OVERLAPPING: SentSecrets = {
+  client: 'ABCDEFGHIJKLMNOPQ',
+  grant: 'JKLMNOPQRSTUVWXY',
+  reshaped: [],
+};
+
+/** The client secret sits inside the grant, away from both ends: the grant's cut keeps its end. */
+const CONTAINED: SentSecrets = {
+  client: '8Jd3Fq6Y',
+  grant: '1//04Hs8Jd3Fq6YbN0cVe',
+  reshaped: ['1%2F%2F04Hs8Jd3Fq6YbN0cVe'],
+};
+
+/** The client secret ends with its own start, so two echoes of it can share those characters. */
+const SELF_OVERLAPPING: SentSecrets = {
+  client: 'GOCSPX-q7Lw-GOCSPX',
+  grant: '1//04Hs8Jd3Fq6YbN0cVe',
+  reshaped: [],
+};
+
 function lowercaseEscapes(encoded: string): string {
   return encoded.replace(/%[0-9A-F]{2}/g, (escaped) => escaped.toLowerCase());
 }
@@ -960,6 +984,36 @@ const ECHOES: Echo[] = [
     echo: ({ grant }) => `grant ${grant} revoked`,
     kept: () => 'grant [redacted] revoked',
   },
+  {
+    name: 'two secrets that overlap',
+    secrets: OVERLAPPING,
+    echo: ({ client, grant }) => `grant ${client.slice(0, 9)}${grant} revoked`,
+    kept: () => 'grant [redacted] revoked',
+  },
+  {
+    name: 'the two secrets back to back',
+    secrets: PLAIN,
+    echo: ({ client, grant }) => `grant ${client}${grant} revoked`,
+    kept: () => 'grant [redacted] revoked',
+  },
+  {
+    name: 'the two secrets a space apart',
+    secrets: PLAIN,
+    echo: ({ client, grant }) => `grant ${client} ${grant} revoked`,
+    kept: () => 'grant [redacted] [redacted] revoked',
+  },
+  {
+    name: 'a secret overlapping its own echo',
+    secrets: SELF_OVERLAPPING,
+    echo: ({ client }) => `client ${client}${client.slice(6)} refused`,
+    kept: () => 'client [redacted] refused',
+  },
+  {
+    name: 'a secret inside the other',
+    secrets: CONTAINED,
+    echo: ({ grant }) => `grant ${grant} revoked`,
+    kept: () => 'grant [redacted] revoked',
+  },
   // Three copies: each of the two redaction passes could replace one if it stopped at the first.
   {
     name: 'one secret echoed three times',
@@ -1012,6 +1066,15 @@ const UNSENT_ECHOES: {
     echo: ({ client }) => client.replace('%2F', '%2f'),
   },
 ];
+
+/**
+ * Client secrets made of the marker's own letters: a pass over text it already marked would
+ * split a marker. Checked by the whole message, since the leak oracle finds them in the marker.
+ */
+const MARKER_LETTER_CASES = [
+  { name: 'a client secret inside the marker', client: 'red' },
+  { name: 'a one-letter client secret', client: 'c' },
+].flatMap((secret) => ECHO_FIELDS.map((field) => ({ ...secret, ...field })));
 
 describe.each(ECHOING_FLOWS)(
   'OAuthService $action when the refusal echoes the secrets the request sent',
@@ -1103,6 +1166,16 @@ describe.each(ECHOING_FLOWS)(
         expect(error.message).toBe(
           `${failed} (400): invalid_grant: token ${echo(secrets)} refused`,
         );
+      },
+    );
+
+    it.each(MARKER_LETTER_CASES)(
+      'should leave one whole [redacted] for $name in the $field',
+      async ({ client, body, named }) => {
+        const { error } = await refusedEchoing({ ...PLAIN, client }, (sent) =>
+          body(`${sent.client} is wrong`),
+        );
+        expect(error.message).toBe(`${failed} (400): ${named('[redacted] is wrong')}`);
       },
     );
 
