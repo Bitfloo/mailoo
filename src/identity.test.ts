@@ -10,6 +10,7 @@ import { ZodError } from 'zod';
 import { loadConfig } from './config/loader.js';
 import { OAuth2ConfigSchema } from './config/schema.js';
 import OAuthService from './services/oauth.service.js';
+import { fakeTokenEndpoint } from './test-support/token-endpoint.js';
 
 const execFileAsync = promisify(execFile);
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -260,9 +261,15 @@ describe('README Environment Variables table', () => {
     expect(rowNames.filter((name, index) => rowNames.indexOf(name) !== index)).toEqual([]);
   });
 
-  it('should name only variables the server reads', () => {
+  it('should find variable rows under the heading', () => {
     expect(documented.length).toBeGreaterThan(0);
-    expect(documented.filter((name) => !read.includes(name))).toEqual([]);
+  });
+
+  it('should name only variables the server reads, in the rows and in the text under them', () => {
+    const mentioned = [
+      ...new Set([...section.matchAll(/MCP_EMAIL_[A-Z0-9_]+/g)].map((match) => match[0])),
+    ];
+    expect(mentioned.filter((name) => !read.includes(name))).toEqual([]);
   });
 
   it('should have a row for every MCP_EMAIL_OAUTH2_* variable the server reads', () => {
@@ -429,6 +436,7 @@ describe('README Environment Variables table', () => {
 
     afterEach(async () => {
       vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
       await rm(dir, { recursive: true, force: true });
     });
 
@@ -443,17 +451,21 @@ describe('README Environment Variables table', () => {
       expect(section.split('\n')).toContain(NO_ENV_ACCOUNT);
     });
 
-    const describesNoAccount: [string, Env][] = [
+    const describesNoAccount: [string, string, Env][] = [
       [
         'MCP_EMAIL_PASSWORD and MCP_EMAIL_OAUTH2_PROVIDER',
+        'unset',
         { MCP_EMAIL_PASSWORD: undefined, [PROVIDER]: undefined },
       ],
-      ...REQUIRED_MCP_EMAIL_ENV.map((name): [string, Env] => [name, { [name]: undefined }]),
+      ...REQUIRED_MCP_EMAIL_ENV.flatMap((name): [string, string, Env][] => [
+        [name, 'unset', { [name]: undefined }],
+        [name, 'set but empty', { [name]: '' }],
+      ]),
     ];
 
     it.each(describesNoAccount)(
-      'should say the config file is loaded instead, or No configuration found. without one, exactly when the loader does so with %s unset',
-      async (_unset, vars) => {
+      'should say the config file is loaded instead, or No configuration found. without one, exactly when the loader does so with %s %s',
+      async (_name, _state, vars) => {
         stub(vars);
         const file = await writeConfig(FILE_ACCOUNT);
         const fromTheFile = (await loadConfig(file)).accounts.map((account) => account.email);
@@ -561,7 +573,7 @@ describe('README Environment Variables table', () => {
         },
       );
 
-      it.each(['other', ' google ', 'Google'])(
+      it.each(['other', ' google ', 'Google', '   '])(
         'should say any other value is refused exactly when the loader refuses %j at the provider',
         async (value) => {
           expect(providerDesc().includes(OTHER_REFUSED)).toBe(
@@ -601,12 +613,26 @@ describe('README Environment Variables table', () => {
         );
       });
 
-      // refreshAccessToken asks getProviderEndpoints before any request leaves the process.
-      it('should say custom set here fails at the first token request exactly when an environment custom account loads beside a file that sets the endpoints and the token service refuses it', async () => {
+      it('should say custom set here fails at the first token request exactly when the token refresh of an environment custom account loaded beside a file that sets the endpoints is refused before any request is sent', async () => {
         stub({ [PROVIDER]: 'custom' });
-        const loaded = await loadConfig(await writeConfig(FILE_ACCOUNT));
+        const oauth2 = (await loadConfig(await writeConfig(FILE_ACCOUNT))).accounts[0]?.oauth2;
+        // A scripted success, so a request sent before the refusal is counted rather than thrown.
+        const requests = fakeTokenEndpoint(
+          () =>
+            new Response(JSON.stringify({ access_token: 'issued', expires_in: 3600 }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+        );
+        const refusal =
+          oauth2 === undefined
+            ? 'no OAuth2'
+            : await OAuthService.refreshAccessToken(oauth2).then(
+                () => 'refreshed',
+                (error: Error) => error.message,
+              );
         expect(providerDesc().includes(CUSTOM_ENV_FAILS)).toBe(
-          endpoints(loaded.accounts[0]) === CUSTOM_REFUSED,
+          refusal === CUSTOM_REFUSED && requests.length === 0,
         );
       });
 

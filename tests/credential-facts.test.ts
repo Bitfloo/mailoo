@@ -347,15 +347,20 @@ describe('MCP_EMAIL_* credential matrix', () => {
 
   // The variables carry no token_url or auth_url, so a custom provider loads from
   // them, but the token service cannot use it: custom needs the config file.
-  it('should load a custom MCP_EMAIL_OAUTH2_PROVIDER without endpoints, which the token service refuses', async () => {
+  it('should load a custom MCP_EMAIL_OAUTH2_PROVIDER without a token URL or an auth URL', async () => {
     stub(withOAuth2('custom'));
     const block = (await loadConfig(missingConfig)).accounts[0]?.oauth2;
-    if (block === undefined) throw new Error('no OAuth2 block was loaded');
-    expect([block.provider, block.tokenUrl, block.authUrl]).toEqual([
+    expect([block?.provider, block?.tokenUrl, block?.authUrl]).toEqual([
       'custom',
       undefined,
       undefined,
     ]);
+  });
+
+  it('should have the token service refuse a custom MCP_EMAIL_OAUTH2_PROVIDER account for its missing endpoints', async () => {
+    stub(withOAuth2('custom'));
+    const block = (await loadConfig(missingConfig)).accounts[0]?.oauth2;
+    if (block === undefined) throw new Error('no OAuth2 block was loaded');
     expect(() => OAuthService.getProviderEndpoints(block)).toThrow(
       'Custom OAuth2 provider requires tokenUrl and authUrl',
     );
