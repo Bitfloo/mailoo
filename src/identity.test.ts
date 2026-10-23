@@ -283,8 +283,9 @@ describe('README Environment Variables table', () => {
     expect(needed.filter((name) => !documented.includes(name))).toEqual([]);
   });
 
-  // Each claim a row makes is read off loadConfig, and the rows hold exactly those claims, so a row
-  // can neither keep a claim the loader no longer makes nor gain one that no test reads.
+  // Each claim a row or a line under the heading makes is read off loadConfig or the file it links,
+  // and the section holds exactly those claims, so it can neither keep a claim the loader no longer
+  // makes nor gain one that no test reads.
   describe('against the loader', () => {
     const NO_CONFIG = 'No configuration found.';
     const PROVIDER = 'MCP_EMAIL_OAUTH2_PROVIDER';
@@ -304,6 +305,9 @@ describe('README Environment Variables table', () => {
     const CUSTOM_REFUSED = 'Custom OAuth2 provider requires tokenUrl and authUrl';
     const NO_ENV_ACCOUNT =
       'Without the address, both hosts, and a password or a provider, the environment describes no account: Mailoo loads the config file instead, or fails with `No configuration found.` when there is none.';
+    const LEAD_IN = 'For single-account setups (overrides config file):';
+    const SENT_COPIES = 'Sent copies, IMAP4rev2, Sieve host/port, and `read_only` env vars:';
+    const DOCS_LINK = '[docs/configuration.md](docs/configuration.md#extra-environment-variables).';
     const FILE_ENDPOINTS = 'https://auth.example.test/token https://auth.example.test/auth';
     const FILE_ACCOUNT = [
       '[[accounts]]',
@@ -328,7 +332,8 @@ describe('README Environment Variables table', () => {
     const CLIENT_REFUSED =
       'A missing or empty client id, client secret or refresh token is refused when the configuration loads, naming the field';
     type Env = Record<string, string | undefined>;
-    type Loaded = Awaited<ReturnType<typeof loadConfig>>['accounts'][number] | undefined;
+    type Config = Awaited<ReturnType<typeof loadConfig>>;
+    type Loaded = Config['accounts'][number] | undefined;
     const ROLES: [string, string, (account: Loaded) => string | undefined][] = [
       ['MCP_EMAIL_PASSWORD', 'Password or app password', (account) => account?.password],
       ['MCP_EMAIL_OAUTH2_CLIENT_ID', 'OAuth2 client id', (account) => account?.oauth2?.clientId],
@@ -373,6 +378,24 @@ describe('README Environment Variables table', () => {
     const NO_CLIENT_VALUES: Env = Object.fromEntries(
       CLIENT_FIELDS.map(([name]) => [name, undefined]),
     );
+    // Each variable SENT_COPIES names, set to a value its default is not.
+    const LINKED: [string, string, (config: Config) => unknown, unknown][] = [
+      ['MCP_EMAIL_SAVE_TO_SENT', 'false', (config) => config.settings.saveToSent, false],
+      [
+        'MCP_EMAIL_IMAP_DISABLE_IMAP4REV2',
+        'true',
+        (config) => config.accounts[0]?.imap.disableImap4rev2,
+        true,
+      ],
+      [
+        'MCP_EMAIL_SIEVE_HOST',
+        'sieve.example.com',
+        (config) => config.accounts[0]?.imap.sieveHost,
+        'sieve.example.com',
+      ],
+      ['MCP_EMAIL_SIEVE_PORT', '4191', (config) => config.accounts[0]?.imap.sievePort, 4191],
+      ['MCP_EMAIL_READ_ONLY', 'true', (config) => config.settings.readOnly, true],
+    ];
     let missingConfig: string;
     let dir: string;
 
@@ -409,6 +432,24 @@ describe('README Environment Variables table', () => {
       const file = join(dir, 'config.toml');
       await writeFile(file, lines.join('\n'), { mode: 0o600 });
       return file;
+    };
+    // GitHub's heading anchor: lower case, punctuation dropped, spaces as hyphens.
+    const anchorOf = (heading: string): string =>
+      heading
+        .trim()
+        .toLowerCase()
+        .replace(/[^\w -]/g, '')
+        .replace(/ /g, '-');
+    const linked = async (): Promise<{ anchor: string; blocks: Map<string, string> }> => {
+      const [, file = '', anchor = ''] = /\]\(([^)#]+)#([^)]+)\)/.exec(DOCS_LINK) ?? [];
+      const parts = (await readFile(join(root, file), 'utf8')).split(/^#{1,6} (.+)$/m);
+      const blocks = new Map(
+        parts.flatMap((part, index): [string, string][] => {
+          if (index % 2 === 0) return [];
+          return [[anchorOf(part), parts[index + 1] ?? '']];
+        }),
+      );
+      return { anchor, blocks };
     };
 
     beforeEach(async () => {
@@ -447,8 +488,11 @@ describe('README Environment Variables table', () => {
       },
     );
 
-    it('should state under the table when the environment describes no account, in the words the test below reads', () => {
-      expect(section.split('\n')).toContain(NO_ENV_ACCOUNT);
+    it('should hold the lines around the table to the claims the tests below read', () => {
+      const prose = section
+        .split('\n')
+        .filter((line) => line.trim() !== '' && !line.startsWith('|') && !line.startsWith('#'));
+      expect(prose).toEqual([LEAD_IN, NO_ENV_ACCOUNT, SENT_COPIES, DOCS_LINK]);
     });
 
     const describesNoAccount: [string, string, Env][] = [
@@ -473,6 +517,31 @@ describe('README Environment Variables table', () => {
         expect(section.split('\n').includes(NO_ENV_ACCOUNT)).toBe(
           fromTheFile.join() === 'file@example.com' && withoutAFile === NO_CONFIG,
         );
+      },
+    );
+
+    it('should say an account in the environment overrides the config file exactly when it loads alone beside a file account', async () => {
+      const loaded = await loadConfig(await writeConfig(FILE_ACCOUNT));
+      expect(section.split('\n').includes(LEAD_IN)).toBe(
+        loaded.accounts.map((account) => account.email).join() === 'owner@example.com',
+      );
+    });
+
+    it('should link the extra variables exactly when the linked file has a heading with that anchor', async () => {
+      const { anchor, blocks } = await linked();
+      expect(section.split('\n').includes(DOCS_LINK)).toBe(blocks.has(anchor));
+    });
+
+    it.each(LINKED)(
+      'should list %s under the linked heading exactly when the loader reads it set to %j',
+      async (name, value, field, expected) => {
+        stub({ [name]: value });
+        const readsIt = field(await loadConfig(missingConfig)) === expected;
+        const { anchor, blocks } = await linked();
+        const listed = [
+          ...(blocks.get(anchor) ?? '').matchAll(/^\| `(MCP_EMAIL_[A-Z0-9_]+)` \|/gm),
+        ].map((match) => match[1]);
+        expect(listed.includes(name)).toBe(readsIt);
       },
     );
 
@@ -631,6 +700,8 @@ describe('README Environment Variables table', () => {
                 () => 'refreshed',
                 (error: Error) => error.message,
               );
+        expect(refusal).toBe(CUSTOM_REFUSED);
+        expect(requests).toHaveLength(0);
         expect(providerDesc().includes(CUSTOM_ENV_FAILS)).toBe(
           refusal === CUSTOM_REFUSED && requests.length === 0,
         );
