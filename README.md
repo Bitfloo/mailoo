@@ -503,7 +503,7 @@ For single-account setups (overrides config file):
 |----------|---------|-------------|
 | `MCP_EMAIL_ADDRESS` | *required* | Email address |
 | `MCP_EMAIL_PASSWORD` | *required* without OAuth2 | Password or app password. Not needed for an OAuth2 account (`MCP_EMAIL_OAUTH2_PROVIDER` set) |
-| `MCP_EMAIL_OAUTH2_PROVIDER` | — | `google`, `microsoft` or `custom`, read exactly as set; any other value is refused. Unset or empty means no OAuth2. `custom` needs `token_url` and `auth_url` under `[accounts.oauth2]` in a config file; no environment variable sets them |
+| `MCP_EMAIL_OAUTH2_PROVIDER` | — | `google`, `microsoft` or `custom`, read exactly as set; any other value is refused. Unset or empty means no OAuth2. `custom` set here fails at the first token request: no environment variable sets its endpoints, and an account in the environment replaces the config file. Configure a `custom` account entirely in the config file, with `token_url` and `auth_url` under `[accounts.oauth2]` |
 | `MCP_EMAIL_OAUTH2_CLIENT_ID` | *required* with a provider | OAuth2 client id |
 | `MCP_EMAIL_OAUTH2_CLIENT_SECRET` | *required* with a provider | OAuth2 client secret |
 | `MCP_EMAIL_OAUTH2_REFRESH_TOKEN` | *required* with a provider | OAuth2 refresh token. A missing or empty client id, client secret or refresh token is refused when the configuration loads, naming the field |
@@ -525,6 +525,8 @@ For single-account setups (overrides config file):
 | `MCP_EMAIL_READ_ONLY` | `false` | Disable all write tools, background watchers, and schedulers |
 | `MCP_EMAIL_TOOLSET` | `full` | Toolset profile to expose (`full`, `core`, or `minimal`) |
 | `MCP_EMAIL_DEFAULT_ACCOUNT` | — | Default account name or email when `account` is omitted |
+
+Without the address, both hosts, and a password or a provider, the environment describes no account: Mailoo loads the config file instead, or fails with `No configuration found.` when there is none.
 
 Sent copies, IMAP4rev2, Sieve host/port, and `read_only` env vars:
 [docs/configuration.md](docs/configuration.md#extra-environment-variables).

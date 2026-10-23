@@ -239,21 +239,25 @@ describe('published identity', () => {
 
 describe('README Environment Variables table', () => {
   let readme: string;
+  let section: string;
+  let rowNames: string[];
   let rows: Map<string, { def: string; desc: string }>;
   let documented: string[];
   let read: string[];
 
   beforeAll(async () => {
     readme = await readFile(join(root, 'README.md'), 'utf8');
-    const section = readme.split('#### Environment Variables')[1]?.split(/\n#{1,6} /)[0] ?? '';
-    rows = new Map(
-      [...section.matchAll(/^\| `(MCP_EMAIL_[A-Z0-9_]+)` \| (.*?) \| (.*) \|$/gm)].map((match) => [
-        match[1],
-        { def: match[2], desc: match[3] },
-      ]),
-    );
+    section = readme.split('#### Environment Variables')[1]?.split(/\n#{1,6} /)[0] ?? '';
+    const parsed = [...section.matchAll(/^\| `(MCP_EMAIL_[A-Z0-9_]+)` \| (.*?) \| (.*) \|$/gm)];
+    rowNames = parsed.map((match) => match[1]);
+    rows = new Map(parsed.map((match) => [match[1], { def: match[2], desc: match[3] }]));
     documented = [...rows.keys()];
     read = await mcpEmailEnvNames();
+  });
+
+  // The Map keeps the last row for a name, so a stale copy above the real one passes every row test.
+  it('should give each variable a single row', () => {
+    expect(rowNames.filter((name, index) => rowNames.indexOf(name) !== index)).toEqual([]);
   });
 
   it('should name only variables the server reads', () => {
@@ -285,9 +289,35 @@ describe('README Environment Variables table', () => {
     const READ_AS_SET = 'read exactly as set';
     const OTHER_REFUSED = 'any other value is refused';
     const UNSET_NO_OAUTH2 = 'Unset or empty means no OAuth2';
-    const CUSTOM_NEEDS_FILE =
-      '`custom` needs `token_url` and `auth_url` under `[accounts.oauth2]` in a config file';
-    const NO_ENV_SETS = 'no environment variable sets them';
+    const CUSTOM_ENV_FAILS = '`custom` set here fails at the first token request';
+    const NO_ENV_SETS = 'no environment variable sets its endpoints';
+    const ENV_REPLACES_FILE = 'an account in the environment replaces the config file';
+    const CUSTOM_IN_FILE =
+      'Configure a `custom` account entirely in the config file, with `token_url` and `auth_url` under `[accounts.oauth2]`';
+    const CUSTOM_REFUSED = 'Custom OAuth2 provider requires tokenUrl and authUrl';
+    const NO_ENV_ACCOUNT =
+      'Without the address, both hosts, and a password or a provider, the environment describes no account: Mailoo loads the config file instead, or fails with `No configuration found.` when there is none.';
+    const FILE_ENDPOINTS = 'https://auth.example.test/token https://auth.example.test/auth';
+    const FILE_ACCOUNT = [
+      '[[accounts]]',
+      'name = "file"',
+      'email = "file@example.com"',
+      '',
+      '[accounts.oauth2]',
+      'provider = "custom"',
+      'client_id = "file-id"',
+      'client_secret = "file-secret"',
+      'refresh_token = "file-refresh"',
+      'token_url = "https://auth.example.test/token"',
+      'auth_url = "https://auth.example.test/auth"',
+      '',
+      '[accounts.imap]',
+      'host = "imap.example.com"',
+      '',
+      '[accounts.smtp]',
+      'host = "smtp.example.com"',
+      '',
+    ];
     const CLIENT_REFUSED =
       'A missing or empty client id, client secret or refresh token is refused when the configuration loads, naming the field';
     type Env = Record<string, string | undefined>;
@@ -314,7 +344,7 @@ describe('README Environment Variables table', () => {
       [
         PROVIDER,
         NO_DEFAULT,
-        `${PROVIDER_LIST}, ${READ_AS_SET}; ${OTHER_REFUSED}. ${UNSET_NO_OAUTH2}. ${CUSTOM_NEEDS_FILE}; ${NO_ENV_SETS}`,
+        `${PROVIDER_LIST}, ${READ_AS_SET}; ${OTHER_REFUSED}. ${UNSET_NO_OAUTH2}. ${CUSTOM_ENV_FAILS}: ${NO_ENV_SETS}, and ${ENV_REPLACES_FILE}. ${CUSTOM_IN_FILE}`,
       ],
       ['MCP_EMAIL_OAUTH2_CLIENT_ID', CLIENT_DEFAULT, role('MCP_EMAIL_OAUTH2_CLIENT_ID')],
       ['MCP_EMAIL_OAUTH2_CLIENT_SECRET', CLIENT_DEFAULT, role('MCP_EMAIL_OAUTH2_CLIENT_SECRET')],
@@ -368,6 +398,11 @@ describe('README Environment Variables table', () => {
         return (error as Error).message;
       }
     };
+    const writeConfig = async (lines: string[]): Promise<string> => {
+      const file = join(dir, 'config.toml');
+      await writeFile(file, lines.join('\n'), { mode: 0o600 });
+      return file;
+    };
 
     beforeEach(async () => {
       Object.keys(process.env)
@@ -401,6 +436,31 @@ describe('README Environment Variables table', () => {
       'should hold the %s row to the claims the tests below read',
       (name, def, desc) => {
         expect(rows.get(name)).toEqual({ def, desc });
+      },
+    );
+
+    it('should state under the table when the environment describes no account, in the words the test below reads', () => {
+      expect(section.split('\n')).toContain(NO_ENV_ACCOUNT);
+    });
+
+    const describesNoAccount: [string, Env][] = [
+      [
+        'MCP_EMAIL_PASSWORD and MCP_EMAIL_OAUTH2_PROVIDER',
+        { MCP_EMAIL_PASSWORD: undefined, [PROVIDER]: undefined },
+      ],
+      ...REQUIRED_MCP_EMAIL_ENV.map((name): [string, Env] => [name, { [name]: undefined }]),
+    ];
+
+    it.each(describesNoAccount)(
+      'should say the config file is loaded instead, or No configuration found. without one, exactly when the loader does so with %s unset',
+      async (_unset, vars) => {
+        stub(vars);
+        const file = await writeConfig(FILE_ACCOUNT);
+        const fromTheFile = (await loadConfig(file)).accounts.map((account) => account.email);
+        const withoutAFile = await outcome();
+        expect(section.split('\n').includes(NO_ENV_ACCOUNT)).toBe(
+          fromTheFile.join() === 'file@example.com' && withoutAFile === NO_CONFIG,
+        );
       },
     );
 
@@ -529,39 +589,41 @@ describe('README Environment Variables table', () => {
         );
       });
 
-      it('should say custom needs token_url and auth_url under [accounts.oauth2] in a config file exactly when the token service refuses custom without them and takes them from that file', async () => {
+      it('should say an account in the environment replaces the config file exactly when an environment custom account loads alone and without the endpoints a config file sets', async () => {
         stub({ [PROVIDER]: 'custom' });
-        const withoutThem = endpoints((await loadConfig(missingConfig)).accounts[0]);
-        const file = join(dir, 'config.toml');
-        await writeFile(
-          file,
-          [
-            '[[accounts]]',
-            'name = "file"',
-            'email = "file@example.com"',
-            '',
-            '[accounts.oauth2]',
-            'provider = "custom"',
-            'client_id = "file-id"',
-            'client_secret = "file-secret"',
-            'refresh_token = "file-refresh"',
-            'token_url = "https://auth.example.test/token"',
-            'auth_url = "https://auth.example.test/auth"',
-            '',
-            '[accounts.imap]',
-            'host = "imap.example.com"',
-            '',
-            '[accounts.smtp]',
-            'host = "smtp.example.com"',
-            '',
-          ].join('\n'),
-          { mode: 0o600 },
+        const loaded = await loadConfig(await writeConfig(FILE_ACCOUNT));
+        const block = loaded.accounts[0]?.oauth2;
+        expect(providerDesc().includes(ENV_REPLACES_FILE)).toBe(
+          loaded.accounts.map((account) => account.email).join() === 'owner@example.com' &&
+            block !== undefined &&
+            block.tokenUrl === undefined &&
+            block.authUrl === undefined,
         );
+      });
+
+      // refreshAccessToken asks getProviderEndpoints before any request leaves the process.
+      it('should say custom set here fails at the first token request exactly when an environment custom account loads beside a file that sets the endpoints and the token service refuses it', async () => {
+        stub({ [PROVIDER]: 'custom' });
+        const loaded = await loadConfig(await writeConfig(FILE_ACCOUNT));
+        expect(providerDesc().includes(CUSTOM_ENV_FAILS)).toBe(
+          endpoints(loaded.accounts[0]) === CUSTOM_REFUSED,
+        );
+      });
+
+      it('should say to configure custom entirely in the config file with token_url and auth_url under [accounts.oauth2] exactly when such a file account takes its endpoints from there and is refused without them', async () => {
         stub({ MCP_EMAIL_ADDRESS: undefined });
-        const fromTheFile = endpoints((await loadConfig(file)).accounts[0]);
-        expect(providerDesc().includes(CUSTOM_NEEDS_FILE)).toBe(
-          withoutThem === 'Custom OAuth2 provider requires tokenUrl and authUrl' &&
-            fromTheFile === 'https://auth.example.test/token https://auth.example.test/auth',
+        const fromTheFile = endpoints(
+          (await loadConfig(await writeConfig(FILE_ACCOUNT))).accounts[0],
+        );
+        const withoutThem = endpoints(
+          (
+            await loadConfig(
+              await writeConfig(FILE_ACCOUNT.filter((line) => !/^(?:token|auth)_url /.test(line))),
+            )
+          ).accounts[0],
+        );
+        expect(providerDesc().includes(CUSTOM_IN_FILE)).toBe(
+          fromTheFile === FILE_ENDPOINTS && withoutThem === CUSTOM_REFUSED,
         );
       });
     });
