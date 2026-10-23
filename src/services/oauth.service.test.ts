@@ -356,15 +356,15 @@ function refusalOfLength(size: number): string {
 }
 
 describe('OAuthService token error limits', () => {
-  it('should cap the error code at 64 characters', () => {
+  it('should export 64 as the error code cap', () => {
     expect(TOKEN_ERROR_CODE_MAX_CHARS).toBe(64);
   });
 
-  it('should cap the error description at 200 characters', () => {
+  it('should export 200 as the error description cap', () => {
     expect(TOKEN_ERROR_DESCRIPTION_MAX_CHARS).toBe(200);
   });
 
-  it('should parse no body longer than 4096 characters', () => {
+  it('should export 4096 as the body parse limit', () => {
     expect(TOKEN_ERROR_BODY_MAX_CHARS).toBe(4096);
   });
 });
@@ -718,6 +718,20 @@ const DROPPED_ONLY: SentSecrets = {
   reshaped: ['%C3%BF%C3%A9%C3%9F', '1%2F%2F04Hs8Jd3Fq6YbN0cVe'],
 };
 
+/**
+ * A lone surrogate in the configured client secret. The form sends it as U+FFFD, so that is what
+ * an endpoint can echo; the raw secret would make encodeURIComponent throw a URIError.
+ */
+const LONE_SURROGATE: SentSecrets = {
+  client: 'GOCSPX-a1b2c3d4\uD83Dz9y8x7w6v5',
+  grant: '1//04Hs8Jd3Fq6YbN0cVe',
+  reshaped: [
+    'GOCSPX-a1b2c3d4�z9y8x7w6v5',
+    'GOCSPX-a1b2c3d4z9y8x7w6v5',
+    'GOCSPX-a1b2c3d4%EF%BF%BDz9y8x7w6v5',
+  ],
+};
+
 const ECHOING_FLOWS = [
   {
     action: 'token refresh',
@@ -893,6 +907,24 @@ describe.each(ECHOING_FLOWS)(
       }).toEqual({
         sent: [PERCENT.client, PERCENT.grant],
         message: `${failed} (400): invalid_request: could not parse ${redactedForm}`,
+        leaked: [],
+      });
+    });
+
+    it('should replace a client secret holding a lone surrogate with [redacted] in the error_description', async () => {
+      const { error, sent } = await refusedEchoing(LONE_SURROGATE, ({ client }) => ({
+        error: 'invalid_client',
+        error_description: `client ${client} refused`,
+      }));
+      expect({
+        sent,
+        message: error.message,
+        leaked: leakedSecretsIn(error, [LONE_SURROGATE.client, ...LONE_SURROGATE.reshaped], {
+          fragments: true,
+        }),
+      }).toEqual({
+        sent: ['GOCSPX-a1b2c3d4�z9y8x7w6v5', LONE_SURROGATE.grant],
+        message: `${failed} (400): invalid_client: client [redacted] refused`,
         leaked: [],
       });
     });

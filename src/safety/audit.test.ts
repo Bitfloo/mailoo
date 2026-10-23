@@ -183,6 +183,34 @@ describe('Audit Logger', () => {
     expect(entry.params).toEqual({ batches: [[{ refresh_token: '[REDACTED]', label: 'kept' }]] });
   });
 
+  it('should mask the whole value when a sensitive key holds an object or an array', async () => {
+    await auditLogger.log(
+      'test',
+      'x',
+      {
+        refresh_token: ['rt-literal'],
+        password: { value: 'pw-literal' },
+        nested: { id_token: ['it-literal'] },
+      },
+      'ok',
+    );
+    const line = await fs.readFile(auditLogger.AUDIT_LOG_PATH, 'utf-8');
+    const [entry] = await readEntries();
+    expect({
+      params: entry.params,
+      leaked: ['rt-literal', 'pw-literal', 'it-literal'].filter((literal) =>
+        line.includes(literal),
+      ),
+    }).toEqual({
+      params: {
+        refresh_token: '[REDACTED]',
+        password: '[REDACTED]',
+        nested: { id_token: '[REDACTED]' },
+      },
+      leaked: [],
+    });
+  });
+
   // typeof null is 'object': recursing into an array item that is null would throw and lose the entry.
   it('should keep null, strings and numbers inside an array as given', async () => {
     await auditLogger.log('test', 'x', { items: [null, 'a@example.com', 42] }, 'ok');

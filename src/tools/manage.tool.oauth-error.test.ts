@@ -21,7 +21,7 @@ import {
   leakedSecretsIn,
   leakyInvalidGrant,
 } from '../test-support/token-endpoint.js';
-import type { AccountConfig, OAuth2Config } from '../types/index.js';
+import type { AccountConfig, AuditEntry, OAuth2Config } from '../types/index.js';
 import registerManageTools from './manage.tool.js';
 
 const { auditHome } = await vi.hoisted(async () => {
@@ -88,6 +88,16 @@ async function markEmailOnRevokedAccount(
   return { result, calls };
 }
 
+/**
+ * The audit entries `act` appended. The file shares one audit home, since audit.ts fixes its
+ * log path when it loads, so the entries earlier tests wrote stay in the log.
+ */
+async function auditEntriesWrittenBy(act: () => Promise<unknown>): Promise<AuditEntry[]> {
+  const before = (await readAuditEntries(auditHome)).length;
+  await act();
+  return (await readAuditEntries(auditHome)).slice(before);
+}
+
 describe('mark_email on an OAuth2 account the provider refuses', () => {
   it('should return the refusal as isError text without the tokens the endpoint echoed', async () => {
     const { result, calls } = await markEmailOnRevokedAccount();
@@ -106,21 +116,22 @@ describe('mark_email on an OAuth2 account the provider refuses', () => {
   });
 
   it('should audit the refusal without the tokens the endpoint echoed', async () => {
-    await markEmailOnRevokedAccount();
+    const written = await auditEntriesWrittenBy(async () => markEmailOnRevokedAccount());
 
-    const entries = await readAuditEntries(auditHome);
     expect({
-      last: entries.at(-1),
-      leaked: leakedSecretsIn(entries),
+      written,
+      leaked: leakedSecretsIn(written),
     }).toEqual({
-      last: {
-        ts: expect.any(String),
-        tool: 'mark_email',
-        account: 'work',
-        params: { id: '42', mailbox: 'INBOX', action: 'read' },
-        result: 'error',
-        error: REFUSAL,
-      },
+      written: [
+        {
+          ts: expect.any(String),
+          tool: 'mark_email',
+          account: 'work',
+          params: { id: '42', mailbox: 'INBOX', action: 'read' },
+          result: 'error',
+          error: REFUSAL,
+        },
+      ],
       leaked: [],
     });
   });
@@ -159,14 +170,13 @@ describe('mark_email when the refusal echoes the secrets the token request sent'
   });
 
   it('should audit the refusal with [redacted] in place of the refresh token and client secret', async () => {
-    await markEmailWithEchoedSecrets();
+    const written = await auditEntriesWrittenBy(markEmailWithEchoedSecrets);
 
-    const entries = await readAuditEntries(auditHome);
     expect({
-      error: entries.at(-1)?.error,
-      leaked: leakedSecretsIn(entries, [REFRESH_TOKEN, CLIENT_SECRET], { fragments: true }),
+      errors: written.map((entry) => entry.error),
+      leaked: leakedSecretsIn(written, [REFRESH_TOKEN, CLIENT_SECRET], { fragments: true }),
     }).toEqual({
-      error: ECHOED_REFUSAL,
+      errors: [ECHOED_REFUSAL],
       leaked: [],
     });
   });
