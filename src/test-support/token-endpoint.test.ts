@@ -190,6 +190,35 @@ describe('leakedSecretsIn', () => {
   });
 });
 
+describe('leakedSecretsIn with fragments', () => {
+  it.each([
+    { name: 'its first 8 characters', piece: SECRET.slice(0, 8) },
+    { name: 'its last 8 characters', piece: SECRET.slice(-8) },
+    { name: '8 characters from its middle', piece: SECRET.slice(6, 14) },
+  ])('should report a secret when only $name appear', ({ piece }) => {
+    expect(leakedSecretsIn(new Error(`refused: ${piece}`), [SECRET], { fragments: true })).toEqual([
+      SECRET,
+    ]);
+  });
+
+  it('should not report a secret when only 7 of its characters appear', () => {
+    const piece = SECRET.slice(0, 7);
+    expect(leakedSecretsIn(new Error(`refused: ${piece}`), [SECRET], { fragments: true })).toEqual(
+      [],
+    );
+  });
+
+  it('should report only whole secrets when fragments are not asked for', () => {
+    expect(leakedSecretsIn(new Error(`refused: ${SECRET.slice(0, 12)}`), [SECRET])).toEqual([]);
+  });
+
+  it('should report a secret shorter than 8 characters when it appears whole', () => {
+    expect(
+      leakedSecretsIn(new Error('refused: trace-1'), ['trace-1'], { fragments: true }),
+    ).toEqual(['trace-1']);
+  });
+});
+
 describe('valuesBesidesErrorFields', () => {
   it('should list every value outside error and error_description, numbers as text', () => {
     expect(

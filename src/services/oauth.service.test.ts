@@ -510,11 +510,18 @@ describe.each(FLOWS)('OAuthService $action when the token endpoint refuses', ({ 
     { name: 'HTML', body: `<html><body>${LEAKED_SECRETS[0]}</body></html>` },
     { name: 'a form-encoded body', body: `access_token=${LEAKED_SECRETS[0]}&expires_in=3600` },
     { name: 'plain text', body: `proxy said: ${LEAKED_SECRETS[1]}` },
+    {
+      name: 'plain text that starts with a token',
+      body: `${LEAKED_SECRETS[0]} rejected: upstream unavailable`,
+    },
     { name: 'an empty body', body: '' },
   ])('should name no body when a 503 answers with $name', async ({ body }) => {
     refusedWith(503, body);
     const error = await failureOf(run);
-    expect({ message: error.message, leaked: leakedSecretsIn(error) }).toEqual({
+    expect({
+      message: error.message,
+      leaked: leakedSecretsIn(error, LEAKED_SECRETS, { fragments: true }),
+    }).toEqual({
       message: `${failed} (503)`,
       leaked: [],
     });
@@ -596,6 +603,19 @@ describe.each(FLOWS)('OAuthService $action when the token endpoint refuses', ({ 
       message: `${failed} (400)`,
     });
   });
+
+  it('should not parse a body of 4097 characters at all', async () => {
+    const body = refusalOfLength(4097);
+    refusedWith(400, body);
+    const parse = vi.spyOn(JSON, 'parse');
+    const { message } = await failureOf(run);
+    const parsedTheBody = parse.mock.calls.some(([text]) => text === body);
+    parse.mockRestore();
+    expect({ message, parsedTheBody }).toEqual({
+      message: `${failed} (400)`,
+      parsedTheBody: false,
+    });
+  });
 });
 
 describe.each(FLOWS)('OAuthService $action when a 200 answer is not JSON', ({ action, run }) => {
@@ -603,6 +623,7 @@ describe.each(FLOWS)('OAuthService $action when a 200 answer is not JSON', ({ ac
     { name: 'a form-encoded body', body: `access_token=${LEAKED_SECRETS[0]}&expires_in=3600` },
     { name: 'HTML', body: `<html>${LEAKED_SECRETS[1]}</html>` },
     { name: 'truncated JSON', body: `{"access_token":"${LEAKED_SECRETS[2]}","expires_in":` },
+    { name: 'a bare token in plain text', body: `${LEAKED_SECRETS[0]} 3600` },
     { name: 'an empty body', body: '' },
   ])('should reject without the body or a parse error when it is $name', async ({ body }) => {
     fakeTokenEndpoint(() => new Response(body, { status: 200 }));
@@ -610,7 +631,7 @@ describe.each(FLOWS)('OAuthService $action when a 200 answer is not JSON', ({ ac
     expect({
       message: error.message,
       cause: error.cause,
-      leaked: leakedSecretsIn(error),
+      leaked: leakedSecretsIn(error, LEAKED_SECRETS, { fragments: true }),
     }).toEqual({
       message: `OAuth2 ${action} failed: the token endpoint did not return JSON`,
       cause: undefined,

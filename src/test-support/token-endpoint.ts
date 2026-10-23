@@ -140,13 +140,29 @@ function stringsIn(root: unknown): string[] {
   return strings;
 }
 
-/** The secrets found anywhere in a value: an error, its causes and properties, or plain data. */
+const LEAK_FRAGMENT_CHARS = 8;
+
+function fragmentsOf(secret: string): string[] {
+  return Array.from({ length: Math.max(1, secret.length - LEAK_FRAGMENT_CHARS + 1) }, (_, start) =>
+    secret.slice(start, start + LEAK_FRAGMENT_CHARS),
+  );
+}
+
+/**
+ * The secrets found anywhere in a value: an error, its causes and properties, or plain data.
+ * With `fragments`, any 8-character piece of a secret counts, since a quoted start of a body
+ * carries a piece rather than the whole. Off by default: the Microsoft ids share runs such as
+ * `00000000-5e17-4000-8000-`, so a piece of an id quoted on purpose would match its siblings.
+ */
 export function leakedSecretsIn(
   subject: unknown,
   secrets: readonly string[] = LEAKED_SECRETS,
+  { fragments = false } = {},
 ): string[] {
   const text = stringsIn(subject).join('\n');
-  return secrets.filter((secret) => text.includes(secret));
+  return secrets.filter((secret) =>
+    (fragments ? fragmentsOf(secret) : [secret]).some((piece) => text.includes(piece)),
+  );
 }
 
 let refreshSeq = 0;
