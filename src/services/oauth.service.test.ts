@@ -3,13 +3,21 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  errorChainText,
   fakeTokenEndpoint,
   googleConfig,
+  LEAKED_SECRETS,
+  leakyInvalidGrant,
   stalledBody,
   stalledTokenEndpoint,
 } from '../test-support/token-endpoint.js';
 import type { OAuth2Config } from '../types/index.js';
-import OAuthService, { TOKEN_REQUEST_TIMEOUT_MS } from './oauth.service.js';
+import OAuthService, {
+  TOKEN_ERROR_BODY_MAX_CHARS,
+  TOKEN_ERROR_CODE_MAX_CHARS,
+  TOKEN_ERROR_DESCRIPTION_MAX_CHARS,
+  TOKEN_REQUEST_TIMEOUT_MS,
+} from './oauth.service.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -112,11 +120,11 @@ describe('OAuthService.getAccessToken', () => {
     expect(await new OAuthService().getAccessToken(oauth2)).toBe('tok-1');
   });
 
-  it("should name the provider's error body when the refresh is refused", async () => {
+  it("should name the provider's error code when the refresh is refused", async () => {
     fakeTokenEndpoint(() => new Response('{"error":"invalid_grant"}', { status: 400 }));
-    await expect(new OAuthService().getAccessToken(googleConfig())).rejects.toThrow(
-      'OAuth2 token refresh failed (400): {"error":"invalid_grant"}',
-    );
+    await expect(new OAuthService().getAccessToken(googleConfig())).rejects.toMatchObject({
+      message: 'OAuth2 token refresh failed (400): invalid_grant',
+    });
   });
 
   it('should try again after a failed refresh instead of replaying the failure', async () => {
@@ -230,6 +238,234 @@ describe('OAuthService refresh request', () => {
     await expect(new OAuthService().getAccessToken(oauth2)).rejects.toThrow(
       /Unknown OAuth2 provider: x/,
     );
+  });
+});
+
+const FLOWS = [
+  { action: 'token refresh', run: async () => new OAuthService().getAccessToken(googleConfig()) },
+  {
+    action: 'code exchange',
+    run: async () =>
+      OAuthService.exchangeCode(googleConfig(), 'auth-code', 'http://localhost:3000/cb'),
+  },
+] as const;
+
+/** Characters the RFC 6749 §5.2 error fields may carry, kept; every other character is dropped. */
+const CLEANING_CASES = [
+  {
+    name: 'a newline that would forge a log line',
+    raw: 'expired.\r\nlevel=error',
+    kept: 'expired.level=error',
+  },
+  { name: 'tabs and the bell', raw: 'bell\u0007 tab\there', kept: 'bell tabhere' },
+  { name: 'escape and DEL controls', raw: 'red\u001B[31m\u007F done', kept: 'red[31m done' },
+  { name: 'quotes and backslashes', raw: 'say "hi" \\ bye', kept: 'say hi  bye' },
+  { name: 'accented letters and emoji', raw: 'naïve \u{1F4A5} done', kept: 'nave  done' },
+  {
+    name: 'every boundary of the allowed ranges',
+    raw: 'a\u001F b!"#[\\]~\u007F',
+    kept: 'a b!#[]~',
+  },
+] as const;
+
+async function failureOf(run: () => Promise<unknown>): Promise<Error> {
+  const error = await run().then(
+    () => undefined,
+    (err: unknown) => err,
+  );
+  if (!(error instanceof Error)) throw new Error('expected the call to reject');
+  return error;
+}
+
+function refusedWith(status: number, body: string): void {
+  fakeTokenEndpoint(() => new Response(body, { status }));
+}
+
+function leakedSecretsIn(error: Error): string[] {
+  const text = errorChainText(error);
+  return LEAKED_SECRETS.filter((secret) => text.includes(secret));
+}
+
+describe('OAuthService token error limits', () => {
+  it('should cap the error code at 64 characters, its description at 200 and the parsed body at 4096', () => {
+    expect({
+      code: TOKEN_ERROR_CODE_MAX_CHARS,
+      description: TOKEN_ERROR_DESCRIPTION_MAX_CHARS,
+      body: TOKEN_ERROR_BODY_MAX_CHARS,
+    }).toEqual({ code: 64, description: 200, body: 4096 });
+  });
+});
+
+describe.each(FLOWS)('OAuthService $action when the token endpoint refuses', ({ action, run }) => {
+  const failed = `OAuth2 ${action} failed`;
+
+  it('should name only the error and its description when the body also echoes tokens', async () => {
+    fakeTokenEndpoint(leakyInvalidGrant(400));
+    const error = await failureOf(run);
+    expect({ message: error.message, leaked: leakedSecretsIn(error) }).toEqual({
+      message: `${failed} (400): invalid_grant: Token has been expired or revoked.`,
+      leaked: [],
+    });
+  });
+
+  it('should carry no cause that could hold the response body', async () => {
+    fakeTokenEndpoint(leakyInvalidGrant(400));
+    expect((await failureOf(run)).cause).toBeUndefined();
+  });
+
+  it('should cut an over-long error code at the code limit', async () => {
+    const tooLong = 'a'.repeat(TOKEN_ERROR_CODE_MAX_CHARS + 30);
+    refusedWith(400, JSON.stringify({ error: tooLong }));
+    expect((await failureOf(run)).message).toBe(
+      `${failed} (400): ${'a'.repeat(TOKEN_ERROR_CODE_MAX_CHARS)}`,
+    );
+  });
+
+  it('should cut an over-long description at the description limit', async () => {
+    const tooLong = 'b'.repeat(TOKEN_ERROR_DESCRIPTION_MAX_CHARS + 30);
+    refusedWith(400, JSON.stringify({ error: 'invalid_grant', error_description: tooLong }));
+    expect((await failureOf(run)).message).toBe(
+      `${failed} (400): invalid_grant: ${'b'.repeat(TOKEN_ERROR_DESCRIPTION_MAX_CHARS)}`,
+    );
+  });
+
+  it('should keep an error code that is exactly at the limit whole', async () => {
+    const exact = 'c'.repeat(TOKEN_ERROR_CODE_MAX_CHARS);
+    refusedWith(400, JSON.stringify({ error: exact }));
+    expect((await failureOf(run)).message).toBe(`${failed} (400): ${exact}`);
+  });
+
+  it('should keep a description that is exactly at the limit whole', async () => {
+    const exact = 'd'.repeat(TOKEN_ERROR_DESCRIPTION_MAX_CHARS);
+    refusedWith(400, JSON.stringify({ error: 'invalid_grant', error_description: exact }));
+    expect((await failureOf(run)).message).toBe(`${failed} (400): invalid_grant: ${exact}`);
+  });
+
+  it.each(CLEANING_CASES)('should drop $name from the error code', async ({ raw, kept }) => {
+    refusedWith(400, JSON.stringify({ error: raw }));
+    expect((await failureOf(run)).message).toBe(`${failed} (400): ${kept}`);
+  });
+
+  it.each(CLEANING_CASES)('should drop $name from the description', async ({ raw, kept }) => {
+    refusedWith(400, JSON.stringify({ error: 'invalid_grant', error_description: raw }));
+    expect((await failureOf(run)).message).toBe(`${failed} (400): invalid_grant: ${kept}`);
+  });
+
+  it('should count the limit after the dropped characters, not before', async () => {
+    const noisy = 'e\n'.repeat(TOKEN_ERROR_CODE_MAX_CHARS + 10);
+    refusedWith(400, JSON.stringify({ error: noisy }));
+    expect((await failureOf(run)).message).toBe(
+      `${failed} (400): ${'e'.repeat(TOKEN_ERROR_CODE_MAX_CHARS)}`,
+    );
+  });
+
+  it('should trim the spaces a cut or a dropped character leaves at the ends', async () => {
+    refusedWith(400, JSON.stringify({ error: ' \n padded \n ' }));
+    expect((await failureOf(run)).message).toBe(`${failed} (400): padded`);
+  });
+
+  it.each([
+    { name: 'an empty error code', body: { error: '' } },
+    { name: 'an error code made only of spaces', body: { error: '   ' } },
+    { name: 'an error code with nothing allowed in it', body: { error: '\u{1F4A5}\n"\\' } },
+    {
+      name: 'a description next to an unusable error code',
+      body: { error: '\n', error_description: 'Token has been expired or revoked.' },
+    },
+  ])('should name no error when the body holds $name', async ({ body }) => {
+    refusedWith(400, JSON.stringify(body));
+    expect((await failureOf(run)).message).toBe(`${failed} (400)`);
+  });
+
+  it.each([
+    { name: 'empty', description: '' },
+    { name: 'made only of dropped characters', description: '\n\u{1F4A5}' },
+    { name: 'a number', description: 42 },
+    { name: 'an object', description: { text: LEAKED_SECRETS[0] } },
+    { name: 'an array', description: [LEAKED_SECRETS[0]] },
+    { name: 'null', description: null },
+  ])('should leave the description out when it is $name', async ({ description }) => {
+    refusedWith(400, JSON.stringify({ error: 'invalid_grant', error_description: description }));
+    const error = await failureOf(run);
+    expect({ message: error.message, leaked: leakedSecretsIn(error) }).toEqual({
+      message: `${failed} (400): invalid_grant`,
+      leaked: [],
+    });
+  });
+
+  it.each([
+    { name: 'HTML', body: `<html><body>${LEAKED_SECRETS[0]}</body></html>` },
+    { name: 'a form-encoded body', body: `access_token=${LEAKED_SECRETS[0]}&expires_in=3600` },
+    { name: 'plain text', body: `proxy said: ${LEAKED_SECRETS[1]}` },
+    { name: 'an empty body', body: '' },
+  ])('should name no body when a 503 answers with $name', async ({ body }) => {
+    refusedWith(503, body);
+    const error = await failureOf(run);
+    expect({ message: error.message, leaked: leakedSecretsIn(error) }).toEqual({
+      message: `${failed} (503)`,
+      leaked: [],
+    });
+  });
+
+  it.each([
+    { name: 'no error field', body: { access_token: LEAKED_SECRETS[0] } },
+    { name: 'a numeric error field', body: { error: 401, access_token: LEAKED_SECRETS[0] } },
+    { name: 'an object error field', body: { error: { code: LEAKED_SECRETS[1] } } },
+    { name: 'an array error field', body: { error: [LEAKED_SECRETS[2]] } },
+    { name: 'a null error field', body: { error: null, refresh_token: LEAKED_SECRETS[1] } },
+    { name: 'a JSON array', body: [LEAKED_SECRETS[0]] },
+    { name: 'a JSON string', body: LEAKED_SECRETS[0] },
+    { name: 'JSON null', body: null },
+  ])('should name no body when a 401 answers JSON with $name', async ({ body }) => {
+    refusedWith(401, JSON.stringify(body));
+    const error = await failureOf(run);
+    expect({ message: error.message, leaked: leakedSecretsIn(error) }).toEqual({
+      message: `${failed} (401)`,
+      leaked: [],
+    });
+  });
+
+  it('should still name the error when the body is exactly as large as the parse limit', async () => {
+    const shell = JSON.stringify({ error: 'invalid_grant', padding: '' });
+    const padding = 'x'.repeat(TOKEN_ERROR_BODY_MAX_CHARS - shell.length);
+    const body = JSON.stringify({ error: 'invalid_grant', padding });
+    refusedWith(400, body);
+    expect({ size: body.length, message: (await failureOf(run)).message }).toEqual({
+      size: TOKEN_ERROR_BODY_MAX_CHARS,
+      message: `${failed} (400): invalid_grant`,
+    });
+  });
+
+  it('should name no body when it is one character over the parse limit', async () => {
+    const shell = JSON.stringify({ error: 'invalid_grant', padding: '' });
+    const padding = 'x'.repeat(TOKEN_ERROR_BODY_MAX_CHARS - shell.length + 1);
+    const body = JSON.stringify({ error: 'invalid_grant', padding });
+    refusedWith(400, body);
+    expect({ size: body.length, message: (await failureOf(run)).message }).toEqual({
+      size: TOKEN_ERROR_BODY_MAX_CHARS + 1,
+      message: `${failed} (400)`,
+    });
+  });
+});
+
+describe.each(FLOWS)('OAuthService $action when a 200 answer is not JSON', ({ action, run }) => {
+  it.each([
+    { name: 'a form-encoded body', body: `access_token=${LEAKED_SECRETS[0]}&expires_in=3600` },
+    { name: 'HTML', body: `<html>${LEAKED_SECRETS[1]}</html>` },
+    { name: 'truncated JSON', body: `{"access_token":"${LEAKED_SECRETS[2]}","expires_in":` },
+    { name: 'an empty body', body: '' },
+  ])('should reject without the body or a parse error when it is $name', async ({ body }) => {
+    fakeTokenEndpoint(() => new Response(body, { status: 200 }));
+    const error = await failureOf(run);
+    expect({
+      message: error.message,
+      cause: error.cause,
+      leaked: leakedSecretsIn(error),
+    }).toEqual({
+      message: `OAuth2 ${action} failed: the token endpoint did not return JSON`,
+      cause: undefined,
+      leaked: [],
+    });
   });
 });
 

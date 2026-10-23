@@ -40,6 +40,43 @@ const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 /** A token endpoint that stops answering would otherwise stall every IMAP or SMTP connect behind it. */
 export const TOKEN_REQUEST_TIMEOUT_MS = 15_000;
 
+/** RFC 6749 §5.2 error codes are a few words; the cap bounds what a custom endpoint can make us repeat. */
+export const TOKEN_ERROR_CODE_MAX_CHARS = 64;
+
+export const TOKEN_ERROR_DESCRIPTION_MAX_CHARS = 200;
+
+/** A real error answer is a few hundred bytes; a larger body is not parsed at all. */
+export const TOKEN_ERROR_BODY_MAX_CHARS = 4096;
+
+/** The RFC 6749 §5.2 error field charset (%x20-21 / %x23-5B / %x5D-7E); anything else is dropped. */
+const OUTSIDE_ERROR_CHARSET = /[^\x20\x21\x23-\x5B\x5D-\x7E]/g;
+
+function cleanErrorField(value: unknown, maxChars: number): string {
+  if (typeof value !== 'string') return '';
+  return value.replace(OUTSIDE_ERROR_CHARSET, '').slice(0, maxChars).trim();
+}
+
+/**
+ * The part of a refused answer the error message may carry: only RFC 6749 `error` and
+ * `error_description`. Messages reach tool results, logs and the audit log, and a custom
+ * endpoint or a proxy in front of one can put tokens or a whole HTML page in the body.
+ */
+function refusalDetail(body: string): string {
+  if (body.length > TOKEN_ERROR_BODY_MAX_CHARS) return '';
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return '';
+  }
+  if (typeof parsed !== 'object' || parsed === null) return '';
+  const fields = parsed as { error?: unknown; error_description?: unknown };
+  const code = cleanErrorField(fields.error, TOKEN_ERROR_CODE_MAX_CHARS);
+  if (!code) return '';
+  const description = cleanErrorField(fields.error_description, TOKEN_ERROR_DESCRIPTION_MAX_CHARS);
+  return description ? `: ${code}: ${description}` : `: ${code}`;
+}
+
 /** The timeout also covers the body: an endpoint can send its headers and then stall. */
 async function postTokenRequest<T>(
   tokenUrl: string,
@@ -53,11 +90,16 @@ async function postTokenRequest<T>(
       body: body.toString(),
       signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
     });
+    const text = await response.text();
     if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`OAuth2 ${action} failed (${response.status}): ${text}`);
+      throw new Error(`OAuth2 ${action} failed (${response.status})${refusalDetail(text)}`);
     }
-    return (await response.json()) as T;
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      // Not chained: a SyntaxError message quotes the start of the body, which can hold a token.
+      throw new Error(`OAuth2 ${action} failed: the token endpoint did not return JSON`);
+    }
   } catch (err) {
     if (err instanceof DOMException && err.name === 'TimeoutError') {
       throw new Error(`OAuth2 ${action} timed out after ${TOKEN_REQUEST_TIMEOUT_MS / 1000}s`, {

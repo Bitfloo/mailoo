@@ -49,6 +49,47 @@ export function stalledBody(status: number): () => Response {
   };
 }
 
+/** Fake secrets a sloppy token endpoint or proxy could echo; none may appear in an error. */
+export const LEAKED_SECRETS = [
+  'SENTINEL-ACCESS-0001',
+  'SENTINEL-REFRESH-0002',
+  'SENTINEL-ID-0003',
+] as const;
+
+/** An RFC 6749 §5.2 error body that also echoes the token fields. */
+export function leakyInvalidGrant(status = 400): () => Response {
+  const [accessToken, refreshToken, idToken] = LEAKED_SECRETS;
+  return () =>
+    Response.json(
+      {
+        error: 'invalid_grant',
+        error_description: 'Token has been expired or revoked.',
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        id_token: idToken,
+      },
+      { status },
+    );
+}
+
+const MAX_CAUSE_DEPTH = 10;
+
+/** Every link of an error's cause chain as text, so a secret hidden in a cause is not missed. */
+export function errorChainText(error: unknown): string {
+  const links: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < MAX_CAUSE_DEPTH && current !== undefined; depth += 1) {
+    if (current instanceof Error) {
+      links.push(`${current.name}: ${current.message}`);
+      current = current.cause;
+    } else {
+      links.push(String(current));
+      current = undefined;
+    }
+  }
+  return links.join('\n');
+}
+
 let refreshSeq = 0;
 
 export function googleConfig(overrides: Partial<OAuth2Config> = {}): OAuth2Config {
