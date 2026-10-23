@@ -291,6 +291,12 @@ describe('MCP_EMAIL_* credential matrix', () => {
     },
   );
 
+  // loaded() keeps only the first line, so a refusal naming another file would still equal NO_CONFIG.
+  it('should name the missing config path it was given when no password or provider is set', async () => {
+    stub({ MCP_EMAIL_PASSWORD: undefined, MCP_EMAIL_OAUTH2_PROVIDER: undefined });
+    await expect(loadConfig(missingConfig)).rejects.toThrow(missingConfig);
+  });
+
   it.each(SOME_VALUE)(
     'should load a %s MCP_EMAIL_PASSWORD (%j) as given when no provider is set',
     async (_kind, password) => {

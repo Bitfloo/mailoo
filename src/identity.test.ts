@@ -283,9 +283,10 @@ describe('README Environment Variables table', () => {
     expect(needed.filter((name) => !documented.includes(name))).toEqual([]);
   });
 
-  // Each claim a row or a line under the heading makes is read off loadConfig or the file it links,
-  // and the section holds exactly those claims, so it can neither keep a claim the loader no longer
-  // makes nor gain one that no test reads.
+  // The ROW_TEXT rows and the lines around the table are pinned whole, and each claim they make is
+  // read off loadConfig or the file it links, so they can neither keep a claim the loader no longer
+  // makes nor gain one that no test reads. Of the other rows, only the address and host rows are
+  // checked here, and only for the *required* mark that opens their default cell.
   describe('against the loader', () => {
     const NO_CONFIG = 'No configuration found.';
     const PROVIDER = 'MCP_EMAIL_OAUTH2_PROVIDER';
@@ -520,6 +521,12 @@ describe('README Environment Variables table', () => {
       },
     );
 
+    // outcome() keeps only the first line, so a refusal naming another file would still read as NO_CONFIG.
+    it('should name the missing config path it was given when the environment describes no account', async () => {
+      stub({ MCP_EMAIL_PASSWORD: undefined, [PROVIDER]: undefined });
+      await expect(loadConfig(missingConfig)).rejects.toThrow(missingConfig);
+    });
+
     it('should say an account in the environment overrides the config file exactly when it loads alone beside a file account', async () => {
       const loaded = await loadConfig(await writeConfig(FILE_ACCOUNT));
       expect(section.split('\n').includes(LEAD_IN)).toBe(
@@ -682,7 +689,8 @@ describe('README Environment Variables table', () => {
         );
       });
 
-      it('should say custom set here fails at the first token request exactly when the token refresh of an environment custom account loaded beside a file that sets the endpoints is refused before any request is sent', async () => {
+      // The file beside it sets the endpoints, so the refusal shows the environment account replaced it.
+      const customRefresh = async (): Promise<{ refusal: string; requests: number }> => {
         stub({ [PROVIDER]: 'custom' });
         const oauth2 = (await loadConfig(await writeConfig(FILE_ACCOUNT))).accounts[0]?.oauth2;
         // A scripted success, so a request sent before the refusal is counted rather than thrown.
@@ -700,10 +708,17 @@ describe('README Environment Variables table', () => {
                 () => 'refreshed',
                 (error: Error) => error.message,
               );
-        expect(refusal).toBe(CUSTOM_REFUSED);
-        expect(requests).toHaveLength(0);
+        return { refusal, requests: requests.length };
+      };
+
+      it('should refuse the custom provider before any token request', async () => {
+        expect(await customRefresh()).toEqual({ refusal: CUSTOM_REFUSED, requests: 0 });
+      });
+
+      it('should say custom fails at the first token request exactly when that refusal holds', async () => {
+        const { refusal, requests } = await customRefresh();
         expect(providerDesc().includes(CUSTOM_ENV_FAILS)).toBe(
-          refusal === CUSTOM_REFUSED && requests.length === 0,
+          refusal === CUSTOM_REFUSED && requests === 0,
         );
       });
 
