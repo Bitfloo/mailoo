@@ -130,14 +130,96 @@ describe('Audit Logger', () => {
     });
   });
 
+  it('should redact the id token in camelCase and snake_case', async () => {
+    await auditLogger.log(
+      'oauth',
+      'x',
+      { idToken: 'it', id_token: 'it_snake', account: 'personal' },
+      'ok',
+    );
+    const [entry] = await readEntries();
+    expect(entry.params).toEqual({
+      idToken: '[REDACTED]',
+      id_token: '[REDACTED]',
+      account: 'personal',
+    });
+  });
+
   it('redacts nested sensitive fields', async () => {
     await auditLogger.log('test', 'x', { nested: { password: 'abc', safe: 'ok' } }, 'ok');
     const [entry] = await readEntries();
     expect(entry.params).toEqual({ nested: { password: '[REDACTED]', safe: 'ok' } });
   });
 
-  // schedule_email is the one caller that logs its whole input. Its arrays are
-  // recipient strings, copied as given; no caller passes objects inside an array.
+  it('should redact a sensitive field of each object held in an array', async () => {
+    await auditLogger.log(
+      'test',
+      'x',
+      {
+        attachments: [
+          { filename: 'report.pdf', content_base64: 'JVBERi0xLjQK' },
+          { filename: 'notes.txt', content_base64: 'aGVsbG8K' },
+        ],
+      },
+      'ok',
+    );
+    const [entry] = await readEntries();
+    expect(entry.params).toEqual({
+      attachments: [
+        { filename: 'report.pdf', content_base64: '[REDACTED]' },
+        { filename: 'notes.txt', content_base64: '[REDACTED]' },
+      ],
+    });
+  });
+
+  it('should redact a sensitive field of an object in an array nested in an array', async () => {
+    await auditLogger.log(
+      'test',
+      'x',
+      { batches: [[{ refresh_token: 'rt', label: 'kept' }]] },
+      'ok',
+    );
+    const [entry] = await readEntries();
+    expect(entry.params).toEqual({ batches: [[{ refresh_token: '[REDACTED]', label: 'kept' }]] });
+  });
+
+  it('should mask the whole value when a sensitive key holds an object or an array', async () => {
+    await auditLogger.log(
+      'test',
+      'x',
+      {
+        refresh_token: ['rt-literal'],
+        password: { value: 'pw-literal' },
+        nested: { id_token: ['it-literal'] },
+      },
+      'ok',
+    );
+    const line = await fs.readFile(auditLogger.AUDIT_LOG_PATH, 'utf-8');
+    const [entry] = await readEntries();
+    expect({
+      params: entry.params,
+      leaked: ['rt-literal', 'pw-literal', 'it-literal'].filter((literal) =>
+        line.includes(literal),
+      ),
+    }).toEqual({
+      params: {
+        refresh_token: '[REDACTED]',
+        password: '[REDACTED]',
+        nested: { id_token: '[REDACTED]' },
+      },
+      leaked: [],
+    });
+  });
+
+  // typeof null is 'object': recursing into an array item that is null would throw and lose the entry.
+  it('should keep null, strings and numbers inside an array as given', async () => {
+    await auditLogger.log('test', 'x', { items: [null, 'a@example.com', 42] }, 'ok');
+    const [entry] = await readEntries();
+    expect(entry.params).toEqual({ items: [null, 'a@example.com', 42] });
+  });
+
+  // schedule_email is the one caller that logs its whole input; its recipient
+  // arrays hold strings, which redaction must pass through unchanged.
   it('should keep the recipient arrays and redact the body when schedule_email logs its params', async () => {
     await auditLogger.log(
       'schedule_email',

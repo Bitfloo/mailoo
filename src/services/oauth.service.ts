@@ -40,6 +40,134 @@ const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 /** A token endpoint that stops answering would otherwise stall every IMAP or SMTP connect behind it. */
 export const TOKEN_REQUEST_TIMEOUT_MS = 15_000;
 
+/** RFC 6749 §5.2 error codes are a few words; the cap bounds what a custom endpoint can make us repeat. */
+export const TOKEN_ERROR_CODE_MAX_CHARS = 64;
+
+export const TOKEN_ERROR_DESCRIPTION_MAX_CHARS = 200;
+
+/** A real error answer is a few hundred bytes; a larger body is not parsed at all. */
+export const TOKEN_ERROR_BODY_MAX_CHARS = 4096;
+
+/** The RFC 6749 §5.2 error field charset (%x20-21 / %x23-5B / %x5D-7E); anything else is dropped. */
+const OUTSIDE_ERROR_CHARSET = /[^\x20\x21\x23-\x5B\x5D-\x7E]/g;
+
+const REDACTED = '[redacted]';
+
+const SENT_SECRET_FIELDS = ['client_secret', 'refresh_token', 'code'] as const;
+
+function dropOutsideCharset(value: string): string {
+  return value.replace(OUTSIDE_ERROR_CHARSET, '');
+}
+
+function exactPattern(text: string): string {
+  return text.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+}
+
+function hexDigitsInEitherCase(escaped: string): string {
+  return escaped.replace(/[A-F]/g, (digit) => `[${digit}${digit.toLowerCase()}]`);
+}
+
+function encodedPattern(encoded: string): string {
+  return exactPattern(encoded).replace(/%[0-9A-F]{2}/g, hexDigitsInEitherCase);
+}
+
+/**
+ * An endpoint can quote back what the request sent, as given, form-encoded the way the body
+ * carried it, or URL-encoded. The given form also counts with the charset-dropped characters
+ * gone, since the filter turns an escaped or broken-up echo back into that; the encoded forms
+ * hold none. Encoders write an escape's hex digits in uppercase and an echo can write them in
+ * either case, so those digits match either way; everything else matches exactly.
+ */
+function sentSecretShapes(sent: URLSearchParams): RegExp[] {
+  const patterns = new Set<string>();
+  SENT_SECRET_FIELDS.forEach((field) => {
+    // Read back from the form, so no lone surrogate is left for encodeURIComponent to throw on.
+    const secret = sent.get(field);
+    if (!secret) return;
+    [
+      exactPattern(secret),
+      exactPattern(dropOutsideCharset(secret)),
+      encodedPattern(new URLSearchParams({ x: secret }).toString().slice(2)),
+      encodedPattern(encodeURIComponent(secret)),
+    ].forEach((pattern) => {
+      patterns.add(pattern);
+    });
+  });
+  patterns.delete('');
+  return [...patterns].map((pattern) => new RegExp(pattern));
+}
+
+/** A lookahead match is empty, so the scan steps on one character and finds overlapping echoes. */
+function echoesOf(text: string, secret: RegExp): number[][] {
+  const scan = new RegExp(`(?=(${secret.source}))`, 'g');
+  return Array.from(text.matchAll(scan), (match) => [match.index, match.index + match[1].length]);
+}
+
+/**
+ * The text around every echo of a sent secret. Echoes that overlap or touch, of one secret or of
+ * several, are cut out as one, so joining the pieces with the marker leaves no piece of a secret.
+ */
+function piecesAroundSecrets(text: string, secrets: readonly RegExp[]): string[] {
+  const echoes = secrets.flatMap((secret) => echoesOf(text, secret)).sort(([a], [b]) => a - b);
+  const cuts: number[][] = [];
+  echoes.forEach(([start, end]) => {
+    const last = cuts.at(-1);
+    if (last && start <= last[1]) {
+      last[1] = Math.max(last[1], end);
+    } else {
+      cuts.push([start, end]);
+    }
+  });
+  let from = 0;
+  const pieces = cuts.map(([start, end]) => {
+    const piece = text.slice(from, start);
+    from = end;
+    return piece;
+  });
+  return [...pieces, text.slice(from)];
+}
+
+/**
+ * Redacted before and after the charset filter, and both before the cut, so no piece survives.
+ * The second pass reads only the text between the first pass's markers: a secret made of marker
+ * letters would otherwise match inside one.
+ */
+function cleanErrorField(value: unknown, maxChars: number, secrets: readonly RegExp[]): string {
+  if (typeof value !== 'string') return '';
+  const firstPass = piecesAroundSecrets(value, secrets);
+  return firstPass
+    .map((piece) => piecesAroundSecrets(dropOutsideCharset(piece), secrets).join(REDACTED))
+    .join(REDACTED)
+    .slice(0, maxChars)
+    .trim();
+}
+
+/**
+ * The part of a refused answer the error message may carry: only RFC 6749 `error` and
+ * `error_description`, with the secrets the request sent replaced. Messages reach tool results,
+ * logs and the audit log, and a custom endpoint or a proxy in front of one can put tokens or a
+ * whole HTML page in the body, or quote the request back inside those two fields.
+ */
+function refusalDetail(body: string, secrets: readonly RegExp[]): string {
+  if (body.length > TOKEN_ERROR_BODY_MAX_CHARS) return '';
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return '';
+  }
+  if (typeof parsed !== 'object' || parsed === null) return '';
+  const fields = parsed as { error?: unknown; error_description?: unknown };
+  const code = cleanErrorField(fields.error, TOKEN_ERROR_CODE_MAX_CHARS, secrets);
+  if (!code) return '';
+  const description = cleanErrorField(
+    fields.error_description,
+    TOKEN_ERROR_DESCRIPTION_MAX_CHARS,
+    secrets,
+  );
+  return description ? `: ${code}: ${description}` : `: ${code}`;
+}
+
 /** The timeout also covers the body: an endpoint can send its headers and then stall. */
 async function postTokenRequest<T>(
   tokenUrl: string,
@@ -53,11 +181,18 @@ async function postTokenRequest<T>(
       body: body.toString(),
       signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
     });
+    const text = await response.text();
     if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`OAuth2 ${action} failed (${response.status}): ${text}`);
+      throw new Error(
+        `OAuth2 ${action} failed (${response.status})${refusalDetail(text, sentSecretShapes(body))}`,
+      );
     }
-    return (await response.json()) as T;
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      // Not chained: a SyntaxError message quotes the start of the body, which can hold a token.
+      throw new Error(`OAuth2 ${action} failed: the token endpoint did not return JSON`);
+    }
   } catch (err) {
     if (err instanceof DOMException && err.name === 'TimeoutError') {
       throw new Error(`OAuth2 ${action} timed out after ${TOKEN_REQUEST_TIMEOUT_MS / 1000}s`, {

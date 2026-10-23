@@ -1,7 +1,8 @@
 /**
  * A throwaway XDG_DATA_HOME for suites that reach src/safety/audit.ts, so they
  * never append to the user's real audit log. audit.ts fixes its path when it
- * loads: call pinAuditHome from vi.hoisted, before the suite's imports run.
+ * loads: call pinAuditHome from vi.hoisted, before the suite's imports run, or
+ * per test before vi.resetModules and a fresh import of what reaches audit.ts.
  */
 
 import fs from 'node:fs/promises';

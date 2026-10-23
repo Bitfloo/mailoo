@@ -27,18 +27,21 @@ const REDACTED_FIELDS = new Set([
   'refresh_token',
   'accessToken',
   'access_token',
+  'idToken',
+  'id_token',
 ]);
+
+function redactValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactValue);
+  // eslint-disable-next-line @typescript-eslint/no-use-before-define -- the two recurse into each other
+  if (value && typeof value === 'object') return redactParams(value as Record<string, unknown>);
+  return value;
+}
 
 function redactParams(params: Record<string, unknown>): Record<string, unknown> {
   const cleaned: Record<string, unknown> = {};
   Object.entries(params).forEach(([key, value]) => {
-    if (REDACTED_FIELDS.has(key)) {
-      cleaned[key] = '[REDACTED]';
-    } else if (value && typeof value === 'object' && !Array.isArray(value)) {
-      cleaned[key] = redactParams(value as Record<string, unknown>);
-    } else {
-      cleaned[key] = value;
-    }
+    cleaned[key] = REDACTED_FIELDS.has(key) ? '[REDACTED]' : redactValue(value);
   });
   return cleaned;
 }
