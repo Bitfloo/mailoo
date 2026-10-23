@@ -503,10 +503,10 @@ For single-account setups (overrides config file):
 |----------|---------|-------------|
 | `MCP_EMAIL_ADDRESS` | *required* | Email address |
 | `MCP_EMAIL_PASSWORD` | *required* without OAuth2 | Password or app password. Not needed for an OAuth2 account (`MCP_EMAIL_OAUTH2_PROVIDER` set) |
-| `MCP_EMAIL_OAUTH2_PROVIDER` | — | `google`, `microsoft` or `custom`, read exactly as set; any other value is refused. Unset or empty means no OAuth2. `custom` set here fails at the first token request: no environment variable sets its endpoints, and an account in the environment replaces the config file. Configure a `custom` account entirely in the config file, with `token_url` and `auth_url` under `[accounts.oauth2]` |
+| `MCP_EMAIL_OAUTH2_PROVIDER` | — | `google`, `microsoft` or `custom`, read exactly as set; any other value is refused. Unset or empty means no OAuth2. An account in the environment replaces the config file, so `custom` set here fails at the first token request. Configure a `custom` account entirely in the config file, with `token_url` and `auth_url` under `[accounts.oauth2]` |
 | `MCP_EMAIL_OAUTH2_CLIENT_ID` | *required* with a provider | OAuth2 client id |
 | `MCP_EMAIL_OAUTH2_CLIENT_SECRET` | *required* with a provider | OAuth2 client secret |
-| `MCP_EMAIL_OAUTH2_REFRESH_TOKEN` | *required* with a provider | OAuth2 refresh token. A missing or empty client id, client secret or refresh token is refused when the configuration loads, naming the field |
+| `MCP_EMAIL_OAUTH2_REFRESH_TOKEN` | *required* with a provider | OAuth2 refresh token |
 | `MCP_EMAIL_IMAP_HOST` | *required* | IMAP server hostname |
 | `MCP_EMAIL_SMTP_HOST` | *required* | SMTP server hostname |
 | `MCP_EMAIL_ACCOUNT_NAME` | `default` | Account name |
