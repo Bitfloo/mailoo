@@ -8,11 +8,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import ConnectionManager from '../connections/manager.js';
-import createServer from '../server.js';
-import ImapService from '../services/imap.service.js';
-import OAuthService from '../services/oauth.service.js';
-import { readAuditEntries } from '../test-support/audit-home.js';
+import type { AuditHome } from '../test-support/audit-home.js';
+import { pinAuditHome, readAuditEntries } from '../test-support/audit-home.js';
 import type { TokenRequest } from '../test-support/token-endpoint.js';
 import {
   echoingRefusal,
@@ -21,20 +18,17 @@ import {
   leakedSecretsIn,
   leakyInvalidGrant,
 } from '../test-support/token-endpoint.js';
-import type { AccountConfig, AuditEntry, OAuth2Config } from '../types/index.js';
-import registerManageTools from './manage.tool.js';
+import type { AccountConfig, OAuth2Config } from '../types/index.js';
 
-const { auditHome } = await vi.hoisted(async () => {
-  const { pinAuditHome } = await import('../test-support/audit-home.js');
-  return { auditHome: await pinAuditHome() };
+let auditHome: AuditHome;
+
+beforeEach(async () => {
+  auditHome = await pinAuditHome();
 });
 
-afterAll(async () => {
-  await auditHome.restore();
-});
-
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllGlobals();
+  await auditHome.restore();
 });
 
 const REFUSAL =
@@ -65,6 +59,33 @@ async function callTool(server: McpServer, name: string, args: Record<string, un
   }
 }
 
+/**
+ * A server with the manage tools, loaded afresh: audit.ts fixes its log path when it loads, so
+ * only a new copy writes to the audit home this test pinned.
+ */
+async function manageToolsServer(account: AccountConfig): Promise<McpServer> {
+  vi.resetModules();
+  const [
+    { default: createServer },
+    { default: registerManageTools },
+    { default: ImapService },
+    { default: ConnectionManager },
+    { default: OAuthService },
+  ] = await Promise.all([
+    import('../server.js'),
+    import('./manage.tool.js'),
+    import('../services/imap.service.js'),
+    import('../connections/manager.js'),
+    import('../services/oauth.service.js'),
+  ]);
+  const server = createServer();
+  registerManageTools(
+    server,
+    new ImapService(new ConnectionManager([account], new OAuthService())),
+  );
+  return server;
+}
+
 /** mark_email on an OAuth2 account whose refresh token the provider has revoked. */
 async function markEmailOnRevokedAccount(
   refusal: (request: TokenRequest) => Response = leakyInvalidGrant(400),
@@ -79,23 +100,8 @@ async function markEmailOnRevokedAccount(
     imap: { host: 'imap.example.com', port: 993, tls: true, starttls: false, verifySsl: true },
     smtp: { host: 'smtp.example.com', port: 465, tls: true, starttls: false, verifySsl: true },
   };
-  const server = createServer();
-  registerManageTools(
-    server,
-    new ImapService(new ConnectionManager([account], new OAuthService())),
-  );
-  const result = await callTool(server, 'mark_email', ARGS);
+  const result = await callTool(await manageToolsServer(account), 'mark_email', ARGS);
   return { result, calls };
-}
-
-/**
- * The audit entries `act` appended. The file shares one audit home, since audit.ts fixes its
- * log path when it loads, so the entries earlier tests wrote stay in the log.
- */
-async function auditEntriesWrittenBy(act: () => Promise<unknown>): Promise<AuditEntry[]> {
-  const before = (await readAuditEntries(auditHome)).length;
-  await act();
-  return (await readAuditEntries(auditHome)).slice(before);
 }
 
 describe('mark_email on an OAuth2 account the provider refuses', () => {
@@ -116,7 +122,8 @@ describe('mark_email on an OAuth2 account the provider refuses', () => {
   });
 
   it('should audit the refusal without the tokens the endpoint echoed', async () => {
-    const written = await auditEntriesWrittenBy(async () => markEmailOnRevokedAccount());
+    await markEmailOnRevokedAccount();
+    const written = await readAuditEntries(auditHome);
 
     expect({
       written,
@@ -170,7 +177,8 @@ describe('mark_email when the refusal echoes the secrets the token request sent'
   });
 
   it('should audit the refusal with [redacted] in place of the refresh token and client secret', async () => {
-    const written = await auditEntriesWrittenBy(markEmailWithEchoedSecrets);
+    await markEmailWithEchoedSecrets();
+    const written = await readAuditEntries(auditHome);
 
     expect({
       errors: written.map((entry) => entry.error),

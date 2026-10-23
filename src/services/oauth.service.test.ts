@@ -664,6 +664,23 @@ describe.each(FLOWS)('OAuthService $action when the token endpoint refuses', ({ 
       parsedTheBody: false,
     });
   });
+
+  it('should name no error from a body past the parse limit whose first 4096 characters are a valid refusal', async () => {
+    const body =
+      JSON.stringify({ error: 'invalid_grant' }) + ' '.repeat(TOKEN_ERROR_BODY_MAX_CHARS);
+    refusedWith(400, body);
+    expect({
+      overTheLimit: body.length > TOKEN_ERROR_BODY_MAX_CHARS,
+      parsed: JSON.parse(body) as unknown,
+      prefixParsed: JSON.parse(body.slice(0, TOKEN_ERROR_BODY_MAX_CHARS)) as unknown,
+      message: (await failureOf(run)).message,
+    }).toEqual({
+      overTheLimit: true,
+      parsed: { error: 'invalid_grant' },
+      prefixParsed: { error: 'invalid_grant' },
+      message: `${failed} (400)`,
+    });
+  });
 });
 
 interface SentSecrets {
@@ -731,6 +748,18 @@ const LONE_SURROGATE: SentSecrets = {
     'GOCSPX-a1b2c3d4%EF%BF%BDz9y8x7w6v5',
   ],
 };
+
+let grantSeq = 0;
+
+/**
+ * The secrets with a grant no other test sends: in-flight refreshes are shared per refresh token.
+ * The suffix goes at the end, after the shape under test, and `-` and digits pass every reshaping
+ * unchanged, so each listed shape stays a prefix of the one the request sends.
+ */
+function withFreshGrant(secrets: SentSecrets): SentSecrets {
+  grantSeq += 1;
+  return { ...secrets, grant: `${secrets.grant}-${grantSeq}` };
+}
 
 const ECHOING_FLOWS = [
   {
@@ -856,9 +885,10 @@ describe.each(ECHOING_FLOWS)(
     const failed = `OAuth2 ${action} failed`;
 
     async function refusedEchoing(
-      secrets: SentSecrets,
+      fixture: SentSecrets,
       fields: (sent: { client: string; grant: string; form: string }) => Record<string, unknown>,
     ) {
+      const secrets = withFreshGrant(fixture);
       const calls = fakeTokenEndpoint(
         echoingRefusal((sent, form) =>
           fields({
@@ -870,13 +900,13 @@ describe.each(ECHOING_FLOWS)(
       );
       const error = await failureOf(async () => run(secrets));
       const sent = new URLSearchParams(String(calls[0]?.init.body));
-      return { error, sent: [sent.get('client_secret'), sent.get(grantField)] };
+      return { error, secrets, sent: [sent.get('client_secret'), sent.get(grantField)] };
     }
 
     it.each(ECHO_CASES)(
       'should replace $name with [redacted] in the $field',
-      async ({ secrets, echo, kept, cap, body, named }) => {
-        const { error, sent } = await refusedEchoing(secrets, ({ client, grant }) =>
+      async ({ secrets: fixture, echo, kept, cap, body, named }) => {
+        const { error, secrets, sent } = await refusedEchoing(fixture, ({ client, grant }) =>
           body(echo({ client, grant, cap })),
         );
         expect({
@@ -894,36 +924,36 @@ describe.each(ECHOING_FLOWS)(
     );
 
     it('should replace the secrets with [redacted] when the description echoes the whole form sent', async () => {
-      const { error, sent } = await refusedEchoing(PERCENT, ({ form }) => ({
+      const { error, secrets, sent } = await refusedEchoing(PERCENT, ({ form }) => ({
         error: 'invalid_request',
         error_description: `could not parse ${form}`,
       }));
       expect({
         sent,
         message: error.message,
-        leaked: leakedSecretsIn(error, [PERCENT.client, PERCENT.grant, ...PERCENT.reshaped], {
+        leaked: leakedSecretsIn(error, [secrets.client, secrets.grant, ...secrets.reshaped], {
           fragments: true,
         }),
       }).toEqual({
-        sent: [PERCENT.client, PERCENT.grant],
+        sent: [secrets.client, secrets.grant],
         message: `${failed} (400): invalid_request: could not parse ${redactedForm}`,
         leaked: [],
       });
     });
 
     it('should replace a client secret holding a lone surrogate with [redacted] in the error_description', async () => {
-      const { error, sent } = await refusedEchoing(LONE_SURROGATE, ({ client }) => ({
+      const { error, secrets, sent } = await refusedEchoing(LONE_SURROGATE, ({ client }) => ({
         error: 'invalid_client',
         error_description: `client ${client} refused`,
       }));
       expect({
         sent,
         message: error.message,
-        leaked: leakedSecretsIn(error, [LONE_SURROGATE.client, ...LONE_SURROGATE.reshaped], {
+        leaked: leakedSecretsIn(error, [secrets.client, ...secrets.reshaped], {
           fragments: true,
         }),
       }).toEqual({
-        sent: ['GOCSPX-a1b2c3d4�z9y8x7w6v5', LONE_SURROGATE.grant],
+        sent: ['GOCSPX-a1b2c3d4�z9y8x7w6v5', secrets.grant],
         message: `${failed} (400): invalid_client: client [redacted] refused`,
         leaked: [],
       });
@@ -936,7 +966,7 @@ describe.each(ECHOING_FLOWS)(
       'should leave a refusal that echoes nothing as it was when the client secret is $name',
       async ({ client }) => {
         fakeTokenEndpoint(leakyInvalidGrant(400));
-        const error = await failureOf(async () => run({ ...PLAIN, client }));
+        const error = await failureOf(async () => run(withFreshGrant({ ...PLAIN, client })));
         expect(error.message).toBe(
           `${failed} (400): invalid_grant: Token has been expired or revoked.`,
         );
