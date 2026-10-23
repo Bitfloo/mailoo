@@ -198,13 +198,61 @@ describe('keyword labels', () => {
     expect(client.messageFlagsRemove).not.toHaveBeenCalled();
   });
 
-  it('should add an ordinary label that contains parentheses', async () => {
+  it('should add an ordinary label that contains punctuation', async () => {
     const { client, strategy } = await keywordStrategy();
 
-    await strategy.addLabel(client as unknown as ImapFlow, '4', 'INBOX', 'Receipts (2024)');
+    await strategy.addLabel(client as unknown as ImapFlow, '4', 'INBOX', '$Receipts-2024');
 
-    expect(client.messageFlagsAdd).toHaveBeenCalledWith('4', ['Receipts (2024)'], { uid: true });
+    expect(client.messageFlagsAdd).toHaveBeenCalledWith('4', ['$Receipts-2024'], { uid: true });
   });
+
+  // RFC 9051: a keyword is an atom. imapflow drops any other keyword without sending STORE.
+  // One label per character an atom excludes (SP, the controls, the atom-specials, anything past
+  // ASCII), plus the empty label: an atom has at least one character.
+  const nonAtoms = [
+    'My Tag',
+    'a(b',
+    'a)b',
+    'a{b',
+    'a%b',
+    'a*b',
+    'Bad"Tag',
+    'a\\b',
+    'a]b',
+    'Ważne',
+    '',
+    'a\r\nb',
+    'a\tb',
+    'a\x7Fb',
+  ];
+  it.each(
+    (['addLabel', 'removeLabel'] as const).flatMap((method) =>
+      nonAtoms.map((label) => [method, label] as const),
+    ),
+  )('should refuse in %s a keyword that is not an IMAP atom: %j', async (method, label) => {
+    const { client, strategy } = await keywordStrategy();
+
+    await expect(
+      strategy[method](client as unknown as ImapFlow, '4', 'INBOX', label),
+    ).rejects.toThrow(
+      'IMAP keywords cannot contain spaces, non-ASCII characters or ( ) { % * " \\ ].',
+    );
+    expect(client.messageFlagsAdd).not.toHaveBeenCalled();
+    expect(client.messageFlagsRemove).not.toHaveBeenCalled();
+  });
+
+  // '!' and '~' bound the printable range; '[' and '}' are ATOM-CHARs, as only ']' is
+  // resp-special and only '{' opens a literal.
+  it.each(['a~b', 'a}b', 'a[b', 'a!b'])(
+    'should add a keyword made of ATOM-CHARs: %s',
+    async (label) => {
+      const { client, strategy } = await keywordStrategy();
+
+      await strategy.addLabel(client as unknown as ImapFlow, '4', 'INBOX', label);
+
+      expect(client.messageFlagsAdd).toHaveBeenCalledWith('4', [label], { uid: true });
+    },
+  );
 
   it('should list the PERMANENTFLAGS keywords but not the system flags', async () => {
     const { client, strategy } = await keywordStrategy();

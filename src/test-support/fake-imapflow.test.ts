@@ -1,6 +1,6 @@
 import { ImapFlow } from 'imapflow';
 
-import { FakeImapFlow, fake, resetFakeServer, seedFolder } from './fake-imapflow.js';
+import { FakeImapFlow, fake, resetFakeServer, seedFolder, settle } from './fake-imapflow.js';
 
 interface CloseCase {
   when: string;
@@ -37,6 +37,20 @@ describe('FakeImapFlow close during connect', () => {
     await expect(connecting).rejects.toMatchObject({ code: closeCase.code });
   });
 
+  // imap-flow.js 2.5.8 connect(): "The transport goes with the failed attempt", via closeAfter().
+  it('should emit close one tick after a refused connect', async () => {
+    fake.connectErrors.push(new Error('Invalid credentials'));
+    const client = new FakeImapFlow(options({ port: 993 }));
+    let closes = 0;
+    client.on('close', () => {
+      closes += 1;
+    });
+    await expect(client.connect()).rejects.toThrow('Invalid credentials');
+    const closesAtReject = closes;
+    await settle();
+    expect([closesAtReject, closes]).toEqual([0, 1]);
+  });
+
   // The fake stands in for imapflow, so its socket type must follow the library's own rule.
   it.each(cases)('should count the socket as imapflow does when $when', (closeCase) => {
     const { secureConnection } = new ImapFlow(options(closeCase));
@@ -44,7 +58,7 @@ describe('FakeImapFlow close during connect', () => {
   });
 });
 
-// The watcher's query tests read what this fetch yields, so it must answer as imapflow 1.7.8 does.
+// The watcher's query tests read what this fetch yields, so it must answer as imapflow 2.5.8 does.
 describe('FakeImapFlow fetch', () => {
   async function openInbox(): Promise<FakeImapFlow> {
     const client = new FakeImapFlow(options({ port: 993 }));
@@ -91,7 +105,7 @@ describe('FakeImapFlow fetch', () => {
     });
   });
 
-  // imap-flow.js 1.7.8, fetch(): "no mailbox selected, nothing to do".
+  // imap-flow.js 2.5.8, fetch(): "no mailbox selected, nothing to do".
   it('should yield nothing when no mailbox is selected', async () => {
     seedFolder('INBOX', [5, 9]);
     const client = new FakeImapFlow(options({ port: 993 }));

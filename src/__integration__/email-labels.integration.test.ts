@@ -110,22 +110,20 @@ describe('Email Label Operations', () => {
       expect(flagsAfterRemove.labels).not.toContain('MyTag');
     });
 
-    it('should add and remove a label that contains a quote', async () => {
-      // GreenMail stores a non-atom keyword; the oracle is that the quote round-trips escaped.
+    it('should refuse a keyword label that contains a quote and leave the keywords unchanged', async () => {
+      // GreenMail would store a quoted keyword, but imapflow sends only atoms (RFC 9051).
       const list = await services.imapService.listEmails(TEST_ACCOUNT_NAME, {
         subject: 'Label test email',
       });
       const emailId = list.items[0].id;
+      const before = await services.imapService.getEmailFlags(TEST_ACCOUNT_NAME, emailId);
 
-      await services.imapService.addLabel(TEST_ACCOUNT_NAME, emailId, 'INBOX', 'Bad"Tag');
+      await expect(
+        services.imapService.addLabel(TEST_ACCOUNT_NAME, emailId, 'INBOX', 'Bad"Tag'),
+      ).rejects.toThrow('IMAP keywords cannot contain');
 
-      const flagsAfterAdd = await services.imapService.getEmailFlags(TEST_ACCOUNT_NAME, emailId);
-      expect(flagsAfterAdd.labels).toContain('Bad"Tag');
-
-      await services.imapService.removeLabel(TEST_ACCOUNT_NAME, emailId, 'INBOX', 'Bad"Tag');
-
-      const flagsAfterRemove = await services.imapService.getEmailFlags(TEST_ACCOUNT_NAME, emailId);
-      expect(flagsAfterRemove.labels).not.toContain('Bad"Tag');
+      const after = await services.imapService.getEmailFlags(TEST_ACCOUNT_NAME, emailId);
+      expect(after.labels).toEqual(before.labels);
     });
 
     it('should return isError and leave FLAGS without \\Deleted when add_label is a system flag', async () => {

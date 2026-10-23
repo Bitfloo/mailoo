@@ -85,6 +85,37 @@ describe('ImapService', () => {
         },
       ]);
     });
+
+    // imapflow throws only when LIST no longer shows the folder; for a listed one it resolves false.
+    it('should list a folder whose STATUS resolves false with zero counts', async () => {
+      client.list.mockResolvedValue([
+        { name: 'INBOX', path: 'INBOX', specialUse: '\\Inbox', flags: new Set() },
+        { name: '[Gmail]', path: '[Gmail]', flags: new Set(['\\Noselect']) },
+      ]);
+      client.status.mockImplementation(async (path: string) => {
+        if (path === '[Gmail]') return false;
+        return { path, messages: 10, unseen: 3 };
+      });
+
+      const result = await service.listMailboxes('test');
+
+      expect(result).toEqual([
+        {
+          name: 'INBOX',
+          path: 'INBOX',
+          specialUse: '\\Inbox',
+          totalMessages: 10,
+          unseenMessages: 3,
+        },
+        {
+          name: '[Gmail]',
+          path: '[Gmail]',
+          specialUse: undefined,
+          totalMessages: 0,
+          unseenMessages: 0,
+        },
+      ]);
+    });
   });
 
   // -----------------------------------------------------------------------
