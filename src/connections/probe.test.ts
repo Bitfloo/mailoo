@@ -128,6 +128,15 @@ describe('testImap', () => {
     });
   });
 
+  it('should report no message count when STATUS on the first folder resolves false', async () => {
+    h.missing.add('INBOX');
+    h.refused.add('[Gmail]/All Mail');
+    expect(await testImap(account)).toEqual({
+      success: true,
+      details: { messages: 0, folders: 2 },
+    });
+  });
+
   it('should report success with no message count when no folder answers STATUS', async () => {
     h.missing.add('INBOX');
     h.missing.add('[Gmail]/All Mail');
