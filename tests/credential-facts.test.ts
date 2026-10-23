@@ -3,9 +3,9 @@
  * loader enforce it: a non-empty password or an OAuth2 block.
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 
 import { ZodError } from 'zod';
 
@@ -274,6 +274,8 @@ describe('MCP_EMAIL_* credential matrix', () => {
     vi.stubEnv('MCP_EMAIL_SMTP_HOST', 'smtp.example.com');
     dir = await mkdtemp(join(tmpdir(), 'credential-facts-'));
     missingConfig = join(dir, 'no-such-config.toml');
+    expect(dirname(relative(tmpdir(), missingConfig))).toBe(basename(dir));
+    await expect(stat(missingConfig)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   afterEach(async () => {

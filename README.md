@@ -502,8 +502,8 @@ For single-account setups (overrides config file):
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MCP_EMAIL_ADDRESS` | *required* | Email address |
-| `MCP_EMAIL_PASSWORD` | *required* without OAuth2 | Password or app password. Not needed when `MCP_EMAIL_OAUTH2_PROVIDER` is set, which makes the three other `MCP_EMAIL_OAUTH2_*` variables below required |
-| `MCP_EMAIL_OAUTH2_PROVIDER` | — | `google`, `microsoft` or `custom`, read exactly as set; any other value is refused. Unset or empty means no OAuth2. `custom` also needs `token_url` and `auth_url`, which no environment variable can set, so a `custom` account needs a config file with them under `[accounts.oauth2]` |
+| `MCP_EMAIL_PASSWORD` | *required* without OAuth2 | Password or app password. Not needed for an OAuth2 account (`MCP_EMAIL_OAUTH2_PROVIDER` set) |
+| `MCP_EMAIL_OAUTH2_PROVIDER` | — | `google`, `microsoft` or `custom`, read exactly as set; any other value is refused. Unset or empty means no OAuth2. `custom` needs `token_url` and `auth_url` under `[accounts.oauth2]` in a config file; no environment variable sets them |
 | `MCP_EMAIL_OAUTH2_CLIENT_ID` | *required* with a provider | OAuth2 client id |
 | `MCP_EMAIL_OAUTH2_CLIENT_SECRET` | *required* with a provider | OAuth2 client secret |
 | `MCP_EMAIL_OAUTH2_REFRESH_TOKEN` | *required* with a provider | OAuth2 refresh token. A missing or empty client id, client secret or refresh token is refused when the configuration loads, naming the field |
@@ -834,11 +834,11 @@ Single-account setup reads `MCP_EMAIL_*` (`src/config/loader.ts`). HTTP listens 
 
 | Name | Role |
 |---|---|
-| `MCP_EMAIL_ADDRESS`, `MCP_EMAIL_PASSWORD`, `MCP_EMAIL_IMAP_HOST`, `MCP_EMAIL_SMTP_HOST` | Account. Password is required unless an OAuth2 account is set (`MCP_EMAIL_OAUTH2_*`) |
+| `MCP_EMAIL_ADDRESS`, `MCP_EMAIL_PASSWORD`, `MCP_EMAIL_IMAP_HOST`, `MCP_EMAIL_SMTP_HOST` | Account. Password is required unless `MCP_EMAIL_OAUTH2_PROVIDER` is set |
 | `MCP_EMAIL_ACCOUNT_NAME`, `MCP_EMAIL_FULL_NAME`, `MCP_EMAIL_USERNAME` | Identity |
 | `MCP_EMAIL_IMAP_PORT`, `MCP_EMAIL_IMAP_TLS`, `MCP_EMAIL_IMAP_STARTTLS`, `MCP_EMAIL_IMAP_VERIFY_SSL`, `MCP_EMAIL_IMAP_DISABLE_IMAP4REV2`, `MCP_EMAIL_SIEVE_HOST`, `MCP_EMAIL_SIEVE_PORT` | IMAP and ManageSieve |
 | `MCP_EMAIL_SMTP_PORT`, `MCP_EMAIL_SMTP_TLS`, `MCP_EMAIL_SMTP_STARTTLS`, `MCP_EMAIL_SMTP_VERIFY_SSL`, `MCP_EMAIL_SMTP_POOL_ENABLED`, `MCP_EMAIL_SMTP_POOL_MAX_CONNECTIONS`, `MCP_EMAIL_SMTP_POOL_MAX_MESSAGES` | SMTP |
-| `MCP_EMAIL_OAUTH2_PROVIDER`, `MCP_EMAIL_OAUTH2_CLIENT_ID`, `MCP_EMAIL_OAUTH2_CLIENT_SECRET`, `MCP_EMAIL_OAUTH2_REFRESH_TOKEN` | OAuth2, set together. Rules: [Environment Variables](#environment-variables) |
+| `MCP_EMAIL_OAUTH2_PROVIDER`, `MCP_EMAIL_OAUTH2_CLIENT_ID`, `MCP_EMAIL_OAUTH2_CLIENT_SECRET`, `MCP_EMAIL_OAUTH2_REFRESH_TOKEN` | OAuth2 |
 | `MCP_EMAIL_RATE_LIMIT`, `MCP_EMAIL_READ_ONLY`, `MCP_EMAIL_TOOLSET`, `MCP_EMAIL_DEFAULT_ACCOUNT`, `MCP_EMAIL_SAVE_TO_SENT` | Settings |
 | `MCP_EMAIL_WATCHER_ENABLED`, `MCP_EMAIL_WATCHER_FOLDERS`, `MCP_EMAIL_WATCHER_IDLE_TIMEOUT` | IDLE watcher |
 | `MCP_EMAIL_HOOK_ON_NEW_EMAIL`, `MCP_EMAIL_HOOK_PRESET`, `MCP_EMAIL_HOOK_AUTO_LABEL`, `MCP_EMAIL_HOOK_AUTO_FLAG`, `MCP_EMAIL_HOOK_BATCH_DELAY`, `MCP_EMAIL_HOOK_CUSTOM_INSTRUCTIONS` | Hooks |

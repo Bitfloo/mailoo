@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
@@ -272,22 +272,58 @@ describe('README Environment Variables table', () => {
     expect(needed.filter((name) => !documented.includes(name))).toEqual([]);
   });
 
-  it('should list every MCP_EMAIL_OAUTH2_* variable the server reads in the grouped Environment reference', () => {
-    const section = readme.split(/^### Environment$/m)[1]?.split(/\n#{1,3} /)[0] ?? '';
-    const row = section.split('\n').find((line) => line.split('|')[2]?.trim().startsWith('OAuth2'));
-    const listed = [...(row?.split('|')[1] ?? '').matchAll(/MCP_EMAIL_OAUTH2_[A-Z0-9_]+/g)]
-      .map((match) => match[0])
-      .sort();
-    expect(listed).toEqual(read.filter((name) => name.startsWith('MCP_EMAIL_OAUTH2_')));
-  });
-
-  // Each claim a row makes is read off loadConfig, so a row cannot keep a claim the loader no longer makes.
+  // Each claim a row makes is read off loadConfig, and the rows hold exactly those claims, so a row
+  // can neither keep a claim the loader no longer makes nor gain one that no test reads.
   describe('against the loader', () => {
     const NO_CONFIG = 'No configuration found.';
     const PROVIDER = 'MCP_EMAIL_OAUTH2_PROVIDER';
     const PROVIDER_REFUSED = 'refuses accounts.0.oauth2.provider';
+    const PASSWORD_DEFAULT = '*required* without OAuth2';
+    const CLIENT_DEFAULT = '*required* with a provider';
+    const NO_DEFAULT = '—';
+    const PASSWORD_WAIVED = 'Not needed for an OAuth2 account (`MCP_EMAIL_OAUTH2_PROVIDER` set)';
+    const READ_AS_SET = 'read exactly as set';
+    const OTHER_REFUSED = 'any other value is refused';
+    const UNSET_NO_OAUTH2 = 'Unset or empty means no OAuth2';
+    const CUSTOM_NEEDS_FILE =
+      '`custom` needs `token_url` and `auth_url` under `[accounts.oauth2]` in a config file';
+    const NO_ENV_SETS = 'no environment variable sets them';
+    const CLIENT_REFUSED =
+      'A missing or empty client id, client secret or refresh token is refused when the configuration loads, naming the field';
     type Env = Record<string, string | undefined>;
     type Loaded = Awaited<ReturnType<typeof loadConfig>>['accounts'][number] | undefined;
+    const ROLES: [string, string, (account: Loaded) => string | undefined][] = [
+      ['MCP_EMAIL_PASSWORD', 'Password or app password', (account) => account?.password],
+      ['MCP_EMAIL_OAUTH2_CLIENT_ID', 'OAuth2 client id', (account) => account?.oauth2?.clientId],
+      [
+        'MCP_EMAIL_OAUTH2_CLIENT_SECRET',
+        'OAuth2 client secret',
+        (account) => account?.oauth2?.clientSecret,
+      ],
+      [
+        'MCP_EMAIL_OAUTH2_REFRESH_TOKEN',
+        'OAuth2 refresh token',
+        (account) => account?.oauth2?.refreshToken,
+      ],
+    ];
+    const role = (name: string): string => ROLES.find(([listed]) => listed === name)?.[1] ?? '';
+    const ticked = OAuth2ConfigSchema.shape.provider.options.map((value) => `\`${value}\``);
+    const PROVIDER_LIST = `${ticked.slice(0, -1).join(', ')} or ${ticked.at(-1)}`;
+    const ROW_TEXT: [string, string, string][] = [
+      ['MCP_EMAIL_PASSWORD', PASSWORD_DEFAULT, `${role('MCP_EMAIL_PASSWORD')}. ${PASSWORD_WAIVED}`],
+      [
+        PROVIDER,
+        NO_DEFAULT,
+        `${PROVIDER_LIST}, ${READ_AS_SET}; ${OTHER_REFUSED}. ${UNSET_NO_OAUTH2}. ${CUSTOM_NEEDS_FILE}; ${NO_ENV_SETS}`,
+      ],
+      ['MCP_EMAIL_OAUTH2_CLIENT_ID', CLIENT_DEFAULT, role('MCP_EMAIL_OAUTH2_CLIENT_ID')],
+      ['MCP_EMAIL_OAUTH2_CLIENT_SECRET', CLIENT_DEFAULT, role('MCP_EMAIL_OAUTH2_CLIENT_SECRET')],
+      [
+        'MCP_EMAIL_OAUTH2_REFRESH_TOKEN',
+        CLIENT_DEFAULT,
+        `${role('MCP_EMAIL_OAUTH2_REFRESH_TOKEN')}. ${CLIENT_REFUSED}`,
+      ],
+    ];
     const PASSWORD_ONLY: Env = {
       MCP_EMAIL_PASSWORD: 'app-password',
       MCP_EMAIL_OAUTH2_PROVIDER: undefined,
@@ -304,8 +340,6 @@ describe('README Environment Variables table', () => {
     let dir: string;
 
     const providerDesc = (): string => rows.get(PROVIDER)?.desc ?? '';
-    const backticked = (text: string): string[] =>
-      [...text.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
     const stub = (vars: Env): void => {
       Object.entries(vars).forEach(([name, value]) => {
         vi.stubEnv(name, value);
@@ -323,6 +357,15 @@ describe('README Environment Variables table', () => {
           return `refuses ${error.issues.map((issue) => issue.path.join('.')).join(', ')}`;
         }
         return String((error as Error).message).split('\n')[0];
+      }
+    };
+    const endpoints = (account: Loaded): string => {
+      if (account?.oauth2 === undefined) return 'no OAuth2';
+      try {
+        const { tokenUrl, authUrl } = OAuthService.getProviderEndpoints(account.oauth2);
+        return `${tokenUrl} ${authUrl}`;
+      } catch (error) {
+        return (error as Error).message;
       }
     };
 
@@ -345,6 +388,8 @@ describe('README Environment Variables table', () => {
       // Fresh empty directory: a file at a repo path would be read as the config.
       dir = await mkdtemp(join(tmpdir(), 'mailoo-readme-env-'));
       missingConfig = join(dir, 'no-such-config.toml');
+      expect(dirname(relative(tmpdir(), missingConfig))).toBe(basename(dir));
+      await expect(stat(missingConfig)).rejects.toMatchObject({ code: 'ENOENT' });
     });
 
     afterEach(async () => {
@@ -352,11 +397,25 @@ describe('README Environment Variables table', () => {
       await rm(dir, { recursive: true, force: true });
     });
 
+    it.each(ROW_TEXT)(
+      'should hold the %s row to the claims the tests below read',
+      (name, def, desc) => {
+        expect(rows.get(name)).toEqual({ def, desc });
+      },
+    );
+
+    it.each(ROLES)(
+      'should open the %s row with %j exactly when the loader reads the variable as that value',
+      async (name, label, field) => {
+        stub({ [name]: 'Env-Role-Q7' });
+        const account = (await loadConfig(missingConfig)).accounts[0];
+        expect(rows.get(name)?.desc.startsWith(label)).toBe(field(account) === 'Env-Role-Q7');
+      },
+    );
+
     // The three client rows carry a condition and are read whole by the test below.
     const requirements: [string, Env, string][] = [
       ['MCP_EMAIL_PASSWORD', PASSWORD_ONLY, NO_CONFIG],
-      // A password account loads without a provider, so the provider row must not say *required*.
-      ['MCP_EMAIL_OAUTH2_PROVIDER', PASSWORD_ONLY, NO_CONFIG],
       ...REQUIRED_MCP_EMAIL_ENV.map((name): [string, Env, string] => [
         name,
         PASSWORD_ONLY,
@@ -373,11 +432,11 @@ describe('README Environment Variables table', () => {
       },
     );
 
-    it('should name MCP_EMAIL_OAUTH2_PROVIDER in the MCP_EMAIL_PASSWORD row exactly when the provider alone lets an account load without a password', async () => {
+    it('should say MCP_EMAIL_PASSWORD is not needed for an OAuth2 account exactly when the provider alone lets an account load without a password', async () => {
       const withProvider = await outcome();
       stub({ MCP_EMAIL_OAUTH2_PROVIDER: undefined });
       const providerWaivesPassword = withProvider === 'loads' && (await outcome()) === NO_CONFIG;
-      expect(rows.get('MCP_EMAIL_PASSWORD')?.desc.includes('`MCP_EMAIL_OAUTH2_PROVIDER`')).toBe(
+      expect(rows.get('MCP_EMAIL_PASSWORD')?.desc.includes(PASSWORD_WAIVED)).toBe(
         providerWaivesPassword,
       );
     });
@@ -386,9 +445,7 @@ describe('README Environment Variables table', () => {
       const withProvider = await outcome();
       stub({ MCP_EMAIL_OAUTH2_PROVIDER: undefined });
       const onlyProviderWaives = withProvider === 'loads' && (await outcome()) === NO_CONFIG;
-      expect(rows.get('MCP_EMAIL_PASSWORD')?.def === '*required* without OAuth2').toBe(
-        onlyProviderWaives,
-      );
+      expect(rows.get('MCP_EMAIL_PASSWORD')?.def === PASSWORD_DEFAULT).toBe(onlyProviderWaives);
     });
 
     it.each(CLIENT_FIELDS)(
@@ -398,7 +455,7 @@ describe('README Environment Variables table', () => {
         const refusedWithProvider = (await outcome()) === `refuses accounts.0.oauth2.${field}`;
         stub({ ...PASSWORD_ONLY, ...NO_CLIENT_VALUES });
         const loadsWithoutProvider = (await outcome()) === 'loads';
-        expect(rows.get(name)?.def === '*required* with a provider').toBe(
+        expect(rows.get(name)?.def === CLIENT_DEFAULT).toBe(
           refusedWithProvider && loadsWithoutProvider,
         );
       },
@@ -413,13 +470,9 @@ describe('README Environment Variables table', () => {
       async (name, value, field) => {
         stub({ [name]: value });
         const refusedAtField = (await outcome()) === `refuses accounts.0.oauth2.${field}`;
-        expect(
-          rows
-            .get('MCP_EMAIL_OAUTH2_REFRESH_TOKEN')
-            ?.desc.includes(
-              'A missing or empty client id, client secret or refresh token is refused when the configuration loads, naming the field',
-            ),
-        ).toBe(refusedAtField);
+        expect(rows.get('MCP_EMAIL_OAUTH2_REFRESH_TOKEN')?.desc.includes(CLIENT_REFUSED)).toBe(
+          refusedAtField,
+        );
       },
     );
 
@@ -432,15 +485,17 @@ describe('README Environment Variables table', () => {
         return outcome(reading);
       };
 
-      it('should list the providers the account schema names', () => {
-        const listed = backticked(providerDesc().split(';')[0] ?? '');
-        expect(listed).toEqual([...OAuth2ConfigSchema.shape.provider.options]);
+      it('should give MCP_EMAIL_OAUTH2_PROVIDER no default exactly when a password account without it loads without OAuth2', async () => {
+        stub(PASSWORD_ONLY);
+        expect(rows.get(PROVIDER)?.def === NO_DEFAULT).toBe(
+          (await outcome(reading)) === 'no OAuth2',
+        );
       });
 
       it.each(OAuth2ConfigSchema.shape.provider.options)(
         'should say the provider is read exactly as set exactly when the loader reads %s as given',
         async (value) => {
-          expect(providerDesc().includes('read exactly as set')).toBe(
+          expect(providerDesc().includes(READ_AS_SET)).toBe(
             (await providerRead(value)) === `reads ${value}`,
           );
         },
@@ -449,7 +504,7 @@ describe('README Environment Variables table', () => {
       it.each(['other', ' google ', 'Google'])(
         'should say any other value is refused exactly when the loader refuses %j at the provider',
         async (value) => {
-          expect(providerDesc().includes('any other value is refused')).toBe(
+          expect(providerDesc().includes(OTHER_REFUSED)).toBe(
             (await providerRead(value)) === PROVIDER_REFUSED,
           );
         },
@@ -458,29 +513,25 @@ describe('README Environment Variables table', () => {
       it.each([undefined, ''])(
         'should say unset or empty means no OAuth2 exactly when a password account with the provider %j loads without OAuth2',
         async (value) => {
-          expect(providerDesc().includes('Unset or empty means no OAuth2')).toBe(
+          expect(providerDesc().includes(UNSET_NO_OAUTH2)).toBe(
             (await providerRead(value, { MCP_EMAIL_PASSWORD: 'app-password' })) === 'no OAuth2',
           );
         },
       );
 
-      it('should say no environment variable can set the custom endpoints exactly when the environment gives a custom provider none, which the token service refuses', async () => {
+      it('should say no environment variable sets the custom endpoints exactly when every MCP_EMAIL_OAUTH2_* variable set leaves a custom provider without them', async () => {
         const family = read.filter((name) => name.startsWith('MCP_EMAIL_OAUTH2_'));
         stub(Object.fromEntries(family.map((name) => [name, `https://env.example.test/${name}`])));
         stub({ [PROVIDER]: 'custom' });
         const block = (await loadConfig(missingConfig)).accounts[0]?.oauth2;
-        if (block === undefined) throw new Error('no OAuth2 block was loaded');
-        const noEndpoints = block.tokenUrl === undefined && block.authUrl === undefined;
-        expect(() => OAuthService.getProviderEndpoints(block)).toThrow(
-          'Custom OAuth2 provider requires tokenUrl and authUrl',
+        expect(providerDesc().includes(NO_ENV_SETS)).toBe(
+          block !== undefined && block.tokenUrl === undefined && block.authUrl === undefined,
         );
-        expect(providerDesc().includes('which no environment variable can set')).toBe(noEndpoints);
       });
 
-      it('should give a custom account its endpoints from the config file the row describes', async () => {
-        const ticks = backticked(providerDesc());
-        const keys = ticks.filter((tick) => /^[a-z]+_url$/.test(tick));
-        expect(keys).toEqual(['token_url', 'auth_url']);
+      it('should say custom needs token_url and auth_url under [accounts.oauth2] in a config file exactly when the token service refuses custom without them and takes them from that file', async () => {
+        stub({ [PROVIDER]: 'custom' });
+        const withoutThem = endpoints((await loadConfig(missingConfig)).accounts[0]);
         const file = join(dir, 'config.toml');
         await writeFile(
           file,
@@ -489,12 +540,13 @@ describe('README Environment Variables table', () => {
             'name = "file"',
             'email = "file@example.com"',
             '',
-            ticks.find((tick) => tick.startsWith('[accounts.')) ?? '',
+            '[accounts.oauth2]',
             'provider = "custom"',
             'client_id = "file-id"',
             'client_secret = "file-secret"',
             'refresh_token = "file-refresh"',
-            ...keys.map((key) => `${key} = "https://auth.example.test/${key}"`),
+            'token_url = "https://auth.example.test/token"',
+            'auth_url = "https://auth.example.test/auth"',
             '',
             '[accounts.imap]',
             'host = "imap.example.com"',
@@ -506,12 +558,11 @@ describe('README Environment Variables table', () => {
           { mode: 0o600 },
         );
         stub({ MCP_EMAIL_ADDRESS: undefined });
-        const block = (await loadConfig(file)).accounts[0]?.oauth2;
-        if (block === undefined) throw new Error('no OAuth2 block was loaded');
-        expect(OAuthService.getProviderEndpoints(block)).toMatchObject({
-          tokenUrl: 'https://auth.example.test/token_url',
-          authUrl: 'https://auth.example.test/auth_url',
-        });
+        const fromTheFile = endpoints((await loadConfig(file)).accounts[0]);
+        expect(providerDesc().includes(CUSTOM_NEEDS_FILE)).toBe(
+          withoutThem === 'Custom OAuth2 provider requires tokenUrl and authUrl' &&
+            fromTheFile === 'https://auth.example.test/token https://auth.example.test/auth',
+        );
       });
     });
   });
