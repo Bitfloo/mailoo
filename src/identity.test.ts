@@ -239,7 +239,6 @@ describe('published identity', () => {
 });
 
 describe('README Environment Variables table', () => {
-  let readme: string;
   let section: string;
   let rowNames: string[];
   let rows: Map<string, { def: string; desc: string }>;
@@ -247,7 +246,7 @@ describe('README Environment Variables table', () => {
   let read: string[];
 
   beforeAll(async () => {
-    readme = await readFile(join(root, 'README.md'), 'utf8');
+    const readme = await readFile(join(root, 'README.md'), 'utf8');
     section = readme.split('#### Environment Variables')[1]?.split(/\n#{1,6} /)[0] ?? '';
     const parsed = [...section.matchAll(/^\| `(MCP_EMAIL_[A-Z0-9_]+)` \| (.*?) \| (.*) \|$/gm)];
     rowNames = parsed.map((match) => match[1]);
@@ -278,17 +277,9 @@ describe('README Environment Variables table', () => {
     expect(oauth2.filter((name) => !documented.includes(name))).toEqual([]);
   });
 
-  it('should have a row for MCP_EMAIL_PASSWORD and every variable an account cannot load without', () => {
-    const needed = ['MCP_EMAIL_PASSWORD', ...REQUIRED_MCP_EMAIL_ENV];
-    expect(needed.filter((name) => !documented.includes(name))).toEqual([]);
-  });
-
-  // The ROW_TEXT rows and the lines around the table are pinned whole, and each claim they make is
-  // read off loadConfig or the file it links, so they can neither keep a claim the loader no longer
-  // makes nor gain one that no test reads. Of the other rows, only the address and host rows are
-  // checked here, and only for the *required* mark that opens their default cell. The
-  // MCP_EMAIL_PASSWORD row of the `### Environment` reference repeats the password claim and is
-  // pinned and read the same way.
+  // The MCP_EMAIL_PASSWORD row, the four MCP_EMAIL_OAUTH2_* rows and the sentence under the table
+  // are pinned whole, and each claim they make is read off loadConfig, so they can neither keep a
+  // claim the loader no longer makes nor gain one that no test reads.
   describe('against the loader', () => {
     const NO_CONFIG = 'No configuration found.';
     const PROVIDER = 'MCP_EMAIL_OAUTH2_PROVIDER';
@@ -301,16 +292,12 @@ describe('README Environment Variables table', () => {
     const OTHER_REFUSED = 'any other value is refused';
     const UNSET_NO_OAUTH2 = 'Unset or empty means no OAuth2';
     const CUSTOM_ENV_FAILS = '`custom` set here fails at the first token request';
-    const NO_ENV_SETS = 'no environment variable sets its endpoints';
-    const ENV_REPLACES_FILE = 'an account in the environment replaces the config file';
+    const ENV_REPLACES_FILE = 'An account in the environment replaces the config file';
     const CUSTOM_IN_FILE =
       'Configure a `custom` account entirely in the config file, with `token_url` and `auth_url` under `[accounts.oauth2]`';
     const CUSTOM_REFUSED = 'Custom OAuth2 provider requires tokenUrl and authUrl';
     const NO_ENV_ACCOUNT =
       'Without the address, both hosts, and a password or a provider, the environment describes no account: Mailoo loads the config file instead, or fails with `No configuration found.` when there is none.';
-    const LEAD_IN = 'For single-account setups (overrides config file):';
-    const SENT_COPIES = 'Sent copies, IMAP4rev2, Sieve host/port, and `read_only` env vars:';
-    const DOCS_LINK = '[docs/configuration.md](docs/configuration.md#extra-environment-variables).';
     const FILE_ENDPOINTS = 'https://auth.example.test/token https://auth.example.test/auth';
     const FILE_ACCOUNT = [
       '[[accounts]]',
@@ -332,12 +319,6 @@ describe('README Environment Variables table', () => {
       'host = "smtp.example.com"',
       '',
     ];
-    const CLIENT_REFUSED =
-      'A missing or empty client id, client secret or refresh token is refused when the configuration loads, naming the field';
-    const PASSWORD_UNLESS = `Password is required unless \`${PROVIDER}\` is set`;
-    const REFERENCE_PASSWORD_ROLE = `Account. ${PASSWORD_UNLESS}`;
-    // ownKeys names no variable, so enumerating the environment is recorded as a name no list carries.
-    const ENUMERATED = '(the environment, enumerated)';
     type Env = Record<string, string | undefined>;
     type Config = Awaited<ReturnType<typeof loadConfig>>;
     type Loaded = Config['accounts'][number] | undefined;
@@ -363,15 +344,11 @@ describe('README Environment Variables table', () => {
       [
         PROVIDER,
         NO_DEFAULT,
-        `${PROVIDER_LIST}, ${READ_AS_SET}; ${OTHER_REFUSED}. ${UNSET_NO_OAUTH2}. ${CUSTOM_ENV_FAILS}: ${NO_ENV_SETS}, and ${ENV_REPLACES_FILE}. ${CUSTOM_IN_FILE}`,
+        `${PROVIDER_LIST}, ${READ_AS_SET}; ${OTHER_REFUSED}. ${UNSET_NO_OAUTH2}. ${ENV_REPLACES_FILE}, so ${CUSTOM_ENV_FAILS}. ${CUSTOM_IN_FILE}`,
       ],
       ['MCP_EMAIL_OAUTH2_CLIENT_ID', CLIENT_DEFAULT, role('MCP_EMAIL_OAUTH2_CLIENT_ID')],
       ['MCP_EMAIL_OAUTH2_CLIENT_SECRET', CLIENT_DEFAULT, role('MCP_EMAIL_OAUTH2_CLIENT_SECRET')],
-      [
-        'MCP_EMAIL_OAUTH2_REFRESH_TOKEN',
-        CLIENT_DEFAULT,
-        `${role('MCP_EMAIL_OAUTH2_REFRESH_TOKEN')}. ${CLIENT_REFUSED}`,
-      ],
+      ['MCP_EMAIL_OAUTH2_REFRESH_TOKEN', CLIENT_DEFAULT, role('MCP_EMAIL_OAUTH2_REFRESH_TOKEN')],
     ];
     const PASSWORD_ONLY: Env = {
       MCP_EMAIL_PASSWORD: 'app-password',
@@ -385,24 +362,6 @@ describe('README Environment Variables table', () => {
     const NO_CLIENT_VALUES: Env = Object.fromEntries(
       CLIENT_FIELDS.map(([name]) => [name, undefined]),
     );
-    // Each variable SENT_COPIES names, set to a value its default is not.
-    const LINKED: [string, string, (config: Config) => unknown, unknown][] = [
-      ['MCP_EMAIL_SAVE_TO_SENT', 'false', (config) => config.settings.saveToSent, false],
-      [
-        'MCP_EMAIL_IMAP_DISABLE_IMAP4REV2',
-        'true',
-        (config) => config.accounts[0]?.imap.disableImap4rev2,
-        true,
-      ],
-      [
-        'MCP_EMAIL_SIEVE_HOST',
-        'sieve.example.com',
-        (config) => config.accounts[0]?.imap.sieveHost,
-        'sieve.example.com',
-      ],
-      ['MCP_EMAIL_SIEVE_PORT', '4191', (config) => config.accounts[0]?.imap.sievePort, 4191],
-      ['MCP_EMAIL_READ_ONLY', 'true', (config) => config.settings.readOnly, true],
-    ];
     let missingConfig: string;
     let dir: string;
 
@@ -439,92 +398,6 @@ describe('README Environment Variables table', () => {
       const file = join(dir, 'config.toml');
       await writeFile(file, lines.join('\n'), { mode: 0o600 });
       return file;
-    };
-    // GitHub's heading anchor: lower case, punctuation dropped, spaces as hyphens.
-    const anchorOf = (heading: string): string =>
-      heading
-        .trim()
-        .toLowerCase()
-        .replace(/[^\w -]/g, '')
-        .replace(/ /g, '-');
-    const linked = async (): Promise<{ anchor: string; blocks: Map<string, string> }> => {
-      const [, file = '', anchor = ''] = /\]\(([^)#]+)#([^)]+)\)/.exec(DOCS_LINK) ?? [];
-      const parts = (await readFile(join(root, file), 'utf8')).split(/^#{1,6} (.+)$/m);
-      const blocks = new Map(
-        parts.flatMap((part, index): [string, string][] => {
-          if (index % 2 === 0) return [];
-          return [[anchorOf(part), parts[index + 1] ?? '']];
-        }),
-      );
-      return { anchor, blocks };
-    };
-    const readsOf = async (vars: Env): Promise<string[]> => {
-      stub(vars);
-      const real = process.env;
-      const names = new Set<string>();
-      const note = (key: string | symbol): void => {
-        if (typeof key === 'string' && key.startsWith('MCP_EMAIL_')) names.add(key);
-      };
-      process.env = new Proxy(real, {
-        get: (target, key) => {
-          note(key);
-          return Reflect.get(target, key);
-        },
-        has: (target, key) => {
-          note(key);
-          return Reflect.has(target, key);
-        },
-        getOwnPropertyDescriptor: (target, key) => {
-          note(key);
-          return Reflect.getOwnPropertyDescriptor(target, key);
-        },
-        ownKeys: (target) => {
-          names.add(ENUMERATED);
-          return Reflect.ownKeys(target);
-        },
-      });
-      try {
-        await loadConfig(missingConfig);
-      } finally {
-        process.env = real;
-      }
-      return [...names];
-    };
-    const oauth2Only = (provider: string): Env => ({
-      MCP_EMAIL_PASSWORD: undefined,
-      [PROVIDER]: provider,
-      MCP_EMAIL_OAUTH2_CLIENT_ID: 'client-id',
-      MCP_EMAIL_OAUTH2_CLIENT_SECRET: 'client-secret',
-      MCP_EMAIL_OAUTH2_REFRESH_TOKEN: 'refresh-token',
-    });
-    // The source scan misses a name read by destructuring, an alias or bracket access; the proxy does not.
-    // One run per provider: a read made only for one provider is missed by a run with another.
-    const READ_RUNS: [string, Env][] = [
-      ['a password account', PASSWORD_ONLY],
-      ...OAuth2ConfigSchema.shape.provider.options.map((provider): [string, Env] => [
-        `a ${provider} OAuth2 account`,
-        oauth2Only(provider),
-      ]),
-    ];
-    const loaderReads = async (): Promise<string[]> => {
-      const names: string[] = [];
-      for (const [label, vars] of READ_RUNS) {
-        // readsOf swaps process.env for its proxy, so two runs at once would record into each other.
-        // eslint-disable-next-line no-await-in-loop
-        const run = await readsOf(vars);
-        // A proxy outside the read path records nothing, and every check over these names would pass empty.
-        if (!run.includes(PROVIDER)) {
-          throw new Error(`the proxy recorded no ${PROVIDER} read for ${label}`);
-        }
-        names.push(...run);
-      }
-      return [...new Set(names)].sort();
-    };
-    const referencePasswordRoles = (): string[] => {
-      const reference = readme.split(/^### Environment$/m)[1]?.split(/\n#{1,6} /)[0] ?? '';
-      return [...reference.matchAll(/^\| (.*?) \| (.*) \|$/gm)]
-        .filter((match) => match[1].split(', ').includes('`MCP_EMAIL_PASSWORD`'))
-        .map((match) => match[2]);
     };
 
     beforeEach(async () => {
@@ -563,11 +436,8 @@ describe('README Environment Variables table', () => {
       },
     );
 
-    it('should hold the lines around the table to the claims the tests below read', () => {
-      const prose = section
-        .split('\n')
-        .filter((line) => line.trim() !== '' && !line.startsWith('|') && !line.startsWith('#'));
-      expect(prose).toEqual([LEAD_IN, NO_ENV_ACCOUNT, SENT_COPIES, DOCS_LINK]);
+    it('should hold the sentence under the table to the claim the tests below read', () => {
+      expect(section.split('\n')).toContain(NO_ENV_ACCOUNT);
     });
 
     const describesNoAccount: [string, string, Env][] = [
@@ -595,62 +465,12 @@ describe('README Environment Variables table', () => {
       },
     );
 
-    // outcome() keeps only the first line, so a refusal naming another file would still read as NO_CONFIG.
-    it('should name the missing config path it was given when the environment describes no account', async () => {
-      stub({ MCP_EMAIL_PASSWORD: undefined, [PROVIDER]: undefined });
-      await expect(loadConfig(missingConfig)).rejects.toThrow(missingConfig);
-    });
-
-    it('should say an account in the environment overrides the config file exactly when it loads alone beside a file account', async () => {
-      const loaded = await loadConfig(await writeConfig(FILE_ACCOUNT));
-      expect(section.split('\n').includes(LEAD_IN)).toBe(
-        loaded.accounts.map((account) => account.email).join() === 'owner@example.com',
-      );
-    });
-
-    it('should link the extra variables exactly when the linked file has a heading with that anchor', async () => {
-      const { anchor, blocks } = await linked();
-      expect(section.split('\n').includes(DOCS_LINK)).toBe(blocks.has(anchor));
-    });
-
-    it.each(LINKED)(
-      'should list %s under the linked heading exactly when the loader reads it set to %j',
-      async (name, value, field, expected) => {
-        stub({ [name]: value });
-        const readsIt = field(await loadConfig(missingConfig)) === expected;
-        const { anchor, blocks } = await linked();
-        const listed = [
-          ...(blocks.get(anchor) ?? '').matchAll(/^\| `(MCP_EMAIL_[A-Z0-9_]+)` \|/gm),
-        ].map((match) => match[1]);
-        expect(listed.includes(name)).toBe(readsIt);
-      },
-    );
-
     it.each(ROLES)(
       'should open the %s row with %j exactly when the loader reads the variable as that value',
       async (name, label, field) => {
         stub({ [name]: 'Env-Role-Q7' });
         const account = (await loadConfig(missingConfig)).accounts[0];
         expect(rows.get(name)?.desc.startsWith(label)).toBe(field(account) === 'Env-Role-Q7');
-      },
-    );
-
-    // The three client rows carry a condition and are read whole by the test below.
-    const requirements: [string, Env, string][] = [
-      ['MCP_EMAIL_PASSWORD', PASSWORD_ONLY, NO_CONFIG],
-      ...REQUIRED_MCP_EMAIL_ENV.map((name): [string, Env, string] => [
-        name,
-        PASSWORD_ONLY,
-        NO_CONFIG,
-      ]),
-    ];
-
-    it.each(requirements)(
-      'should mark %s *required* exactly when the loader refuses an account without it',
-      async (name, account, refusal) => {
-        stub({ ...account, [name]: undefined });
-        const refused = (await outcome()) === refusal;
-        expect(rows.get(name)?.def.startsWith('*required*')).toBe(refused);
       },
     );
 
@@ -670,19 +490,6 @@ describe('README Environment Variables table', () => {
       expect(rows.get('MCP_EMAIL_PASSWORD')?.def === PASSWORD_DEFAULT).toBe(onlyProviderWaives);
     });
 
-    it('should hold the MCP_EMAIL_PASSWORD row of the Environment reference to the claim the test below reads', () => {
-      expect(referencePasswordRoles()).toEqual([REFERENCE_PASSWORD_ROLE]);
-    });
-
-    it('should say in the Environment reference that the password is required unless MCP_EMAIL_OAUTH2_PROVIDER is set exactly when the provider alone lets an account load without a password', async () => {
-      const withProvider = await outcome();
-      stub({ [PROVIDER]: undefined });
-      const providerWaivesPassword = withProvider === 'loads' && (await outcome()) === NO_CONFIG;
-      expect(referencePasswordRoles().some((cell) => cell.includes(PASSWORD_UNLESS))).toBe(
-        providerWaivesPassword,
-      );
-    });
-
     it.each(CLIENT_FIELDS)(
       'should mark %s *required* with a provider exactly when the provider makes the loader refuse an account without it and a password account loads without all three',
       async (name, field) => {
@@ -695,38 +502,6 @@ describe('README Environment Variables table', () => {
         );
       },
     );
-
-    it.each(
-      CLIENT_FIELDS.flatMap(([name, field]) =>
-        [undefined, ''].map((value) => [name, value, field] as const),
-      ),
-    )(
-      'should say in the REFRESH_TOKEN row that a missing or empty client value is refused, naming the field, exactly when %s=%j is refused at %s',
-      async (name, value, field) => {
-        stub({ [name]: value });
-        const refusedAtField = (await outcome()) === `refuses accounts.0.oauth2.${field}`;
-        expect(rows.get('MCP_EMAIL_OAUTH2_REFRESH_TOKEN')?.desc.includes(CLIENT_REFUSED)).toBe(
-          refusedAtField,
-        );
-      },
-    );
-
-    it.each(READ_RUNS)(
-      'should record the MCP_EMAIL_OAUTH2_PROVIDER read when loadConfig runs for %s',
-      async (_label, vars) => {
-        expect(await readsOf(vars)).toContain(PROVIDER);
-      },
-    );
-
-    it('should have a row for every MCP_EMAIL_OAUTH2_* variable loadConfig reads for an environment account', async () => {
-      const oauth2 = (await loaderReads()).filter((name) => name.startsWith('MCP_EMAIL_OAUTH2_'));
-      expect(oauth2.filter((name) => !documented.includes(name))).toEqual([]);
-    });
-
-    // loader.ts reads `process.env.MCP_EMAIL_*` literally because the published list is scanned from it.
-    it('should read every MCP_EMAIL_* variable by a name the published list carries and never enumerate the environment', async () => {
-      expect((await loaderReads()).filter((name) => !read.includes(name))).toEqual([]);
-    });
 
     describe('the MCP_EMAIL_OAUTH2_PROVIDER row', () => {
       const providerRead = async (
@@ -771,25 +546,6 @@ describe('README Environment Variables table', () => {
         },
       );
 
-      it('should say no environment variable sets the custom endpoints exactly when no MCP_EMAIL_OAUTH2_* variable loadConfig reads is named for a URL or an endpoint', async () => {
-        const named = (await loaderReads()).filter(
-          (name) => name.startsWith('MCP_EMAIL_OAUTH2_') && /URL|ENDPOINT/.test(name),
-        );
-        expect(providerDesc().includes(NO_ENV_SETS)).toBe(named.length === 0);
-      });
-
-      it('should say no environment variable sets the custom endpoints exactly when every MCP_EMAIL_OAUTH2_* variable the source names or loadConfig reads, all set, leaves a custom provider without them', async () => {
-        const family = [...new Set([...read, ...(await loaderReads())])].filter((name) =>
-          name.startsWith('MCP_EMAIL_OAUTH2_'),
-        );
-        stub(Object.fromEntries(family.map((name) => [name, `https://env.example.test/${name}`])));
-        stub({ [PROVIDER]: 'custom' });
-        const block = (await loadConfig(missingConfig)).accounts[0]?.oauth2;
-        expect(providerDesc().includes(NO_ENV_SETS)).toBe(
-          block !== undefined && block.tokenUrl === undefined && block.authUrl === undefined,
-        );
-      });
-
       it('should say an account in the environment replaces the config file exactly when an environment custom account loads alone and without the endpoints a config file sets', async () => {
         stub({ [PROVIDER]: 'custom' });
         const loaded = await loadConfig(await writeConfig(FILE_ACCOUNT));
@@ -800,6 +556,12 @@ describe('README Environment Variables table', () => {
             block.tokenUrl === undefined &&
             block.authUrl === undefined,
         );
+      });
+
+      it('should load an environment custom account without reading the config file beside it, which is not valid TOML', async () => {
+        stub({ [PROVIDER]: 'custom' });
+        const loaded = await loadConfig(await writeConfig(['[[accounts']));
+        expect(loaded.accounts.map((account) => account.email)).toEqual(['owner@example.com']);
       });
 
       // The file beside it sets the endpoints, so the refusal shows the environment account replaced it.

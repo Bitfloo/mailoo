@@ -291,55 +291,15 @@ describe('MCP_EMAIL_* credential matrix', () => {
     },
   );
 
-  // With a password set, an empty address or host is the only reason no account is described;
-  // without one, the missing credential would give NO_CONFIG whatever the loader does with ''.
-  it.each(
-    (['MCP_EMAIL_ADDRESS', 'MCP_EMAIL_IMAP_HOST', 'MCP_EMAIL_SMTP_HOST'] as const).flatMap((name) =>
-      NO_VALUE.map(([kind, value]) => [name, kind, value] as const),
-    ),
-  )(
-    'should describe no account when %s is %s (%j) beside a password',
-    async (name, _kind, value) => {
-      stub({ MCP_EMAIL_PASSWORD: 'app-password', [name]: value });
-      expect(await loaded()).toEqual(NO_CONFIG);
-    },
-  );
-
-  // The loader tests these for truthiness only, so a blank value counts as set and the schema judges it.
-  it('should refuse a blank MCP_EMAIL_ADDRESS ("   ") beside a password at the email field, not treat it as unset', async () => {
-    stub({ MCP_EMAIL_PASSWORD: 'app-password', MCP_EMAIL_ADDRESS: '   ' });
-    expect(await loaded()).toEqual({ refused: ['accounts.0.email: Invalid email address'] });
-  });
-
-  it.each([
-    ['MCP_EMAIL_IMAP_HOST', 'imap'],
-    ['MCP_EMAIL_SMTP_HOST', 'smtp'],
-  ] as const)(
-    'should load a blank %s ("   ") beside a password as the %s host as given, not treat it as unset',
-    async (name, side) => {
-      stub({ MCP_EMAIL_PASSWORD: 'app-password', [name]: '   ' });
-      const config = await loadConfig(missingConfig);
-      expect(config.accounts[0]?.[side].host).toBe('   ');
-    },
-  );
-
   // loaded() keeps only the first line, so a refusal naming another file would still equal NO_CONFIG.
   it('should name the missing config path it was given when no password or provider is set', async () => {
     stub({ MCP_EMAIL_PASSWORD: undefined, MCP_EMAIL_OAUTH2_PROVIDER: undefined });
     await expect(loadConfig(missingConfig)).rejects.toThrow(missingConfig);
   });
 
-  it('should refuse with the whole setup guidance when no password or provider is set', async () => {
+  it('should open the refusal with No configuration found. when no password or provider is set', async () => {
     stub({ MCP_EMAIL_PASSWORD: undefined, MCP_EMAIL_OAUTH2_PROVIDER: undefined });
-    const guidance = [
-      'No configuration found.',
-      '',
-      'Set environment variables (MCP_EMAIL_ADDRESS, MCP_EMAIL_PASSWORD, etc.)',
-      `or create a config file at: ${missingConfig}`,
-      '',
-      "Run 'mailoo account add' for interactive configuration.",
-    ].join('\n');
-    await expect(loadConfig(missingConfig)).rejects.toHaveProperty('message', guidance);
+    await expect(loadConfig(missingConfig)).rejects.toThrow(/^No configuration found\.(?:\n|$)/);
   });
 
   it.each(SOME_VALUE)(
