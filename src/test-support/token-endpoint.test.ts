@@ -183,6 +183,31 @@ describe('leakedSecretsIn', () => {
     expect(leakedSecretsIn(Object.assign(new Error('refused'), { body: 'plain' }))).toEqual([]);
   });
 
+  // Node packs small Buffers into one shared ArrayBuffer, so the bytes around a view are not its own.
+  it.each([
+    { name: 'a pooled Buffer', subject: Buffer.from(`${SECRET}plain`).subarray(SECRET.length) },
+    {
+      name: 'a byte view that starts right after the secret',
+      subject: new TextEncoder()
+        .encode(`${SECRET}${'x'.repeat(SECRET.length)}`)
+        .subarray(SECRET.length),
+    },
+    {
+      name: 'a byte view that ends right before the secret',
+      subject: new TextEncoder()
+        .encode(`${'x'.repeat(SECRET.length)}${SECRET}`)
+        .subarray(0, SECRET.length),
+    },
+  ])('should report nothing for $name when the secret sits outside the view', ({ subject }) => {
+    expect(leakedSecretsIn(subject)).toEqual([]);
+  });
+
+  it('should not report a secret split across two strings', () => {
+    const [first, second] = [SECRET.slice(0, 10), SECRET.slice(10)];
+    // The first half on both sides, so the halves meet whichever order the walk visits them.
+    expect(leakedSecretsIn({ a: first, b: second, c: first })).toEqual([]);
+  });
+
   it('should look for the secrets it is given instead of the default ones', () => {
     expect(leakedSecretsIn(new Error(`${SECRET} trace-1`), ['trace-1', 'trace-2'])).toEqual([
       'trace-1',

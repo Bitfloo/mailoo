@@ -122,6 +122,13 @@ describe('OAuthService.getAccessToken', () => {
     expect(await new OAuthService().getAccessToken(oauth2)).toBe('tok-1');
   });
 
+  it('should take the token from a 299 answer, the last success status', async () => {
+    fakeTokenEndpoint(() =>
+      Response.json({ access_token: 'tok-1', expires_in: 3600 }, { status: 299 }),
+    );
+    expect(await new OAuthService().getAccessToken(googleConfig())).toBe('tok-1');
+  });
+
   it("should name the provider's error code when the refresh is refused", async () => {
     fakeTokenEndpoint(() => new Response('{"error":"invalid_grant"}', { status: 400 }));
     await expect(new OAuthService().getAccessToken(googleConfig())).rejects.toMatchObject({
@@ -259,6 +266,8 @@ const FLOWS = [
  * A Microsoft identity platform refusal: the AADSTS text, then trace id, correlation id and
  * timestamp on CR LF separated lines (173 characters once the breaks are dropped), then padding
  * that carries one more id past character 200. The same kind of ids also come as top-level fields.
+ * Layout from the error response example in the Microsoft identity platform error code reference:
+ * https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes
  */
 const MICROSOFT_TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
 const TRACE_IN_DESCRIPTION = '00000000-5e17-4000-8000-0000000000a1';
@@ -547,6 +556,19 @@ describe.each(FLOWS)('OAuthService $action when the token endpoint refuses', ({ 
       leaked: [],
     });
   });
+
+  // fetch follows a redirect only when it names a Location, so a 3xx without one is the answer.
+  it.each([{ status: 300 }, { status: 302 }, { status: 399 }])(
+    'should refuse a $status answer even when its body carries tokens',
+    async ({ status }) => {
+      refusedWith(status, JSON.stringify({ access_token: LEAKED_SECRETS[0], expires_in: 3600 }));
+      const error = await failureOf(run);
+      expect({ message: error.message, leaked: leakedSecretsIn(error) }).toEqual({
+        message: `${failed} (${status})`,
+        leaked: [],
+      });
+    },
+  );
 
   it('should still name the error when the body is exactly as large as the parse limit', async () => {
     const shell = JSON.stringify({ error: 'invalid_grant', padding: '' });
