@@ -7,19 +7,22 @@ import { inspect } from 'node:util';
 
 import type { OAuth2Config } from '../types/index.js';
 
-interface TokenRequest {
+export interface TokenRequest {
   url: string;
   init: RequestInit;
 }
 
 /** Token endpoint stand-in: answers each POST with the next scripted response. */
-export function fakeTokenEndpoint(...responses: (() => Response)[]): TokenRequest[] {
+export function fakeTokenEndpoint(
+  ...responses: ((request: TokenRequest) => Response)[]
+): TokenRequest[] {
   const calls: TokenRequest[] = [];
   const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
-    calls.push({ url, init });
+    const request = { url, init };
+    calls.push(request);
     const next = responses.shift();
     if (!next) throw new Error('unexpected token request');
-    return next();
+    return next(request);
   });
   vi.stubGlobal('fetch', fetchMock);
   return calls;
@@ -74,9 +77,19 @@ export function leakyInvalidGrant(status = 400): () => Response {
     );
 }
 
+/** A 400 refusal built from the form the request sent, as an endpoint that echoes its input. */
+export function echoingRefusal(
+  fields: (sent: URLSearchParams, form: string) => Record<string, unknown>,
+): (request: TokenRequest) => Response {
+  return ({ init }) => {
+    const form = String(init.body);
+    return Response.json(fields(new URLSearchParams(form), form), { status: 400 });
+  };
+}
+
 /**
- * An RFC 6749 §5.2 error body with a fake secret in every field a message must not quote,
- * the vendor extras included. Only `error` and `error_description` may reach an error.
+ * An RFC 6749 §5.2 error body whose other fields, the vendor extras included, hold fake secrets
+ * and one numeric code. Only `error` and `error_description` may reach an error.
  */
 export const HOSTILE_REFUSAL = {
   error: 'invalid_grant',
@@ -107,13 +120,14 @@ export function valuesBesidesErrorFields(body: Record<string, unknown>): string[
 }
 
 /**
- * Every string a value holds, found by walking it: strings, bytes decoded as UTF-8 (`inspect`
- * prints a Buffer as hex and stops after 50), and the own properties of any object, an error's
- * `message` and `cause` included, whatever their enumerability or key type. Map entries and Set
- * items are walked too. A visited object is skipped, so a cycle ends and nesting has no depth cap.
- * Accessors are skipped, never invoked: reading one could run code. Each object also gets a
- * one-level `inspect` for what its own properties do not hold: a stack (an accessor) that outlives
- * an edited message, and the state a Headers or URL keeps out of its own properties.
+ * The strings reachable from a value: strings, bytes decoded as UTF-8 (`inspect` prints a Buffer
+ * as hex and stops after 50), and the own data properties of each object, string- or
+ * symbol-keyed, enumerable or not, so an error's `message` and `cause` are followed. Map keys and
+ * values and Set items are walked too. A visited object is skipped, so a cycle ends and nesting
+ * has no depth cap. Accessors are skipped, never invoked: reading one could run code. Inherited
+ * properties, private fields and internal slots are not walked; a one-level `inspect` of each
+ * object stands in for the part of them it prints: the stack (an accessor) that outlives an edited
+ * message, and the state a Headers or URL keeps out of its own properties.
  */
 function stringsIn(root: unknown): string[] {
   const strings: string[] = [];
@@ -149,7 +163,8 @@ function fragmentsOf(secret: string): string[] {
 }
 
 /**
- * The secrets found anywhere in a value: an error, its causes and properties, or plain data.
+ * The secrets found in the strings reachable from a value (see `stringsIn`): an error with its
+ * causes and own data properties, or plain data.
  * With `fragments`, any 8-character piece of a secret counts, since a quoted start of a body
  * carries a piece rather than the whole. Off by default: the Microsoft ids share runs such as
  * `00000000-5e17-4000-8000-`, so a piece of an id quoted on purpose would match its siblings.

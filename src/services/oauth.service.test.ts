@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  echoingRefusal,
   fakeTokenEndpoint,
   googleConfig,
   HOSTILE_REFUSAL,
@@ -317,6 +318,24 @@ const CLEANING_CASES = [
   },
 ] as const;
 
+/**
+ * The values HOSTILE_REFUSAL holds outside `error` and `error_description`, written out rather
+ * than read from it: a field deleted from the fixture must fail the pin, not shrink the check.
+ */
+const HOSTILE_VALUES = [
+  'https://auth.example.test/errors/SENTINEL-URI-0004',
+  '90412873',
+  'SENTINEL-TRACE-0005',
+  'SENTINEL-CORRELATION-0006',
+  'SENTINEL-MESSAGE-0007',
+  'SENTINEL-DETAIL-0008',
+  'SENTINEL-REASON-0009',
+  'SENTINEL-NESTED-0010',
+  'SENTINEL-ACCESS-0001',
+  'SENTINEL-REFRESH-0002',
+  'SENTINEL-ID-0003',
+];
+
 async function failureOf(run: () => Promise<unknown>): Promise<Error> {
   const error = await run().then(
     () => undefined,
@@ -444,9 +463,11 @@ describe.each(FLOWS)('OAuthService $action when the token endpoint refuses', ({ 
     refusedWith(400, JSON.stringify(HOSTILE_REFUSAL));
     const error = await failureOf(run);
     expect({
+      sentByEndpoint: valuesBesidesErrorFields(HOSTILE_REFUSAL),
       message: error.message,
-      leaked: leakedSecretsIn(error, valuesBesidesErrorFields(HOSTILE_REFUSAL)),
+      leaked: leakedSecretsIn(error, HOSTILE_VALUES),
     }).toEqual({
+      sentByEndpoint: HOSTILE_VALUES,
       message: `${failed} (400): invalid_grant: Token has been expired or revoked.`,
       leaked: [],
     });
@@ -464,9 +485,14 @@ describe.each(FLOWS)('OAuthService $action when the token endpoint refuses', ({ 
       refusedWith(400, JSON.stringify(body));
       const error = await failureOf(run);
       expect({
+        sentByEndpoint: valuesBesidesErrorFields(body),
         message: error.message,
-        leaked: leakedSecretsIn(error, valuesBesidesErrorFields(body)),
-      }).toEqual({ message: `${failed} (400)${named}`, leaked: [] });
+        leaked: leakedSecretsIn(error, HOSTILE_VALUES),
+      }).toEqual({
+        sentByEndpoint: HOSTILE_VALUES,
+        message: `${failed} (400)${named}`,
+        leaked: [],
+      });
     },
   );
 
@@ -639,6 +665,253 @@ describe.each(FLOWS)('OAuthService $action when the token endpoint refuses', ({ 
     });
   });
 });
+
+interface SentSecrets {
+  client: string;
+  grant: string;
+  /** The other shapes an echo can give them: form- or URL-encoded, or with dropped characters gone. */
+  reshaped: string[];
+}
+
+/** Characters both error fields keep, so only redaction can take these out. */
+const PLAIN: SentSecrets = {
+  client: 'GOCSPX-q7Lw2Rt9Vk4Zp',
+  grant: '1//04Hs8Jd3Fq6YbN0cVe',
+  reshaped: ['1%2F%2F04Hs8Jd3Fq6YbN0cVe'],
+};
+
+/** A quote, a backslash and a non-ASCII letter: the error charset drops all three. */
+const QUOTED: SentSecrets = {
+  client: 'GOCSPX-q7"Lw2\\Rt9Vk4',
+  grant: '1//04Hsé8Jd3Fq6Yb"N0',
+  reshaped: [
+    'GOCSPX-q7Lw2Rt9Vk4',
+    '1//04Hs8Jd3Fq6YbN0',
+    'GOCSPX-q7%22Lw2%5CRt9Vk4',
+    '1%2F%2F04Hs%C3%A98Jd3Fq6Yb%22N0',
+  ],
+};
+
+/** A form body encodes `~ ! ( )` and a URL component keeps them, so the two echoes differ. */
+const PERCENT: SentSecrets = {
+  client: 'GOCSPX-c5/Tq+Wz~8d=Rk!',
+  grant: '1//04rT+u~Lp=Ek(4)Vb',
+  reshaped: [
+    'GOCSPX-c5%2FTq%2BWz%7E8d%3DRk%21',
+    'GOCSPX-c5%2FTq%2BWz~8d%3DRk!',
+    '1%2F%2F04rT%2Bu%7ELp%3DEk%284%29Vb',
+    '1%2F%2F04rT%2Bu~Lp%3DEk(4)Vb',
+  ],
+};
+
+/** The client secret starts the grant: replaced first, it would leave the grant's tail behind. */
+const NESTED: SentSecrets = {
+  client: 'GOCSPX-q7Lw2Rt9',
+  grant: 'GOCSPX-q7Lw2Rt9Vk4Zp8Jd3Fq6Yb',
+  reshaped: [],
+};
+
+/** Nothing the error charset keeps: only redaction before the filter can mark where it stood. */
+const DROPPED_ONLY: SentSecrets = {
+  client: 'ÿéß',
+  grant: '1//04Hs8Jd3Fq6YbN0cVe',
+  reshaped: ['%C3%BF%C3%A9%C3%9F', '1%2F%2F04Hs8Jd3Fq6YbN0cVe'],
+};
+
+const ECHOING_FLOWS = [
+  {
+    action: 'token refresh',
+    grantField: 'refresh_token',
+    redactedForm:
+      'grant_type=refresh_token&client_id=client-id&client_secret=[redacted]&refresh_token=[redacted]',
+    run: async ({ client, grant }: SentSecrets) =>
+      new OAuthService().getAccessToken(
+        googleConfig({ clientSecret: client, refreshToken: grant }),
+      ),
+  },
+  {
+    action: 'code exchange',
+    grantField: 'code',
+    redactedForm:
+      'grant_type=authorization_code&client_id=client-id&client_secret=[redacted]&code=[redacted]' +
+      '&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcb',
+    run: async ({ client, grant }: SentSecrets) =>
+      OAuthService.exchangeCode(
+        googleConfig({ clientSecret: client }),
+        grant,
+        'http://localhost:3000/cb',
+      ),
+  },
+] as const;
+
+const ECHO_FIELDS = [
+  {
+    field: 'error',
+    cap: TOKEN_ERROR_CODE_MAX_CHARS,
+    body: (text: string) => ({ error: text }),
+    named: (kept: string) => kept,
+  },
+  {
+    field: 'error_description',
+    cap: TOKEN_ERROR_DESCRIPTION_MAX_CHARS,
+    body: (text: string) => ({ error: 'invalid_grant', error_description: text }),
+    named: (kept: string) => `invalid_grant: ${kept}`,
+  },
+] as const;
+
+interface Echo {
+  name: string;
+  secrets: SentSecrets;
+  echo: (sent: { client: string; grant: string; cap: number }) => string;
+  kept: (cap: number) => string;
+}
+
+const ECHOES: Echo[] = [
+  {
+    name: 'the sent secrets in prose',
+    secrets: PLAIN,
+    echo: ({ client, grant }) => `grant ${grant} of ${client} revoked`,
+    kept: () => 'grant [redacted] of [redacted] revoked',
+  },
+  {
+    name: 'a sent secret the cap would cut',
+    secrets: PLAIN,
+    echo: ({ grant, cap }) => `${'w'.repeat(cap - 20)}${grant} revoked`,
+    kept: (cap) => `${'w'.repeat(cap - 20)}[redacted] revoked`,
+  },
+  {
+    name: 'a secret split by CR LF at the cap',
+    secrets: PLAIN,
+    echo: ({ grant, cap }) =>
+      `${'w'.repeat(cap - 20)}${grant.slice(0, 9)}\r\n${grant.slice(9)} revoked`,
+    kept: (cap) => `${'w'.repeat(cap - 20)}[redacted] revoked`,
+  },
+  {
+    name: 'secrets with dropped characters',
+    secrets: QUOTED,
+    echo: ({ client, grant }) => `grant ${grant} of ${client} revoked`,
+    kept: () => 'grant [redacted] of [redacted] revoked',
+  },
+  {
+    name: 'those secrets escaped as JSON strings',
+    secrets: QUOTED,
+    echo: ({ client, grant }) =>
+      `grant ${JSON.stringify(grant)} of ${JSON.stringify(client)} revoked`,
+    kept: () => 'grant [redacted] of [redacted] revoked',
+  },
+  {
+    name: 'the secrets percent-encoded for a URL',
+    secrets: PERCENT,
+    echo: ({ client, grant }) =>
+      `retry at /authorize?secret=${encodeURIComponent(client)}&grant=${encodeURIComponent(grant)}`,
+    kept: () => 'retry at /authorize?secret=[redacted]&grant=[redacted]',
+  },
+  {
+    name: 'the sent secrets form-encoded',
+    secrets: PERCENT,
+    echo: ({ client, grant }) =>
+      `bad form ${new URLSearchParams({ client_secret: client, grant }).toString()}`,
+    kept: () => 'bad form client_secret=[redacted]&grant=[redacted]',
+  },
+  {
+    name: 'a secret that starts with the other',
+    secrets: NESTED,
+    echo: ({ grant }) => `grant ${grant} revoked`,
+    kept: () => 'grant [redacted] revoked',
+  },
+  // Three copies: each of the two redaction passes could replace one if it stopped at the first.
+  {
+    name: 'one secret echoed three times',
+    secrets: PLAIN,
+    echo: ({ grant }) => `${grant}, ${grant} and ${grant} revoked`,
+    kept: () => '[redacted], [redacted] and [redacted] revoked',
+  },
+  {
+    name: 'a secret of dropped characters only',
+    secrets: DROPPED_ONLY,
+    echo: ({ client }) => `client ${client} refused`,
+    kept: () => 'client [redacted] refused',
+  },
+];
+
+const ECHO_CASES = ECHOES.flatMap((echo) => ECHO_FIELDS.map((field) => ({ ...echo, ...field })));
+
+describe.each(ECHOING_FLOWS)(
+  'OAuthService $action when the refusal echoes the secrets the request sent',
+  ({ action, grantField, redactedForm, run }) => {
+    const failed = `OAuth2 ${action} failed`;
+
+    async function refusedEchoing(
+      secrets: SentSecrets,
+      fields: (sent: { client: string; grant: string; form: string }) => Record<string, unknown>,
+    ) {
+      const calls = fakeTokenEndpoint(
+        echoingRefusal((sent, form) =>
+          fields({
+            client: sent.get('client_secret') ?? '',
+            grant: sent.get(grantField) ?? '',
+            form,
+          }),
+        ),
+      );
+      const error = await failureOf(async () => run(secrets));
+      const sent = new URLSearchParams(String(calls[0]?.init.body));
+      return { error, sent: [sent.get('client_secret'), sent.get(grantField)] };
+    }
+
+    it.each(ECHO_CASES)(
+      'should replace $name with [redacted] in the $field',
+      async ({ secrets, echo, kept, cap, body, named }) => {
+        const { error, sent } = await refusedEchoing(secrets, ({ client, grant }) =>
+          body(echo({ client, grant, cap })),
+        );
+        expect({
+          sent,
+          message: error.message,
+          leaked: leakedSecretsIn(error, [secrets.client, secrets.grant, ...secrets.reshaped], {
+            fragments: true,
+          }),
+        }).toEqual({
+          sent: [secrets.client, secrets.grant],
+          message: `${failed} (400): ${named(kept(cap))}`,
+          leaked: [],
+        });
+      },
+    );
+
+    it('should replace the secrets with [redacted] when the description echoes the whole form sent', async () => {
+      const { error, sent } = await refusedEchoing(PERCENT, ({ form }) => ({
+        error: 'invalid_request',
+        error_description: `could not parse ${form}`,
+      }));
+      expect({
+        sent,
+        message: error.message,
+        leaked: leakedSecretsIn(error, [PERCENT.client, PERCENT.grant, ...PERCENT.reshaped], {
+          fragments: true,
+        }),
+      }).toEqual({
+        sent: [PERCENT.client, PERCENT.grant],
+        message: `${failed} (400): invalid_request: could not parse ${redactedForm}`,
+        leaked: [],
+      });
+    });
+
+    it.each([
+      { name: 'empty', client: '' },
+      { name: 'made only of characters the error charset drops', client: 'ÿéß' },
+    ])(
+      'should leave a refusal that echoes nothing as it was when the client secret is $name',
+      async ({ client }) => {
+        fakeTokenEndpoint(leakyInvalidGrant(400));
+        const error = await failureOf(async () => run({ ...PLAIN, client }));
+        expect(error.message).toBe(
+          `${failed} (400): invalid_grant: Token has been expired or revoked.`,
+        );
+      },
+    );
+  },
+);
 
 describe.each(FLOWS)('OAuthService $action when a 200 answer is not JSON', ({ action, run }) => {
   it.each([

@@ -51,17 +51,58 @@ export const TOKEN_ERROR_BODY_MAX_CHARS = 4096;
 /** The RFC 6749 §5.2 error field charset (%x20-21 / %x23-5B / %x5D-7E); anything else is dropped. */
 const OUTSIDE_ERROR_CHARSET = /[^\x20\x21\x23-\x5B\x5D-\x7E]/g;
 
-function cleanErrorField(value: unknown, maxChars: number): string {
+const REDACTED = '[redacted]';
+
+const SENT_SECRET_FIELDS = ['client_secret', 'refresh_token', 'code'] as const;
+
+function dropOutsideCharset(value: string): string {
+  return value.replace(OUTSIDE_ERROR_CHARSET, '');
+}
+
+/**
+ * An endpoint can quote back what the request sent, as given, form-encoded the way the body
+ * carried it, or URL-encoded. The given form also counts with the charset-dropped characters
+ * gone, since the filter turns an escaped or broken-up echo back into that; the encoded forms
+ * hold none. Longest first, so a secret that contains another is replaced whole.
+ */
+function sentSecretShapes(sent: URLSearchParams): string[] {
+  const shapes = new Set<string>();
+  SENT_SECRET_FIELDS.forEach((field) => {
+    // Read back from the form, so no lone surrogate is left for encodeURIComponent to throw on.
+    const secret = sent.get(field);
+    if (!secret) return;
+    [
+      secret,
+      dropOutsideCharset(secret),
+      new URLSearchParams({ x: secret }).toString().slice(2),
+      encodeURIComponent(secret),
+    ].forEach((shape) => {
+      shapes.add(shape);
+    });
+  });
+  shapes.delete('');
+  return [...shapes].sort((a, b) => b.length - a.length);
+}
+
+function redact(text: string, secrets: readonly string[]): string {
+  return secrets.reduce((kept, secret) => kept.replaceAll(secret, REDACTED), text);
+}
+
+/** Redacted before and after the charset filter, and both before the cut, so no piece survives. */
+function cleanErrorField(value: unknown, maxChars: number, secrets: readonly string[]): string {
   if (typeof value !== 'string') return '';
-  return value.replace(OUTSIDE_ERROR_CHARSET, '').slice(0, maxChars).trim();
+  return redact(dropOutsideCharset(redact(value, secrets)), secrets)
+    .slice(0, maxChars)
+    .trim();
 }
 
 /**
  * The part of a refused answer the error message may carry: only RFC 6749 `error` and
- * `error_description`. Messages reach tool results, logs and the audit log, and a custom
- * endpoint or a proxy in front of one can put tokens or a whole HTML page in the body.
+ * `error_description`, with the secrets the request sent replaced. Messages reach tool results,
+ * logs and the audit log, and a custom endpoint or a proxy in front of one can put tokens or a
+ * whole HTML page in the body, or quote the request back inside those two fields.
  */
-function refusalDetail(body: string): string {
+function refusalDetail(body: string, secrets: readonly string[]): string {
   if (body.length > TOKEN_ERROR_BODY_MAX_CHARS) return '';
   let parsed: unknown;
   try {
@@ -71,9 +112,13 @@ function refusalDetail(body: string): string {
   }
   if (typeof parsed !== 'object' || parsed === null) return '';
   const fields = parsed as { error?: unknown; error_description?: unknown };
-  const code = cleanErrorField(fields.error, TOKEN_ERROR_CODE_MAX_CHARS);
+  const code = cleanErrorField(fields.error, TOKEN_ERROR_CODE_MAX_CHARS, secrets);
   if (!code) return '';
-  const description = cleanErrorField(fields.error_description, TOKEN_ERROR_DESCRIPTION_MAX_CHARS);
+  const description = cleanErrorField(
+    fields.error_description,
+    TOKEN_ERROR_DESCRIPTION_MAX_CHARS,
+    secrets,
+  );
   return description ? `: ${code}: ${description}` : `: ${code}`;
 }
 
@@ -92,7 +137,9 @@ async function postTokenRequest<T>(
     });
     const text = await response.text();
     if (!response.ok) {
-      throw new Error(`OAuth2 ${action} failed (${response.status})${refusalDetail(text)}`);
+      throw new Error(
+        `OAuth2 ${action} failed (${response.status})${refusalDetail(text, sentSecretShapes(body))}`,
+      );
     }
     try {
       return JSON.parse(text) as T;
