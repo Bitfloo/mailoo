@@ -286,7 +286,9 @@ describe('README Environment Variables table', () => {
   // The ROW_TEXT rows and the lines around the table are pinned whole, and each claim they make is
   // read off loadConfig or the file it links, so they can neither keep a claim the loader no longer
   // makes nor gain one that no test reads. Of the other rows, only the address and host rows are
-  // checked here, and only for the *required* mark that opens their default cell.
+  // checked here, and only for the *required* mark that opens their default cell. The
+  // MCP_EMAIL_PASSWORD row of the `### Environment` reference repeats the password claim and is
+  // pinned and read the same way.
   describe('against the loader', () => {
     const NO_CONFIG = 'No configuration found.';
     const PROVIDER = 'MCP_EMAIL_OAUTH2_PROVIDER';
@@ -332,6 +334,10 @@ describe('README Environment Variables table', () => {
     ];
     const CLIENT_REFUSED =
       'A missing or empty client id, client secret or refresh token is refused when the configuration loads, naming the field';
+    const PASSWORD_UNLESS = `Password is required unless \`${PROVIDER}\` is set`;
+    const REFERENCE_PASSWORD_ROLE = `Account. ${PASSWORD_UNLESS}`;
+    // ownKeys names no variable, so enumerating the environment is recorded as a name no list carries.
+    const ENUMERATED = '(the environment, enumerated)';
     type Env = Record<string, string | undefined>;
     type Config = Awaited<ReturnType<typeof loadConfig>>;
     type Loaded = Config['accounts'][number] | undefined;
@@ -451,6 +457,52 @@ describe('README Environment Variables table', () => {
         }),
       );
       return { anchor, blocks };
+    };
+    const readsOf = async (vars: Env): Promise<string[]> => {
+      stub(vars);
+      const real = process.env;
+      const names = new Set<string>();
+      const note = (key: string | symbol): void => {
+        if (typeof key === 'string' && key.startsWith('MCP_EMAIL_')) names.add(key);
+      };
+      process.env = new Proxy(real, {
+        get: (target, key) => {
+          note(key);
+          return Reflect.get(target, key);
+        },
+        has: (target, key) => {
+          note(key);
+          return Reflect.has(target, key);
+        },
+        getOwnPropertyDescriptor: (target, key) => {
+          note(key);
+          return Reflect.getOwnPropertyDescriptor(target, key);
+        },
+        ownKeys: (target) => {
+          names.add(ENUMERATED);
+          return Reflect.ownKeys(target);
+        },
+      });
+      try {
+        await loadConfig(missingConfig);
+      } finally {
+        process.env = real;
+      }
+      return [...names];
+    };
+    // The source scan misses a name read by destructuring, an alias or bracket access; the proxy does not.
+    const loaderReads = async (): Promise<string[]> => {
+      const password = await readsOf(PASSWORD_ONLY);
+      const oauth2 = await readsOf({ MCP_EMAIL_PASSWORD: undefined, [PROVIDER]: 'custom' });
+      // A proxy outside the read path records nothing, and every check over these names would pass empty.
+      expect(oauth2).toContain(PROVIDER);
+      return [...new Set([...password, ...oauth2])].sort();
+    };
+    const referencePasswordRoles = (): string[] => {
+      const reference = readme.split(/^### Environment$/m)[1]?.split(/\n#{1,6} /)[0] ?? '';
+      return [...reference.matchAll(/^\| (.*?) \| (.*) \|$/gm)]
+        .filter((match) => match[1].split(', ').includes('`MCP_EMAIL_PASSWORD`'))
+        .map((match) => match[2]);
     };
 
     beforeEach(async () => {
@@ -596,6 +648,19 @@ describe('README Environment Variables table', () => {
       expect(rows.get('MCP_EMAIL_PASSWORD')?.def === PASSWORD_DEFAULT).toBe(onlyProviderWaives);
     });
 
+    it('should hold the MCP_EMAIL_PASSWORD row of the Environment reference to the claim the test below reads', () => {
+      expect(referencePasswordRoles()).toEqual([REFERENCE_PASSWORD_ROLE]);
+    });
+
+    it('should say in the Environment reference that the password is required unless MCP_EMAIL_OAUTH2_PROVIDER is set exactly when the provider alone lets an account load without a password', async () => {
+      const withProvider = await outcome();
+      stub({ [PROVIDER]: undefined });
+      const providerWaivesPassword = withProvider === 'loads' && (await outcome()) === NO_CONFIG;
+      expect(referencePasswordRoles().some((cell) => cell.includes(PASSWORD_UNLESS))).toBe(
+        providerWaivesPassword,
+      );
+    });
+
     it.each(CLIENT_FIELDS)(
       'should mark %s *required* with a provider exactly when the provider makes the loader refuse an account without it and a password account loads without all three',
       async (name, field) => {
@@ -623,6 +688,16 @@ describe('README Environment Variables table', () => {
         );
       },
     );
+
+    it('should have a row for every MCP_EMAIL_OAUTH2_* variable loadConfig reads for an environment account', async () => {
+      const oauth2 = (await loaderReads()).filter((name) => name.startsWith('MCP_EMAIL_OAUTH2_'));
+      expect(oauth2.filter((name) => !documented.includes(name))).toEqual([]);
+    });
+
+    // loader.ts reads `process.env.MCP_EMAIL_*` literally because the published list is scanned from it.
+    it('should read every MCP_EMAIL_* variable by a name the published list carries and never enumerate the environment', async () => {
+      expect((await loaderReads()).filter((name) => !read.includes(name))).toEqual([]);
+    });
 
     describe('the MCP_EMAIL_OAUTH2_PROVIDER row', () => {
       const providerRead = async (
@@ -667,8 +742,17 @@ describe('README Environment Variables table', () => {
         },
       );
 
-      it('should say no environment variable sets the custom endpoints exactly when every MCP_EMAIL_OAUTH2_* variable set leaves a custom provider without them', async () => {
-        const family = read.filter((name) => name.startsWith('MCP_EMAIL_OAUTH2_'));
+      it('should say no environment variable sets the custom endpoints exactly when no MCP_EMAIL_OAUTH2_* variable loadConfig reads is named for a URL or an endpoint', async () => {
+        const named = (await loaderReads()).filter(
+          (name) => name.startsWith('MCP_EMAIL_OAUTH2_') && /URL|ENDPOINT/.test(name),
+        );
+        expect(providerDesc().includes(NO_ENV_SETS)).toBe(named.length === 0);
+      });
+
+      it('should say no environment variable sets the custom endpoints exactly when every MCP_EMAIL_OAUTH2_* variable the source names or loadConfig reads, all set, leaves a custom provider without them', async () => {
+        const family = [...new Set([...read, ...(await loaderReads())])].filter((name) =>
+          name.startsWith('MCP_EMAIL_OAUTH2_'),
+        );
         stub(Object.fromEntries(family.map((name) => [name, `https://env.example.test/${name}`])));
         stub({ [PROVIDER]: 'custom' });
         const block = (await loadConfig(missingConfig)).accounts[0]?.oauth2;
