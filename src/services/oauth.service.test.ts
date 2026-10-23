@@ -1053,17 +1053,17 @@ const UNSENT_ECHOES: {
   {
     name: 'hex letters after an escape lowered',
     secrets: { ...PLAIN, client: 'GOCSPX-9/CAFE' },
-    echo: ({ client }) => encodeURIComponent(client).replace('CAFE', 'cafe'),
+    echo: ({ client }) => encodeURIComponent(client).replaceAll('CAFE', 'cafe'),
   },
   {
     name: 'the client with a colon for its dot',
     secrets: { ...PLAIN, client: 'GOCSPX-q7.Lw2Rt9' },
-    echo: ({ client }) => client.replace('.', ':'),
+    echo: ({ client }) => client.replaceAll('.', ':'),
   },
   {
     name: 'a literal %2F in the client as %2f',
     secrets: { ...PLAIN, client: 'GOCSPX-q7%2Fw2Rt9' },
-    echo: ({ client }) => client.replace('%2F', '%2f'),
+    echo: ({ client }) => client.replaceAll('%2F', '%2f'),
   },
 ];
 
