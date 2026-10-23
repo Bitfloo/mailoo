@@ -3,16 +3,15 @@
  * loader enforce it: a non-empty password or an OAuth2 block.
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 
 import { ZodError } from 'zod';
 
 import { loadConfig } from '../src/config/loader.js';
 import { AccountConfigSchema, OAuth2ConfigSchema } from '../src/config/schema.js';
 import OAuthService from '../src/services/oauth.service.js';
-import { repoRoot } from './agents/agent-file.js';
 
 // Every MCP_EMAIL_* variable starts unset, so only what a test sets is read.
 const clearMailEnv = (): void => {
@@ -234,6 +233,9 @@ describe('MCP_EMAIL_* credential matrix', () => {
     refreshToken: 'Env-Refresh-Z4',
   };
   const NO_CONFIG = { refused: ['No configuration found.'] };
+  // Fresh empty directory: a file at a repo path would be read, and its values could reach an assertion diff.
+  let dir: string;
+  let missingConfig: string;
   // Written out, so that a weaker refusal message cannot follow the schema unnoticed.
   const providerRefusal = (): string =>
     'accounts.0.oauth2.provider: Invalid option: expected one of "google"|"microsoft"|"custom"';
@@ -253,7 +255,7 @@ describe('MCP_EMAIL_* credential matrix', () => {
   });
   const loaded = async (): Promise<Outcome> => {
     try {
-      const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
+      const config = await loadConfig(missingConfig);
       return { password: config.accounts[0]?.password, oauth2: config.accounts[0]?.oauth2 };
     } catch (error) {
       if (error instanceof ZodError) {
@@ -265,15 +267,20 @@ describe('MCP_EMAIL_* credential matrix', () => {
     }
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     clearMailEnv();
     vi.stubEnv('MCP_EMAIL_ADDRESS', 'owner@example.com');
     vi.stubEnv('MCP_EMAIL_IMAP_HOST', 'imap.example.com');
     vi.stubEnv('MCP_EMAIL_SMTP_HOST', 'smtp.example.com');
+    dir = await mkdtemp(join(tmpdir(), 'credential-facts-'));
+    missingConfig = join(dir, 'no-such-config.toml');
+    expect(dirname(relative(tmpdir(), missingConfig))).toBe(basename(dir));
+    await expect(stat(missingConfig)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.unstubAllEnvs();
+    await rm(dir, { recursive: true, force: true });
   });
 
   it.each(NO_VALUE)(
@@ -283,6 +290,17 @@ describe('MCP_EMAIL_* credential matrix', () => {
       expect(await loaded()).toEqual(NO_CONFIG);
     },
   );
+
+  // loaded() keeps only the first line, so a refusal naming another file would still equal NO_CONFIG.
+  it('should name the missing config path it was given when no password or provider is set', async () => {
+    stub({ MCP_EMAIL_PASSWORD: undefined, MCP_EMAIL_OAUTH2_PROVIDER: undefined });
+    await expect(loadConfig(missingConfig)).rejects.toThrow(missingConfig);
+  });
+
+  it('should open the refusal with No configuration found. when no password or provider is set', async () => {
+    stub({ MCP_EMAIL_PASSWORD: undefined, MCP_EMAIL_OAUTH2_PROVIDER: undefined });
+    await expect(loadConfig(missingConfig)).rejects.toThrow(/^No configuration found\.(?:\n|$)/);
+  });
 
   it.each(SOME_VALUE)(
     'should load a %s MCP_EMAIL_PASSWORD (%j) as given when no provider is set',
@@ -340,15 +358,20 @@ describe('MCP_EMAIL_* credential matrix', () => {
 
   // The variables carry no token_url or auth_url, so a custom provider loads from
   // them, but the token service cannot use it: custom needs the config file.
-  it('should load a custom MCP_EMAIL_OAUTH2_PROVIDER without endpoints, which the token service refuses', async () => {
+  it('should load a custom MCP_EMAIL_OAUTH2_PROVIDER without a token URL or an auth URL', async () => {
     stub(withOAuth2('custom'));
-    const block = (await loadConfig(join(repoRoot, 'no-such-config.toml'))).accounts[0]?.oauth2;
-    if (block === undefined) throw new Error('no OAuth2 block was loaded');
-    expect([block.provider, block.tokenUrl, block.authUrl]).toEqual([
+    const block = (await loadConfig(missingConfig)).accounts[0]?.oauth2;
+    expect([block?.provider, block?.tokenUrl, block?.authUrl]).toEqual([
       'custom',
       undefined,
       undefined,
     ]);
+  });
+
+  it('should have the token service refuse a custom MCP_EMAIL_OAUTH2_PROVIDER account for its missing endpoints', async () => {
+    stub(withOAuth2('custom'));
+    const block = (await loadConfig(missingConfig)).accounts[0]?.oauth2;
+    if (block === undefined) throw new Error('no OAuth2 block was loaded');
     expect(() => OAuthService.getProviderEndpoints(block)).toThrow(
       'Custom OAuth2 provider requires tokenUrl and authUrl',
     );
@@ -381,13 +404,13 @@ describe('MCP_EMAIL_* credential matrix', () => {
 
   it('should use MCP_EMAIL_USERNAME as the login user when it is set', async () => {
     stub({ MCP_EMAIL_PASSWORD: 'app-password', MCP_EMAIL_USERNAME: 'login-user' });
-    const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
+    const config = await loadConfig(missingConfig);
     expect(config.accounts[0]?.username).toBe('login-user');
   });
 
   it('should use the email address as the login user when MCP_EMAIL_USERNAME is unset', async () => {
     stub({ MCP_EMAIL_PASSWORD: 'app-password' });
-    const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
+    const config = await loadConfig(missingConfig);
     expect(config.accounts[0]?.username).toBe('owner@example.com');
   });
 
@@ -395,7 +418,7 @@ describe('MCP_EMAIL_* credential matrix', () => {
     'should keep a %s MCP_EMAIL_USERNAME (%j) as the login user, not the email address',
     async (_kind, username) => {
       stub({ MCP_EMAIL_PASSWORD: 'app-password', MCP_EMAIL_USERNAME: username });
-      const config = await loadConfig(join(repoRoot, 'no-such-config.toml'));
+      const config = await loadConfig(missingConfig);
       expect(config.accounts[0]?.username).toBe(username);
     },
   );
