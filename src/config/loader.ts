@@ -20,12 +20,48 @@ import type {
 import hasGroupOrOtherBits from '../utils/file-mode.js';
 import isEnoent from '../utils/fs-errors.js';
 import type { RawAccountConfig, RawAppConfig, RawAppConfigInput } from './schema.js';
-import { AppConfigFileSchema, SystemOneConfigSchema, ToolsetSchema } from './schema.js';
+import {
+  AppConfigFileSchema,
+  hasCredential,
+  SystemOneConfigSchema,
+  ToolsetSchema,
+} from './schema.js';
 import { CONFIG_FILE, xdg } from './xdg.js';
 
 // ---------------------------------------------------------------------------
 // Environment variable loader (single-account quick setup)
 // ---------------------------------------------------------------------------
+
+type RawAccountInput = RawAppConfigInput['accounts'][number];
+
+/**
+ * The config the environment describes, before the schema checks it. The OAuth2
+ * provider is still the string as set: the schema alone decides whether it names
+ * a provider, so ' google ' is refused rather than trimmed.
+ */
+type EnvOAuth2Config = Omit<NonNullable<RawAccountInput['oauth2']>, 'provider'> & {
+  provider: string;
+};
+type EnvAccountConfig = Omit<RawAccountInput, 'oauth2'> & { oauth2?: EnvOAuth2Config };
+type EnvAppConfig = Omit<RawAppConfigInput, 'accounts'> & { accounts: EnvAccountConfig[] };
+
+/**
+ * The OAuth2 block from MCP_EMAIL_OAUTH2_*, read as set and never trimmed.
+ * An unset or empty provider means no OAuth2. A missing client value becomes ''
+ * for the schema to refuse with its own message.
+ */
+function oauth2FromEnv(): EnvOAuth2Config | undefined {
+  const provider = process.env.MCP_EMAIL_OAUTH2_PROVIDER;
+  if (provider === undefined || provider === '') {
+    return undefined;
+  }
+  return {
+    provider,
+    client_id: process.env.MCP_EMAIL_OAUTH2_CLIENT_ID ?? '',
+    client_secret: process.env.MCP_EMAIL_OAUTH2_CLIENT_SECRET ?? '',
+    refresh_token: process.env.MCP_EMAIL_OAUTH2_REFRESH_TOKEN ?? '',
+  };
+}
 
 // Callers pass `process.env.MCP_EMAIL_*` itself, not the name: the published
 // variable list (server.json) is checked against those literals.
@@ -43,7 +79,7 @@ function flagEnv(value: string | undefined): boolean | undefined {
 }
 
 /** Leaves every unset variable undefined: defaults live in the schema only. */
-function loadFromEnv(): RawAppConfigInput | null {
+function loadFromEnv(): EnvAppConfig | null {
   const email = process.env.MCP_EMAIL_ADDRESS;
   const password = process.env.MCP_EMAIL_PASSWORD;
   const imapHost = process.env.MCP_EMAIL_IMAP_HOST;
@@ -53,20 +89,12 @@ function loadFromEnv(): RawAppConfigInput | null {
     return null;
   }
 
-  // Need either password or OAuth2 env vars
-  const oauth2Provider = process.env.MCP_EMAIL_OAUTH2_PROVIDER;
-  if (!password && !oauth2Provider) {
+  // The same rule as the account schema. Without a credential the environment
+  // describes no account, and the config file is used instead.
+  const oauth2 = oauth2FromEnv();
+  if (!hasCredential({ password, oauth2 })) {
     return null;
   }
-
-  const oauth2 = oauth2Provider
-    ? {
-        provider: oauth2Provider as 'google' | 'microsoft' | 'custom',
-        client_id: process.env.MCP_EMAIL_OAUTH2_CLIENT_ID ?? '',
-        client_secret: process.env.MCP_EMAIL_OAUTH2_CLIENT_SECRET ?? '',
-        refresh_token: process.env.MCP_EMAIL_OAUTH2_REFRESH_TOKEN ?? '',
-      }
-    : undefined;
 
   return {
     settings: {

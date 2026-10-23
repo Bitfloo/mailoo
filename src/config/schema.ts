@@ -61,6 +61,14 @@ export const OAuth2ConfigSchema = z.object({
   scopes: z.array(z.string()).optional(),
 });
 
+/**
+ * The credential rule for one account: a non-empty password or an OAuth2 block.
+ * The password is compared as given, never trimmed; only the server can judge it.
+ */
+export function hasCredential(account: { password?: string; oauth2?: unknown }): boolean {
+  return (account.password ?? '') !== '' || account.oauth2 !== undefined;
+}
+
 export const AccountConfigSchema = z
   .object({
     name: z.string().min(1, 'Account name is required'),
@@ -73,7 +81,7 @@ export const AccountConfigSchema = z
     imap: ImapConfigSchema,
     smtp: SmtpConfigSchema,
   })
-  .refine((data) => data.password ?? data.oauth2, {
+  .refine(hasCredential, {
     message: 'Either password or oauth2 config is required',
   });
 
