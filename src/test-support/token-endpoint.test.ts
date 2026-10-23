@@ -5,6 +5,30 @@ const [SECRET] = LEAKED_SECRETS;
 /** Past the 50 bytes `inspect` prints of a Buffer, so only decoding the bytes can find it. */
 const BURIED_BYTES = new TextEncoder().encode(`${'x'.repeat(100)}${SECRET}`);
 
+/** `inspect` hides non-enumerable properties, so only walking the own properties finds the secret. */
+function hiddenSecret<T extends object>(holder: T, key: PropertyKey = 'body'): T {
+  return Object.defineProperty(holder, key, { value: SECRET });
+}
+
+/** `innermost` wrapped in `links` errors, so it sits `links` causes down. */
+function causeChainDown(links: number, innermost: Error): Error {
+  let outer = innermost;
+  for (let link = 0; link < links; link += 1) outer = new Error('wrapper', { cause: outer });
+  return outer;
+}
+
+function errorThatIsItsOwnCause(): Error {
+  const error = hiddenSecret(new Error('refused'));
+  error.cause = error;
+  return error;
+}
+
+function objectThatHoldsItself(): Record<string, unknown> {
+  const holder: Record<string, unknown> = hiddenSecret({});
+  holder.self = holder;
+  return holder;
+}
+
 describe('leakedSecretsIn', () => {
   it.each([
     { name: 'the message', subject: new Error(`refused: ${SECRET}`) },
@@ -54,19 +78,105 @@ describe('leakedSecretsIn', () => {
       subject: Object.assign(new Error('refused'), { body: BURIED_BYTES.buffer }),
     },
     {
-      name: 'an object nested deeper than inspect goes by default',
+      name: 'an object nested four levels below the error',
       subject: Object.assign(new Error('refused'), { response: { a: { b: { c: SECRET } } } }),
     },
     {
-      name: 'an array item past the 100 inspect prints',
+      name: 'the 150th item of an array',
       subject: { entries: Array.from({ length: 150 }, (_, i) => (i === 149 ? SECRET : 'ok')) },
     },
     {
-      name: 'a string past the 10000 characters inspect prints',
+      name: 'a string of 20 000 characters',
       subject: { text: `${'x'.repeat(20_000)}${SECRET}` },
+    },
+    {
+      name: 'a non-enumerable property that holds an object',
+      subject: Object.defineProperty(new Error('refused'), 'response', {
+        value: { body: SECRET },
+      }),
+    },
+    {
+      name: 'a non-enumerable Symbol-keyed property',
+      subject: Object.defineProperty(new Error('refused'), Symbol('raw'), { value: SECRET }),
+    },
+    {
+      name: 'an object held as a Map value',
+      subject: Object.defineProperty(new Error('refused'), 'response', {
+        value: new Map([['body', { text: SECRET }]]),
+      }),
+    },
+    {
+      name: 'an object held as a Map key',
+      subject: Object.defineProperty(new Error('refused'), 'response', {
+        value: new Map([[{ text: SECRET }, 'body']]),
+      }),
+    },
+    {
+      name: 'an object held as a Set item',
+      subject: Object.defineProperty(new Error('refused'), 'response', {
+        value: new Set([{ text: SECRET }]),
+      }),
+    },
+    {
+      name: 'a non-enumerable property of a Buffer',
+      subject: hiddenSecret(Buffer.from('plain')),
+    },
+    {
+      name: 'a non-enumerable property of a cause 12 links down',
+      subject: causeChainDown(12, hiddenSecret(new Error('innermost'))),
+    },
+    {
+      name: 'an error that is its own cause, next to a non-cyclic property',
+      subject: errorThatIsItsOwnCause(),
+    },
+    {
+      name: 'an object that holds itself, next to a non-cyclic property',
+      subject: objectThatHoldsItself(),
+    },
+    {
+      name: 'a Headers object property',
+      subject: Object.assign(new Error('refused'), {
+        headers: new Headers({ authorization: SECRET }),
+      }),
+    },
+    {
+      name: 'a Headers object in a non-enumerable property',
+      subject: Object.defineProperty(new Error('refused'), 'headers', {
+        value: new Headers({ authorization: SECRET }),
+      }),
+    },
+    {
+      name: 'a URL object property',
+      subject: Object.assign(new Error('refused'), {
+        url: new URL(`https://auth.example.test/token?code=${SECRET}`),
+      }),
     },
   ])('should find a secret in $name', ({ subject }) => {
     expect(leakedSecretsIn(subject)).toEqual([SECRET]);
+  });
+
+  it('should find a secret that only the stack of an edited error still holds', () => {
+    const error = new Error(`refused: ${SECRET}`);
+    // V8 builds the stack text on first read, so it keeps the message as it was then.
+    const stackHeld = error.stack?.includes(SECRET);
+    error.message = 'redacted';
+    expect({ stackHeld, found: leakedSecretsIn(error) }).toEqual({
+      stackHeld: true,
+      found: [SECRET],
+    });
+  });
+
+  it('should skip an accessor without invoking it and still find the secret beside it', () => {
+    const accessor = vi.fn(() => {
+      throw new Error('accessor invoked');
+    });
+    const subject = Object.defineProperty(new Error(`refused: ${SECRET}`), 'body', {
+      get: accessor,
+    });
+    expect({ found: leakedSecretsIn(subject), invoked: accessor.mock.calls.length }).toEqual({
+      found: [SECRET],
+      invoked: 0,
+    });
   });
 
   it('should report nothing for an error that holds no secret', () => {

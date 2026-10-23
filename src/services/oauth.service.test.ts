@@ -321,6 +321,12 @@ function refusedWith(status: number, body: string): void {
   fakeTokenEndpoint(() => new Response(body, { status }));
 }
 
+/** An `invalid_grant` refusal padded to exactly `size` characters. */
+function refusalOfLength(size: number): string {
+  const shell = JSON.stringify({ error: 'invalid_grant', padding: '' });
+  return JSON.stringify({ error: 'invalid_grant', padding: 'x'.repeat(size - shell.length) });
+}
+
 describe('OAuthService token error limits', () => {
   it('should cap the error code at 64 characters', () => {
     expect(TOKEN_ERROR_CODE_MAX_CHARS).toBe(64);
@@ -358,6 +364,16 @@ describe.each(FLOWS)('OAuthService $action when the token endpoint refuses', ({ 
     expect((await failureOf(run)).message).toBe(
       `${failed} (400): ${'a'.repeat(TOKEN_ERROR_CODE_MAX_CHARS)}`,
     );
+  });
+
+  it('should keep exactly 64 characters of a 94-character error code', async () => {
+    refusedWith(400, JSON.stringify({ error: 'a'.repeat(94) }));
+    const { message } = await failureOf(run);
+    const tail = message.slice(`${failed} (400): `.length);
+    expect({ message, tailLength: tail.length }).toEqual({
+      message: `${failed} (400): ${'a'.repeat(64)}`,
+      tailLength: 64,
+    });
   });
 
   it('should cut an over-long description at the description limit', async () => {
@@ -559,6 +575,24 @@ describe.each(FLOWS)('OAuthService $action when the token endpoint refuses', ({ 
     refusedWith(400, body);
     expect({ size: body.length, message: (await failureOf(run)).message }).toEqual({
       size: TOKEN_ERROR_BODY_MAX_CHARS + 1,
+      message: `${failed} (400)`,
+    });
+  });
+
+  it('should still name the error in a body of 4096 characters', async () => {
+    const body = refusalOfLength(4096);
+    refusedWith(400, body);
+    expect({ size: body.length, message: (await failureOf(run)).message }).toEqual({
+      size: 4096,
+      message: `${failed} (400): invalid_grant`,
+    });
+  });
+
+  it('should name no body of 4097 characters', async () => {
+    const body = refusalOfLength(4097);
+    refusedWith(400, body);
+    expect({ size: body.length, message: (await failureOf(run)).message }).toEqual({
+      size: 4097,
       message: `${failed} (400)`,
     });
   });

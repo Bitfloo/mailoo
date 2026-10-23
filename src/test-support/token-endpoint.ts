@@ -106,54 +106,46 @@ export function valuesBesidesErrorFields(body: Record<string, unknown>): string[
     .flatMap(([, value]) => leafTexts(value));
 }
 
-/** Bounds both the cause chain followed and the nesting searched for bytes. */
-const MAX_DEPTH = 10;
-
-/** No cut-off: `inspect` hides array items past 100 and string characters past 10000 by default. */
-const INSPECT_IN_FULL = { depth: null, maxArrayLength: null, maxStringLength: null } as const;
-
-/** Bytes anywhere in the own properties of a value, as UTF-8: `inspect` prints them as hex and stops after 50. */
-function bytesInside(value: unknown, depth = 0): string[] {
-  if (value instanceof ArrayBuffer) return [Buffer.from(value).toString('utf8')];
-  if (ArrayBuffer.isView(value)) {
-    return [Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString('utf8')];
-  }
-  if (typeof value !== 'object' || value === null || depth >= MAX_DEPTH) return [];
-  return Object.getOwnPropertyNames(value).flatMap((name) =>
-    bytesInside(Object.getOwnPropertyDescriptor(value, name)?.value, depth + 1),
-  );
-}
-
 /**
- * Every link of an error's cause chain as text: the full `inspect` dump and the bytes its
- * properties hold as UTF-8 for any value, and for an error also its message and every own
- * property, non-enumerable ones too, as JSON. Strings inside a non-enumerable property that holds
- * an object are the one place none of them looks.
+ * Every string a value holds, found by walking it: strings, bytes decoded as UTF-8 (`inspect`
+ * prints a Buffer as hex and stops after 50), and the own properties of any object, an error's
+ * `message` and `cause` included, whatever their enumerability or key type. Map entries and Set
+ * items are walked too. A visited object is skipped, so a cycle ends and nesting has no depth cap.
+ * Accessors are skipped, never invoked: reading one could run code. Each object also gets a
+ * one-level `inspect` for what its own properties do not hold: a stack (an accessor) that outlives
+ * an edited message, and the state a Headers or URL keeps out of its own properties.
  */
-function errorChainText(error: unknown): string {
-  const texts: string[] = [];
-  let current: unknown = error;
-  for (let depth = 0; depth < MAX_DEPTH && current !== undefined; depth += 1) {
-    texts.push(inspect(current, INSPECT_IN_FULL), ...bytesInside(current));
-    if (current instanceof Error) {
-      texts.push(
-        `${current.name}: ${current.message}`,
-        JSON.stringify(current, Object.getOwnPropertyNames(current)),
-      );
-      current = current.cause;
-    } else {
-      current = undefined;
+function stringsIn(root: unknown): string[] {
+  const strings: string[] = [];
+  const visited = new Set<object>();
+  const pending: unknown[] = [root];
+  while (pending.length > 0) {
+    const value = pending.pop();
+    if (typeof value === 'string') strings.push(value);
+    if (value instanceof ArrayBuffer) strings.push(Buffer.from(value).toString('utf8'));
+    if (ArrayBuffer.isView(value)) {
+      strings.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString('utf8'));
+    }
+    if (typeof value === 'object' && value !== null && !visited.has(value)) {
+      visited.add(value);
+      strings.push(inspect(value, { depth: 0 }));
+      if (value instanceof Map) pending.push(...value.keys(), ...value.values());
+      if (value instanceof Set) pending.push(...value);
+      Reflect.ownKeys(value).forEach((key) => {
+        const property = Object.getOwnPropertyDescriptor(value, key);
+        if (property && 'value' in property) pending.push(property.value);
+      });
     }
   }
-  return texts.join('\n');
+  return strings;
 }
 
-/** The secrets found anywhere in an error, its cause chain and their properties, or in plain data. */
+/** The secrets found anywhere in a value: an error, its causes and properties, or plain data. */
 export function leakedSecretsIn(
   subject: unknown,
   secrets: readonly string[] = LEAKED_SECRETS,
 ): string[] {
-  const text = errorChainText(subject);
+  const text = stringsIn(subject).join('\n');
   return secrets.filter((secret) => text.includes(secret));
 }
 
