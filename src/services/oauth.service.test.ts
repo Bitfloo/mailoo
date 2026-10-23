@@ -3,13 +3,15 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  errorChainText,
   fakeTokenEndpoint,
   googleConfig,
+  HOSTILE_REFUSAL,
   LEAKED_SECRETS,
+  leakedSecretsIn,
   leakyInvalidGrant,
   stalledBody,
   stalledTokenEndpoint,
+  valuesBesidesErrorFields,
 } from '../test-support/token-endpoint.js';
 import type { OAuth2Config } from '../types/index.js';
 import OAuthService, {
@@ -242,13 +244,46 @@ describe('OAuthService refresh request', () => {
 });
 
 const FLOWS = [
-  { action: 'token refresh', run: async () => new OAuthService().getAccessToken(googleConfig()) },
+  {
+    action: 'token refresh',
+    run: async (oauth2 = googleConfig()) => new OAuthService().getAccessToken(oauth2),
+  },
   {
     action: 'code exchange',
-    run: async () =>
-      OAuthService.exchangeCode(googleConfig(), 'auth-code', 'http://localhost:3000/cb'),
+    run: async (oauth2 = googleConfig()) =>
+      OAuthService.exchangeCode(oauth2, 'auth-code', 'http://localhost:3000/cb'),
   },
 ] as const;
+
+/**
+ * A Microsoft identity platform refusal: the AADSTS text, then trace id, correlation id and
+ * timestamp on CR LF separated lines (173 characters once the breaks are dropped), then padding
+ * that carries one more id past character 200. The same kind of ids also come as top-level fields.
+ */
+const MICROSOFT_TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+const TRACE_IN_DESCRIPTION = '00000000-5e17-4000-8000-0000000000a1';
+const CORRELATION_IN_DESCRIPTION = '00000000-5e17-4000-8000-0000000000b2';
+const TIMESTAMP = '2026-10-23 07:00:00Z';
+const REFERENCE_IN_PADDING = '00000000-5e17-4000-8000-0000000000e5';
+const TRACE_FIELD = '00000000-5e17-4000-8000-0000000000c3';
+const CORRELATION_FIELD = '00000000-5e17-4000-8000-0000000000d4';
+const MICROSOFT_IDS_BEYOND_THE_CUT = [REFERENCE_IN_PADDING, TRACE_FIELD, CORRELATION_FIELD];
+const MICROSOFT_REFUSAL = {
+  error: 'invalid_grant',
+  error_description: [
+    'AADSTS70000: The provided grant has expired.',
+    `Trace ID: ${TRACE_IN_DESCRIPTION}`,
+    `Correlation ID: ${CORRELATION_IN_DESCRIPTION}`,
+    `Timestamp: ${TIMESTAMP} Send a new interactive authorization request for this user and resource. Reference ID: ${REFERENCE_IN_PADDING}`,
+  ].join('\r\n'),
+  error_codes: [70_000],
+  trace_id: TRACE_FIELD,
+  correlation_id: CORRELATION_FIELD,
+};
+/** The description with CR LF dropped, cut after 200 characters (inside "authorization"). */
+const MICROSOFT_DESCRIPTION_CUT =
+  `AADSTS70000: The provided grant has expired.Trace ID: ${TRACE_IN_DESCRIPTION}` +
+  `Correlation ID: ${CORRELATION_IN_DESCRIPTION}Timestamp: ${TIMESTAMP} Send a new interactive aut`;
 
 /** Characters the RFC 6749 §5.2 error fields may carry, kept; every other character is dropped. */
 const CLEANING_CASES = [
@@ -261,6 +296,11 @@ const CLEANING_CASES = [
   { name: 'escape and DEL controls', raw: 'red\u001B[31m\u007F done', kept: 'red[31m done' },
   { name: 'quotes and backslashes', raw: 'say "hi" \\ bye', kept: 'say hi  bye' },
   { name: 'accented letters and emoji', raw: 'naïve \u{1F4A5} done', kept: 'nave  done' },
+  {
+    name: 'NUL, vertical tab, form feed and the C1 controls',
+    raw: 'a\u0000b\u000B\u000C\u000E\u001A\u0080\u0085\u009B\u009Fc',
+    kept: 'abc',
+  },
   {
     name: 'every boundary of the allowed ranges',
     raw: 'a\u001F b!"#[\\]~\u007F',
@@ -281,18 +321,17 @@ function refusedWith(status: number, body: string): void {
   fakeTokenEndpoint(() => new Response(body, { status }));
 }
 
-function leakedSecretsIn(error: Error): string[] {
-  const text = errorChainText(error);
-  return LEAKED_SECRETS.filter((secret) => text.includes(secret));
-}
-
 describe('OAuthService token error limits', () => {
-  it('should cap the error code at 64 characters, its description at 200 and the parsed body at 4096', () => {
-    expect({
-      code: TOKEN_ERROR_CODE_MAX_CHARS,
-      description: TOKEN_ERROR_DESCRIPTION_MAX_CHARS,
-      body: TOKEN_ERROR_BODY_MAX_CHARS,
-    }).toEqual({ code: 64, description: 200, body: 4096 });
+  it('should cap the error code at 64 characters', () => {
+    expect(TOKEN_ERROR_CODE_MAX_CHARS).toBe(64);
+  });
+
+  it('should cap the error description at 200 characters', () => {
+    expect(TOKEN_ERROR_DESCRIPTION_MAX_CHARS).toBe(200);
+  });
+
+  it('should parse no body longer than 4096 characters', () => {
+    expect(TOKEN_ERROR_BODY_MAX_CHARS).toBe(4096);
   });
 });
 
@@ -364,6 +403,64 @@ describe.each(FLOWS)('OAuthService $action when the token endpoint refuses', ({ 
     expect((await failureOf(run)).message).toBe(`${failed} (400): padded`);
   });
 
+  it('should trim the space the code limit leaves at the end of the error code', async () => {
+    const kept = 'a'.repeat(TOKEN_ERROR_CODE_MAX_CHARS - 1);
+    refusedWith(400, JSON.stringify({ error: `${kept} b` }));
+    expect((await failureOf(run)).message).toBe(`${failed} (400): ${kept}`);
+  });
+
+  it('should trim the space the description limit leaves at the end of the description', async () => {
+    const kept = 'd'.repeat(TOKEN_ERROR_DESCRIPTION_MAX_CHARS - 1);
+    refusedWith(400, JSON.stringify({ error: 'invalid_grant', error_description: `${kept} x` }));
+    expect((await failureOf(run)).message).toBe(`${failed} (400): invalid_grant: ${kept}`);
+  });
+
+  it('should name only the error and its description when the body carries other fields', async () => {
+    refusedWith(400, JSON.stringify(HOSTILE_REFUSAL));
+    const error = await failureOf(run);
+    expect({
+      message: error.message,
+      leaked: leakedSecretsIn(error, valuesBesidesErrorFields(HOSTILE_REFUSAL)),
+    }).toEqual({
+      message: `${failed} (400): invalid_grant: Token has been expired or revoked.`,
+      leaked: [],
+    });
+  });
+
+  it.each([
+    { missing: 'error_description', named: ': invalid_grant' },
+    { missing: 'error', named: '' },
+  ] as const)(
+    'should not fill in a missing $missing from the other fields',
+    async ({ missing, named }) => {
+      const body = Object.fromEntries(
+        Object.entries(HOSTILE_REFUSAL).filter(([field]) => field !== missing),
+      );
+      refusedWith(400, JSON.stringify(body));
+      const error = await failureOf(run);
+      expect({
+        message: error.message,
+        leaked: leakedSecretsIn(error, valuesBesidesErrorFields(body)),
+      }).toEqual({ message: `${failed} (400)${named}`, leaked: [] });
+    },
+  );
+
+  it('should drop the line breaks of a Microsoft refusal and cut it before the ids past the limit', async () => {
+    const calls = fakeTokenEndpoint(() => Response.json(MICROSOFT_REFUSAL, { status: 400 }));
+    const error = await failureOf(async () => run(googleConfig({ provider: 'microsoft' })));
+    expect({
+      cutLength: MICROSOFT_DESCRIPTION_CUT.length,
+      tokenUrls: calls.map((call) => call.url),
+      message: error.message,
+      leaked: leakedSecretsIn(error, MICROSOFT_IDS_BEYOND_THE_CUT),
+    }).toEqual({
+      cutLength: TOKEN_ERROR_DESCRIPTION_MAX_CHARS,
+      tokenUrls: [MICROSOFT_TOKEN_URL],
+      message: `${failed} (400): invalid_grant: ${MICROSOFT_DESCRIPTION_CUT}`,
+      leaked: [],
+    });
+  });
+
   it.each([
     { name: 'an empty error code', body: { error: '' } },
     { name: 'an error code made only of spaces', body: { error: '   ' } },
@@ -410,7 +507,10 @@ describe.each(FLOWS)('OAuthService $action when the token endpoint refuses', ({ 
   it.each([
     { name: 'no error field', body: { access_token: LEAKED_SECRETS[0] } },
     { name: 'a numeric error field', body: { error: 401, access_token: LEAKED_SECRETS[0] } },
-    { name: 'an object error field', body: { error: { code: LEAKED_SECRETS[1] } } },
+    {
+      name: 'an object error field',
+      body: { error: { code: LEAKED_SECRETS[1], message: LEAKED_SECRETS[0] } },
+    },
     { name: 'an array error field', body: { error: [LEAKED_SECRETS[2]] } },
     { name: 'a null error field', body: { error: null, refresh_token: LEAKED_SECRETS[1] } },
     { name: 'a JSON array', body: [LEAKED_SECRETS[0]] },
@@ -432,6 +532,22 @@ describe.each(FLOWS)('OAuthService $action when the token endpoint refuses', ({ 
     refusedWith(400, body);
     expect({ size: body.length, message: (await failureOf(run)).message }).toEqual({
       size: TOKEN_ERROR_BODY_MAX_CHARS,
+      message: `${failed} (400): invalid_grant`,
+    });
+  });
+
+  it('should count the parse limit in characters, not in UTF-8 bytes', async () => {
+    const shell = JSON.stringify({ error: 'invalid_grant', padding: '' });
+    const padding = 'é'.repeat(TOKEN_ERROR_BODY_MAX_CHARS - shell.length);
+    const body = JSON.stringify({ error: 'invalid_grant', padding });
+    refusedWith(400, body);
+    expect({
+      characters: body.length,
+      overInBytes: Buffer.byteLength(body) > TOKEN_ERROR_BODY_MAX_CHARS,
+      message: (await failureOf(run)).message,
+    }).toEqual({
+      characters: TOKEN_ERROR_BODY_MAX_CHARS,
+      overInBytes: true,
       message: `${failed} (400): invalid_grant`,
     });
   });

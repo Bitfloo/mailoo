@@ -16,7 +16,7 @@ import { readAuditEntries } from '../test-support/audit-home.js';
 import {
   fakeTokenEndpoint,
   googleConfig,
-  LEAKED_SECRETS,
+  leakedSecretsIn,
   leakyInvalidGrant,
 } from '../test-support/token-endpoint.js';
 import type { AccountConfig } from '../types/index.js';
@@ -91,10 +91,12 @@ describe('mark_email on an OAuth2 account the provider refuses', () => {
       tokenUrls: calls.map((call) => call.url),
       isError: result.isError,
       content: result.content,
+      leaked: leakedSecretsIn(result),
     }).toEqual({
       tokenUrls: ['https://oauth2.googleapis.com/token'],
       isError: true,
       content: [{ type: 'text', text: `Failed to mark email: ${REFUSAL}` }],
+      leaked: [],
     });
   });
 
@@ -104,7 +106,7 @@ describe('mark_email on an OAuth2 account the provider refuses', () => {
     const entries = await readAuditEntries(auditHome);
     expect({
       last: entries.at(-1),
-      leaked: LEAKED_SECRETS.filter((secret) => JSON.stringify(entries).includes(secret)),
+      leaked: leakedSecretsIn(entries),
     }).toEqual({
       last: {
         ts: expect.any(String),
