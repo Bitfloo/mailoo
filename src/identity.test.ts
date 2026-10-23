@@ -5,6 +5,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
+import { ZodError } from 'zod';
+
+import { loadConfig } from './config/loader.js';
+
 const execFileAsync = promisify(execFile);
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -232,15 +236,21 @@ describe('published identity', () => {
 });
 
 describe('README Environment Variables table', () => {
+  let readme: string;
+  let rows: Map<string, { def: string; desc: string }>;
   let documented: string[];
   let read: string[];
 
   beforeAll(async () => {
-    const readme = await readFile(join(root, 'README.md'), 'utf8');
+    readme = await readFile(join(root, 'README.md'), 'utf8');
     const section = readme.split('#### Environment Variables')[1]?.split(/\n#{1,6} /)[0] ?? '';
-    documented = [...section.matchAll(/^\| `(MCP_EMAIL_[A-Z0-9_]+)` \|/gm)].map(
-      (match) => match[1],
+    rows = new Map(
+      [...section.matchAll(/^\| `(MCP_EMAIL_[A-Z0-9_]+)` \| (.*?) \| (.*) \|$/gm)].map((match) => [
+        match[1],
+        { def: match[2], desc: match[3] },
+      ]),
     );
+    documented = [...rows.keys()];
     read = await mcpEmailEnvNames();
   });
 
@@ -253,5 +263,106 @@ describe('README Environment Variables table', () => {
     const oauth2 = read.filter((name) => name.startsWith('MCP_EMAIL_OAUTH2_'));
     expect(oauth2.length).toBeGreaterThan(0);
     expect(oauth2.filter((name) => !documented.includes(name))).toEqual([]);
+  });
+
+  it('should have a row for MCP_EMAIL_PASSWORD and every variable an account cannot load without', () => {
+    const needed = ['MCP_EMAIL_PASSWORD', ...REQUIRED_MCP_EMAIL_ENV];
+    expect(needed.filter((name) => !documented.includes(name))).toEqual([]);
+  });
+
+  it('should list every MCP_EMAIL_OAUTH2_* variable the server reads in the grouped Environment reference', () => {
+    const section = readme.split(/^### Environment$/m)[1]?.split(/\n#{1,3} /)[0] ?? '';
+    const row = section.split('\n').find((line) => line.split('|')[2]?.trim().startsWith('OAuth2'));
+    const listed = [...(row?.split('|')[1] ?? '').matchAll(/MCP_EMAIL_OAUTH2_[A-Z0-9_]+/g)]
+      .map((match) => match[0])
+      .sort();
+    expect(listed).toEqual(read.filter((name) => name.startsWith('MCP_EMAIL_OAUTH2_')));
+  });
+
+  // Each requirement is read off loadConfig, so a row cannot keep a claim the loader no longer makes.
+  describe('against the loader', () => {
+    const NO_CONFIG = 'No configuration found.';
+    type Env = Record<string, string | undefined>;
+    const PASSWORD_ONLY: Env = {
+      MCP_EMAIL_PASSWORD: 'app-password',
+      MCP_EMAIL_OAUTH2_PROVIDER: undefined,
+    };
+    let missingConfig: string;
+    let dir: string;
+
+    const stub = (vars: Env): void => {
+      Object.entries(vars).forEach(([name, value]) => {
+        vi.stubEnv(name, value);
+      });
+    };
+    const outcome = async (): Promise<string> => {
+      try {
+        await loadConfig(missingConfig);
+        return 'loads';
+      } catch (error) {
+        if (error instanceof ZodError) {
+          return `refuses ${error.issues.map((issue) => issue.path.join('.')).join(', ')}`;
+        }
+        return String((error as Error).message).split('\n')[0];
+      }
+    };
+
+    beforeEach(async () => {
+      Object.keys(process.env)
+        .filter((name) => name.startsWith('MCP_EMAIL_'))
+        .forEach((name) => {
+          vi.stubEnv(name, undefined);
+        });
+      // A complete OAuth2 account and no password; each test removes what it probes.
+      stub({
+        MCP_EMAIL_ADDRESS: 'owner@example.com',
+        MCP_EMAIL_IMAP_HOST: 'imap.example.com',
+        MCP_EMAIL_SMTP_HOST: 'smtp.example.com',
+        MCP_EMAIL_OAUTH2_PROVIDER: 'google',
+        MCP_EMAIL_OAUTH2_CLIENT_ID: 'client-id',
+        MCP_EMAIL_OAUTH2_CLIENT_SECRET: 'client-secret',
+        MCP_EMAIL_OAUTH2_REFRESH_TOKEN: 'refresh-token',
+      });
+      // Fresh empty directory: a file at a repo path would be read as the config.
+      dir = await mkdtemp(join(tmpdir(), 'mailoo-readme-env-'));
+      missingConfig = join(dir, 'no-such-config.toml');
+    });
+
+    afterEach(async () => {
+      vi.unstubAllEnvs();
+      await rm(dir, { recursive: true, force: true });
+    });
+
+    const requirements: [string, Env, string][] = [
+      ['MCP_EMAIL_OAUTH2_CLIENT_ID', {}, 'refuses accounts.0.oauth2.client_id'],
+      ['MCP_EMAIL_OAUTH2_CLIENT_SECRET', {}, 'refuses accounts.0.oauth2.client_secret'],
+      ['MCP_EMAIL_OAUTH2_REFRESH_TOKEN', {}, 'refuses accounts.0.oauth2.refresh_token'],
+      ['MCP_EMAIL_PASSWORD', PASSWORD_ONLY, NO_CONFIG],
+      // A password account loads without a provider, so the provider row must not say *required*.
+      ['MCP_EMAIL_OAUTH2_PROVIDER', PASSWORD_ONLY, NO_CONFIG],
+      ...REQUIRED_MCP_EMAIL_ENV.map((name): [string, Env, string] => [
+        name,
+        PASSWORD_ONLY,
+        NO_CONFIG,
+      ]),
+    ];
+
+    it.each(requirements)(
+      'should mark %s *required* exactly when the loader refuses an account without it',
+      async (name, account, refusal) => {
+        stub({ ...account, [name]: undefined });
+        const refused = (await outcome()) === refusal;
+        expect(rows.get(name)?.def.startsWith('*required*')).toBe(refused);
+      },
+    );
+
+    it('should name MCP_EMAIL_OAUTH2_PROVIDER in the MCP_EMAIL_PASSWORD row exactly when the provider alone lets an account load without a password', async () => {
+      const withProvider = await outcome();
+      stub({ MCP_EMAIL_OAUTH2_PROVIDER: undefined });
+      const providerWaivesPassword = withProvider === 'loads' && (await outcome()) === NO_CONFIG;
+      expect(rows.get('MCP_EMAIL_PASSWORD')?.desc.includes('`MCP_EMAIL_OAUTH2_PROVIDER`')).toBe(
+        providerWaivesPassword,
+      );
+    });
   });
 });
