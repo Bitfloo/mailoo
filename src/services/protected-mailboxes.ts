@@ -23,8 +23,7 @@ export const PROTECTED_SPECIAL_USE = [
 /** The path imapflow sends: INBOX in any case, and the personal namespace prefix prepended. */
 function serverPath(client: ImapFlow, mailboxPath: string): string {
   if (mailboxPath.toUpperCase() === 'INBOX') return 'INBOX';
-  // imapflow keeps the NAMESPACE result on the client but does not type it.
-  const prefix = (client as unknown as { namespace?: { prefix?: string } }).namespace?.prefix;
+  const prefix = client.namespace?.prefix;
   return prefix && !mailboxPath.startsWith(prefix) ? `${prefix}${mailboxPath}` : mailboxPath;
 }
 

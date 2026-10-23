@@ -112,13 +112,18 @@ export class FakeImapFlow extends EventEmitter {
       this.failLogin = undefined;
     }
     const error = fake.connectErrors.shift();
-    // Like imapflow, a rejected login leaves the socket open.
-    if (error) throw error;
+    if (error) {
+      // Like imapflow, a failed connect closes its socket, but only on the next tick.
+      setImmediate(() => {
+        this.shutdown();
+      });
+      throw error;
+    }
     this.usable = true;
   }
 
   /**
-   * A socket error, routed as imapflow 1.7's emitError() routes it: while connect() is pending
+   * A socket error, routed as imapflow 2.5's emitError() routes it: while connect() is pending
    * it rejects that promise and emits no 'error' event; after that it emits 'error'. Either way
    * the connection closes on the next turn of the event loop.
    */
@@ -174,7 +179,7 @@ export class FakeImapFlow extends EventEmitter {
     options?: { uid?: boolean },
   ): AsyncGenerator<FakeFetchedMessage> {
     this.fetchCount += 1;
-    // Like imapflow 1.7.8, a fetch with no mailbox selected sends no command and yields nothing.
+    // Like imapflow 2.5.8, a fetch with no mailbox selected sends no command and yields nothing.
     if (!this.mailbox) return;
     const { path } = this.mailbox;
     await this.command();
@@ -284,7 +289,7 @@ export class FakeImapFlow extends EventEmitter {
     this.usable = false;
     this.idling = false;
     clearTimeout(this.idleTimer);
-    // imapflow 1.7's close() rejects a pending connect() with this error, then emits 'close'.
+    // imapflow 2.5's close() rejects a pending connect() with this error, then emits 'close'.
     // Its code names a TLS socket when `secure` is set, or left unset on port 993; the
     // STARTTLS upgrade imapflow also counts as TLS is not modelled here.
     const tls =
