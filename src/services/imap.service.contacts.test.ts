@@ -123,6 +123,23 @@ describe('ImapService', () => {
       }
     });
 
+    it('should see a contact last when its message has no Date header', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
+      try {
+        client.search.mockResolvedValue([1]);
+        fetchServesRows(client, [
+          { uid: 1, envelope: { from: [{ address: 'dave@example.com' }] } },
+        ]);
+
+        const contacts = await service.extractContacts('test');
+
+        expect(contacts.map((c) => c.lastSeen)).toEqual(['2028-01-15T00:00:00.000Z']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('should return no contacts for an empty mailbox', async () => {
       client.search.mockResolvedValue([]);
 

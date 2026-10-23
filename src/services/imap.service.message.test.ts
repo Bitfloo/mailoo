@@ -269,6 +269,41 @@ describe('ImapService', () => {
     });
   });
 
+  describe('a message with no Date header', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    // The server answers NIL for the date, so imapflow leaves it out of the envelope.
+    function withoutDate() {
+      const message = fetchedMessage(['Subject: Re: quarterly report'], 'Hello');
+      const { date, ...envelope } = message.envelope;
+      return { ...message, envelope };
+    }
+
+    it('should be listed dated when it was seen', async () => {
+      client.search.mockResolvedValue([10]);
+      fetchServesRows(client, [withoutDate()]);
+
+      const { items } = await service.listEmails('test');
+
+      expect(items.map((item) => item.date)).toEqual(['2028-01-15T00:00:00.000Z']);
+    });
+
+    it('should be read dated when it was seen', async () => {
+      fetchOneByUid(client, withoutDate());
+
+      const email = await service.getEmail('test', '10');
+
+      expect(email.date).toBe('2028-01-15T00:00:00.000Z');
+    });
+  });
+
   describe('getEmail header fetch', () => {
     it('fetches headers instead of source: true when bodyStructure has text parts', async () => {
       client.fetchOne.mockResolvedValue({
