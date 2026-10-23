@@ -94,6 +94,19 @@ same rule as the single-message tools; any other id rejects the whole call
 before the server is contacted. `mailbox` and `destination` follow the
 mailbox-name rules of the other tools (no control characters or wildcards).
 
+## `add_label` / `remove_label`
+
+On servers that store labels as IMAP keywords, a keyword must be an IMAP
+atom (RFC 9051): no spaces, control or non-ASCII characters, and none of
+`( ) { % * " \ ]`. Both tools refuse any other label with an error before
+anything is sent to the server, so a label such as `Receipts (2024)` fails
+(an older release accepted it). A non-atom keyword that is already on a
+message, set by another client or an older release, can no longer be
+removed through Mailoo; clean it up in another mail client. Servers with a
+label extension (for example Gmail labels) are not affected. On keyword
+servers a system flag (a name that starts with `\`) is refused as before:
+use `mark_email`.
+
 ## `delete_mailbox` / `rename_mailbox` / `delete_label`
 
 `delete_mailbox` and `rename_mailbox` refuse INBOX (any letter case) and
