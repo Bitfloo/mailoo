@@ -232,6 +232,43 @@ describe('ImapService', () => {
     });
   });
 
+  describe('a message whose Date header imapflow could not parse', () => {
+    // imapflow yields the raw header text instead of a Date when the header does not parse.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    function withUnparseableDate() {
+      const message = fetchedMessage(['Subject: Re: quarterly report'], 'Hello');
+      return {
+        ...message,
+        envelope: { ...message.envelope, date: 'Thursday, sometime last week' },
+      };
+    }
+
+    it('should be listed dated when it was seen', async () => {
+      client.search.mockResolvedValue([10]);
+      fetchServesRows(client, [withUnparseableDate()]);
+
+      const { items } = await service.listEmails('test');
+
+      expect(items.map((item) => item.date)).toEqual(['2028-01-15T00:00:00.000Z']);
+    });
+
+    it('should be read dated when it was seen', async () => {
+      fetchOneByUid(client, withUnparseableDate());
+
+      const email = await service.getEmail('test', '10');
+
+      expect(email.date).toBe('2028-01-15T00:00:00.000Z');
+    });
+  });
+
   describe('getEmail header fetch', () => {
     it('fetches headers instead of source: true when bodyStructure has text parts', async () => {
       client.fetchOne.mockResolvedValue({

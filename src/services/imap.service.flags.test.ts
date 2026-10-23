@@ -135,6 +135,25 @@ describe('ImapService', () => {
       });
     });
 
+    it('should date a message whose Date header imapflow could not parse when it was seen', async () => {
+      // imapflow yields the raw header text instead of a Date when the header does not parse.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2028-01-15T00:00:00.000Z'));
+      try {
+        fetchOneByUid(client, {
+          uid: 9,
+          envelope: { date: 'Thursday, sometime last week' },
+          flags: new Set<string>(),
+        });
+
+        const flags = await service.getEmailFlags('test', '9', 'INBOX');
+
+        expect(flags.date).toBe('2028-01-15T00:00:00.000Z');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('should report a UID the mailbox does not hold as not found', async () => {
       fetchOneByUid(client, { uid: 9, envelope: {}, flags: new Set<string>() });
 

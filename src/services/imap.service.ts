@@ -32,6 +32,7 @@ import type {
 } from '../types/index.js';
 import { parseSenderAuth } from '../utils/auth-headers.js';
 import { looksLikeRawMime, preferRicherPlain, stripHtml } from '../utils/email-body.js';
+import toIsoDate from '../utils/iso-date.js';
 import compileRfc822 from '../utils/mail-compose.js';
 import type { LabelStrategy } from './label-strategy.js';
 import { detectLabelStrategy } from './label-strategy.js';
@@ -498,9 +499,7 @@ function messageToEmailMeta(msg: Record<string, unknown>): EmailMeta {
     subject: (envelope.subject as string) ?? '(no subject)',
     from: parseAddress((envelope.from as Record<string, string>[])?.[0]),
     to: parseAddresses(envelope.to as Record<string, string>[]),
-    date: envelope.date
-      ? new Date(envelope.date as string).toISOString()
-      : new Date().toISOString(),
+    date: toIsoDate(envelope.date),
     seen: flags.has('\\Seen'),
     flagged: flags.has('\\Flagged'),
     answered: flags.has('\\Answered'),
@@ -954,7 +953,7 @@ export default class ImapService {
         labels,
         subject: (envelope.subject as string) ?? '(no subject)',
         from,
-        date: envelope.date ? new Date(envelope.date as string).toISOString() : '',
+        date: envelope.date ? toIsoDate(envelope.date) : '',
       };
     } finally {
       lock.release();
@@ -1973,7 +1972,7 @@ export default class ImapService {
           string,
           unknown
         >;
-        const date = envelope.date ? new Date(envelope.date as string) : new Date();
+        const date = new Date(toIsoDate(envelope.date));
 
         const addressLists = [
           envelope.from as { name?: string; address?: string }[] | undefined,
@@ -2113,8 +2112,7 @@ export default class ImapService {
         }
 
         // Track daily volume
-        const date = envelope.date ? new Date(envelope.date as string) : new Date();
-        const dayKey = date.toISOString().split('T')[0];
+        const dayKey = toIsoDate(envelope.date).split('T')[0];
         dailyMap.set(dayKey, (dailyMap.get(dayKey) ?? 0) + 1);
       }
 

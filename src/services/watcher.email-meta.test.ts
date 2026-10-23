@@ -57,6 +57,11 @@ describe('buildEmailMeta', () => {
     }
   });
 
+  it('should keep the date of a message whose Date header imapflow handed over as text', () => {
+    const envelope = { ...fetched.envelope, date: 'Mon, 02 Mar 2026 09:00:00 +0000' };
+    expect(buildEmailMeta({ ...fetched, envelope }).date).toBe('2026-03-02T09:00:00.000Z');
+  });
+
   it("should name a message without a subject '(no subject)'", () => {
     const { subject, ...envelope } = fetched.envelope ?? {};
     expect(buildEmailMeta({ ...fetched, envelope }).subject).toBe('(no subject)');

@@ -18,6 +18,7 @@ import { bindImapLifecycle, buildImapFlowOptions } from '../connections/manager.
 import type { AccessTokenSource } from '../connections/types.js';
 import { mcpLog } from '../logging.js';
 import type { AccountConfig, EmailMeta, WatcherConfig } from '../types/index.js';
+import toIsoDate from '../utils/iso-date.js';
 import type { EmailEventBus } from './event-bus.js';
 import eventBus from './event-bus.js';
 import OAuthService from './oauth.service.js';
@@ -86,14 +87,13 @@ export function buildEmailMeta(msg: WatcherFetchMessage): EmailMeta {
 
   const from = msg.envelope?.from?.[0];
   const to = msg.envelope?.to ?? [];
-  const date = msg.envelope?.date instanceof Date ? msg.envelope.date : new Date();
 
   return {
     id: String(msg.uid),
     subject: msg.envelope?.subject ?? '(no subject)',
     from: { name: from?.name, address: from?.address ?? '' },
     to: to.map((a) => ({ name: a.name, address: a.address ?? '' })),
-    date: date.toISOString(),
+    date: toIsoDate(msg.envelope?.date),
     seen: flags.has('\\Seen'),
     flagged: flags.has('\\Flagged'),
     answered: flags.has('\\Answered'),
