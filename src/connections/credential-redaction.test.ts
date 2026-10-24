@@ -18,9 +18,11 @@ const XOAUTH2_KNOWN_TOKEN =
   'dXNlcj13b3JrQGV4YW1wbGUuY29tAWF1dGg9QmVhcmVyIHlhMjkuZmFrZS1hY2Nlc3MtdG9rZW4tMDEyMzQ1Njc4OQEB';
 const XOAUTH2_UNKNOWN_TOKEN =
   'dXNlcj13b3JrQGV4YW1wbGUuY29tAWF1dGg9QmVhcmVyIHlhMjkuZmFrZS11bmtub3duLXRva2VuLTk4NzY1NDMyMTABAQ==';
-const URL_SECRET = 'p@ss w/rd+%9z';
-const URL_SECRET_ENCODED = 'p%40ss%20w%2Frd%2B%259z';
-const URL_SECRET_ENCODED_LOWER_HEX = 'p%40ss%20w%2frd%2b%259z';
+const URL_SECRET = 'P@ss W/rd+%9z';
+const URL_SECRET_ENCODED = 'P%40ss%20W%2Frd%2B%259z';
+const URL_SECRET_ENCODED_LOWER_HEX = 'P%40ss%20W%2frd%2b%259z';
+// "This is not a secret": long enough to be read as a possible XOAUTH2 blob.
+const PLAIN_BASE64 = 'VGhpcyBpcyBub3QgYSBzZWNyZXQ=';
 
 const REPLY = 'Invalid login: 535 5.7.8 Error: authentication failed:';
 
@@ -78,6 +80,21 @@ describe('redactSentCredentials', () => {
     expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} bearer [redacted]`);
   });
 
+  it('should redact a whole Bearer token with plus, slash and padding after more than one space', () => {
+    const reply = `${REPLY} Bearer  abc+def/ghi==`;
+    expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} Bearer  [redacted]`);
+  });
+
+  it('should leave a word that only ends in Bearer unchanged', () => {
+    const reply = `${REPLY} NotBearer abcdef`;
+    expect(redactSentCredentials(reply, sent)).toBe(reply);
+  });
+
+  it('should leave a long base64 run that is not an XOAUTH2 blob unchanged', () => {
+    const reply = `${REPLY} ${PLAIN_BASE64}`;
+    expect(redactSentCredentials(reply, sent)).toBe(reply);
+  });
+
   it('should replace overlapping secrets with one marker so neither leaves a fragment', () => {
     const overlapping = { user: USER, secrets: ['abcdefghij', 'efghijklmn'] };
     expect(redactSentCredentials(`${REPLY} abcdefghijklmn`, overlapping)).toBe(
@@ -88,6 +105,11 @@ describe('redactSentCredentials', () => {
   it('should keep the outer span when one secret lies inside another', () => {
     const nested = { user: USER, secrets: ['abcdefghijklmn', 'efghijkl'] };
     expect(redactSentCredentials(`${REPLY} abcdefghijklmn`, nested)).toBe(`${REPLY} [redacted]`);
+  });
+
+  it('should leave no fragment when a secret overlaps a repeat of itself', () => {
+    const repeating = { user: USER, secrets: ['abababab'] };
+    expect(redactSentCredentials(`${REPLY} ababababab`, repeating)).toBe(`${REPLY} [redacted]`);
   });
 
   it('should replace secrets that touch with one marker', () => {
