@@ -19,6 +19,8 @@ const URL_SECRET_ENCODED = 'P%40ss%20W%2Frd%2B%259z';
 const URL_SECRET_ENCODED_LOWER_HEX = 'P%40ss%20W%2frd%2b%259z';
 // Encodes to "C%40fe%2FBad": uppercase hex letters both inside and outside an escape.
 const HEX_LETTER_SECRET = 'C@fe/Bad';
+// encodeURIComponent throws a URIError on a UTF-16 surrogate with no partner.
+const LONE_SURROGATE_SECRET = 'Pa55\ud800word';
 const NON_ASCII_PASSWORD = 'Zażółć-Hasło9';
 const AUTH_LOGIN_NON_ASCII = 'WmHFvMOzxYLEhy1IYXPFgm85';
 const AUTH_PLAIN_NON_ASCII = 'AHdvcmtAZXhhbXBsZS5jb20AWmHFvMOzxYLEhy1IYXPFgm85';
@@ -66,6 +68,14 @@ describe('redactSentCredentials', () => {
   it('should redact the percent-encoded secret with lowercase hex digits', () => {
     const reply = `${REPLY} ${URL_SECRET_ENCODED_LOWER_HEX}`;
     expect(redactSentCredentials(reply, { user: USER, secrets: [URL_SECRET] })).toBe(
+      `${REPLY} [redacted]`,
+    );
+  });
+
+  // A config password can hold one, and the redaction runs inside a catch block.
+  it('should redact a raw secret that holds a lone surrogate', () => {
+    const reply = `${REPLY} ${LONE_SURROGATE_SECRET}`;
+    expect(redactSentCredentials(reply, { user: USER, secrets: [LONE_SURROGATE_SECRET] })).toBe(
       `${REPLY} [redacted]`,
     );
   });
