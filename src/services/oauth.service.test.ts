@@ -1218,6 +1218,13 @@ const RESERVED: SentSecrets = {
   reshaped: [],
 };
 
+/** A space after every four characters: a form body sends each as `+`, an escape of its own. */
+const SPACED: SentSecrets = {
+  client: 'Kq7L w2Rt 9Vx4 Zp8J',
+  grant: 'Hs8J d3Fq 6YbN 0cVe',
+  reshaped: [],
+};
+
 /** Shaped like real credentials, so no word of a provider's prose holds a piece of them. */
 const REALISTIC: SentSecrets = {
   client: 'GOCSPX-hT4kWq9ZmB2xLr7Nc',
@@ -1228,6 +1235,11 @@ const REALISTIC: SentSecrets = {
 function escapedTimes(times: number): (text: string) => string {
   return (text) =>
     Array.from({ length: times }).reduce<string>((escaped) => encodeURIComponent(escaped), text);
+}
+
+function formEncodedTwice(text: string): string {
+  const once = new URLSearchParams({ s: text }).toString().slice(2);
+  return new URLSearchParams({ s: once }).toString().slice(2);
 }
 
 function afterEveryFour(separator: string): (text: string) => string {
@@ -1250,6 +1262,7 @@ const FRAGMENTS = [
   { name: 'it escaped twice', secrets: RESERVED, reshape: escapedTimes(2) },
   { name: 'it escaped three times', secrets: RESERVED, reshape: escapedTimes(3) },
   { name: 'it escaped four times', secrets: RESERVED, reshape: escapedTimes(4) },
+  { name: 'it form-encoded twice', secrets: SPACED, reshape: formEncodedTwice },
   {
     name: 'it with a space after every four characters',
     secrets: ALNUM,
