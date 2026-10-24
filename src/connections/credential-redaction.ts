@@ -28,7 +28,7 @@ const BEARER_TOKEN = /\bBearer\s+([\w.~+/-]+=*)/giu;
 // Every XOAUTH2 blob is longer than this.
 const BASE64_RUN = /[A-Za-z0-9+/]{20,}={0,2}/gu;
 
-const XOAUTH2_BEARER = /auth=Bearer /iu;
+const XOAUTH2_BEARER = 'auth=Bearer ';
 
 function base64(value: string): string {
   return Buffer.from(value, 'utf8').toString('base64');
@@ -78,7 +78,7 @@ function bearerSpans(text: string): Span[] {
 /** Catches an XOAUTH2 blob whose token the caller never saw, such as one nodemailer refreshed. */
 function xoauth2BlobSpans(text: string): Span[] {
   return [...text.matchAll(BASE64_RUN)]
-    .filter((match) => XOAUTH2_BEARER.test(Buffer.from(match[0], 'base64').toString('latin1')))
+    .filter((match) => Buffer.from(match[0], 'base64').toString('latin1').includes(XOAUTH2_BEARER))
     .map((match): Span => [match.index, match.index + match[0].length]);
 }
 
