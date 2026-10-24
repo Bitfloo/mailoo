@@ -228,6 +228,22 @@ describe('published identity', () => {
     });
   });
 
+  // The variables carry no token_url or auth_url, so a custom provider set there cannot get a token.
+  it('should send a custom MCP_EMAIL_OAUTH2_PROVIDER to the config file, as the README provider row does', async () => {
+    const readme = await readFile(join(root, 'README.md'), 'utf8');
+    const row = readme
+      .split('\n')
+      .find((line) => line.startsWith('| `MCP_EMAIL_OAUTH2_PROVIDER` |'));
+    const declared = server.packages?.[0]?.environmentVariables?.find(
+      (item) => item.name === 'MCP_EMAIL_OAUTH2_PROVIDER',
+    );
+
+    expect({ server: declared?.description, readme: row }).toEqual({
+      server: expect.stringContaining('Configure custom in the config file'),
+      readme: expect.stringContaining('Configure a `custom` account entirely in the config file'),
+    });
+  });
+
   it('documents npx as an install path and does not say the package is unpublished', async () => {
     const readme = await readFile(join(root, 'README.md'), 'utf8');
     expect(readme).toContain('npx -y @bitfloo/mailoo');

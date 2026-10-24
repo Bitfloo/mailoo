@@ -75,7 +75,7 @@ startCommand:
         description: "Maximum messages per pooled SMTP connection. Defaults to 100."
       MCP_EMAIL_OAUTH2_PROVIDER:
         type: string
-        description: "OAuth2 provider: google, microsoft, or custom."
+        description: "OAuth2 provider: google, microsoft, or custom. Configure custom in the config file: an account in the environment replaces the config file, so custom set here has no token_url or auth_url."
       MCP_EMAIL_OAUTH2_CLIENT_ID:
         type: string
         description: "OAuth2 client id."

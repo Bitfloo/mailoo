@@ -88,7 +88,7 @@ async function promptServerSettings(defaults?: Partial<ServerSettings>): Promise
     placeholder: 'imap.example.com',
     defaultValue: defaults?.imapHost,
     initialValue: defaults?.imapHost,
-    validate: (v) => (!v || v.length === 0 ? 'IMAP host is required' : undefined),
+    validate: (v) => (!v || v.trim().length === 0 ? 'IMAP host is required' : undefined),
   });
   assertNotCancel(imapHost);
 
@@ -111,7 +111,7 @@ async function promptServerSettings(defaults?: Partial<ServerSettings>): Promise
     placeholder: 'smtp.example.com',
     defaultValue: defaults?.smtpHost,
     initialValue: defaults?.smtpHost,
-    validate: (v) => (!v || v.length === 0 ? 'SMTP host is required' : undefined),
+    validate: (v) => (!v || v.trim().length === 0 ? 'SMTP host is required' : undefined),
   });
   assertNotCancel(smtpHost);
 
