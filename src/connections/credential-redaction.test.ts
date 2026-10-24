@@ -1,8 +1,4 @@
-import {
-  MAX_ERROR_TEXT_LENGTH,
-  MIN_SUBSTRING_NEEDLE_LENGTH,
-  redactSentCredentials,
-} from './credential-redaction.js';
+import { redactSentCredentials } from './credential-redaction.js';
 
 const USER = 'work@example.com';
 const PASSWORD = 'S3cret-Pa55word!';
@@ -21,8 +17,17 @@ const XOAUTH2_UNKNOWN_TOKEN =
 const URL_SECRET = 'P@ss W/rd+%9z';
 const URL_SECRET_ENCODED = 'P%40ss%20W%2Frd%2B%259z';
 const URL_SECRET_ENCODED_LOWER_HEX = 'P%40ss%20W%2frd%2b%259z';
+const NON_ASCII_PASSWORD = 'Zażółć-Hasło9';
+const AUTH_LOGIN_NON_ASCII = 'WmHFvMOzxYLEhy1IYXPFgm85';
+const AUTH_PLAIN_NON_ASCII = 'AHdvcmtAZXhhbXBsZS5jb20AWmHFvMOzxYLEhy1IYXPFgm85';
+// User "спартак@example.com", token "ya29.fake-unknown-tokena~x": the Cyrillic login puts a "/"
+// and the "~" puts a "+" into the base64.
+const XOAUTH2_PLUS_SLASH =
+  'dXNlcj3RgdC/0LDRgNGC0LDQukBleGFtcGxlLmNvbQFhdXRoPUJlYXJlciB5YTI5LmZha2UtdW5rbm93bi10b2tlbmF+eAEB';
 // "This is not a secret": long enough to be read as a possible XOAUTH2 blob.
 const PLAIN_BASE64 = 'VGhpcyBpcyBub3QgYSBzZWNyZXQ=';
+// An XOAUTH2-shaped blob reading "auth=BearerX", with no token after the scheme.
+const XOAUTH2_NO_TOKEN = 'dXNlcj13b3JrQGV4YW1wbGUuY29tAWF1dGg9QmVhcmVyWAEB';
 
 const REPLY = 'Invalid login: 535 5.7.8 Error: authentication failed:';
 
@@ -59,6 +64,14 @@ describe('redactSentCredentials', () => {
     );
   });
 
+  it.each([
+    ['AUTH LOGIN', AUTH_LOGIN_NON_ASCII],
+    ['AUTH PLAIN', AUTH_PLAIN_NON_ASCII],
+  ])('should redact the %s form of a non-ASCII password encoded as UTF-8', (_form, wire) => {
+    const nonAscii = { user: USER, secrets: [NON_ASCII_PASSWORD] };
+    expect(redactSentCredentials(`${REPLY} ${wire}`, nonAscii)).toBe(`${REPLY} [redacted]`);
+  });
+
   // A glued byte shifts the base64 alignment, so only the needle built from the known token matches.
   it('should redact the XOAUTH2 blob of the known token when it does not start on a base64 boundary', () => {
     const reply = `${REPLY} Z${XOAUTH2_KNOWN_TOKEN}`;
@@ -67,6 +80,11 @@ describe('redactSentCredentials', () => {
 
   it('should redact an XOAUTH2 blob carrying a token it was not told about', () => {
     const reply = `${REPLY} ${XOAUTH2_UNKNOWN_TOKEN}`;
+    expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} [redacted]`);
+  });
+
+  it('should redact a whole XOAUTH2 blob whose base64 contains a plus and a slash', () => {
+    const reply = `${REPLY} ${XOAUTH2_PLUS_SLASH}`;
     expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} [redacted]`);
   });
 
@@ -80,8 +98,8 @@ describe('redactSentCredentials', () => {
     expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} bearer [redacted]`);
   });
 
-  it('should redact a whole Bearer token with plus, slash and padding after more than one space', () => {
-    const reply = `${REPLY} Bearer  abc+def/ghi==`;
+  it('should redact a whole Bearer token of every token character after more than one space', () => {
+    const reply = `${REPLY} Bearer  aB9_c~d.e-f+g/h==`;
     expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} Bearer  [redacted]`);
   });
 
@@ -92,6 +110,11 @@ describe('redactSentCredentials', () => {
 
   it('should leave a long base64 run that is not an XOAUTH2 blob unchanged', () => {
     const reply = `${REPLY} ${PLAIN_BASE64}`;
+    expect(redactSentCredentials(reply, sent)).toBe(reply);
+  });
+
+  it('should leave an XOAUTH2-shaped blob with no token after the scheme unchanged', () => {
+    const reply = `${REPLY} ${XOAUTH2_NO_TOKEN}`;
     expect(redactSentCredentials(reply, sent)).toBe(reply);
   });
 
@@ -150,35 +173,36 @@ describe('redactSentCredentials', () => {
   it.each([
     ['a letter on its left', `${REPLY} xq`],
     ['a digit on its right', `${REPLY} q7`],
+    ['an accented letter on its left', `${REPLY} żq`],
+    ['a non-Latin digit on its right', `${REPLY} q٣`],
   ])('should keep a one-character secret with %s', (_neighbour, reply) => {
     expect(redactSentCredentials(reply, { user: USER, secrets: ['q'] })).toBe(reply);
   });
 
-  it('should keep a secret shorter than the substring minimum that occurs inside a word', () => {
-    const secret = 'k'.repeat(MIN_SUBSTRING_NEEDLE_LENGTH - 1);
-    const reply = `${REPLY} zz${secret}zz`;
-    expect(redactSentCredentials(reply, { user: USER, secrets: [secret] })).toBe(reply);
+  it('should keep a seven-character secret that occurs inside a word', () => {
+    const reply = `${REPLY} zzkkkkkkkzz`;
+    expect(redactSentCredentials(reply, { user: USER, secrets: ['kkkkkkk'] })).toBe(reply);
   });
 
-  it('should redact a secret of the substring minimum that occurs inside a word', () => {
-    const secret = 'k'.repeat(MIN_SUBSTRING_NEEDLE_LENGTH);
-    expect(redactSentCredentials(`${REPLY} zz${secret}zz`, { user: USER, secrets: [secret] })).toBe(
+  it('should redact an eight-character secret that occurs inside a word', () => {
+    const reply = `${REPLY} zzkkkkkkkkzz`;
+    expect(redactSentCredentials(reply, { user: USER, secrets: ['kkkkkkkk'] })).toBe(
       `${REPLY} zz[redacted]zz`,
     );
   });
 
-  it('should leave a reply of exactly the cap unchanged', () => {
-    const reply = 'x'.repeat(MAX_ERROR_TEXT_LENGTH);
+  it('should leave a 300-character reply unchanged', () => {
+    const reply = 'x'.repeat(300);
     expect(redactSentCredentials(reply, sent)).toBe(reply);
   });
 
-  it('should cut a reply one character over the cap to the cap, marker included', () => {
-    const reply = 'x'.repeat(MAX_ERROR_TEXT_LENGTH + 1);
-    expect(redactSentCredentials(reply, sent)).toBe(`${'x'.repeat(MAX_ERROR_TEXT_LENGTH - 1)}…`);
+  it('should cut a 301-character reply to 300 characters, marker included', () => {
+    const reply = 'x'.repeat(301);
+    expect(redactSentCredentials(reply, sent)).toBe(`${'x'.repeat(299)}…`);
   });
 
   it('should redact before cutting so a secret across the cap leaves no prefix', () => {
-    const lead = 'x'.repeat(MAX_ERROR_TEXT_LENGTH - 5);
+    const lead = 'x'.repeat(295);
     expect(redactSentCredentials(`${lead}${PASSWORD}`, sent)).toBe(`${lead}[red…`);
   });
 });
