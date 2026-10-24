@@ -12,6 +12,7 @@ import {
   createMockTransport,
 } from '../test-support/smtp-harness.js';
 import type { AccountConfig, ScheduledEmail } from '../types/index.js';
+import type ImapService from './imap.service.js';
 import SmtpService from './smtp.service.js';
 
 const h = vi.hoisted(() => ({
@@ -91,15 +92,36 @@ function eauth(reply: string): Error {
   });
 }
 
+/** Shape ImapService.fetchDraft returns for a plain-text draft with no attachment. */
+function draftInDrafts(): Awaited<ReturnType<ImapService['fetchDraft']>> {
+  return {
+    mailbox: 'Drafts',
+    email: {
+      id: '42',
+      subject: 'Hello',
+      from: { name: 'Test User', address: 'test@example.com' },
+      to: [{ address: 'recipient@example.com' }],
+      date: '2026-10-01T08:00:00.000Z',
+      seen: true,
+      flagged: false,
+      answered: false,
+      hasAttachments: false,
+      labels: [],
+      messageId: '<draft-42@example.com>',
+      bodyText: 'World',
+      attachments: [],
+      headers: {},
+    },
+  };
+}
+
 function serviceFor(account: AccountConfig) {
   const transport = createMockTransport();
   const connections = createMockConnectionManager(transport);
   connections.getAccount.mockReturnValue(account);
-  const service = new SmtpService(
-    connections,
-    createMockRateLimiter(true),
-    createMockImapService(),
-  );
+  const imap = createMockImapService();
+  vi.mocked(imap.fetchDraft).mockResolvedValue(draftInDrafts());
+  const service = new SmtpService(connections, createMockRateLimiter(true), imap);
   return { transport, connections, service };
 }
 
@@ -191,12 +213,24 @@ describe('SmtpService send errors', () => {
     );
   });
 
-  it('should redact the password a 535 reply quotes when replyToEmail fails', async () => {
+  it.each<[string, (service: SmtpService) => Promise<unknown>]>([
+    [
+      'replyToEmail',
+      async (service) => service.replyToEmail('test', { emailId: '42', body: 'Thanks' }),
+    ],
+    [
+      'forwardEmail',
+      async (service) =>
+        service.forwardEmail('test', { emailId: '42', to: ['recipient@example.com'] }),
+    ],
+    ['sendDraft', async (service) => service.sendDraft('test', 42)],
+  ])('should redact the password a 535 reply quotes when %s fails', async (_method, send) => {
     const { transport, service } = serviceFor(passwordAccount);
     transport.sendMail.mockRejectedValue(eauth('535 5.7.8 S3cret-Pa55word! rejected'));
-    await expect(
-      service.replyToEmail('test', { emailId: '42', body: 'Thanks' }),
-    ).rejects.toHaveProperty('message', 'Invalid login: 535 5.7.8 [redacted] rejected');
+    await expect(send(service)).rejects.toHaveProperty(
+      'message',
+      'Invalid login: 535 5.7.8 [redacted] rejected',
+    );
   });
 
   // `mailoo scheduler list` prints the error queued on the record.
