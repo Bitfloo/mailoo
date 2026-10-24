@@ -28,8 +28,6 @@ const LOADS_AUDIT_WITHOUT_WRITING = new Set([
   'src/tools/scheduler.tool.test.ts',
 ]);
 
-const PIN_CALL = /\bpinAuditHome\s*\(/;
-
 const RESTORE_HOOKS = new Set(['afterAll', 'afterEach']);
 
 interface AuditHomeUse {
@@ -38,26 +36,61 @@ interface AuditHomeUse {
   balanced: boolean;
 }
 
+function calleeName(call: ts.CallExpression): string | undefined {
+  const callee = call.expression;
+  if (ts.isIdentifier(callee)) return callee.text;
+  if (ts.isPropertyAccessExpression(callee)) return callee.name.text;
+  return undefined;
+}
+
+/** The name a pin is kept under: `x = await pin()`, `const x = pin()` or `{ x: await pin() }`. */
+function pinBinding(pin: ts.CallExpression): string | undefined {
+  let value: ts.Node = pin;
+  while (ts.isAwaitExpression(value.parent) || ts.isParenthesizedExpression(value.parent)) {
+    value = value.parent;
+  }
+  const holder = value.parent;
+  if (ts.isVariableDeclaration(holder) || ts.isPropertyAssignment(holder)) {
+    return ts.isIdentifier(holder.name) ? holder.name.text : undefined;
+  }
+  if (
+    ts.isBinaryExpression(holder) &&
+    holder.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+    ts.isIdentifier(holder.left)
+  ) {
+    return holder.left.text;
+  }
+  return undefined;
+}
+
 /**
- * pinAuditHome() calls against restore() calls made inside afterAll or afterEach. Counts call
- * nodes, not text, so a commented-out restore or a call quoted in a string is not seen.
+ * pinAuditHome() calls against restore() calls made inside afterAll or afterEach on the name a pin
+ * is kept under: another object's restore() does not release the home. Counts call nodes, not
+ * text, so a commented-out restore or a call quoted in a string is not seen.
  */
 function auditHomeUse(source: string): AuditHomeUse {
-  const file = ts.createSourceFile('suite.test.ts', source, ts.ScriptTarget.Latest);
+  const file = ts.createSourceFile('suite.test.ts', source, ts.ScriptTarget.Latest, true);
   const counts = { pins: 0, restores: 0 };
+  const pinned = new Set<string>();
+  const restoreReceivers: string[] = [];
   const visit = (node: ts.Node, inHook: boolean): void => {
     let hooked = inHook;
     if (ts.isCallExpression(node)) {
       const callee = node.expression;
-      if (ts.isIdentifier(callee) && callee.text === 'pinAuditHome') counts.pins += 1;
+      if (calleeName(node) === 'pinAuditHome') {
+        counts.pins += 1;
+        const name = pinBinding(node);
+        if (name) pinned.add(name);
+      }
       if (ts.isIdentifier(callee) && RESTORE_HOOKS.has(callee.text)) hooked = true;
       if (
         inHook &&
         ts.isPropertyAccessExpression(callee) &&
+        ts.isIdentifier(callee.expression) &&
         callee.name.text === 'restore' &&
         node.arguments.length === 0
       ) {
-        counts.restores += 1;
+        restoreReceivers.push(callee.expression.text);
       }
     }
     ts.forEachChild(node, (child) => {
@@ -65,6 +98,9 @@ function auditHomeUse(source: string): AuditHomeUse {
     });
   };
   visit(file, false);
+  restoreReceivers.forEach((receiver) => {
+    if (pinned.has(receiver)) counts.restores += 1;
+  });
   return { ...counts, balanced: counts.pins === counts.restores };
 }
 
@@ -74,9 +110,8 @@ const THIS_FILE = path
   .split(path.sep)
   .join('/');
 
-/** Ways a suite keeps audit.log out of the user's data directory. */
-const AUDIT_PINS = [
-  PIN_CALL,
+/** Ways besides pinAuditHome() that a suite keeps audit.log out of the user's data directory. */
+const OTHER_AUDIT_PINS = [
   /vi\.mock\(\s*['"][^'"]*(?:safety\/|\.\/)audit\.js['"]/,
   /vi\.stubEnv\(\s*['"]XDG_DATA_HOME['"]/,
   /vi\.mock\(\s*['"]node:fs\/promises['"]\s*\)/,
@@ -316,6 +351,49 @@ afterEach(() => {
       PINNED_NOT_RESTORED,
     ],
     [
+      'reject an afterAll that restores another object',
+      `${PIN_IN_HOISTED}
+afterAll(async () => {
+  await NotifierService.restore();
+});
+`,
+      PINNED_NOT_RESTORED,
+    ],
+    [
+      'ignore a restore(arg) in an afterAll',
+      `${PIN_IN_HOISTED}
+afterAll(async () => {
+  await auditHome.restore(true);
+});
+`,
+      PINNED_NOT_RESTORED,
+    ],
+    [
+      'count two pins that are each restored in an afterAll',
+      `const { auditHome, second } = await vi.hoisted(async () => {
+  const { pinAuditHome } = await import('../test-support/audit-home.js');
+  return { auditHome: await pinAuditHome(), second: await pinAuditHome() };
+});
+
+afterAll(async () => {
+  await auditHome.restore();
+  await second.restore();
+});
+`,
+      { pins: 2, restores: 2, balanced: true },
+    ],
+    [
+      'count a pin made through a namespace import',
+      `const helper = await import('../test-support/audit-home.js');
+const home = await helper.pinAuditHome();
+
+afterAll(async () => {
+  await home.restore();
+});
+`,
+      BALANCED,
+    ],
+    [
       'ignore a pin and a restore quoted in string literals',
       `const note = 'pinAuditHome() then auditHome.restore()';
 afterAll(() => {
@@ -339,17 +417,18 @@ describe('audit home roster', () => {
     const texts = await Promise.all(
       files.map(async (file) => readFile(path.join(root, file), 'utf8')),
     );
-    loading = files
-      .map((file, i) => ({
-        file,
-        loads: loads[i],
-        pinned: AUDIT_PINS.some((pin) => pin.test(texts[i] ?? '')),
-      }))
+    const scanned = files.map((file, i) => ({
+      file,
+      loads: loads[i],
+      otherPin: OTHER_AUDIT_PINS.some((pin) => pin.test(texts[i] ?? '')),
+      ...auditHomeUse(texts[i] ?? ''),
+    }));
+    loading = scanned
       .filter((entry) => entry.loads)
-      .map(({ file, pinned }) => ({ file, pinned }));
-    pinning = files
-      .map((file, i) => ({ file, ...auditHomeUse(texts[i] ?? '') }))
-      .filter(({ file, pins }) => file !== THIS_FILE && pins > 0);
+      .map(({ file, pins, otherPin }) => ({ file, pinned: pins > 0 || otherPin }));
+    pinning = scanned
+      .filter(({ file, pins }) => file !== THIS_FILE && pins > 0)
+      .map(({ file, pins, restores, balanced }) => ({ file, pins, restores, balanced }));
   });
 
   it('should find the suites that read the audit log among those that load audit.ts', () => {
