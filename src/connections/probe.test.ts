@@ -12,7 +12,7 @@ const h = vi.hoisted(() => ({
   // What emit('error') threw. In imapflow that throw leaves a socket callback, so it would be an
   // uncaught exception that ends the process.
   uncaught: [] as unknown[],
-  verifyError: null as Error | null,
+  verifyError: null as Error | string | null,
   // Folders whose STATUS the server refuses, as for a mailbox that does not exist.
   missing: new Set<string>(),
   // Folders LIST still shows whose STATUS the server refuses: imapflow 2 resolves false for them.
@@ -78,6 +78,8 @@ vi.mock('nodemailer', () => ({
             auth.provisionCallback(auth.user, false, (err) => (err ? reject(err) : resolve()));
           });
         }
+        // A string stands for a library that rejects with something other than an Error.
+        // eslint-disable-next-line @typescript-eslint/only-throw-error
         if (h.verifyError) throw h.verifyError;
         return true;
       },
@@ -272,6 +274,14 @@ describe('testSmtp', () => {
     expect(await testSmtp(oauthAccount(), tokens)).toEqual({
       success: false,
       error: 'Invalid login: 535 5.7.8 Token [redacted] is not valid',
+    });
+  });
+
+  it('should redact a rejection that is not an Error', async () => {
+    h.verifyError = '535 5.7.8 wrong-password rejected';
+    expect(await testSmtp(account)).toEqual({
+      success: false,
+      error: '535 5.7.8 [redacted] rejected',
     });
   });
 
