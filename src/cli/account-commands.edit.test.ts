@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 
 import { parse as parseTOML } from 'smol-toml';
+import { ZodError } from 'zod';
 
 import {
   CONFIG_WITH_PERSONAL,
@@ -27,7 +28,10 @@ const CONFIG_CUSTOM = CONFIG_WITH_PERSONAL.replace(
   'password = "secret"',
   'username = "me.login"\npassword = "secret"',
 )
-  .replace('host = "imap.example.com"', 'host = "imap.example.com"\nport = 143\ntls = false')
+  .replace(
+    'host = "imap.example.com"',
+    'host = "imap.example.com"\nport = 143\ntls = false\nstarttls = true',
+  )
   .replace(
     'host = "smtp.example.com"',
     'host = "smtp.example.com"\nport = 587\ntls = false\nstarttls = true\n\n' +
@@ -146,15 +150,18 @@ describe('mailoo account edit', () => {
     });
   });
 
+  // Neither TLS nor STARTTLS loads only for a loopback host.
   it.each([
-    ['starttls', 'tls = false\nstarttls = true'],
-    ['none', 'tls = false\nstarttls = false'],
-    ['tls', 'tls = true\nstarttls = false'],
+    ['starttls', 'smtp.example.com', 'tls = false\nstarttls = true'],
+    ['none', '127.0.0.1', 'tls = false\nstarttls = false'],
+    ['tls', 'smtp.example.com', 'tls = true\nstarttls = false'],
   ])(
     'should offer SMTP security %s for an account whose SMTP is set up that way',
-    async (security, flags) => {
-      const smtp = 'host = "smtp.example.com"';
-      const config = CONFIG_WITH_PERSONAL.replace(smtp, `${smtp}\n${flags}`);
+    async (security, host, flags) => {
+      const config = CONFIG_WITH_PERSONAL.replace(
+        'host = "smtp.example.com"',
+        `host = "${host}"\n${flags}`,
+      );
       await fs.writeFile(sandbox.configFile, config, { mode: 0o600 });
       wizard.overrides.set(EDIT_PERSONAL, 'servers');
 
@@ -274,6 +281,49 @@ describe('mailoo account edit', () => {
     await (await sandbox.entryPoint('account edit', 'personal'))();
 
     expect(await fs.readFile(sandbox.configFile, 'utf-8')).toBe(CONFIG_WITH_PERSONAL);
+  });
+
+  describe('that sets SMTP security to None for a remote host', () => {
+    beforeEach(async () => {
+      await fs.writeFile(sandbox.configFile, CONFIG_WITH_PERSONAL, { mode: 0o600 });
+      wizard.overrides.set(EDIT_PERSONAL, 'servers');
+      wizard.overrides.set('SMTP security', 'none');
+      wizard.overrides.set('Test connections with updated settings?', true);
+    });
+
+    it('should refuse the edit at accounts.0.smtp.tls', async () => {
+      const run = await sandbox.entryPoint('account edit', 'personal');
+
+      const refused = await run().then(
+        () => [],
+        (error: unknown) => {
+          if (!(error instanceof ZodError)) throw error;
+          return error.issues.map((issue) => issue.path.join('.'));
+        },
+      );
+
+      expect(refused).toEqual(['accounts.0.smtp.tls']);
+    });
+
+    it('should leave the config byte-identical', async () => {
+      const run = await sandbox.entryPoint('account edit', 'personal');
+
+      await run().catch(() => undefined);
+
+      expect(await fs.readFile(sandbox.configFile, 'utf-8')).toBe(CONFIG_WITH_PERSONAL);
+    });
+
+    // The probe logs in, so a refused account must not reach it.
+    it('should not probe either server', async () => {
+      const run = await sandbox.entryPoint('account edit', 'personal');
+
+      await run().catch(() => undefined);
+
+      expect({
+        imap: probes.testImap.mock.calls,
+        smtp: probes.testSmtp.mock.calls,
+      }).toEqual({ imap: [], smtp: [] });
+    });
   });
 
   describe('of everything, with a provider detected for the new address', () => {

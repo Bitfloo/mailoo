@@ -245,10 +245,22 @@ host = "smtp.example.com"
     });
   }
 
+  // Loopback hosts: tls = false alone, with starttls left off, loads for no other host.
+  const LOOPBACK_HOSTS = { imap: '127.0.0.1', smtp: '127.0.0.2' };
+  const LOOPBACK_ENV_ACCOUNT = {
+    ...ENV_ACCOUNT,
+    MCP_EMAIL_IMAP_HOST: LOOPBACK_HOSTS.imap,
+    MCP_EMAIL_SMTP_HOST: LOOPBACK_HOSTS.smtp,
+  };
+  const LOOPBACK_TOML_ACCOUNT = TOML_ACCOUNT.replace(
+    'imap.example.com',
+    LOOPBACK_HOSTS.imap,
+  ).replace('smtp.example.com', LOOPBACK_HOSTS.smtp);
+
   it.each(SECURITY_FLAGS)(
     'should change only %s %s when %s is the one flag set',
     async (side, key, name) => {
-      stubEnv({ ...ENV_ACCOUNT, [name]: String(!FLAG_DEFAULTS[key]) });
+      stubEnv({ ...LOOPBACK_ENV_ACCOUNT, [name]: String(!FLAG_DEFAULTS[key]) });
 
       const config = await loadConfig(path.join(sandbox.dir, 'nonexistent.toml'));
 
@@ -259,11 +271,11 @@ host = "smtp.example.com"
   it.each(SECURITY_FLAGS)(
     'should change only %s %s when the TOML file sets that one flag',
     async (side, key) => {
-      const host = `host = "${side}.example.com"`;
+      const host = `host = "${LOOPBACK_HOSTS[side]}"`;
       const configPath = path.join(sandbox.dir, 'config.toml');
       await writeOwnerOnly(
         configPath,
-        TOML_ACCOUNT.replace(host, `${host}\n${key} = ${String(!FLAG_DEFAULTS[key])}`),
+        LOOPBACK_TOML_ACCOUNT.replace(host, `${host}\n${key} = ${String(!FLAG_DEFAULTS[key])}`),
       );
 
       const config = await loadConfig(configPath);
