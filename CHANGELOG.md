@@ -9,6 +9,17 @@ ship in patch releases too (`bump_patch` in `cog.toml`).
 Mailoo is a fork of [email-mcp](https://github.com/codefuturist/email-mcp);
 its history before the fork is at the end of this file.
 
+## Unreleased
+#### ⚠️ Behaviour changes
+
+- OAuth2 token requests no longer follow redirects: a token endpoint that
+  answers with a 3xx fails with that status, so point a custom `token_url` at
+  the final address. When the endpoint cannot be reached, the error says only
+  that, without the URL or the network error behind it. A refusal whose detail
+  holds part of a secret Mailoo sent is reported by its status alone. A URL in
+  tool params is written to the audit log as scheme, host and path, followed by
+  `?[REDACTED]` when it held credentials, a query or a fragment. (#66, #67)
+
 - - -
 ## [v0.2.2](https://github.com/bitfloo/mailoo/compare/v0.2.1..v0.2.2) - 2026-10-18
 #### ✨ Features
