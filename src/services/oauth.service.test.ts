@@ -1117,7 +1117,7 @@ const MARKER_LETTER_CASES = [
   { name: 'a client secret equal to the marker', client: '[redacted]' },
 ].flatMap((secret) => ECHO_FIELDS.map((field) => ({ ...secret, ...field })));
 
-/** Neither field holds the short secrets below: `server_error` has no `a`, no `red` and no `Zq`. */
+/** `server_error` holds none of the short client secrets the tests below send. */
 const SHORT_SECRET_FIELDS = [
   { field: 'error', body: (text: string) => ({ error: text }), dropped: '' },
   {
@@ -1143,6 +1143,12 @@ const SHORT_SECRET_CASES = [
     name: 'a long client secret whose filtered shape is short',
     client: 'ÿéßüöäñZq',
     prose: 'client Zq is unknown',
+  },
+  // Seven characters whose escaped pattern is ten: the length is the text's, not the pattern's.
+  {
+    name: 'a client secret of regex syntax under the minimum',
+    client: 'q.7.L.w',
+    prose: 'client q.7.L.w refused',
   },
 ].flatMap((secret) => SHORT_SECRET_FIELDS.map((field) => ({ ...secret, ...field })));
 
@@ -1305,6 +1311,26 @@ describe.each(ECHOING_FLOWS)(
           sentClient: client,
           message: `${failed} (400)${dropped}`,
         });
+      },
+    );
+
+    it.each(SHORT_SECRET_FIELDS)(
+      'should drop the $field when a client secret under the minimum sits inside the echoed grant',
+      async ({ body, dropped }) => {
+        const { error } = await refusedEchoing({ ...PLAIN, client: 'Hs8Jd3' }, (sent) =>
+          body(`grant ${sent.grant} revoked`),
+        );
+        expect(error.message).toBe(`${failed} (400)${dropped}`);
+      },
+    );
+
+    it.each(SHORT_SECRET_FIELDS)(
+      'should drop the $field when the text before a redacted grant and the marker spell a client secret under the minimum',
+      async ({ body, dropped }) => {
+        const { error } = await refusedEchoing({ ...PLAIN, client: 'k[red' }, (sent) =>
+          body(`k${sent.grant} refused`),
+        );
+        expect(error.message).toBe(`${failed} (400)${dropped}`);
       },
     );
 
