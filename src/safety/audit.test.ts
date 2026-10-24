@@ -57,7 +57,7 @@ const NON_PLAIN_CASES = [
   {
     name: 'a URL',
     value: new URL('https://hooks.example.com/notify?channel=ops'),
-    logged: 'https://hooks.example.com/notify?channel=ops',
+    logged: 'https://hooks.example.com/notify?[REDACTED]',
   },
   { name: 'a Buffer', value: Buffer.from('bytes-literal-0002'), logged: '[Binary]' },
   { name: 'a Uint8Array', value: new Uint8Array([98, 121, 116, 101]), logged: '[Binary]' },
@@ -67,6 +67,57 @@ const NON_PLAIN_CASES = [
   { name: 'a Map', value: new Map([['to', 'a@example.com']]), logged: '[Object]' },
   { name: 'a Set', value: new Set(['a@example.com']), logged: '[Object]' },
   { name: 'a class instance with its own toString', value: new Credentials(), logged: '[Object]' },
+];
+
+const URL_USER = 'user-literal-0004';
+const URL_PASSWORD = 'pw-literal-0005';
+const URL_QUERY = 'query-literal-0006';
+const URL_FRAGMENT = 'fragment-literal-0007';
+const URL_LITERALS = [URL_USER, URL_PASSWORD, URL_QUERY, URL_FRAGMENT];
+
+/** A URL is written as scheme, host and path; anything else it held leaves one marker. */
+const URL_CASES = [
+  {
+    name: 'a user name and a password',
+    url: `https://${URL_USER}:${URL_PASSWORD}@hooks.example.com/notify`,
+    logged: 'https://hooks.example.com/notify?[REDACTED]',
+  },
+  {
+    name: 'a user name alone',
+    url: `https://${URL_USER}@hooks.example.com/notify`,
+    logged: 'https://hooks.example.com/notify?[REDACTED]',
+  },
+  {
+    name: 'a password alone',
+    url: `https://:${URL_PASSWORD}@hooks.example.com/notify`,
+    logged: 'https://hooks.example.com/notify?[REDACTED]',
+  },
+  {
+    name: 'a query',
+    url: `https://hooks.example.com/notify?token=${URL_QUERY}`,
+    logged: 'https://hooks.example.com/notify?[REDACTED]',
+  },
+  {
+    name: 'a fragment',
+    url: `https://hooks.example.com/notify#${URL_FRAGMENT}`,
+    logged: 'https://hooks.example.com/notify?[REDACTED]',
+  },
+  {
+    name: 'credentials, a port, a query and a fragment',
+    url: `https://${URL_USER}:${URL_PASSWORD}@hooks.example.com:8443/notify?token=${URL_QUERY}#${URL_FRAGMENT}`,
+    logged: 'https://hooks.example.com:8443/notify?[REDACTED]',
+  },
+  // Its origin is the string "null", so the host is read on its own.
+  {
+    name: 'a scheme without an origin and credentials',
+    url: `redis://${URL_USER}:${URL_PASSWORD}@cache.example.com:6380/0`,
+    logged: 'redis://cache.example.com:6380/0?[REDACTED]',
+  },
+  {
+    name: 'only a scheme, a host, a port and a path',
+    url: 'https://hooks.example.com:8443/notify/v1',
+    logged: 'https://hooks.example.com:8443/notify/v1',
+  },
 ];
 
 describe('Audit Logger', () => {
@@ -380,6 +431,27 @@ describe('Audit Logger', () => {
       });
     },
   );
+
+  it.each(URL_CASES)('should write a URL with $name as $logged', async ({ url, logged }) => {
+    const written = await loggedParams({ hook: new URL(url) });
+    const line = await fs.readFile(auditLogger.AUDIT_LOG_PATH, 'utf-8');
+    expect({
+      ...written,
+      leaked: URL_LITERALS.filter((literal) => line.includes(literal)),
+    }).toEqual({ stderr: [], params: [{ hook: logged }], leaked: [] });
+  });
+
+  it('should strip the URLs held in arrays and nested objects the same way', async () => {
+    const url = () =>
+      new URL(`https://${URL_USER}:${URL_PASSWORD}@hooks.example.com/notify?token=${URL_QUERY}`);
+    const kept = 'https://hooks.example.com/notify?[REDACTED]';
+    expect(
+      await loggedParams({ hooks: [url(), { target: url() }], nested: { deeper: [[url()]] } }),
+    ).toEqual({
+      stderr: [],
+      params: [{ hooks: [kept, { target: kept }], nested: { deeper: [[kept]] } }],
+    });
+  });
 
   it('should write each non-plain object inside an array as its own text or marker', async () => {
     expect(await loggedParams({ items: NON_PLAIN_CASES.map((c) => c.value) })).toEqual({

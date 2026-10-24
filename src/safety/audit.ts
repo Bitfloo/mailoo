@@ -37,24 +37,34 @@ const REDACTED_FIELDS = new Set([
  */
 export const PARAMS_MAX_DEPTH = 16;
 
+/**
+ * Userinfo, query and fragment can hold a password or a token, so a URL is written as scheme, host
+ * and path, followed by `?[REDACTED]` when any of them was there. Not `origin`: it is "null" for a
+ * scheme the URL standard does not know, such as `redis:`.
+ */
+function urlForEntry(url: URL): string {
+  const kept = `${url.protocol}//${url.host}${url.pathname}`;
+  return url.username || url.password || url.search || url.hash ? `${kept}?[REDACTED]` : kept;
+}
+
 function isPlainObject(value: object): boolean {
   const prototype: unknown = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
 }
 
 /**
- * Only arrays and plain objects are walked. A Date or a URL is written as its text and bytes never
- * are. Any other object becomes a marker rather than String(value): its own toString can throw or
- * print a secret, and Object.entries would write it as {}. `ancestors` holds the containers on the
- * path down from params, so only a reference back to one of them is a cycle; an object two params
- * share is written under each.
+ * Only arrays and plain objects are walked. A Date is written as its text, a URL as urlForEntry
+ * gives it, and bytes never are. Any other object becomes a marker rather than String(value): its
+ * own toString can throw or print a secret, and Object.entries would write it as {}. `ancestors`
+ * holds the containers on the path down from params, so only a reference back to one of them is a
+ * cycle; an object two params share is written under each.
  */
 function redactValue(value: unknown, depth: number, ancestors: WeakSet<object>): unknown {
   if (typeof value !== 'object' || value === null) return value;
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? 'Invalid Date' : value.toISOString();
   }
-  if (value instanceof URL) return value.href;
+  if (value instanceof URL) return urlForEntry(value);
   if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return '[Binary]';
   if (!Array.isArray(value) && !isPlainObject(value)) return '[Object]';
   if (ancestors.has(value)) return '[Circular]';
