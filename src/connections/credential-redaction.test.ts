@@ -30,8 +30,8 @@ const PLAIN_BASE64 = 'VGhpcyBpcyBub3QgYSBzZWNyZXQ=';
 const XOAUTH2_NO_TOKEN = 'dXNlcj13b3JrQGV4YW1wbGUuY29tAWF1dGg9QmVhcmVyWAEB';
 // "the Bearer scheme is required": names the scheme outside an auth= field.
 const BASE64_BEARER_PROSE = 'dGhlIEJlYXJlciBzY2hlbWUgaXMgcmVxdWlyZWQ=';
-// User "x@example.com", token "t": the shortest blob a fixture here can make.
-const XOAUTH2_SHORTEST = 'dXNlcj14QGV4YW1wbGUuY29tAWF1dGg9QmVhcmVyIHQBAQ==';
+// User "a", token "t": a one-character login and token make the shortest blob.
+const XOAUTH2_SHORTEST = 'dXNlcj1hAWF1dGg9QmVhcmVyIHQBAQ==';
 
 const REPLY = 'Invalid login: 535 5.7.8 Error: authentication failed:';
 
@@ -87,7 +87,7 @@ describe('redactSentCredentials', () => {
     expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} [redacted]`);
   });
 
-  it('should redact the shortest XOAUTH2 blob, one with a one-character token', () => {
+  it('should redact the shortest XOAUTH2 blob, from a one-character login and token', () => {
     const reply = `${REPLY} ${XOAUTH2_SHORTEST}`;
     expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} [redacted]`);
   });
@@ -220,6 +220,13 @@ describe('redactSentCredentials', () => {
   it('should cut a 301-character reply to 300 characters, marker included', () => {
     const reply = 'x'.repeat(301);
     expect(redactSentCredentials(reply, sent)).toBe(`${'x'.repeat(299)}…`);
+  });
+
+  it('should cap a reply that redaction grows past 300 characters', () => {
+    const reply = 'q '.repeat(100);
+    expect(redactSentCredentials(reply, { user: USER, secrets: ['q'] })).toBe(
+      `${'[redacted] '.repeat(27)}[r…`,
+    );
   });
 
   it('should redact before cutting so a secret across the cap leaves no prefix', () => {
