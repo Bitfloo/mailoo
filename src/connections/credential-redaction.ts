@@ -70,7 +70,8 @@ function secretShapes(sent: SentCredentials): SecretShapes {
       ].forEach((shape) => {
         lengths.set(exactPattern(shape), shape.length);
       });
-      const encoded = encodeURIComponent(secret);
+      // encodeURIComponent throws on a lone surrogate; U+FFFD is what UTF-8 put on the wire for it.
+      const encoded = encodeURIComponent(secret.replace(/\p{Cs}/gu, '�'));
       lengths.set(percentEncodedPattern(encoded), encoded.length);
     });
   const shapes: SecretShapes = { long: [], short: [] };
