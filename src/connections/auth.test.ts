@@ -142,7 +142,9 @@ describe('sentCredentials', () => {
       const tokens: AccessTokenSource = { getAccessToken: async () => current };
       await provision(buildSmtpAuth(account, tokens));
       current = IMAP_TOKEN;
-      await Promise.all(Array.from({ length: imapLogins }, async () => buildImapAuth(account, tokens)));
+      await Promise.all(
+        Array.from({ length: imapLogins }, async () => buildImapAuth(account, tokens)),
+      );
       const reply = `535 5.7.8 Token ${SMTP_TOKEN} is not valid`;
       expect(redactSentCredentials(reply, sentCredentials(account))).toBe(
         '535 5.7.8 Token [redacted] is not valid',
