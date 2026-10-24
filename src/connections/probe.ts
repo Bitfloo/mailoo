@@ -9,9 +9,17 @@ import type { Transporter } from 'nodemailer';
 import nodemailer from 'nodemailer';
 
 import type { AccountConfig } from '../types/index.js';
-import { buildImapAuth, buildSmtpAuth } from './auth.js';
+import { buildImapAuth, buildSmtpAuth, sentCredentials } from './auth.js';
+import { redactSentCredentials } from './credential-redaction.js';
 import { buildImapFlowOptions, buildSmtpTransportOptions } from './manager.js';
 import type { AccessTokenSource } from './types.js';
+
+function probeError(account: AccountConfig, err: unknown): string {
+  return redactSentCredentials(
+    err instanceof Error ? err.message : String(err),
+    sentCredentials(account),
+  );
+}
 
 export async function testImap(
   account: AccountConfig,
@@ -62,10 +70,7 @@ export async function testImap(
       },
     };
   } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
+    return { success: false, error: probeError(account, err) };
   } finally {
     if (client) {
       try {
@@ -89,10 +94,7 @@ export async function testSmtp(
     await transport.verify();
     return { success: true };
   } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
+    return { success: false, error: probeError(account, err) };
   } finally {
     transport?.close();
   }

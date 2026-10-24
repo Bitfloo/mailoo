@@ -1,5 +1,8 @@
 import type { AccountConfig } from '../types/index.js';
+import type { SmtpAuth } from './auth.js';
+import { MAX_ERROR_TEXT_LENGTH } from './credential-redaction.js';
 import { testImap, testSmtp } from './probe.js';
+import type { AccessTokenSource } from './types.js';
 
 const h = vi.hoisted(() => ({
   connectError: null as Error | null,
@@ -66,8 +69,15 @@ vi.mock('imapflow', async () => {
 
 vi.mock('nodemailer', () => ({
   default: {
-    createTransport: () => ({
+    createTransport: (options: { auth: SmtpAuth }) => ({
       verify: async () => {
+        // nodemailer asks for the token while it authenticates, before the server answers.
+        const { auth } = options;
+        if ('provisionCallback' in auth) {
+          await new Promise<void>((resolve, reject) => {
+            auth.provisionCallback(auth.user, false, (err) => (err ? reject(err) : resolve()));
+          });
+        }
         if (h.verifyError) throw h.verifyError;
         return true;
       },
@@ -84,6 +94,21 @@ const account: AccountConfig = {
   imap: { host: 'imap.example.com', port: 993, tls: true, starttls: false, verifySsl: true },
   smtp: { host: 'smtp.example.com', port: 465, tls: true, starttls: false, verifySsl: true },
 };
+
+const ACCESS_TOKEN = 'ya29.fake-access-token-0123456789';
+
+const oauthAccount: AccountConfig = {
+  ...account,
+  password: undefined,
+  oauth2: {
+    provider: 'google',
+    clientId: 'fake-client-id',
+    clientSecret: 'fake-client-secret',
+    refreshToken: 'fake-refresh-token',
+  },
+};
+
+const tokens: AccessTokenSource = { getAccessToken: async () => ACCESS_TOKEN };
 
 beforeEach(() => {
   h.connectError = null;
@@ -155,6 +180,30 @@ describe('testImap', () => {
     });
   });
 
+  it('should redact the password a refused login quotes', async () => {
+    h.connectError = new Error('Command failed: NO [AUTHENTICATIONFAILED] wrong-password rejected');
+    expect(await testImap(account)).toEqual({
+      success: false,
+      error: 'Command failed: NO [AUTHENTICATIONFAILED] [redacted] rejected',
+    });
+  });
+
+  it('should redact the OAuth2 access token a refused login quotes', async () => {
+    h.connectError = new Error(`Command failed: NO [AUTHENTICATIONFAILED] ${ACCESS_TOKEN} expired`);
+    expect(await testImap(oauthAccount, tokens)).toEqual({
+      success: false,
+      error: 'Command failed: NO [AUTHENTICATIONFAILED] [redacted] expired',
+    });
+  });
+
+  it('should cut a long error to the cap', async () => {
+    h.connectError = new Error('x'.repeat(MAX_ERROR_TEXT_LENGTH * 2));
+    expect(await testImap(account)).toEqual({
+      success: false,
+      error: `${'x'.repeat(MAX_ERROR_TEXT_LENGTH - 1)}…`,
+    });
+  });
+
   it('should report a connection that fails after login without raising an uncaught error', async () => {
     h.socketError = Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
     const result = await testImap(account);
@@ -181,5 +230,37 @@ describe('testSmtp', () => {
       error: 'Invalid login: 535-5.7.8 Username and Password not accepted',
     });
     expect(h.close).toHaveBeenCalledOnce();
+  });
+
+  it('should redact the AUTH PLAIN blob a 535 reply quotes', async () => {
+    h.verifyError = Object.assign(
+      new Error(
+        'Invalid login: 535 5.7.8 Error: authentication failed: AHdvcmtAZXhhbXBsZS5jb20Ad3JvbmctcGFzc3dvcmQ=',
+      ),
+      { code: 'EAUTH', responseCode: 535 },
+    );
+    expect(await testSmtp(account)).toEqual({
+      success: false,
+      error: 'Invalid login: 535 5.7.8 Error: authentication failed: [redacted]',
+    });
+  });
+
+  it('should redact the OAuth2 access token a 535 reply quotes', async () => {
+    h.verifyError = Object.assign(
+      new Error(`Invalid login: 535 5.7.8 Token ${ACCESS_TOKEN} is not valid`),
+      { code: 'EAUTH', responseCode: 535 },
+    );
+    expect(await testSmtp(oauthAccount, tokens)).toEqual({
+      success: false,
+      error: 'Invalid login: 535 5.7.8 Token [redacted] is not valid',
+    });
+  });
+
+  it('should cut a long error to the cap', async () => {
+    h.verifyError = new Error('x'.repeat(MAX_ERROR_TEXT_LENGTH * 2));
+    expect(await testSmtp(account)).toEqual({
+      success: false,
+      error: `${'x'.repeat(MAX_ERROR_TEXT_LENGTH - 1)}…`,
+    });
   });
 });
