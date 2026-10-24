@@ -85,24 +85,29 @@ describe('Config Loader', () => {
       expect(config.accounts.map((account) => account.email)).toEqual(['env@example.com']);
     });
 
-    it.each([
+    describe.each([
       ['MCP_EMAIL_IMAP_HOST', 'accounts.0.imap.host: IMAP host is required'],
       ['MCP_EMAIL_SMTP_HOST', 'accounts.0.smtp.host: SMTP host is required'],
-    ])('should refuse a blank %s beside a password, naming the field', async (name, issue) => {
-      vi.stubEnv('MCP_EMAIL_ADDRESS', 'env@example.com');
-      vi.stubEnv('MCP_EMAIL_PASSWORD', 'env-pass');
-      vi.stubEnv('MCP_EMAIL_IMAP_HOST', 'imap.example.com');
-      vi.stubEnv('MCP_EMAIL_SMTP_HOST', 'smtp.example.com');
-      vi.stubEnv(name, '   ');
+    ])('with a blank %s', (name, issue) => {
+      it.each(['   ', '\t', ' \t\n '])(
+        'should refuse %j beside a password, naming the field',
+        async (blank) => {
+          vi.stubEnv('MCP_EMAIL_ADDRESS', 'env@example.com');
+          vi.stubEnv('MCP_EMAIL_PASSWORD', 'env-pass');
+          vi.stubEnv('MCP_EMAIL_IMAP_HOST', 'imap.example.com');
+          vi.stubEnv('MCP_EMAIL_SMTP_HOST', 'smtp.example.com');
+          vi.stubEnv(name, blank);
 
-      const refused = await loadConfig(path.join(sandbox.dir, 'nonexistent.toml')).catch(
-        (error: unknown) => {
-          if (!(error instanceof ZodError)) throw error;
-          return error.issues.map((item) => `${item.path.join('.')}: ${item.message}`);
+          const refused = await loadConfig(path.join(sandbox.dir, 'nonexistent.toml')).catch(
+            (error: unknown) => {
+              if (!(error instanceof ZodError)) throw error;
+              return error.issues.map((item) => `${item.path.join('.')}: ${item.message}`);
+            },
+          );
+
+          expect(refused).toEqual([issue]);
         },
       );
-
-      expect(refused).toEqual([issue]);
     });
 
     it('should drop empty entries from MCP_EMAIL_WATCHER_FOLDERS', async () => {

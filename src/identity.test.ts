@@ -237,12 +237,11 @@ describe('published identity', () => {
     const declared = server.packages?.[0]?.environmentVariables?.find(
       (item) => item.name === 'MCP_EMAIL_OAUTH2_PROVIDER',
     );
-    const sendsCustomToFile = (text = '') => /custom[^.]*in the config file/.test(text);
 
-    expect({
-      server: sendsCustomToFile(declared?.description),
-      readme: sendsCustomToFile(row),
-    }).toEqual({ server: true, readme: true });
+    expect({ server: declared?.description, readme: row }).toEqual({
+      server: expect.stringContaining('Configure custom in the config file'),
+      readme: expect.stringContaining('Configure a `custom` account entirely in the config file'),
+    });
   });
 
   it('documents npx as an install path and does not say the package is unpublished', async () => {
