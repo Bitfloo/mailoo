@@ -588,7 +588,7 @@ describe.each(FLOWS)('OAuthService $action when the token endpoint refuses', ({ 
     });
   });
 
-  // fetch follows a redirect only when it names a Location, so a 3xx without one is the answer.
+  // Redirects are not followed, so a 3xx is the answer whether or not it names a Location.
   it.each([{ status: 300 }, { status: 302 }, { status: 399 }])(
     'should refuse a $status answer even when its body carries tokens',
     async ({ status }) => {

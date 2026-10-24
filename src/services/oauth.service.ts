@@ -269,36 +269,50 @@ function refusalDetail(body: string, sent: URLSearchParams): string {
   return description ? `: ${code}: ${description}` : `: ${code}`;
 }
 
-/** The timeout also covers the body: an endpoint can send its headers and then stall. */
-async function postTokenRequest<T>(
+/**
+ * Redirects are not followed: a 307 or 308 would send the form, client secret included, on to
+ * whatever the Location names, so a 3xx is refused like any other status. The timeout also covers
+ * the body: an endpoint can send its headers and then stall.
+ */
+async function sendTokenRequest(
   tokenUrl: string,
   body: URLSearchParams,
   action: string,
-): Promise<T> {
+): Promise<{ response: Response; text: string }> {
   try {
     const response = await fetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
+      redirect: 'manual',
       signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
     });
-    const text = await response.text();
-    if (!response.ok) {
-      throw new Error(`OAuth2 ${action} failed (${response.status})${refusalDetail(text, body)}`);
-    }
-    try {
-      return JSON.parse(text) as T;
-    } catch {
-      // Not chained: a SyntaxError message quotes the start of the body, which can hold a token.
-      throw new Error(`OAuth2 ${action} failed: the token endpoint did not return JSON`);
-    }
+    return { response, text: await response.text() };
   } catch (err) {
     if (err instanceof DOMException && err.name === 'TimeoutError') {
       throw new Error(`OAuth2 ${action} timed out after ${TOKEN_REQUEST_TIMEOUT_MS / 1000}s`, {
         cause: err,
       });
     }
-    throw err;
+    // Not chained: fetch errors quote the token URL, whose userinfo or query can hold a credential.
+    throw new Error(`OAuth2 ${action} failed: the token endpoint could not be reached`);
+  }
+}
+
+async function postTokenRequest<T>(
+  tokenUrl: string,
+  body: URLSearchParams,
+  action: string,
+): Promise<T> {
+  const { response, text } = await sendTokenRequest(tokenUrl, body, action);
+  if (!response.ok) {
+    throw new Error(`OAuth2 ${action} failed (${response.status})${refusalDetail(text, body)}`);
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    // Not chained: a SyntaxError message quotes the start of the body, which can hold a token.
+    throw new Error(`OAuth2 ${action} failed: the token endpoint did not return JSON`);
   }
 }
 
