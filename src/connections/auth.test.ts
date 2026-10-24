@@ -1,5 +1,6 @@
 import type { AccountConfig, OAuth2Config } from '../types/index.js';
-import { buildImapAuth, buildSmtpAuth } from './auth.js';
+import { buildImapAuth, buildSmtpAuth, sentCredentials } from './auth.js';
+import { redactSentCredentials } from './credential-redaction.js';
 import type { AccessTokenSource } from './types.js';
 
 const passwordAccount: AccountConfig = {
@@ -122,4 +123,30 @@ describe('buildSmtpAuth', () => {
       message: 'invalid_grant',
     });
   });
+});
+
+describe('sentCredentials', () => {
+  const SMTP_TOKEN = 'ya29.fake-smtp-token-0123456789';
+  const IMAP_TOKEN = 'ya29.fake-imap-token-0123456789';
+
+  // nodemailer keeps sending the token it was handed after an IMAP login is issued a newer one,
+  // and the token source hands that newer token to every later IMAP login until it expires.
+  it.each([
+    ['one IMAP login', 1],
+    ['ten IMAP logins', 10],
+  ])(
+    'should still redact the token SMTP was handed once a newer one went to %s',
+    async (_logins, imapLogins) => {
+      const account = structuredClone(oauthAccount);
+      let current = SMTP_TOKEN;
+      const tokens: AccessTokenSource = { getAccessToken: async () => current };
+      await provision(buildSmtpAuth(account, tokens));
+      current = IMAP_TOKEN;
+      await Promise.all(Array.from({ length: imapLogins }, async () => buildImapAuth(account, tokens)));
+      const reply = `535 5.7.8 Token ${SMTP_TOKEN} is not valid`;
+      expect(redactSentCredentials(reply, sentCredentials(account))).toBe(
+        '535 5.7.8 Token [redacted] is not valid',
+      );
+    },
+  );
 });
