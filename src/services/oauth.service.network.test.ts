@@ -51,46 +51,53 @@ interface Loopback {
   paths: string[];
 }
 
-let server: Server | undefined;
+const servers: Server[] = [];
+
+async function listeningPort(server: Server): Promise<number> {
+  servers.push(server);
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  return (server.address() as AddressInfo).port;
+}
 
 async function startLoopback(status = 307): Promise<Loopback> {
   const paths: string[] = [];
   const respond = answer(status);
-  server = createServer((request, response) => {
-    paths.push(new URL(request.url ?? '/', 'http://loopback').pathname);
-    request.resume();
-    respond(request, response);
-  });
-  const listening = server;
-  await new Promise<void>((resolve) => {
-    listening.listen(0, '127.0.0.1', resolve);
-  });
-  const { port } = listening.address() as AddressInfo;
+  const port = await listeningPort(
+    createServer((request, response) => {
+      paths.push(new URL(request.url ?? '/', 'http://loopback').pathname);
+      request.resume();
+      respond(request, response);
+    }),
+  );
   return { base: `http://127.0.0.1:${port}`, paths };
 }
 
-/** A port that was just free on loopback, so a connect to it is refused. */
-async function closedPort(): Promise<number> {
-  const probe = createServer();
-  await new Promise<void>((resolve) => {
-    probe.listen(0, '127.0.0.1', resolve);
+/**
+ * Held open until the test ends: a port freed before use can be bound by another process before
+ * the request reaches it, and the request then gets an answer.
+ */
+async function droppingPort(): Promise<number> {
+  const dropping = createServer();
+  dropping.on('connection', (socket) => {
+    socket.destroy();
   });
-  const { port } = probe.address() as AddressInfo;
-  await new Promise<void>((resolve) => {
-    probe.close(() => resolve());
-  });
-  return port;
+  return listeningPort(dropping);
 }
 
 afterEach(async () => {
-  const running = server;
-  server = undefined;
-  if (!running) return;
-  // fetch keeps the connection alive, and close() alone waits for it to go idle.
-  running.closeAllConnections();
-  await new Promise<void>((resolve) => {
-    running.close(() => resolve());
-  });
+  const running = servers.splice(0);
+  await Promise.all(
+    running.map(
+      async (server) =>
+        new Promise<void>((resolve) => {
+          // fetch keeps the connection alive, and close() alone waits for it to go idle.
+          server.closeAllConnections();
+          server.close(() => resolve());
+        }),
+    ),
+  );
 });
 
 async function failureOf(run: () => Promise<unknown>): Promise<Error> {
@@ -110,8 +117,8 @@ const UNREACHABLE = [
     reached: [],
   },
   {
-    name: 'a closed port with a query',
-    url: async () => `http://127.0.0.1:${await closedPort()}/token?k=${QUERY}`,
+    name: 'a port that drops every connection, with a query',
+    url: async () => `http://127.0.0.1:${await droppingPort()}/token?k=${QUERY}`,
     reached: [],
   },
   {

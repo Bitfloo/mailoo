@@ -1260,6 +1260,12 @@ const FRAGMENTS = [
     reshape: (text: string) => swapCase(text.slice(2, 10)),
   },
   { name: 'it escaped twice', secrets: RESERVED, reshape: escapedTimes(2) },
+  // Lowercased between the rounds: escaped twice, the hex letters sit behind `%25`, in no escape.
+  {
+    name: 'it escaped twice in lowercase hex',
+    secrets: RESERVED,
+    reshape: (text: string) => escapedTimes(1)(lowercaseEscapes(escapedTimes(1)(text))),
+  },
   { name: 'it escaped three times', secrets: RESERVED, reshape: escapedTimes(3) },
   { name: 'it escaped four times', secrets: RESERVED, reshape: escapedTimes(4) },
   { name: 'it form-encoded twice', secrets: SPACED, reshape: formEncodedTwice },
@@ -1287,6 +1293,9 @@ const SEVEN_CHARACTER_CASES = SENT_SECRET_KINDS.flatMap((kind) =>
 
 /** Nine characters sent, five of them letters and digits: its skeleton is under the minimum. */
 const SHORT_SKELETON_CLIENT = 'K.q.7.L.w';
+
+/** `%zz` is no escape, so its letters stay in the skeleton and `zzLw2Rt9` is a piece of it. */
+const NON_HEX_ESCAPE_CLIENT = 'Kq7%zzLw2Rt9';
 
 /** Refusals worded as Google and Microsoft word them, holding no piece of what was sent. */
 const PROVIDER_REFUSALS = [
@@ -1676,6 +1685,28 @@ describe.each(ECHOING_FLOWS)(
           body('client Kq7L revoked'),
         );
         expect(error.message).toBe(`${failed} (400): ${named('client Kq7L revoked')}`);
+      },
+    );
+
+    it.each(ECHO_FIELDS)(
+      'should name nothing when the $field holds a piece of the client secret that starts at the letters of an escape that is not hex',
+      async ({ body }) => {
+        const { error, sent } = await refusedEchoing(
+          { ...ALNUM, client: NON_HEX_ESCAPE_CLIENT },
+          () => body('zzLw2Rt9 revoked'),
+        );
+        expect({ sentClient: sent[0], message: error.message }).toEqual({
+          sentClient: NON_HEX_ESCAPE_CLIENT,
+          message: `${failed} (400)`,
+        });
+      },
+    );
+
+    it.each(ECHO_FIELDS)(
+      'should keep the $field as written when it holds an escape that is not UTF-8',
+      async ({ body, named }) => {
+        const { error } = await refusedEchoing(REALISTIC, () => body('bad byte %FF in request'));
+        expect(error.message).toBe(`${failed} (400): ${named('bad byte %FF in request')}`);
       },
     );
 
