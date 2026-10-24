@@ -28,6 +28,10 @@ const XOAUTH2_PLUS_SLASH =
 const PLAIN_BASE64 = 'VGhpcyBpcyBub3QgYSBzZWNyZXQ=';
 // An XOAUTH2-shaped blob reading "auth=BearerX", with no token after the scheme.
 const XOAUTH2_NO_TOKEN = 'dXNlcj13b3JrQGV4YW1wbGUuY29tAWF1dGg9QmVhcmVyWAEB';
+// "the Bearer scheme is required": names the scheme outside an auth= field.
+const BASE64_BEARER_PROSE = 'dGhlIEJlYXJlciBzY2hlbWUgaXMgcmVxdWlyZWQ=';
+// User "x@example.com", token "t": the shortest blob a fixture here can make.
+const XOAUTH2_SHORTEST = 'dXNlcj14QGV4YW1wbGUuY29tAWF1dGg9QmVhcmVyIHQBAQ==';
 
 const REPLY = 'Invalid login: 535 5.7.8 Error: authentication failed:';
 
@@ -83,6 +87,11 @@ describe('redactSentCredentials', () => {
     expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} [redacted]`);
   });
 
+  it('should redact the shortest XOAUTH2 blob, one with a one-character token', () => {
+    const reply = `${REPLY} ${XOAUTH2_SHORTEST}`;
+    expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} [redacted]`);
+  });
+
   it('should redact a whole XOAUTH2 blob whose base64 contains a plus and a slash', () => {
     const reply = `${REPLY} ${XOAUTH2_PLUS_SLASH}`;
     expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} [redacted]`);
@@ -98,13 +107,16 @@ describe('redactSentCredentials', () => {
     expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} bearer [redacted]`);
   });
 
-  it('should redact a whole Bearer token of every token character after more than one space', () => {
-    const reply = `${REPLY} Bearer  aB9_c~d.e-f+g/h==`;
-    expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} Bearer  [redacted]`);
+  it('should redact a whole Bearer token of every token character after mixed whitespace', () => {
+    const reply = `${REPLY} Bearer \taB9_c~d.e-f+g/h===`;
+    expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} Bearer \t[redacted]`);
   });
 
-  it('should leave a word that only ends in Bearer unchanged', () => {
-    const reply = `${REPLY} NotBearer abcdef`;
+  it.each([
+    ['a word that only ends in Bearer', `${REPLY} NotBearer abcdef`],
+    ['a word that starts with Bearer', `${REPLY} Bearers abcdef`],
+    ['a Bearer scheme with no token after it', `${REPLY} Bearer (expired)`],
+  ])('should leave %s unchanged', (_shape, reply) => {
     expect(redactSentCredentials(reply, sent)).toBe(reply);
   });
 
@@ -115,6 +127,11 @@ describe('redactSentCredentials', () => {
 
   it('should leave an XOAUTH2-shaped blob with no token after the scheme unchanged', () => {
     const reply = `${REPLY} ${XOAUTH2_NO_TOKEN}`;
+    expect(redactSentCredentials(reply, sent)).toBe(reply);
+  });
+
+  it('should leave a base64 run that names Bearer outside an auth= field unchanged', () => {
+    const reply = `${REPLY} ${BASE64_BEARER_PROSE}`;
     expect(redactSentCredentials(reply, sent)).toBe(reply);
   });
 
@@ -131,8 +148,12 @@ describe('redactSentCredentials', () => {
   });
 
   it('should leave no fragment when a secret overlaps a repeat of itself', () => {
-    const repeating = { user: USER, secrets: ['abababab'] };
-    expect(redactSentCredentials(`${REPLY} ababababab`, repeating)).toBe(`${REPLY} [redacted]`);
+    const repeating = { user: USER, secrets: ['kkkkkkkk'] };
+    expect(redactSentCredentials(`${REPLY} kkkkkkkkk`, repeating)).toBe(`${REPLY} [redacted]`);
+  });
+
+  it('should redact a secret at the very start of the text', () => {
+    expect(redactSentCredentials(`${PASSWORD} rejected`, sent)).toBe('[redacted] rejected');
   });
 
   it('should replace secrets that touch with one marker', () => {
