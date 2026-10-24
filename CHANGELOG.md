@@ -9,6 +9,16 @@ ship in patch releases too (`bump_patch` in `cog.toml`).
 Mailoo is a fork of [email-mcp](https://github.com/codefuturist/email-mcp);
 its history before the fork is at the end of this file.
 
+## Unreleased
+#### 🐛 Bug Fixes
+- `mailoo test`, `mailoo account add` and `mailoo account edit` no longer print the
+  password or OAuth2 access token when the server's error reply quotes what was sent,
+  raw or SASL-encoded, and they cut a long error to 300 characters
+  ([#64](https://github.com/bitfloo/mailoo/issues/64)).
+- A failed send (`send_email`, `reply_email`, `forward_email`, `send_draft` and
+  scheduled sends) no longer returns, audits or queues an SMTP error that quotes the
+  password or OAuth2 access token.
+
 - - -
 ## [v0.2.2](https://github.com/bitfloo/mailoo/compare/v0.2.1..v0.2.2) - 2026-10-18
 #### ✨ Features
