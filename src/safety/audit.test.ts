@@ -308,13 +308,35 @@ describe('Audit Logger', () => {
     });
   });
 
-  it('should write an object shared by two params out under each when it holds no cycle', async () => {
-    const recipients = ['a@example.com'];
-    expect(await loggedParams({ to: recipients, cc: recipients })).toEqual({
+  it('should write [Circular] for an object below the top that refers back to itself or its parent', async () => {
+    const inner: Record<string, unknown> = { subject: 'kept' };
+    inner.back = inner;
+    const child: Record<string, unknown> = { subject: 'kept' };
+    const parent = { child };
+    child.up = parent;
+    expect(await loggedParams({ chain: { inner }, parent })).toEqual({
       stderr: [],
-      params: [{ to: ['a@example.com'], cc: ['a@example.com'] }],
+      params: [
+        {
+          chain: { inner: { subject: 'kept', back: '[Circular]' } },
+          parent: { child: { subject: 'kept', up: '[Circular]' } },
+        },
+      ],
     });
   });
+
+  it.each([
+    { name: 'an array', shared: ['a@example.com'] },
+    { name: 'a plain object', shared: { address: 'a@example.com' } },
+  ])(
+    'should write $name shared by two params out under each when it holds no cycle',
+    async ({ shared }) => {
+      expect(await loggedParams({ to: shared, cc: shared })).toEqual({
+        stderr: [],
+        params: [{ to: shared, cc: shared }],
+      });
+    },
+  );
 
   it('should export 16 as the deepest a param is written', async () => {
     expect((await import('./audit.js')).PARAMS_MAX_DEPTH).toBe(DEPTH_LIMIT);
