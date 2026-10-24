@@ -73,10 +73,34 @@ describe('redactSentCredentials', () => {
     expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} Bearer [redacted]`);
   });
 
+  it('should redact a Bearer token whose scheme is written in lowercase', () => {
+    const reply = `${REPLY} bearer ya29.fake-unknown-token-9876543210`;
+    expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} bearer [redacted]`);
+  });
+
   it('should replace overlapping secrets with one marker so neither leaves a fragment', () => {
     const overlapping = { user: USER, secrets: ['abcdefghij', 'efghijklmn'] };
     expect(redactSentCredentials(`${REPLY} abcdefghijklmn`, overlapping)).toBe(
       `${REPLY} [redacted]`,
+    );
+  });
+
+  it('should keep the outer span when one secret lies inside another', () => {
+    const nested = { user: USER, secrets: ['abcdefghijklmn', 'efghijkl'] };
+    expect(redactSentCredentials(`${REPLY} abcdefghijklmn`, nested)).toBe(`${REPLY} [redacted]`);
+  });
+
+  it('should replace secrets that touch with one marker', () => {
+    const touching = { user: USER, secrets: ['abcdefgh', 'ijklmnop'] };
+    expect(redactSentCredentials(`${REPLY} abcdefghijklmnop`, touching)).toBe(
+      `${REPLY} [redacted]`,
+    );
+  });
+
+  it('should redact every secret when the reply quotes them in another order than the list', () => {
+    const reply = `${REPLY} ${PASSWORD} then ${TOKEN}`;
+    expect(redactSentCredentials(reply, { user: USER, secrets: [TOKEN, PASSWORD] })).toBe(
+      `${REPLY} [redacted] then [redacted]`,
     );
   });
 
@@ -98,6 +122,13 @@ describe('redactSentCredentials', () => {
 
   it('should keep a one-character secret that only occurs inside words', () => {
     const reply = '535 5.7.8 Request quota exceeded';
+    expect(redactSentCredentials(reply, { user: USER, secrets: ['q'] })).toBe(reply);
+  });
+
+  it.each([
+    ['a letter on its left', `${REPLY} xq`],
+    ['a digit on its right', `${REPLY} q7`],
+  ])('should keep a one-character secret with %s', (_neighbour, reply) => {
     expect(redactSentCredentials(reply, { user: USER, secrets: ['q'] })).toBe(reply);
   });
 
