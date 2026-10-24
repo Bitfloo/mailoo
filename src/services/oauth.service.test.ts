@@ -847,6 +847,13 @@ const AROUND_A_MARKER: SentSecrets = {
   reshaped: [],
 };
 
+/** The client secret starts inside the marker and ends in the text after it. */
+const PAST_A_MARKER: SentSecrets = {
+  client: 'acted]ZZ',
+  grant: 'INNER-SECRET',
+  reshaped: [],
+};
+
 function lowercaseEscapes(encoded: string): string {
   return encoded.replace(/%[0-9A-F]{2}/g, (escaped) => escaped.toLowerCase());
 }
@@ -1150,7 +1157,27 @@ const SHORT_SECRET_CASES = [
     client: 'q.7.L.w',
     prose: 'client q.7.L.w refused',
   },
+  // Its filtered shape is empty, so only the raw text can find it.
+  {
+    name: 'a client secret under the minimum of dropped characters only',
+    client: 'ÿé',
+    prose: 'client ÿé refused',
+  },
 ].flatMap((secret) => SHORT_SECRET_FIELDS.map((field) => ({ ...secret, ...field })));
+
+/**
+ * Client secrets under the minimum whose escaped echoes are long enough to cut out. `ÿéß` escapes
+ * the same in a form body and a URL; a form body escapes `~` and a URL keeps it, so the form echo
+ * of `ÿé~ß` is a shape of its own and holds no `~` for the filtered shape to find.
+ */
+const ESCAPED_SHORT_SECRET_CASES = [
+  { name: 'escaped', client: 'ÿéß', encode: encodeURIComponent },
+  {
+    name: 'form-encoded',
+    client: 'ÿé~ß',
+    encode: (text: string) => new URLSearchParams({ s: text }).toString().slice(2),
+  },
+].flatMap((secret) => ECHO_FIELDS.map((field) => ({ ...secret, ...field })));
 
 /** Written out, not sliced to the constant: each test checks the length against it. */
 const AT_THE_MINIMUM_CASES = ECHO_FIELDS.map((field) => ({ ...field, client: 'q7Lw2Rt9' }));
@@ -1244,6 +1271,24 @@ describe.each(ECHOING_FLOWS)(
       },
     );
 
+    it.each(ECHO_FIELDS)(
+      'should drop the $field when a redacted grant and the text after it spell the client secret',
+      async ({ body, dropped }) => {
+        const { error, secrets, sent } = await refusedEchoing(PAST_A_MARKER, ({ grant }) =>
+          body(`x${grant}ZZ`),
+        );
+        expect({
+          sent,
+          message: error.message,
+          leaked: leakedSecretsIn(error, [secrets.client, secrets.grant], { fragments: true }),
+        }).toEqual({
+          sent: [secrets.client, secrets.grant],
+          message: `${failed} (400)${dropped}`,
+          leaked: [],
+        });
+      },
+    );
+
     it('should replace the secrets with [redacted] when the description echoes the whole form sent', async () => {
       const { error, secrets, sent } = await refusedEchoing(PERCENT, ({ form }) => ({
         error: 'invalid_request',
@@ -1321,6 +1366,34 @@ describe.each(ECHOING_FLOWS)(
           body(`grant ${sent.grant} revoked`),
         );
         expect(error.message).toBe(`${failed} (400)${dropped}`);
+      },
+    );
+
+    it.each(SHORT_SECRET_FIELDS)(
+      'should drop the $field when a dropped character breaks a client secret under the minimum inside the echoed grant',
+      async ({ body, dropped }) => {
+        const { error } = await refusedEchoing({ ...PLAIN, client: 'Hs8Jd3' }, (sent) =>
+          body(`grant ${sent.grant.slice(0, 8)}"${sent.grant.slice(8)} revoked`),
+        );
+        expect(error.message).toBe(`${failed} (400)${dropped}`);
+      },
+    );
+
+    it.each(ESCAPED_SHORT_SECRET_CASES)(
+      'should replace the $name echo of a client secret under the minimum with [redacted] in the $field',
+      async ({ client, encode, body, named }) => {
+        const { error, sent } = await refusedEchoing({ ...PLAIN, client }, (echoed) =>
+          body(`client ${encode(echoed.client)} refused`),
+        );
+        expect({
+          sentClient: sent[0],
+          message: error.message,
+          leaked: leakedSecretsIn(error, [encode(client)], { fragments: true }),
+        }).toEqual({
+          sentClient: client,
+          message: `${failed} (400): ${named('client [redacted] refused')}`,
+          leaked: [],
+        });
       },
     );
 
