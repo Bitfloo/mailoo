@@ -58,16 +58,20 @@ const passwordAccount: AccountConfig = {
   smtp: { host: 'smtp.example.com', port: 465, tls: true, starttls: false, verifySsl: true },
 };
 
-const oauthAccount: AccountConfig = {
-  ...passwordAccount,
-  password: undefined,
-  oauth2: {
-    provider: 'google',
-    clientId: 'fake-client-id',
-    clientSecret: 'fake-client-secret',
-    refreshToken: 'fake-refresh-token',
-  },
-};
+// A fresh oauth2 object per test: the issued token is recorded against it, and a token left by
+// one connect would let the other pass without recording its own.
+function oauthAccount(): AccountConfig {
+  return {
+    ...passwordAccount,
+    password: undefined,
+    oauth2: {
+      provider: 'google',
+      clientId: 'fake-client-id',
+      clientSecret: 'fake-client-secret',
+      refreshToken: 'fake-refresh-token',
+    },
+  };
+}
 
 const otherAccount: AccountConfig = {
   ...passwordAccount,
@@ -118,11 +122,24 @@ describe('SmtpService send errors', () => {
 
   it('should redact the OAuth2 token the connection manager handed to nodemailer', async () => {
     h.verifyError = eauth(`535 5.7.8 Token ${ACCESS_TOKEN} is not valid`);
-    const manager = new ConnectionManager([oauthAccount], {
+    const manager = new ConnectionManager([oauthAccount()], {
       getAccessToken: async () => ACCESS_TOKEN,
     });
     const service = new SmtpService(manager, createMockRateLimiter(true), createMockImapService());
     await expect(service.sendEmail('test', mail)).rejects.toHaveProperty(
+      'message',
+      'Invalid login: 535 5.7.8 Token [redacted] is not valid',
+    );
+  });
+
+  // SmtpService redacts the error again with the token recorded by then, which would hide a
+  // manager that read the account's secrets before verify() asked for the token.
+  it('should redact the OAuth2 token in the error the connection manager rejects with', async () => {
+    h.verifyError = eauth(`535 5.7.8 Token ${ACCESS_TOKEN} is not valid`);
+    const manager = new ConnectionManager([oauthAccount()], {
+      getAccessToken: async () => ACCESS_TOKEN,
+    });
+    await expect(manager.getSmtpTransport('test')).rejects.toHaveProperty(
       'message',
       'Invalid login: 535 5.7.8 Token [redacted] is not valid',
     );
