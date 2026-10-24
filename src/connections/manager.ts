@@ -14,8 +14,9 @@ import { mcpLog } from '../logging.js';
 
 import type { AccountConfig } from '../types/index.js';
 import type { SmtpAuth } from './auth.js';
-import { buildImapAuth, buildSmtpAuth } from './auth.js';
+import { buildImapAuth, buildSmtpAuth, sentCredentials } from './auth.js';
 import { ConnectBackoff } from './backoff.js';
+import { redactedError } from './credential-redaction.js';
 import type { AccessTokenSource, IConnectionManager } from './types.js';
 
 function certificatesRequired(verifySsl: boolean | undefined): boolean {
@@ -83,10 +84,6 @@ export function buildSmtpTransportOptions(account: AccountConfig, auth: SmtpAuth
 
 function describeAccounts(accounts: AccountConfig[]): string {
   return accounts.map((a) => `${a.name} (${a.email})`).join(', ');
-}
-
-function asError(err: unknown): Error {
-  return err instanceof Error ? err : new Error(String(err));
 }
 
 export function bindImapLifecycle(
@@ -258,14 +255,16 @@ export default class ConnectionManager implements IConnectionManager {
       });
       await connecting.connect();
     } catch (err) {
-      this.backoff.recordFailure('IMAP', resolvedName, asError(err));
+      // The backoff repeats this text on every call until the next attempt.
+      const failure = redactedError(err, sentCredentials(account));
+      this.backoff.recordFailure('IMAP', resolvedName, failure);
       // imapflow closes a failed connect itself, but only on the next tick.
       try {
         client?.close();
       } catch {
         /* ignore */
       }
-      throw err;
+      throw failure;
     }
     this.backoff.recordSuccess('IMAP', resolvedName);
     await mcpLog(
@@ -332,9 +331,11 @@ export default class ConnectionManager implements IConnectionManager {
       transport = nodemailer.createTransport(buildSmtpTransportOptions(account, auth));
       await transport.verify();
     } catch (err) {
-      this.backoff.recordFailure('SMTP', resolvedName, asError(err));
+      // Read here, not before connecting: the OAuth2 token is recorded when verify() asks for it.
+      const failure = redactedError(err, sentCredentials(account));
+      this.backoff.recordFailure('SMTP', resolvedName, failure);
       transport?.close();
-      throw err;
+      throw failure;
     }
     this.backoff.recordSuccess('SMTP', resolvedName);
     await mcpLog(

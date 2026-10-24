@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { inspect } from 'node:util';
 
 import { mcpLog } from '../logging.js';
 import type { AccountConfig } from '../types/index.js';
@@ -285,6 +286,29 @@ describe('ConnectionManager IMAP reconnect backoff', () => {
     await expect(manager.getImapClient('test')).rejects.toThrow('Invalid credentials');
     vi.setSystemTime(Date.now() + 1_000);
     expect(await manager.getImapClient('test')).toBe(imapInstances[3]);
+  });
+});
+
+describe('ConnectionManager IMAP login refusal', () => {
+  beforeEach(() => {
+    connectErrors.length = 0;
+  });
+
+  // inspect() prints every own property, so a server line kept on the error shows up here.
+  it('should reject without the server reply imapflow attaches to a refused login', async () => {
+    const manager = new ConnectionManager([{ ...account, password: 'S3cret-Pa55word!' }]);
+    connectErrors.push(
+      Object.assign(new Error('Command failed'), {
+        authenticationFailed: true,
+        serverResponseCode: 'AUTHENTICATIONFAILED',
+        responseStatus: 'NO',
+        responseText: 'S3cret-Pa55word! rejected',
+        response: 'NO [AUTHENTICATIONFAILED] S3cret-Pa55word! rejected',
+      }),
+    );
+    await expect(manager.getImapClient('test')).rejects.toSatisfy(
+      (err: unknown) => !inspect(err).includes('S3cret-Pa55word!'),
+    );
   });
 });
 

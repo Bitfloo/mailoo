@@ -5,6 +5,8 @@
  */
 
 import type { SendMailOptions } from 'nodemailer';
+import { sentCredentials } from '../connections/auth.js';
+import { redactedError } from '../connections/credential-redaction.js';
 import type { IConnectionManager } from '../connections/types.js';
 import { mcpLog } from '../logging.js';
 import RateLimitError from '../safety/rate-limit-error.js';
@@ -332,13 +334,18 @@ export default class SmtpService {
   }
 
   private async sendAndAppend(accountName: string, mail: SendMailOptions): Promise<SendResult> {
-    const transport = await this.connections.getSmtpTransport(accountName);
     const safeMail: SendMailOptions = {
       ...mail,
       disableFileAccess: true,
       disableUrlAccess: true,
     };
-    const result = await transport.sendMail(safeMail);
+    let result: { messageId?: string };
+    try {
+      const transport = await this.connections.getSmtpTransport(accountName);
+      result = await transport.sendMail(safeMail);
+    } catch (err) {
+      throw redactedError(err, sentCredentials(this.connections.getAccount(accountName)));
+    }
     const messageId =
       result.messageId ?? (typeof mail.messageId === 'string' ? mail.messageId : '');
 
