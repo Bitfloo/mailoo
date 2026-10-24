@@ -11,6 +11,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import createServer from '../server.js';
 import NotifierService from '../services/notifier.service.js';
+import { readAuditEntries } from '../test-support/audit-home.js';
 import registerAnalyticsTools from './analytics.tool.js';
 import { registerCalendarReadTools, registerCalendarWriteTools } from './calendar.tool.js';
 import registerEmailsTools from './emails.tool.js';
@@ -228,5 +229,10 @@ describe('tool failures return isError', () => {
       }),
     );
     expectFailure(await callTool(server, 'cancel_scheduled', { schedule_id: 'sched-1' }));
+    // The pin's only oracle: a pin set after the imports sends these entries to the real log.
+    expect((await readAuditEntries(auditHome)).map((entry) => entry.tool)).toEqual([
+      'schedule_email',
+      'cancel_scheduled',
+    ]);
   });
 });

@@ -1156,6 +1156,13 @@ const SHORT_SECRET_CASES = [
     client: 'ÿé',
     prose: 'client ÿé refused',
   },
+  // Four characters whose escaped pattern is eight, all dropped by the charset: no filtered shape
+  // shares the raw shape's pattern and rewrites its length, as `q.7.L.w`'s does.
+  {
+    name: 'a client secret of four backslashes',
+    client: '\\\\\\\\',
+    prose: 'client \\\\\\\\ refused',
+  },
 ].flatMap((secret) => SHORT_SECRET_FIELDS.map((field) => ({ ...secret, ...field })));
 
 /**
