@@ -156,27 +156,26 @@ describe('Config Loader', () => {
     });
 
     // The blank check reads the trimmed host; the host itself is used as written.
-    it.each([
-      ['padded', ' imap.example.com ', ' smtp.example.com '],
-      ['one-character', 'a', 'a'],
-      ['padded one-character', ' a ', ' a '],
-    ])(
-      'should keep %s IMAP and SMTP hosts from the config file as written',
-      async (_kind, imapHost, smtpHost) => {
+    describe.each([
+      ['imap', 'IMAP'],
+      ['smtp', 'SMTP'],
+    ] as const)('with a non-blank %s host', (table, label) => {
+      it.each([
+        ['padded', ` ${table}.example.com `],
+        ['one-character', 'a'],
+        ['padded one-character', ' a '],
+      ])(`should keep a %s ${label} host from the config file as written`, async (_kind, host) => {
         const configPath = path.join(sandbox.dir, 'config.toml');
         await writeOwnerOnly(
           configPath,
-          MINIMAL_TOML.replace('"imap.example.com"', JSON.stringify(imapHost)).replace(
-            '"smtp.example.com"',
-            JSON.stringify(smtpHost),
-          ),
+          MINIMAL_TOML.replace(`"${table}.example.com"`, JSON.stringify(host)),
         );
 
-        const { imap, smtp } = (await loadConfig(configPath)).accounts[0];
+        const [account] = (await loadConfig(configPath)).accounts;
 
-        expect([imap.host, smtp.host]).toEqual([imapHost, smtpHost]);
-      },
-    );
+        expect(account[table].host).toBe(host);
+      });
+    });
 
     it('throws when config file does not exist', async () => {
       const badPath = path.join(sandbox.dir, 'nonexistent.toml');
