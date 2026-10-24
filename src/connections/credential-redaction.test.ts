@@ -216,6 +216,8 @@ describe('redactSentCredentials', () => {
     ['a seven-character secret inside a word', 'kkkkkkk', `${REPLY} zzkkkkkkkzz`],
     ['the AUTH LOGIN form of a short secret', 'q', `${REPLY} cQ==`],
     ['a short percent-encoded secret with mixed-case escapes', '/:', `${REPLY} x%2f%3Ay`],
+    // Escaped as "p\.ss\$wd", nine characters: the shape is short by the text it matches.
+    ['a seven-character secret with regex metacharacters', 'p.ss$wd', `${REPLY} zzp.ss$wdzz`],
   ])('should withhold the whole text when it holds %s', (_shape, secret, reply) => {
     expect(redactSentCredentials(reply, { user: USER, secrets: [secret] })).toBe('[redacted]');
   });
@@ -241,9 +243,19 @@ describe('redactSentCredentials', () => {
   it.each([
     ['a long secret', 'redacted', `${REPLY} redacted`],
     ['a short secret', 'ac', `${REPLY} ${PASSWORD}`],
+    ['a short secret at the start of the marker', '[red', `${REPLY} ${PASSWORD}`],
+    ['a short secret at the end of the marker', 'acted]', `${REPLY} ${PASSWORD}`],
   ])('should keep the text when %s matches only inside a marker', (_size, secret, reply) => {
     expect(redactSentCredentials(reply, { user: USER, secrets: [PASSWORD, secret] })).toBe(
       `${REPLY} [redacted]`,
+    );
+  });
+
+  // "ct" is in neither secret nor the reply, only in each of the two markers.
+  it('should keep the text when a short secret matches inside each of two markers', () => {
+    const reply = `${REPLY} ${PASSWORD} then ${TOKEN}`;
+    expect(redactSentCredentials(reply, { user: USER, secrets: [PASSWORD, TOKEN, 'ct'] })).toBe(
+      `${REPLY} [redacted] then [redacted]`,
     );
   });
 
