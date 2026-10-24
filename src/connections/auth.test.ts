@@ -151,4 +151,23 @@ describe('sentCredentials', () => {
       );
     },
   );
+
+  it.each([
+    ['all three of three tokens', 3, [1, 2, 3]],
+    ['the four most recent of five tokens', 5, [2, 3, 4, 5]],
+  ])('should redact %s issued in turn', async (_kept, issued, quoted) => {
+    const account = structuredClone(oauthAccount);
+    const token = (n: number) => `ya29.fake-issued-token-${n}-0123456789`;
+    let current = '';
+    const tokens: AccessTokenSource = { getAccessToken: async () => current };
+    for (let n = 1; n <= issued; n += 1) {
+      current = token(n);
+      // eslint-disable-next-line no-await-in-loop -- the order of issue is the behaviour under test
+      await buildImapAuth(account, tokens);
+    }
+    const reply = `535 5.7.8 Tokens ${quoted.map(token).join(' ')} are not valid`;
+    expect(redactSentCredentials(reply, sentCredentials(account))).toBe(
+      `535 5.7.8 Tokens ${quoted.map(() => '[redacted]').join(' ')} are not valid`,
+    );
+  });
 });
