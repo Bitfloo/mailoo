@@ -16,6 +16,7 @@ import {
 } from '../test-support/token-endpoint.js';
 import type { OAuth2Config } from '../types/index.js';
 import OAuthService, {
+  SECRET_SHAPE_MIN_CHARS,
   TOKEN_ERROR_BODY_MAX_CHARS,
   TOKEN_ERROR_CODE_MAX_CHARS,
   TOKEN_ERROR_DESCRIPTION_MAX_CHARS,
@@ -366,6 +367,10 @@ describe('OAuthService token error limits', () => {
 
   it('should export 4096 as the body parse limit', () => {
     expect(TOKEN_ERROR_BODY_MAX_CHARS).toBe(4096);
+  });
+
+  it('should export 8 as the shortest secret shape it cuts out of a field', () => {
+    expect(SECRET_SHAPE_MIN_CHARS).toBe(8);
   });
 });
 
@@ -728,11 +733,14 @@ const NESTED: SentSecrets = {
   reshaped: [],
 };
 
-/** Nothing the error charset keeps: only redaction before the filter can mark where it stood. */
+/**
+ * Nothing the error charset keeps: only redaction before the filter can mark where it stood. Eight
+ * characters, so the secret as given is long enough to be cut out rather than drop the field.
+ */
 const DROPPED_ONLY: SentSecrets = {
-  client: 'ÿéß',
+  client: 'ÿéßüöäñç',
   grant: '1//04Hs8Jd3Fq6YbN0cVe',
-  reshaped: ['%C3%BF%C3%A9%C3%9F', '1%2F%2F04Hs8Jd3Fq6YbN0cVe'],
+  reshaped: ['%C3%BF%C3%A9%C3%9F%C3%BC%C3%B6%C3%A4%C3%B1%C3%A7', '1%2F%2F04Hs8Jd3Fq6YbN0cVe'],
 };
 
 /**
@@ -1105,9 +1113,42 @@ const UNSENT_ECHOES: {
  * split a marker. Checked by the whole message, since the leak oracle finds them in the marker.
  */
 const MARKER_LETTER_CASES = [
-  { name: 'a client secret inside the marker', client: 'red' },
-  { name: 'a one-letter client secret', client: 'c' },
+  { name: 'a client secret inside the marker', client: 'redacted' },
+  { name: 'a client secret equal to the marker', client: '[redacted]' },
 ].flatMap((secret) => ECHO_FIELDS.map((field) => ({ ...secret, ...field })));
+
+/** Neither field holds the short secrets below: `server_error` has no `a`, no `red` and no `Zq`. */
+const SHORT_SECRET_FIELDS = [
+  { field: 'error', body: (text: string) => ({ error: text }), dropped: '' },
+  {
+    field: 'error_description',
+    body: (text: string) => ({ error: 'server_error', error_description: text }),
+    dropped: ': server_error',
+  },
+] as const;
+
+/** Each client secret, or one of its shapes, is shorter than the minimum and sits in the prose. */
+const SHORT_SECRET_CASES = [
+  {
+    name: 'a one-letter client secret',
+    client: 'a',
+    prose: 'a grant that was revoked cannot be used again as a refresh',
+  },
+  {
+    name: 'a client secret made of marker letters',
+    client: 'red',
+    prose: 'the redirect was refused',
+  },
+  {
+    name: 'a long client secret whose filtered shape is short',
+    client: 'ÿéßüöäñZq',
+    prose: 'client Zq is unknown',
+  },
+].flatMap((secret) => SHORT_SECRET_FIELDS.map((field) => ({ ...secret, ...field })));
+
+/** Written out, not sliced to the constant: each test checks the length against it. */
+const AT_THE_MINIMUM_CASES = ECHO_FIELDS.map((field) => ({ ...field, client: 'q7Lw2Rt9' }));
+const UNDER_THE_MINIMUM_CASES = ECHO_FIELDS.map((field) => ({ ...field, client: 'q7Lw2Rt' }));
 
 const BROKEN_AROUND_GRANT_CASES = [
   { name: 'a quote', echo: 'ABCD"EFGHIJKLMNOPQRSTUVWX' },
@@ -1253,6 +1294,63 @@ describe.each(ECHOING_FLOWS)(
           body(`${sent.client} is wrong`),
         );
         expect(error.message).toBe(`${failed} (400): ${named('[redacted] is wrong')}`);
+      },
+    );
+
+    it.each(SHORT_SECRET_CASES)(
+      'should drop the $field rather than cut $name out of its prose',
+      async ({ client, prose, body, dropped }) => {
+        const { error, sent } = await refusedEchoing({ ...PLAIN, client }, () => body(prose));
+        expect({ sentClient: sent[0], message: error.message }).toEqual({
+          sentClient: client,
+          message: `${failed} (400)${dropped}`,
+        });
+      },
+    );
+
+    it('should keep a refusal whole when it does not hold a client secret shorter than the minimum', async () => {
+      const { error } = await refusedEchoing({ ...PLAIN, client: 'Zq7' }, () => ({
+        error: 'invalid_grant',
+        error_description: 'Token has been expired or revoked.',
+      }));
+      expect(error.message).toBe(
+        `${failed} (400): invalid_grant: Token has been expired or revoked.`,
+      );
+    });
+
+    it.each(AT_THE_MINIMUM_CASES)(
+      'should replace a client secret exactly as long as the minimum with [redacted] in the $field',
+      async ({ client, body, named }) => {
+        const { error } = await refusedEchoing({ ...PLAIN, client }, (sent) =>
+          body(`client ${sent.client} refused`),
+        );
+        expect({
+          length: client.length,
+          message: error.message,
+          leaked: leakedSecretsIn(error, [client], { fragments: true }),
+        }).toEqual({
+          length: SECRET_SHAPE_MIN_CHARS,
+          message: `${failed} (400): ${named('client [redacted] refused')}`,
+          leaked: [],
+        });
+      },
+    );
+
+    it.each(UNDER_THE_MINIMUM_CASES)(
+      'should drop the $field when it holds a client secret one character under the minimum',
+      async ({ client, body, dropped }) => {
+        const { error } = await refusedEchoing({ ...PLAIN, client }, (sent) =>
+          body(`client ${sent.client} refused`),
+        );
+        expect({
+          length: client.length,
+          message: error.message,
+          leaked: leakedSecretsIn(error, [client], { fragments: true }),
+        }).toEqual({
+          length: SECRET_SHAPE_MIN_CHARS - 1,
+          message: `${failed} (400)${dropped}`,
+          leaked: [],
+        });
       },
     );
 
