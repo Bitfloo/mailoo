@@ -1150,6 +1150,13 @@ const SHORT_SECRET_CASES = [
     client: 'q.7.L.w',
     prose: 'client q.7.L.w refused',
   },
+  // The same seven behind a dropped `ÿ`: the raw and encoded shapes keep the `ÿ`, so none shares
+  // the filtered shape's pattern and rewrites its length, as `q.7.L.w`'s do.
+  {
+    name: 'a long client secret whose filtered shape is short and holds regex syntax',
+    client: 'ÿq.7.L.w',
+    prose: 'client q.7.L.w refused',
+  },
   // Its filtered shape is empty, so only the raw text can find it.
   {
     name: 'a client secret under the minimum of dropped characters only',
