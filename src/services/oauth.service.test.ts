@@ -1348,6 +1348,17 @@ describe.each(ECHOING_FLOWS)(
       },
     );
 
+    // Two markers: each echo the cleaned text spells lies inside one of them, never inside both.
+    it.each(ECHO_FIELDS)(
+      'should leave a whole [redacted] for each of two echoes of a client secret inside the marker in the $field',
+      async ({ body, named }) => {
+        const { error } = await refusedEchoing({ ...PLAIN, client: 'redacted' }, (sent) =>
+          body(`${sent.client} and ${sent.client}`),
+        );
+        expect(error.message).toBe(`${failed} (400): ${named('[redacted] and [redacted]')}`);
+      },
+    );
+
     it.each(SHORT_SECRET_CASES)(
       'should drop the $field rather than cut $name out of its prose',
       async ({ client, prose, body, dropped }) => {
