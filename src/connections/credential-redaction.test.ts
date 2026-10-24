@@ -17,6 +17,8 @@ const XOAUTH2_UNKNOWN_TOKEN =
 const URL_SECRET = 'P@ss W/rd+%9z';
 const URL_SECRET_ENCODED = 'P%40ss%20W%2Frd%2B%259z';
 const URL_SECRET_ENCODED_LOWER_HEX = 'P%40ss%20W%2frd%2b%259z';
+// Encodes to "C%40fe%2FBad": uppercase hex letters both inside and outside an escape.
+const HEX_LETTER_SECRET = 'C@fe/Bad';
 const NON_ASCII_PASSWORD = 'Zażółć-Hasło9';
 const AUTH_LOGIN_NON_ASCII = 'WmHFvMOzxYLEhy1IYXPFgm85';
 const AUTH_PLAIN_NON_ASCII = 'AHdvcmtAZXhhbXBsZS5jb20AWmHFvMOzxYLEhy1IYXPFgm85';
@@ -66,6 +68,25 @@ describe('redactSentCredentials', () => {
     expect(redactSentCredentials(reply, { user: USER, secrets: [URL_SECRET] })).toBe(
       `${REPLY} [redacted]`,
     );
+  });
+
+  it.each([
+    ['a lowercase escape before an uppercase one', URL_SECRET, 'P%40ss%20W%2frd%2B%259z'],
+    ['an uppercase escape before a lowercase one', URL_SECRET, 'P%40ss%20W%2Frd%2b%259z'],
+    ['both cases inside one escape', NON_ASCII_PASSWORD, 'Za%c5%Bc%C3%b3%C5%82%C4%87-Has%C5%82o9'],
+    ['a lowercase escape beside uppercase letters', HEX_LETTER_SECRET, 'C%40fe%2fBad'],
+  ])('should redact the percent-encoded secret written with %s', (_case, secret, echo) => {
+    expect(redactSentCredentials(`${REPLY} ${echo}`, { user: USER, secrets: [secret] })).toBe(
+      `${REPLY} [redacted]`,
+    );
+  });
+
+  it.each([
+    ['before the escapes', 'c%40fe%2FBad'],
+    ['right after an escape', 'C%40fe%2Fbad'],
+  ])('should keep a percent-encoded echo whose letter %s differs in case', (_where, echo) => {
+    const reply = `${REPLY} ${echo}`;
+    expect(redactSentCredentials(reply, { user: USER, secrets: [HEX_LETTER_SECRET] })).toBe(reply);
   });
 
   it.each([
@@ -180,29 +201,40 @@ describe('redactSentCredentials', () => {
     expect(redactSentCredentials(reply, { user: USER, secrets: ['', undefined] })).toBe(reply);
   });
 
-  it('should redact a one-character secret that stands as a word', () => {
-    expect(redactSentCredentials(`${REPLY} q`, { user: USER, secrets: ['q'] })).toBe(
-      `${REPLY} [redacted]`,
-    );
+  it.each([
+    ['a one-character secret inside words', 'q', '535 5.7.8 Request quota exceeded'],
+    ['a seven-character secret inside a word', 'kkkkkkk', `${REPLY} zzkkkkkkkzz`],
+    ['the AUTH LOGIN form of a short secret', 'q', `${REPLY} cQ==`],
+    ['a short percent-encoded secret with mixed-case escapes', '/:', `${REPLY} x%2f%3Ay`],
+  ])('should withhold the whole text when it holds %s', (_shape, secret, reply) => {
+    expect(redactSentCredentials(reply, { user: USER, secrets: [secret] })).toBe('[redacted]');
   });
 
-  it('should keep a one-character secret that only occurs inside words', () => {
-    const reply = '535 5.7.8 Request quota exceeded';
+  it('should withhold the whole text when a short secret occurs only inside a long one', () => {
+    const nested = { user: USER, secrets: ['pa55', 'xxpa55xxyy'] };
+    expect(redactSentCredentials(`${REPLY} xxpa55xxyy`, nested)).toBe('[redacted]');
+  });
+
+  it('should leave the text unchanged when a short secret does not occur in it', () => {
+    const reply = 'Invalid login: 535-5.7.8 Username and Password not accepted';
     expect(redactSentCredentials(reply, { user: USER, secrets: ['q'] })).toBe(reply);
   });
 
   it.each([
-    ['a letter on its left', `${REPLY} xq`],
-    ['a digit on its right', `${REPLY} q7`],
-    ['an accented letter on its left', `${REPLY} żq`],
-    ['a non-Latin digit on its right', `${REPLY} q٣`],
-  ])('should keep a one-character secret with %s', (_neighbour, reply) => {
-    expect(redactSentCredentials(reply, { user: USER, secrets: ['q'] })).toBe(reply);
+    ['a long secret', 'abcd[redacted]wxyz'],
+    ['a short secret', 'd['],
+  ])('should withhold the whole text when the text around a cut spells %s', (_size, spelled) => {
+    const secrets = { user: USER, secrets: [spelled, 'long-token-0123'] };
+    expect(redactSentCredentials(`${REPLY} abcdlong-token-0123wxyz`, secrets)).toBe('[redacted]');
   });
 
-  it('should keep a seven-character secret that occurs inside a word', () => {
-    const reply = `${REPLY} zzkkkkkkkzz`;
-    expect(redactSentCredentials(reply, { user: USER, secrets: ['kkkkkkk'] })).toBe(reply);
+  it.each([
+    ['a long secret', 'redacted', `${REPLY} redacted`],
+    ['a short secret', 'ac', `${REPLY} ${PASSWORD}`],
+  ])('should keep the text when %s matches only inside a marker', (_size, secret, reply) => {
+    expect(redactSentCredentials(reply, { user: USER, secrets: [PASSWORD, secret] })).toBe(
+      `${REPLY} [redacted]`,
+    );
   });
 
   it('should redact an eight-character secret that occurs inside a word', () => {
@@ -223,8 +255,8 @@ describe('redactSentCredentials', () => {
   });
 
   it('should cap a reply that redaction grows past 300 characters', () => {
-    const reply = 'q '.repeat(100);
-    expect(redactSentCredentials(reply, { user: USER, secrets: ['q'] })).toBe(
+    const reply = 'kkkkkkkk '.repeat(33);
+    expect(redactSentCredentials(reply, { user: USER, secrets: ['kkkkkkkk'] })).toBe(
       `${'[redacted] '.repeat(27)}[r…`,
     );
   });
