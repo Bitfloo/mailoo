@@ -1,6 +1,6 @@
 import type { SmtpAuth } from '../connections/auth.js';
-import { buildSmtpAuth } from '../connections/auth.js';
 import { MAX_ERROR_TEXT_LENGTH } from '../connections/credential-redaction.js';
+import ConnectionManager from '../connections/manager.js';
 import {
   createMockConnectionManager,
   createMockImapService,
@@ -10,8 +10,30 @@ import {
 import type { AccountConfig } from '../types/index.js';
 import SmtpService from './smtp.service.js';
 
+const h = vi.hoisted(() => ({ verifyError: null as Error | null }));
+
 vi.mock('../logging.js', () => ({
   mcpLog: vi.fn().mockResolvedValue(undefined),
+}));
+
+// The transport the real connection manager builds: nodemailer asks for the token while it
+// authenticates, then the server answers.
+vi.mock('nodemailer', () => ({
+  default: {
+    createTransport: (options: { auth: SmtpAuth }) => ({
+      verify: async () => {
+        const { auth } = options;
+        if ('provisionCallback' in auth) {
+          await new Promise<void>((resolve, reject) => {
+            auth.provisionCallback(auth.user, false, (err) => (err ? reject(err) : resolve()));
+          });
+        }
+        if (h.verifyError) throw h.verifyError;
+        return true;
+      },
+      close: vi.fn(),
+    }),
+  },
 }));
 
 const ACCESS_TOKEN = 'ya29.fake-access-token-0123456789';
@@ -46,14 +68,6 @@ function eauth(reply: string): Error {
   });
 }
 
-/** What nodemailer does during AUTH XOAUTH2: ask the provision callback for the token. */
-async function provisionToken(auth: SmtpAuth): Promise<void> {
-  if (!('provisionCallback' in auth)) throw new Error('expected an OAuth2 auth');
-  await new Promise<void>((resolve, reject) => {
-    auth.provisionCallback(auth.user, false, (err) => (err ? reject(err) : resolve()));
-  });
-}
-
 function serviceFor(account: AccountConfig) {
   const transport = createMockTransport();
   const connections = createMockConnectionManager(transport);
@@ -68,6 +82,10 @@ function serviceFor(account: AccountConfig) {
 
 const mail = { to: ['recipient@example.com'], subject: 'Hello', body: 'World' };
 
+beforeEach(() => {
+  h.verifyError = null;
+});
+
 describe('SmtpService send errors', () => {
   it('should redact the password a 535 reply quotes when sending fails', async () => {
     const { transport, service } = serviceFor(passwordAccount);
@@ -78,13 +96,12 @@ describe('SmtpService send errors', () => {
     );
   });
 
-  it('should redact the OAuth2 token handed to the transport when sending fails', async () => {
-    const { transport, service } = serviceFor(oauthAccount);
-    const auth = buildSmtpAuth(oauthAccount, { getAccessToken: async () => ACCESS_TOKEN });
-    transport.sendMail.mockImplementation(async () => {
-      await provisionToken(auth);
-      throw eauth(`535 5.7.8 Token ${ACCESS_TOKEN} is not valid`);
+  it('should redact the OAuth2 token the connection manager handed to nodemailer', async () => {
+    h.verifyError = eauth(`535 5.7.8 Token ${ACCESS_TOKEN} is not valid`);
+    const manager = new ConnectionManager([oauthAccount], {
+      getAccessToken: async () => ACCESS_TOKEN,
     });
+    const service = new SmtpService(manager, createMockRateLimiter(true), createMockImapService());
     await expect(service.sendEmail('test', mail)).rejects.toHaveProperty(
       'message',
       'Invalid login: 535 5.7.8 Token [redacted] is not valid',
@@ -97,6 +114,15 @@ describe('SmtpService send errors', () => {
     await expect(service.sendEmail('test', mail)).rejects.toHaveProperty(
       'message',
       'Invalid login: 535 5.7.8 [redacted] rejected',
+    );
+  });
+
+  it('should redact a rejection that is not an Error', async () => {
+    const { transport, service } = serviceFor(passwordAccount);
+    transport.sendMail.mockRejectedValue('535 5.7.8 S3cret-Pa55word! rejected');
+    await expect(service.sendEmail('test', mail)).rejects.toHaveProperty(
+      'message',
+      '535 5.7.8 [redacted] rejected',
     );
   });
 
@@ -114,6 +140,12 @@ describe('SmtpService send errors', () => {
     const { transport, service } = serviceFor(passwordAccount);
     transport.sendMail.mockRejectedValue(eauth('535 5.7.8 S3cret-Pa55word! rejected'));
     await expect(service.sendEmail('test', mail)).rejects.not.toHaveProperty('response');
+  });
+
+  it('should not chain the raw error as the cause', async () => {
+    const { transport, service } = serviceFor(passwordAccount);
+    transport.sendMail.mockRejectedValue(eauth('535 5.7.8 S3cret-Pa55word! rejected'));
+    await expect(service.sendEmail('test', mail)).rejects.not.toHaveProperty('cause');
   });
 
   it('should cut a long send error to the cap', async () => {
