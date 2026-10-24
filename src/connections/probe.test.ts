@@ -184,6 +184,8 @@ describe('testImap', () => {
     });
   });
 
+  // imapflow 2 keeps the server's text in `response` and `responseText`, never in `message` (see
+  // the refused-login test above). These messages stand for any other source that does quote it.
   it('should redact the password a refused login quotes', async () => {
     h.connectError = new Error('Command failed: NO [AUTHENTICATIONFAILED] wrong-password rejected');
     expect(await testImap(account)).toEqual({
@@ -244,6 +246,19 @@ describe('testSmtp', () => {
       { code: 'EAUTH', responseCode: 535 },
     );
     expect(await testSmtp(account)).toEqual({
+      success: false,
+      error: 'Invalid login: 535 5.7.8 Error: authentication failed: [redacted]',
+    });
+  });
+
+  it('should redact the AUTH PLAIN blob built from a login name that differs from the address', async () => {
+    h.verifyError = Object.assign(
+      new Error(
+        'Invalid login: 535 5.7.8 Error: authentication failed: AHdvcmstbG9naW4Ad3JvbmctcGFzc3dvcmQ=',
+      ),
+      { code: 'EAUTH', responseCode: 535 },
+    );
+    expect(await testSmtp({ ...account, username: 'work-login' })).toEqual({
       success: false,
       error: 'Invalid login: 535 5.7.8 Error: authentication failed: [redacted]',
     });
