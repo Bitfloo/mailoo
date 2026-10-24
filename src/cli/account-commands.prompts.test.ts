@@ -130,6 +130,17 @@ const POSITIVE = 'Must be a positive integer';
 describe('mailoo account prompt validation', () => {
   const sandbox = useAccountSandbox(wizard, probes);
 
+  const validatorFor = async (prompt: string) => {
+    wizard.overrides.set('Enable SMTP connection pooling?', true);
+    wizard.overrides.set('SMTP pool max connections', '2');
+    wizard.overrides.set('SMTP pool max messages per connection', '2');
+
+    await (await sandbox.entryPoint('account add'))();
+
+    const asked = wizard.asked.find(({ message }) => message === prompt);
+    return asked?.options.validate as (value?: string) => string | undefined;
+  };
+
   // Clack shows the returned text and asks again; undefined accepts the value.
   // Enter on an untouched prompt hands the validator undefined, not ''.
   it.each([
@@ -141,10 +152,16 @@ describe('mailoo account prompt validation', () => {
     ['Email address', 'user@example.com', undefined],
     ['IMAP host', undefined, 'IMAP host is required'],
     ['IMAP host', '', 'IMAP host is required'],
+    ['IMAP host', '   ', 'IMAP host is required'],
+    ['IMAP host', '\t', 'IMAP host is required'],
     ['IMAP host', 'imap.example.com', undefined],
+    ['IMAP host', 'a', undefined],
     ['SMTP host', undefined, 'SMTP host is required'],
     ['SMTP host', '', 'SMTP host is required'],
+    ['SMTP host', '   ', 'SMTP host is required'],
+    ['SMTP host', '\t', 'SMTP host is required'],
     ['SMTP host', 'smtp.example.com', undefined],
+    ['SMTP host', 'a', undefined],
     ['SMTP pool max connections', undefined, POSITIVE],
     ['SMTP pool max connections', '', POSITIVE],
     ['SMTP pool max connections', '0', POSITIVE],
@@ -159,14 +176,16 @@ describe('mailoo account prompt validation', () => {
     ['Password / App Password', '', 'Password is required'],
     ['Password / App Password', 'app-password', undefined],
   ])('should have the "%s" validator turn %j into %j', async (prompt, input, expected) => {
-    wizard.overrides.set('Enable SMTP connection pooling?', true);
-    wizard.overrides.set('SMTP pool max connections', '2');
-    wizard.overrides.set('SMTP pool max messages per connection', '2');
-
-    await (await sandbox.entryPoint('account add'))();
-
-    const asked = wizard.asked.find(({ message }) => message === prompt);
-    const validate = asked?.options.validate as (value?: string) => string | undefined;
+    const validate = await validatorFor(prompt);
     expect(validate(input)).toBe(expected);
   });
+
+  // Not a row above: %j leaves U+00A0 unescaped, so its name would read as a plain space.
+  it.each(['IMAP host', 'SMTP host'])(
+    'should have the "%s" validator refuse a no-break space (U+00A0)',
+    async (prompt) => {
+      const validate = await validatorFor(prompt);
+      expect(validate('\u00a0')).toBe(`${prompt} is required`);
+    },
+  );
 });

@@ -77,6 +77,16 @@ describe('account schema credential', () => {
       { sent_mailbox: '' },
       'sent_mailbox: Too small: expected string to have >=1 characters',
     ],
+    ['a blank IMAP host', { imap: { host: '   ' } }, 'imap.host: IMAP host is required'],
+    ['a tab-only IMAP host', { imap: { host: '\t' } }, 'imap.host: IMAP host is required'],
+    ['a mixed-blank IMAP host', { imap: { host: ' \t\n ' } }, 'imap.host: IMAP host is required'],
+    ['a CRLF-only IMAP host', { imap: { host: '\r\n' } }, 'imap.host: IMAP host is required'],
+    ['an NBSP-only IMAP host', { imap: { host: '\u00a0' } }, 'imap.host: IMAP host is required'],
+    ['a blank SMTP host', { smtp: { host: '   ' } }, 'smtp.host: SMTP host is required'],
+    ['a tab-only SMTP host', { smtp: { host: '\t' } }, 'smtp.host: SMTP host is required'],
+    ['a mixed-blank SMTP host', { smtp: { host: ' \t\n ' } }, 'smtp.host: SMTP host is required'],
+    ['a CRLF-only SMTP host', { smtp: { host: '\r\n' } }, 'smtp.host: SMTP host is required'],
+    ['an NBSP-only SMTP host', { smtp: { host: '\u00a0' } }, 'smtp.host: SMTP host is required'],
   ])('should refuse %s beside a password, at that field', (_label, field, issue) => {
     const issues =
       AccountConfigSchema.safeParse({ ...account, password: 'pw', ...field }).error?.issues ?? [];

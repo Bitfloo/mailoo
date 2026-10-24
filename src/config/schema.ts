@@ -6,8 +6,11 @@ import { z } from 'zod';
 
 import LOOPBACK_HOSTNAMES from '../utils/loopback.js';
 
+/** A blank host is no host. Only the check trims: the host is used as written. */
+const isHostSet = (host: string): boolean => host.trim() !== '';
+
 export const ImapConfigSchema = z.object({
-  host: z.string().min(1, 'IMAP host is required'),
+  host: z.string().refine(isHostSet, 'IMAP host is required'),
   port: z.number().int().min(1).max(65535).default(993),
   tls: z.boolean().default(true),
   starttls: z.boolean().default(false),
@@ -18,7 +21,7 @@ export const ImapConfigSchema = z.object({
 });
 
 export const SmtpConfigSchema = z.object({
-  host: z.string().min(1, 'SMTP host is required'),
+  host: z.string().refine(isHostSet, 'SMTP host is required'),
   port: z.number().int().min(1).max(65535).default(465),
   tls: z.boolean().default(true),
   starttls: z.boolean().default(false),

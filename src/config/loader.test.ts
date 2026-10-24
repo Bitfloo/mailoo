@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { ZodError } from 'zod';
+
 import {
   MINIMAL_TOML,
   permissionBits,
@@ -124,6 +126,55 @@ describe('Config Loader', () => {
       expect(config.accounts[0].email).toBe('test@example.com');
       expect(config.accounts[0].imap.host).toBe('imap.example.com');
       expect(config.accounts[0].smtp.host).toBe('smtp.example.com');
+    });
+
+    describe.each([
+      ['imap', 'IMAP'],
+      ['smtp', 'SMTP'],
+    ])('with a blank %s host', (table, label) => {
+      // JSON escapes are TOML escapes, so the file holds the whitespace the row names.
+      it.each([
+        ['only spaces', '   '],
+        ['a tab', '\t'],
+        ['mixed blanks', ' \t\n '],
+        ['CRLF', '\r\n'],
+        ['a no-break space', '\u00a0'],
+      ])('should refuse a config file whose host is %s, naming the field', async (_name, host) => {
+        const configPath = path.join(sandbox.dir, 'config.toml');
+        await writeOwnerOnly(
+          configPath,
+          MINIMAL_TOML.replace(`host = "${table}.example.com"`, `host = ${JSON.stringify(host)}`),
+        );
+
+        const refused = await loadConfig(configPath).catch((error: unknown) => {
+          if (!(error instanceof ZodError)) throw error;
+          return error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
+        });
+
+        expect(refused).toEqual([`accounts.0.${table}.host: ${label} host is required`]);
+      });
+    });
+
+    // The blank check reads the trimmed host; the host itself is used as written.
+    describe.each([
+      ['imap', 'IMAP'],
+      ['smtp', 'SMTP'],
+    ] as const)('with a non-blank %s host', (table, label) => {
+      it.each([
+        ['padded', ` ${table}.example.com `],
+        ['one-character', 'a'],
+        ['padded one-character', ' a '],
+      ])(`should keep a %s ${label} host from the config file as written`, async (_kind, host) => {
+        const configPath = path.join(sandbox.dir, 'config.toml');
+        await writeOwnerOnly(
+          configPath,
+          MINIMAL_TOML.replace(`"${table}.example.com"`, JSON.stringify(host)),
+        );
+
+        const [account] = (await loadConfig(configPath)).accounts;
+
+        expect(account[table].host).toBe(host);
+      });
     });
 
     it('throws when config file does not exist', async () => {
