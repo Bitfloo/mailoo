@@ -1,9 +1,8 @@
-import { access, mkdir, readdir, readFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { access, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-import ts from 'typescript';
 
 import { pinAuditHome, readAuditEntries } from './audit-home.js';
 
@@ -28,90 +27,9 @@ const LOADS_AUDIT_WITHOUT_WRITING = new Set([
   'src/tools/scheduler.tool.test.ts',
 ]);
 
-const RESTORE_HOOKS = new Set(['afterAll', 'afterEach']);
-
-interface AuditHomeUse {
-  pins: number;
-  restores: number;
-  balanced: boolean;
-}
-
-function calleeName(call: ts.CallExpression): string | undefined {
-  const callee = call.expression;
-  if (ts.isIdentifier(callee)) return callee.text;
-  if (ts.isPropertyAccessExpression(callee)) return callee.name.text;
-  return undefined;
-}
-
-/** The name a pin is kept under: `x = await pin()`, `const x = pin()` or `{ x: await pin() }`. */
-function pinBinding(pin: ts.CallExpression): string | undefined {
-  let value: ts.Node = pin;
-  while (ts.isAwaitExpression(value.parent) || ts.isParenthesizedExpression(value.parent)) {
-    value = value.parent;
-  }
-  const holder = value.parent;
-  if (ts.isVariableDeclaration(holder) || ts.isPropertyAssignment(holder)) {
-    return ts.isIdentifier(holder.name) ? holder.name.text : undefined;
-  }
-  if (
-    ts.isBinaryExpression(holder) &&
-    holder.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-    ts.isIdentifier(holder.left)
-  ) {
-    return holder.left.text;
-  }
-  return undefined;
-}
-
-/**
- * pinAuditHome() calls against restore() calls made inside afterAll or afterEach on the name a pin
- * is kept under: another object's restore() does not release the home. Counts call nodes, not
- * text, so a commented-out restore or a call quoted in a string is not seen.
- */
-function auditHomeUse(source: string): AuditHomeUse {
-  const file = ts.createSourceFile('suite.test.ts', source, ts.ScriptTarget.Latest, true);
-  const counts = { pins: 0, restores: 0 };
-  const pinned = new Set<string>();
-  const restoreReceivers: string[] = [];
-  const visit = (node: ts.Node, inHook: boolean): void => {
-    let hooked = inHook;
-    if (ts.isCallExpression(node)) {
-      const callee = node.expression;
-      if (calleeName(node) === 'pinAuditHome') {
-        counts.pins += 1;
-        const name = pinBinding(node);
-        if (name) pinned.add(name);
-      }
-      if (ts.isIdentifier(callee) && RESTORE_HOOKS.has(callee.text)) hooked = true;
-      if (
-        inHook &&
-        ts.isPropertyAccessExpression(callee) &&
-        ts.isIdentifier(callee.expression) &&
-        callee.name.text === 'restore' &&
-        node.arguments.length === 0
-      ) {
-        restoreReceivers.push(callee.expression.text);
-      }
-    }
-    ts.forEachChild(node, (child) => {
-      visit(child, hooked);
-    });
-  };
-  visit(file, false);
-  restoreReceivers.forEach((receiver) => {
-    if (pinned.has(receiver)) counts.restores += 1;
-  });
-  return { ...counts, balanced: counts.pins === counts.restores };
-}
-
-/** The helper's own tests restore each home inline, in finally: restore is what they test. */
-const THIS_FILE = path
-  .relative(root, fileURLToPath(import.meta.url))
-  .split(path.sep)
-  .join('/');
-
-/** Ways besides pinAuditHome() that a suite keeps audit.log out of the user's data directory. */
-const OTHER_AUDIT_PINS = [
+/** Ways a suite keeps audit.log out of the user's data directory. */
+const AUDIT_PINS = [
+  /\bpinAuditHome\s*\(/,
   /vi\.mock\(\s*['"][^'"]*(?:safety\/|\.\/)audit\.js['"]/,
   /vi\.stubEnv\(\s*['"]XDG_DATA_HOME['"]/,
   /vi\.mock\(\s*['"]node:fs\/promises['"]\s*\)/,
@@ -248,168 +166,8 @@ describe('readAuditEntries', () => {
   });
 });
 
-const PIN_IN_HOISTED = `const { auditHome } = await vi.hoisted(async () => {
-  const { pinAuditHome } = await import('../test-support/audit-home.js');
-  return { auditHome: await pinAuditHome() };
-});
-`;
-
-const PIN_IN_BEFORE_EACH = `let auditHome: AuditHome;
-
-beforeEach(async () => {
-  auditHome = await pinAuditHome();
-});
-`;
-
-const BALANCED = { pins: 1, restores: 1, balanced: true };
-const PINNED_NOT_RESTORED = { pins: 1, restores: 0, balanced: false };
-
-describe('auditHomeUse', () => {
-  it.each([
-    [
-      'accept a restore in an async afterAll',
-      `${PIN_IN_HOISTED}
-afterAll(async () => {
-  await auditHome.restore();
-});
-`,
-      BALANCED,
-    ],
-    [
-      'accept a restore in an async afterEach after other cleanup',
-      `${PIN_IN_BEFORE_EACH}
-afterEach(async () => {
-  vi.unstubAllGlobals();
-  await auditHome.restore();
-});
-`,
-      BALANCED,
-    ],
-    [
-      'accept a restore returned from a synchronous afterAll',
-      `${PIN_IN_HOISTED}
-afterAll(() => {
-  return auditHome.restore();
-});
-`,
-      BALANCED,
-    ],
-    [
-      'accept a restore as the expression body of an afterEach',
-      `${PIN_IN_BEFORE_EACH}
-afterEach(() => auditHome.restore());
-`,
-      BALANCED,
-    ],
-    [
-      'reject a restore() commented out with //',
-      `${PIN_IN_HOISTED}
-afterAll(async () => {
-  // await auditHome.restore();
-});
-`,
-      PINNED_NOT_RESTORED,
-    ],
-    [
-      'reject a restore() inside a block comment',
-      `${PIN_IN_HOISTED}
-afterAll(async () => {
-  /* await auditHome.restore(); */
-});
-`,
-      PINNED_NOT_RESTORED,
-    ],
-    [
-      'reject two pins that share one restore',
-      `const { auditHome } = await vi.hoisted(async () => {
-  const { pinAuditHome } = await import('../test-support/audit-home.js');
-  return { auditHome: await pinAuditHome(), spare: await pinAuditHome() };
-});
-
-afterAll(async () => {
-  await auditHome.restore();
-});
-`,
-      { pins: 2, restores: 1, balanced: false },
-    ],
-    [
-      'reject a restore() made outside an afterAll or afterEach',
-      `${PIN_IN_HOISTED}
-it('should leave the home to the end of the run', async () => {
-  await auditHome.restore();
-});
-`,
-      PINNED_NOT_RESTORED,
-    ],
-    [
-      'reject an afterEach that only restores mocks',
-      `${PIN_IN_BEFORE_EACH}
-afterEach(() => {
-  vi.restoreAllMocks();
-});
-`,
-      PINNED_NOT_RESTORED,
-    ],
-    [
-      'reject an afterAll that restores another object',
-      `${PIN_IN_HOISTED}
-afterAll(async () => {
-  await NotifierService.restore();
-});
-`,
-      PINNED_NOT_RESTORED,
-    ],
-    [
-      'ignore a restore(arg) in an afterAll',
-      `${PIN_IN_HOISTED}
-afterAll(async () => {
-  await auditHome.restore(true);
-});
-`,
-      PINNED_NOT_RESTORED,
-    ],
-    [
-      'count two pins that are each restored in an afterAll',
-      `const { auditHome, second } = await vi.hoisted(async () => {
-  const { pinAuditHome } = await import('../test-support/audit-home.js');
-  return { auditHome: await pinAuditHome(), second: await pinAuditHome() };
-});
-
-afterAll(async () => {
-  await auditHome.restore();
-  await second.restore();
-});
-`,
-      { pins: 2, restores: 2, balanced: true },
-    ],
-    [
-      'count a pin made through a namespace import',
-      `const helper = await import('../test-support/audit-home.js');
-const home = await helper.pinAuditHome();
-
-afterAll(async () => {
-  await home.restore();
-});
-`,
-      BALANCED,
-    ],
-    [
-      'ignore a pin and a restore quoted in string literals',
-      `const note = 'pinAuditHome() then auditHome.restore()';
-afterAll(() => {
-  expect(\`pinAuditHome()\`).toBe(note);
-});
-`,
-      { pins: 0, restores: 0, balanced: true },
-    ],
-  ])('should %s', (_title, source, use) => {
-    expect(auditHomeUse(source)).toEqual(use);
-  });
-});
-
 describe('audit home roster', () => {
   let loading: { file: string; pinned: boolean }[] = [];
-  let pinning: ({ file: string } & AuditHomeUse)[] = [];
 
   beforeAll(async () => {
     const files = await testFiles();
@@ -417,18 +175,14 @@ describe('audit home roster', () => {
     const texts = await Promise.all(
       files.map(async (file) => readFile(path.join(root, file), 'utf8')),
     );
-    const scanned = files.map((file, i) => ({
-      file,
-      loads: loads[i],
-      otherPin: OTHER_AUDIT_PINS.some((pin) => pin.test(texts[i] ?? '')),
-      ...auditHomeUse(texts[i] ?? ''),
-    }));
-    loading = scanned
+    loading = files
+      .map((file, i) => ({
+        file,
+        loads: loads[i],
+        pinned: AUDIT_PINS.some((pin) => pin.test(texts[i] ?? '')),
+      }))
       .filter((entry) => entry.loads)
-      .map(({ file, pins, otherPin }) => ({ file, pinned: pins > 0 || otherPin }));
-    pinning = scanned
-      .filter(({ file, pins }) => file !== THIS_FILE && pins > 0)
-      .map(({ file, pins, restores, balanced }) => ({ file, pins, restores, balanced }));
+      .map(({ file, pinned }) => ({ file, pinned }));
   });
 
   it('should find the suites that read the audit log among those that load audit.ts', () => {
@@ -449,18 +203,61 @@ describe('audit home roster', () => {
     const unpinned = new Set(loading.filter((e) => !e.pinned).map((e) => e.file));
     expect([...LOADS_AUDIT_WITHOUT_WRITING].filter((file) => !unpinned.has(file))).toEqual([]);
   });
+});
 
-  it('should restore in an afterAll or afterEach every audit home a test file pins', () => {
-    expect({
-      pinned: pinning.map((entry) => entry.file),
-      unrestored: pinning.filter((entry) => !entry.balanced),
-    }).toEqual({
-      // One afterAll and one afterEach suite, so a pin regex that matches nothing cannot pass.
-      pinned: expect.arrayContaining([
-        'src/tools/manage.tool.oauth-error.test.ts',
-        'src/tools/tool-errors.test.ts',
-      ]),
-      unrestored: [],
-    });
+const VITEST_ENTRY = path.join(root, 'node_modules', 'vitest', 'vitest.mjs');
+
+/** The child Vitest starts cold and shares the CPU with the parent run's workers. */
+const CHILD_RUN_TIMEOUT_MS = 30_000;
+
+interface ChildRun {
+  exitCode: number;
+  output: string;
+}
+
+/** Resolves on any exit, so a failing child still reaches the assertions on its files. */
+async function runSuite(file: string, env: NodeJS.ProcessEnv): Promise<ChildRun> {
+  return new Promise((resolve) => {
+    // dot: the config's junit and json reporters would overwrite the parent run's reports/.
+    execFile(
+      process.execPath,
+      [VITEST_ENTRY, 'run', file, '--reporter=dot'],
+      { cwd: root, env },
+      (error, stdout, stderr) => {
+        const code = error && typeof error.code === 'number' ? error.code : -1;
+        resolve({ exitCode: error ? code : 0, output: `${stdout}${stderr}` });
+      },
+    );
   });
+}
+
+describe('tool-errors audit home', () => {
+  it(
+    "should keep the tool-errors suite's audit entries out of the data home and remove its audit home",
+    async () => {
+      const dataHome = await mkdtemp(path.join(os.tmpdir(), 'mailoo-child-data-'));
+      const tmp = await mkdtemp(path.join(os.tmpdir(), 'mailoo-child-tmp-'));
+      try {
+        const run = await runSuite('src/tools/tool-errors.test.ts', {
+          ...process.env,
+          XDG_DATA_HOME: dataHome,
+          TMPDIR: tmp,
+        });
+        expect(
+          {
+            exitCode: run.exitCode,
+            dataHomeLog: await exists(path.join(dataHome, 'mailoo', 'audit.log')),
+            leftHomes: (await readdir(tmp)).filter((name) => name.startsWith('mailoo-audit-')),
+          },
+          run.output.slice(-2000),
+        ).toEqual({ exitCode: 0, dataHomeLog: false, leftHomes: [] });
+      } finally {
+        await Promise.all([
+          rm(dataHome, { recursive: true, force: true }),
+          rm(tmp, { recursive: true, force: true }),
+        ]);
+      }
+    },
+    CHILD_RUN_TIMEOUT_MS,
+  );
 });

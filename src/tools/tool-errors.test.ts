@@ -248,7 +248,7 @@ describe('tool failures are audited', () => {
     const before = (await readAuditEntries(auditHome)).length;
     await callTool(server, 'schedule_email', SCHEDULE_ARGS);
     await callTool(server, 'cancel_scheduled', { schedule_id: 'sched-1' });
-    // The pin's only oracle: a pin set after the imports sends these entries to the real log.
+    // A pin set after the imports sends these entries to the inherited data home instead.
     expect((await readAuditEntries(auditHome)).slice(before).map((entry) => entry.tool)).toEqual([
       'schedule_email',
       'cancel_scheduled',
@@ -256,13 +256,18 @@ describe('tool failures are audited', () => {
   });
 
   it('should audit a schedule_email whose schedule call rejects as an error with its message', async () => {
-    const server = failingSchedulerServer('work');
+    const server = failingSchedulerServer('work-resolved');
     const before = (await readAuditEntries(auditHome)).length;
     await callTool(server, 'schedule_email', SCHEDULE_ARGS);
-    expect(
-      (await readAuditEntries(auditHome))
-        .slice(before)
-        .map(({ tool, result, error }) => ({ tool, result, error })),
-    ).toEqual([{ tool: 'schedule_email', result: 'error', error: FAILURE }]);
+    expect((await readAuditEntries(auditHome)).slice(before)).toEqual([
+      {
+        ts: expect.any(String),
+        tool: 'schedule_email',
+        account: 'work-resolved',
+        params: { to: ['recipient@example.com'], subject: 'Hello', send_at: 'in 1 hour' },
+        result: 'error',
+        error: FAILURE,
+      },
+    ]);
   });
 });
