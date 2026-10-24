@@ -1,18 +1,23 @@
+import fs from 'node:fs/promises';
 import { inspect } from 'node:util';
 
 import type { SmtpAuth } from '../connections/auth.js';
 import { MAX_ERROR_TEXT_LENGTH } from '../connections/credential-redaction.js';
 import ConnectionManager from '../connections/manager.js';
+import { SchedulerService, withDueQueue } from '../test-support/scheduler-fixtures.js';
 import {
   createMockConnectionManager,
   createMockImapService,
   createMockRateLimiter,
   createMockTransport,
 } from '../test-support/smtp-harness.js';
-import type { AccountConfig } from '../types/index.js';
+import type { AccountConfig, ScheduledEmail } from '../types/index.js';
 import SmtpService from './smtp.service.js';
 
-const h = vi.hoisted(() => ({ verifyError: null as Error | null }));
+const h = vi.hoisted(() => ({
+  verifyError: null as Error | null,
+  sendError: null as Error | null,
+}));
 
 vi.mock('../logging.js', () => ({
   mcpLog: vi.fn().mockResolvedValue(undefined),
@@ -32,6 +37,10 @@ vi.mock('nodemailer', () => ({
         }
         if (h.verifyError) throw h.verifyError;
         return true;
+      },
+      sendMail: async () => {
+        if (h.sendError) throw h.sendError;
+        return { messageId: '<sent@example.com>' };
       },
       close: vi.fn(),
     }),
@@ -60,6 +69,14 @@ const oauthAccount: AccountConfig = {
   },
 };
 
+const otherAccount: AccountConfig = {
+  ...passwordAccount,
+  name: 'other',
+  email: 'other@example.com',
+  username: 'other@example.com',
+  password: '0ther-Pa55word!',
+};
+
 /** nodemailer's EAUTH shape: the server line in the message and in `response`. */
 function eauth(reply: string): Error {
   return Object.assign(new Error(`Invalid login: ${reply}`), {
@@ -86,6 +103,7 @@ const mail = { to: ['recipient@example.com'], subject: 'Hello', body: 'World' };
 
 beforeEach(() => {
   h.verifyError = null;
+  h.sendError = null;
 });
 
 describe('SmtpService send errors', () => {
@@ -110,21 +128,45 @@ describe('SmtpService send errors', () => {
     );
   });
 
-  it('should redact with the secrets of the account the mail is sent from', async () => {
+  it('should redact a failed connect with the secrets of the account the mail is sent from', async () => {
     h.verifyError = eauth('535 5.7.8 0ther-Pa55word! rejected');
-    const other: AccountConfig = {
-      ...passwordAccount,
-      name: 'other',
-      email: 'other@example.com',
-      username: 'other@example.com',
-      password: '0ther-Pa55word!',
-    };
-    const manager = new ConnectionManager([passwordAccount, other], undefined, 'test');
+    const manager = new ConnectionManager([passwordAccount, otherAccount], undefined, 'test');
     const service = new SmtpService(manager, createMockRateLimiter(true), createMockImapService());
     await expect(service.sendEmail('other', mail)).rejects.toHaveProperty(
       'message',
       'Invalid login: 535 5.7.8 [redacted] rejected',
     );
+  });
+
+  // sendMail() logs in on its own connection after verify() passed, so this refusal never reaches
+  // the connection manager's catch.
+  it('should redact a refused send with the secrets of the account the mail is sent from', async () => {
+    h.sendError = eauth('535 5.7.8 0ther-Pa55word! rejected');
+    const manager = new ConnectionManager([passwordAccount, otherAccount], undefined, 'test');
+    const service = new SmtpService(manager, createMockRateLimiter(true), createMockImapService());
+    await expect(service.sendEmail('other', mail)).rejects.toHaveProperty(
+      'message',
+      'Invalid login: 535 5.7.8 [redacted] rejected',
+    );
+  });
+
+  it('should redact the password a 535 reply quotes when replyToEmail fails', async () => {
+    const { transport, service } = serviceFor(passwordAccount);
+    transport.sendMail.mockRejectedValue(eauth('535 5.7.8 S3cret-Pa55word! rejected'));
+    await expect(
+      service.replyToEmail('test', { emailId: '42', body: 'Thanks' }),
+    ).rejects.toHaveProperty('message', 'Invalid login: 535 5.7.8 [redacted] rejected');
+  });
+
+  // `mailoo scheduler list` prints the error queued on the record.
+  it('should queue a scheduled send refused by a 535 reply with the password redacted', async () => {
+    await withDueQueue(async ({ queueDir, pendingPath }) => {
+      const { transport, service } = serviceFor(passwordAccount);
+      transport.sendMail.mockRejectedValue(eauth('535 5.7.8 S3cret-Pa55word! rejected'));
+      await new SchedulerService(service, createMockImapService(), queueDir).checkAndSend();
+      const queued = JSON.parse(await fs.readFile(pendingPath, 'utf8')) as ScheduledEmail;
+      expect(queued.lastError).toBe('Invalid login: 535 5.7.8 [redacted] rejected');
+    });
   });
 
   it('should redact the password a 535 reply quotes when the first connect fails', async () => {
