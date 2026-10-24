@@ -21,6 +21,8 @@ its history before the fork is at the end of this file.
 - `check_health`, and any other tool whose IMAP or SMTP login fails, no longer returns
   a connection error that quotes the password or OAuth2 access token, nor repeats it
   while the next connect attempt waits.
+- In all of the above, an error reply that quotes a password or access token shorter
+  than eight characters is withheld whole and shows as `[redacted]`.
 
 - - -
 ## [v0.2.2](https://github.com/bitfloo/mailoo/compare/v0.2.1..v0.2.2) - 2026-10-18

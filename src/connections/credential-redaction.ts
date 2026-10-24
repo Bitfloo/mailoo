@@ -10,8 +10,8 @@ export const MAX_ERROR_TEXT_LENGTH = 300;
 
 const TRUNCATION_MARKER = '…';
 
-/** Shorter needles are redacted only as a whole word, so a one-letter password keeps the reply readable. */
-const MIN_SUBSTRING_NEEDLE_LENGTH = 8;
+// Matches the OAuth token-endpoint redaction.
+const SECRET_SHAPE_MIN_CHARS = 8;
 
 export interface SentCredentials {
   user: string;
@@ -20,7 +20,12 @@ export interface SentCredentials {
 
 type Span = [start: number, end: number];
 
-const WORD_CHAR = /[\p{L}\p{N}]/u;
+interface SecretShapes {
+  /** Cut out wherever they occur. */
+  long: RegExp[];
+  /** Shorter than SECRET_SHAPE_MIN_CHARS: they match the server's own words, so they are never cut. */
+  short: RegExp[];
+}
 
 // RFC 6750 b64token.
 const BEARER_TOKEN = /\bBearer\s+([\w.~+/-]+=*)/giu;
@@ -34,38 +39,54 @@ function base64(value: string): string {
   return Buffer.from(value, 'utf8').toString('base64');
 }
 
-function needlesFor(secret: string, user: string): string[] {
-  const percentEncoded = encodeURIComponent(secret);
-  return [
-    secret,
-    // AUTH LOGIN
-    base64(secret),
-    // AUTH PLAIN, without and with an authorization identity
-    base64(`\0${user}\0${secret}`),
-    base64(`${user}\0${user}\0${secret}`),
-    // XOAUTH2
-    base64(`user=${user}\u0001auth=Bearer ${secret}\u0001\u0001`),
-    percentEncoded,
-    percentEncoded.replace(/%[0-9A-F]{2}/gu, (hex) => hex.toLowerCase()),
-  ];
+function exactPattern(text: string): string {
+  return text.replace(/[\\^$.*+?()[\]{}|]/gu, '\\$&');
 }
 
-function isWordChar(char: string | undefined): boolean {
-  return char !== undefined && WORD_CHAR.test(char);
+function hexDigitsInEitherCase(percentEscape: string): string {
+  return percentEscape.replace(/[A-F]/gu, (digit) => `[${digit}${digit.toLowerCase()}]`);
 }
 
-function needleSpans(text: string, needle: string): Span[] {
-  const spans: Span[] = [];
-  const wholeWordOnly = needle.length < MIN_SUBSTRING_NEEDLE_LENGTH;
-  let start = text.indexOf(needle);
-  while (start !== -1) {
-    const end = start + needle.length;
-    if (!wholeWordOnly || (!isWordChar(text[start - 1]) && !isWordChar(text[end]))) {
-      spans.push([start, end]);
-    }
-    start = text.indexOf(needle, start + 1);
-  }
-  return spans;
+/** Encoders write an escape's hex digits in uppercase and an echo can write each in either case. */
+function percentEncodedPattern(encoded: string): string {
+  return exactPattern(encoded).replace(/%[0-9A-F]{2}/gu, hexDigitsInEitherCase);
+}
+
+/** A shape's length is that of the text it matches, not of its pattern, whose escapes are longer. */
+function secretShapes(sent: SentCredentials): SecretShapes {
+  const lengths = new Map<string, number>();
+  sent.secrets
+    .filter((secret): secret is string => typeof secret === 'string' && secret.length > 0)
+    .forEach((secret) => {
+      [
+        secret,
+        // AUTH LOGIN
+        base64(secret),
+        // AUTH PLAIN, without and with an authorization identity
+        base64(`\0${sent.user}\0${secret}`),
+        base64(`${sent.user}\0${sent.user}\0${secret}`),
+        // XOAUTH2
+        base64(`user=${sent.user}\u0001auth=Bearer ${secret}\u0001\u0001`),
+      ].forEach((shape) => {
+        lengths.set(exactPattern(shape), shape.length);
+      });
+      const encoded = encodeURIComponent(secret);
+      lengths.set(percentEncodedPattern(encoded), encoded.length);
+    });
+  const shapes: SecretShapes = { long: [], short: [] };
+  lengths.forEach((length, pattern) => {
+    shapes[length < SECRET_SHAPE_MIN_CHARS ? 'short' : 'long'].push(new RegExp(pattern, 'u'));
+  });
+  return shapes;
+}
+
+/** A lookahead match is empty, so the scan steps on one character and finds overlapping echoes. */
+function echoesOf(text: string, shape: RegExp): Span[] {
+  const scan = new RegExp(`(?=(${shape.source}))`, 'gu');
+  return Array.from(
+    text.matchAll(scan),
+    (match): Span => [match.index, match.index + (match[1] ?? '').length],
+  );
 }
 
 function bearerSpans(text: string): Span[] {
@@ -101,24 +122,37 @@ function capped(text: string): string {
   return `${text.slice(0, MAX_ERROR_TEXT_LENGTH - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`;
 }
 
-/** Redacts before capping: a cut through a secret would leave a prefix no needle matches. */
+function insideAMarker([start, end]: Span, markers: readonly number[]): boolean {
+  return markers.some((at) => at <= start && end <= at + REDACTED.length);
+}
+
+/**
+ * Text that holds a short shape anywhere is withheld whole, and so is text whose pieces around a
+ * cut spell a secret with the marker between (a secret `AA[redacted]ZZ` around a cut token).
+ * Redacts before capping: a cut through a secret would leave a prefix no shape matches.
+ */
 export function redactSentCredentials(text: string, sent: SentCredentials): string {
-  const needles = sent.secrets
-    .filter((secret): secret is string => typeof secret === 'string' && secret.length > 0)
-    .flatMap((secret) => needlesFor(secret, sent.user));
+  const shapes = secretShapes(sent);
+  if (shapes.short.some((shape) => shape.test(text))) return REDACTED;
   const spans = mergeSpans([
-    ...needles.flatMap((needle) => needleSpans(text, needle)),
+    ...shapes.long.flatMap((shape) => echoesOf(text, shape)),
     ...bearerSpans(text),
     ...xoauth2BlobSpans(text),
   ]);
   // Spans index the original text, so one marker cannot form or split another match.
   let redacted = '';
   let cursor = 0;
+  const markers: number[] = [];
   spans.forEach(([start, end]) => {
-    redacted += text.slice(cursor, start) + REDACTED;
+    redacted += text.slice(cursor, start);
+    markers.push(redacted.length);
+    redacted += REDACTED;
     cursor = end;
   });
-  return capped(redacted + text.slice(cursor));
+  redacted += text.slice(cursor);
+  const spelled = [...shapes.long, ...shapes.short].flatMap((shape) => echoesOf(redacted, shape));
+  if (spelled.some((echo) => !insideAMarker(echo, markers))) return REDACTED;
+  return capped(redacted);
 }
 
 /**

@@ -48,7 +48,7 @@ describe('redactSentCredentials', () => {
     expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} [redacted]`);
   });
 
-  // The fixtures above read the same percent-encoded, so only this row needs the raw needle.
+  // The fixtures above read the same percent-encoded, so only this row needs the raw shape.
   it('should redact a raw secret that percent-encoding would change', () => {
     const reply = `${REPLY} ${URL_SECRET}`;
     expect(redactSentCredentials(reply, { user: USER, secrets: [URL_SECRET] })).toBe(
@@ -97,7 +97,7 @@ describe('redactSentCredentials', () => {
     expect(redactSentCredentials(`${REPLY} ${wire}`, nonAscii)).toBe(`${REPLY} [redacted]`);
   });
 
-  // A glued byte shifts the base64 alignment, so only the needle built from the known token matches.
+  // A glued byte shifts the base64 alignment, so only the shape built from the known token matches.
   it('should redact the XOAUTH2 blob of the known token when it does not start on a base64 boundary', () => {
     const reply = `${REPLY} Z${XOAUTH2_KNOWN_TOKEN}`;
     expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} Z[redacted]`);
