@@ -167,6 +167,30 @@ describe('SmtpService send errors', () => {
     );
   });
 
+  // verify() recorded the token, so only the send catch can redact sendMail()'s own refusal.
+  it('should redact the OAuth2 token a refused send quotes', async () => {
+    h.sendError = eauth(`535 5.7.8 Token ${ACCESS_TOKEN} is not valid`);
+    const manager = new ConnectionManager([oauthAccount()], {
+      getAccessToken: async () => ACCESS_TOKEN,
+    });
+    const service = new SmtpService(manager, createMockRateLimiter(true), createMockImapService());
+    await expect(service.sendEmail('test', mail)).rejects.toHaveProperty(
+      'message',
+      'Invalid login: 535 5.7.8 Token [redacted] is not valid',
+    );
+  });
+
+  it('should leave the OAuth2 token a refused send quotes nowhere on the error', async () => {
+    h.sendError = eauth(`535 5.7.8 Token ${ACCESS_TOKEN} is not valid`);
+    const manager = new ConnectionManager([oauthAccount()], {
+      getAccessToken: async () => ACCESS_TOKEN,
+    });
+    const service = new SmtpService(manager, createMockRateLimiter(true), createMockImapService());
+    await expect(service.sendEmail('test', mail)).rejects.toSatisfy(
+      (err: unknown) => !inspect(err).includes(ACCESS_TOKEN),
+    );
+  });
+
   it('should redact the password a 535 reply quotes when replyToEmail fails', async () => {
     const { transport, service } = serviceFor(passwordAccount);
     transport.sendMail.mockRejectedValue(eauth('535 5.7.8 S3cret-Pa55word! rejected'));
