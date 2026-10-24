@@ -3,6 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import ts from 'typescript';
+
 import { pinAuditHome, readAuditEntries } from './audit-home.js';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -28,8 +30,43 @@ const LOADS_AUDIT_WITHOUT_WRITING = new Set([
 
 const PIN_CALL = /\bpinAuditHome\s*\(/;
 
-/** A restore() inside an afterAll or afterEach callback, before the callback's first `}`. */
-const RESTORED_IN_HOOK = /\bafter(?:All|Each)\(\s*(?:async\s*)?\(\)\s*=>\s*\{[^}]*\.restore\(\)/;
+const RESTORE_HOOKS = new Set(['afterAll', 'afterEach']);
+
+interface AuditHomeUse {
+  pins: number;
+  restores: number;
+  balanced: boolean;
+}
+
+/**
+ * pinAuditHome() calls against restore() calls made inside afterAll or afterEach. Counts call
+ * nodes, not text, so a commented-out restore or a call quoted in a string is not seen.
+ */
+function auditHomeUse(source: string): AuditHomeUse {
+  const file = ts.createSourceFile('suite.test.ts', source, ts.ScriptTarget.Latest);
+  const counts = { pins: 0, restores: 0 };
+  const visit = (node: ts.Node, inHook: boolean): void => {
+    let hooked = inHook;
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      if (ts.isIdentifier(callee) && callee.text === 'pinAuditHome') counts.pins += 1;
+      if (ts.isIdentifier(callee) && RESTORE_HOOKS.has(callee.text)) hooked = true;
+      if (
+        inHook &&
+        ts.isPropertyAccessExpression(callee) &&
+        callee.name.text === 'restore' &&
+        node.arguments.length === 0
+      ) {
+        counts.restores += 1;
+      }
+    }
+    ts.forEachChild(node, (child) => {
+      visit(child, hooked);
+    });
+  };
+  visit(file, false);
+  return { ...counts, balanced: counts.pins === counts.restores };
+}
 
 /** The helper's own tests restore each home inline, in finally: restore is what they test. */
 const THIS_FILE = path
@@ -176,9 +213,125 @@ describe('readAuditEntries', () => {
   });
 });
 
+const PIN_IN_HOISTED = `const { auditHome } = await vi.hoisted(async () => {
+  const { pinAuditHome } = await import('../test-support/audit-home.js');
+  return { auditHome: await pinAuditHome() };
+});
+`;
+
+const PIN_IN_BEFORE_EACH = `let auditHome: AuditHome;
+
+beforeEach(async () => {
+  auditHome = await pinAuditHome();
+});
+`;
+
+const BALANCED = { pins: 1, restores: 1, balanced: true };
+const PINNED_NOT_RESTORED = { pins: 1, restores: 0, balanced: false };
+
+describe('auditHomeUse', () => {
+  it.each([
+    [
+      'accept a restore in an async afterAll',
+      `${PIN_IN_HOISTED}
+afterAll(async () => {
+  await auditHome.restore();
+});
+`,
+      BALANCED,
+    ],
+    [
+      'accept a restore in an async afterEach after other cleanup',
+      `${PIN_IN_BEFORE_EACH}
+afterEach(async () => {
+  vi.unstubAllGlobals();
+  await auditHome.restore();
+});
+`,
+      BALANCED,
+    ],
+    [
+      'accept a restore returned from a synchronous afterAll',
+      `${PIN_IN_HOISTED}
+afterAll(() => {
+  return auditHome.restore();
+});
+`,
+      BALANCED,
+    ],
+    [
+      'accept a restore as the expression body of an afterEach',
+      `${PIN_IN_BEFORE_EACH}
+afterEach(() => auditHome.restore());
+`,
+      BALANCED,
+    ],
+    [
+      'reject a restore() commented out with //',
+      `${PIN_IN_HOISTED}
+afterAll(async () => {
+  // await auditHome.restore();
+});
+`,
+      PINNED_NOT_RESTORED,
+    ],
+    [
+      'reject a restore() inside a block comment',
+      `${PIN_IN_HOISTED}
+afterAll(async () => {
+  /* await auditHome.restore(); */
+});
+`,
+      PINNED_NOT_RESTORED,
+    ],
+    [
+      'reject two pins that share one restore',
+      `const { auditHome } = await vi.hoisted(async () => {
+  const { pinAuditHome } = await import('../test-support/audit-home.js');
+  return { auditHome: await pinAuditHome(), spare: await pinAuditHome() };
+});
+
+afterAll(async () => {
+  await auditHome.restore();
+});
+`,
+      { pins: 2, restores: 1, balanced: false },
+    ],
+    [
+      'reject a restore() made outside an afterAll or afterEach',
+      `${PIN_IN_HOISTED}
+it('should leave the home to the end of the run', async () => {
+  await auditHome.restore();
+});
+`,
+      PINNED_NOT_RESTORED,
+    ],
+    [
+      'reject an afterEach that only restores mocks',
+      `${PIN_IN_BEFORE_EACH}
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+`,
+      PINNED_NOT_RESTORED,
+    ],
+    [
+      'ignore a pin and a restore quoted in string literals',
+      `const note = 'pinAuditHome() then auditHome.restore()';
+afterAll(() => {
+  expect(\`pinAuditHome()\`).toBe(note);
+});
+`,
+      { pins: 0, restores: 0, balanced: true },
+    ],
+  ])('should %s', (_title, source, use) => {
+    expect(auditHomeUse(source)).toEqual(use);
+  });
+});
+
 describe('audit home roster', () => {
   let loading: { file: string; pinned: boolean }[] = [];
-  let pinning: { file: string; restored: boolean }[] = [];
+  let pinning: ({ file: string } & AuditHomeUse)[] = [];
 
   beforeAll(async () => {
     const files = await testFiles();
@@ -195,9 +348,8 @@ describe('audit home roster', () => {
       .filter((entry) => entry.loads)
       .map(({ file, pinned }) => ({ file, pinned }));
     pinning = files
-      .map((file, i) => ({ file, text: texts[i] ?? '' }))
-      .filter(({ file, text }) => file !== THIS_FILE && PIN_CALL.test(text))
-      .map(({ file, text }) => ({ file, restored: RESTORED_IN_HOOK.test(text) }));
+      .map((file, i) => ({ file, ...auditHomeUse(texts[i] ?? '') }))
+      .filter(({ file, pins }) => file !== THIS_FILE && pins > 0);
   });
 
   it('should find the suites that read the audit log among those that load audit.ts', () => {
@@ -222,7 +374,7 @@ describe('audit home roster', () => {
   it('should restore in an afterAll or afterEach every audit home a test file pins', () => {
     expect({
       pinned: pinning.map((entry) => entry.file),
-      unrestored: pinning.filter((entry) => !entry.restored).map((entry) => entry.file),
+      unrestored: pinning.filter((entry) => !entry.balanced),
     }).toEqual({
       // One afterAll and one afterEach suite, so a pin regex that matches nothing cannot pass.
       pinned: expect.arrayContaining([
