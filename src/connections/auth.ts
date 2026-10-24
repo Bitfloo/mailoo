@@ -10,13 +10,25 @@ export type SmtpAuth =
   | { user: string; pass?: string }
   | { type: 'OAuth2'; user: string; provisionCallback: XOAuth2ProvisionCallback };
 
-/** Recorded where the token is handed to imapflow or nodemailer, whatever the token source caches. */
-const lastIssuedToken = new WeakMap<OAuth2Config, string>();
+/**
+ * Distinct tokens handed to imapflow or nodemailer, newest first, whatever the token source
+ * caches. A connection keeps the token it logged in with after a newer one is issued, so its error
+ * can quote an older one. The source hands one token to every login until it expires, so a repeat
+ * is dropped rather than pushing an older token out of the bound.
+ */
+const issuedTokens = new WeakMap<OAuth2Config, string[]>();
+
+const ISSUED_TOKENS_KEPT = 4;
+
+function recordIssuedToken(oauth2: OAuth2Config, token: string): void {
+  const older = (issuedTokens.get(oauth2) ?? []).filter((issued) => issued !== token);
+  issuedTokens.set(oauth2, [token, ...older].slice(0, ISSUED_TOKENS_KEPT));
+}
 
 /** What a login for this account put on the wire, for scrubbing the server's error reply. */
 export function sentCredentials(account: AccountConfig): SentCredentials {
-  const token = account.oauth2 ? lastIssuedToken.get(account.oauth2) : undefined;
-  return { user: account.username, secrets: [account.password, token] };
+  const tokens = account.oauth2 ? (issuedTokens.get(account.oauth2) ?? []) : [];
+  return { user: account.username, secrets: [account.password, ...tokens] };
 }
 
 export async function buildImapAuth(
@@ -25,7 +37,7 @@ export async function buildImapAuth(
 ): Promise<ImapAuth> {
   if (account.oauth2 && tokens) {
     const accessToken = await tokens.getAccessToken(account.oauth2);
-    lastIssuedToken.set(account.oauth2, accessToken);
+    recordIssuedToken(account.oauth2, accessToken);
     return { user: account.username, accessToken };
   }
   return { user: account.username, pass: account.password };
@@ -45,7 +57,7 @@ export function buildSmtpAuth(account: AccountConfig, tokens?: AccessTokenSource
       provisionCallback: (_user, _renew, callback) => {
         tokens.getAccessToken(oauth2).then(
           (accessToken) => {
-            lastIssuedToken.set(oauth2, accessToken);
+            recordIssuedToken(oauth2, accessToken);
             // Without an expiry nodemailer would reuse the token forever.
             callback(null, accessToken, oauth2.tokenExpiry ?? Date.now());
           },
