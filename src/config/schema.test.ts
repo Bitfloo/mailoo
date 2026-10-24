@@ -166,6 +166,7 @@ describe.each([
     ['a name under localhost', 'localhost.example.com'],
     ['a name starting with 127.0.0.1', '127.0.0.1.example.com'],
     ['a remote name', 'mail.example.com'],
+    ['a ::1 that closes its bracket early', '::1]:80/['],
   ])(`should refuse ${label} on %s (%j) at ${protocol}.tls`, (_kind, host) => {
     expect(issuePaths(accountOn(host))).toEqual([`${protocol}.tls`]);
   });
@@ -226,6 +227,8 @@ describe('OAuth2ConfigSchema custom endpoints', () => {
     'http://127.0.0.2:8080/token',
     'http://[::1]:8080/token',
     'http://localhost:8080/token',
+    // Unlike an IMAP or SMTP host, a URL's host is canonicalised: fetch connects to 127.0.0.1.
+    'http://127.1/token',
   ])('should accept %s', (endpoint) => {
     expect(OAuth2ConfigSchema.safeParse(customOAuth(endpoint)).success).toBe(true);
   });

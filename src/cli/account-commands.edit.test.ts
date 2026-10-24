@@ -324,6 +324,71 @@ describe('mailoo account edit', () => {
         smtp: probes.testSmtp.mock.calls,
       }).toEqual({ imap: [], smtp: [] });
     });
+
+    // Skipping the probe skips no validation: the refusal comes before the question.
+    describe('with the connection test answered no', () => {
+      beforeEach(() => {
+        wizard.overrides.set('Test connections with updated settings?', false);
+      });
+
+      it('should refuse the edit at accounts.0.smtp.tls', async () => {
+        const run = await sandbox.entryPoint('account edit', 'personal');
+
+        const refused = await run().then(
+          () => [],
+          (error: unknown) => {
+            if (!(error instanceof ZodError)) throw error;
+            return error.issues.map((issue) => issue.path.join('.'));
+          },
+        );
+
+        expect(refused).toEqual(['accounts.0.smtp.tls']);
+      });
+
+      it('should leave the config byte-identical', async () => {
+        const run = await sandbox.entryPoint('account edit', 'personal');
+
+        await run().catch(() => undefined);
+
+        expect(await fs.readFile(sandbox.configFile, 'utf-8')).toBe(CONFIG_WITH_PERSONAL);
+      });
+    });
+  });
+
+  describe('of a config whose SMTP already goes unencrypted to a remote host', () => {
+    const CONFIG_PLAIN_SMTP = CONFIG_WITH_PERSONAL.replace(
+      'host = "smtp.example.com"',
+      'host = "smtp.example.com"\ntls = false\nstarttls = false',
+    );
+
+    // The default SMTP security answer is TLS, so this edit alone would save a valid
+    // account: only loading the file can refuse it.
+    beforeEach(async () => {
+      await fs.writeFile(sandbox.configFile, CONFIG_PLAIN_SMTP, { mode: 0o600 });
+      wizard.overrides.set(EDIT_PERSONAL, 'servers');
+    });
+
+    it('should refuse to load it at accounts.0.smtp.tls', async () => {
+      const run = await sandbox.entryPoint('account edit', 'personal');
+
+      const refused = await run().then(
+        () => [],
+        (error: unknown) => {
+          if (!(error instanceof ZodError)) throw error;
+          return error.issues.map((issue) => issue.path.join('.'));
+        },
+      );
+
+      expect(refused).toEqual(['accounts.0.smtp.tls']);
+    });
+
+    it('should leave the config byte-identical', async () => {
+      const run = await sandbox.entryPoint('account edit', 'personal');
+
+      await run().catch(() => undefined);
+
+      expect(await fs.readFile(sandbox.configFile, 'utf-8')).toBe(CONFIG_PLAIN_SMTP);
+    });
   });
 
   describe('of everything, with a provider detected for the new address', () => {
