@@ -120,3 +120,22 @@ export function redactSentCredentials(text: string, sent: SentCredentials): stri
   });
   return capped(redacted + text.slice(cursor));
 }
+
+/**
+ * nodemailer's EAUTH carries the server line in `message` and `response`, imapflow's in
+ * `response` and `responseText`; callers print, return, audit or queue `message`. `response`,
+ * `responseText` and `cause` stay off on purpose.
+ */
+export function redactedError(err: unknown, sent: SentCredentials): Error {
+  if (!(err instanceof Error)) return new Error(redactSentCredentials(String(err), sent));
+  const { code, responseCode, command } = err as Error & {
+    code?: string;
+    responseCode?: number;
+    command?: string;
+  };
+  return Object.assign(new Error(redactSentCredentials(err.message, sent)), {
+    code,
+    responseCode,
+    command,
+  });
+}

@@ -18,6 +18,9 @@ its history before the fork is at the end of this file.
 - A failed send (`send_email`, `reply_email`, `forward_email`, `send_draft` and
   scheduled sends) no longer returns, audits or queues an SMTP error that quotes the
   password or OAuth2 access token.
+- `check_health`, and any other tool whose IMAP or SMTP login fails, no longer returns
+  a connection error that quotes the password or OAuth2 access token, nor repeats it
+  while the next connect attempt waits.
 
 - - -
 ## [v0.2.2](https://github.com/bitfloo/mailoo/compare/v0.2.1..v0.2.2) - 2026-10-18
