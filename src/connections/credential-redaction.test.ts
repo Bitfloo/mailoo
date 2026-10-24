@@ -19,6 +19,8 @@ const URL_SECRET_ENCODED = 'P%40ss%20W%2Frd%2B%259z';
 const URL_SECRET_ENCODED_LOWER_HEX = 'P%40ss%20W%2frd%2b%259z';
 // Encodes to "C%40fe%2FBad": uppercase hex letters both inside and outside an escape.
 const HEX_LETTER_SECRET = 'C@fe/Bad';
+// Encodes to "pw%3A%3D%3EZq9xKd": the hex letters A, D and E no other fixture puts in an escape.
+const ADE_ESCAPE_SECRET = 'pw:=>Zq9xKd';
 // encodeURIComponent throws a URIError on a UTF-16 surrogate with no partner.
 const LONE_SURROGATE_SECRET = 'Pa55\ud800word';
 const NON_ASCII_PASSWORD = 'Zażółć-Hasło9';
@@ -83,11 +85,20 @@ describe('redactSentCredentials', () => {
     );
   });
 
+  // UTF-8 sends U+FFFD, bytes EF BF BD, in place of the lone surrogate.
+  it('should redact the percent-encoded form of a secret that holds a lone surrogate', () => {
+    const reply = `${REPLY} Pa55%ef%bf%bdword`;
+    expect(redactSentCredentials(reply, { user: USER, secrets: [LONE_SURROGATE_SECRET] })).toBe(
+      `${REPLY} [redacted]`,
+    );
+  });
+
   it.each([
     ['a lowercase escape before an uppercase one', URL_SECRET, 'P%40ss%20W%2frd%2B%259z'],
     ['an uppercase escape before a lowercase one', URL_SECRET, 'P%40ss%20W%2Frd%2b%259z'],
     ['both cases inside one escape', NON_ASCII_PASSWORD, 'Za%c5%Bc%C3%b3%C5%82%C4%87-Has%C5%82o9'],
     ['a lowercase escape beside uppercase letters', HEX_LETTER_SECRET, 'C%40fe%2fBad'],
+    ['lowercase escapes of the hex letters A, D and E', ADE_ESCAPE_SECRET, 'pw%3a%3d%3eZq9xKd'],
   ])('should redact the percent-encoded secret written with %s', (_case, secret, echo) => {
     expect(redactSentCredentials(`${REPLY} ${echo}`, { user: USER, secrets: [secret] })).toBe(
       `${REPLY} [redacted]`,
