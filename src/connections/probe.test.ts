@@ -97,16 +97,20 @@ const account: AccountConfig = {
 
 const ACCESS_TOKEN = 'ya29.fake-access-token-0123456789';
 
-const oauthAccount: AccountConfig = {
-  ...account,
-  password: undefined,
-  oauth2: {
-    provider: 'google',
-    clientId: 'fake-client-id',
-    clientSecret: 'fake-client-secret',
-    refreshToken: 'fake-refresh-token',
-  },
-};
+// A fresh oauth2 object per test: the issued token is recorded against it, and a token left by
+// one probe would let the other pass without recording its own.
+function oauthAccount(): AccountConfig {
+  return {
+    ...account,
+    password: undefined,
+    oauth2: {
+      provider: 'google',
+      clientId: 'fake-client-id',
+      clientSecret: 'fake-client-secret',
+      refreshToken: 'fake-refresh-token',
+    },
+  };
+}
 
 const tokens: AccessTokenSource = { getAccessToken: async () => ACCESS_TOKEN };
 
@@ -190,7 +194,7 @@ describe('testImap', () => {
 
   it('should redact the OAuth2 access token a refused login quotes', async () => {
     h.connectError = new Error(`Command failed: NO [AUTHENTICATIONFAILED] ${ACCESS_TOKEN} expired`);
-    expect(await testImap(oauthAccount, tokens)).toEqual({
+    expect(await testImap(oauthAccount(), tokens)).toEqual({
       success: false,
       error: 'Command failed: NO [AUTHENTICATIONFAILED] [redacted] expired',
     });
@@ -250,7 +254,7 @@ describe('testSmtp', () => {
       new Error(`Invalid login: 535 5.7.8 Token ${ACCESS_TOKEN} is not valid`),
       { code: 'EAUTH', responseCode: 535 },
     );
-    expect(await testSmtp(oauthAccount, tokens)).toEqual({
+    expect(await testSmtp(oauthAccount(), tokens)).toEqual({
       success: false,
       error: 'Invalid login: 535 5.7.8 Token [redacted] is not valid',
     });
