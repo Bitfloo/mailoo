@@ -164,6 +164,7 @@ describe.each([
     ['the address after 127/8', '128.0.0.1'],
     ['the address before 127/8', '126.255.255.255'],
     ['a name under localhost', 'localhost.example.com'],
+    ['a subdomain of localhost', 'app.localhost'],
     ['a name starting with 127.0.0.1', '127.0.0.1.example.com'],
     ['a remote name', 'mail.example.com'],
     ['a ::1 that closes its bracket early', '::1]:80/['],
@@ -174,6 +175,14 @@ describe.each([
   it(`should name the account, ${label}, the host, both settings and the loopback hosts in the refusal`, () => {
     expect(issuesOf(accountOn('mail.example.com'))).toEqual([
       `${protocol}.tls: Account "work": ${label} to "mail.example.com" would be unencrypted ` +
+        '(tls = false and starttls = false). Set tls = true or starttls = true, ' +
+        'or use a loopback host (localhost, 127.0.0.0/8 or ::1).',
+    ]);
+  });
+
+  it(`should JSON-quote an ${label} host that contains a double quote in the refusal`, () => {
+    expect(issuesOf(accountOn('mail"x.example.com'))).toEqual([
+      `${protocol}.tls: Account "work": ${label} to "mail\\"x.example.com" would be unencrypted ` +
         '(tls = false and starttls = false). Set tls = true or starttls = true, ' +
         'or use a loopback host (localhost, 127.0.0.0/8 or ::1).',
     ]);
