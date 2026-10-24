@@ -814,6 +814,31 @@ const SELF_OVERLAPPING: SentSecrets = {
   reshaped: [],
 };
 
+/**
+ * The grant sits inside the client secret. An echo broken by a dropped character holds the grant
+ * as given and the client secret only once the character is gone. Sent without a fresh grant:
+ * a suffix would take the grant out of the client secret.
+ */
+const GRANT_INSIDE_CLIENT: SentSecrets = {
+  client: 'ABCDEFGHIJKLMNOPQRSTUVWX',
+  grant: 'IJKLMNOP',
+  reshaped: [],
+};
+
+/** The same nesting the other way round, so the grant can take a fresh suffix. */
+const CLIENT_INSIDE_GRANT: SentSecrets = {
+  client: 'IJKLMNOP',
+  grant: 'ABCDEFGHIJKLMNOPQRSTUVWX',
+  reshaped: [],
+};
+
+/** The text either side of a redacted grant, joined by the marker, spells the client secret. */
+const AROUND_A_MARKER: SentSecrets = {
+  client: 'AA[redacted]ZZ',
+  grant: 'INNER-SECRET',
+  reshaped: [],
+};
+
 function lowercaseEscapes(encoded: string): string {
   return encoded.replace(/%[0-9A-F]{2}/g, (escaped) => escaped.toLowerCase());
 }
@@ -877,12 +902,14 @@ const ECHO_FIELDS = [
     cap: TOKEN_ERROR_CODE_MAX_CHARS,
     body: (text: string) => ({ error: text }),
     named: (kept: string) => kept,
+    dropped: '',
   },
   {
     field: 'error_description',
     cap: TOKEN_ERROR_DESCRIPTION_MAX_CHARS,
     body: (text: string) => ({ error: 'invalid_grant', error_description: text }),
     named: (kept: string) => `invalid_grant: ${kept}`,
+    dropped: ': invalid_grant',
   },
 ] as const;
 
@@ -1014,7 +1041,13 @@ const ECHOES: Echo[] = [
     echo: ({ grant }) => `grant ${grant} revoked`,
     kept: () => 'grant [redacted] revoked',
   },
-  // Three copies: each of the two redaction passes could replace one if it stopped at the first.
+  {
+    name: 'a secret broken by a dropped character around the other',
+    secrets: CLIENT_INSIDE_GRANT,
+    echo: ({ grant }) => `grant ${grant.slice(0, 4)}"${grant.slice(4)} revoked`,
+    kept: () => 'grant [redacted] revoked',
+  },
+  // Three copies: the raw and the filtered scan could each replace one if they stopped at the first.
   {
     name: 'one secret echoed three times',
     secrets: PLAIN,
@@ -1076,6 +1109,11 @@ const MARKER_LETTER_CASES = [
   { name: 'a one-letter client secret', client: 'c' },
 ].flatMap((secret) => ECHO_FIELDS.map((field) => ({ ...secret, ...field })));
 
+const BROKEN_AROUND_GRANT_CASES = [
+  { name: 'a quote', echo: 'ABCD"EFGHIJKLMNOPQRSTUVWX' },
+  { name: 'an emoji of two UTF-16 units', echo: 'ABCD\u{1F4A5}EFGHIJKLMNOPQRSTUVWX' },
+].flatMap((broken) => ECHO_FIELDS.map((field) => ({ ...broken, ...field })));
+
 describe.each(ECHOING_FLOWS)(
   'OAuthService $action when the refusal echoes the secrets the request sent',
   ({ action, grantField, redactedForm, run }) => {
@@ -1084,8 +1122,9 @@ describe.each(ECHOING_FLOWS)(
     async function refusedEchoing(
       fixture: SentSecrets,
       fields: (sent: { client: string; grant: string; form: string }) => Record<string, unknown>,
+      { freshGrant = true } = {},
     ) {
-      const secrets = withFreshGrant(fixture);
+      const secrets = freshGrant ? withFreshGrant(fixture) : fixture;
       const calls = fakeTokenEndpoint(
         echoingRefusal((sent, form) =>
           fields({
@@ -1115,6 +1154,44 @@ describe.each(ECHOING_FLOWS)(
         }).toEqual({
           sent: [secrets.client, secrets.grant],
           message: `${failed} (400): ${named(kept(cap))}`,
+          leaked: [],
+        });
+      },
+    );
+
+    it.each(BROKEN_AROUND_GRANT_CASES)(
+      'should replace the whole client secret with [redacted] when $name breaks its echo around the grant in the $field',
+      async ({ echo, body, named }) => {
+        const { error, secrets, sent } = await refusedEchoing(
+          GRANT_INSIDE_CLIENT,
+          () => body(echo),
+          { freshGrant: false },
+        );
+        expect({
+          sent,
+          message: error.message,
+          leaked: leakedSecretsIn(error, [secrets.client, secrets.grant], { fragments: true }),
+        }).toEqual({
+          sent: [secrets.client, secrets.grant],
+          message: `${failed} (400): ${named('[redacted]')}`,
+          leaked: [],
+        });
+      },
+    );
+
+    it.each(ECHO_FIELDS)(
+      'should drop the $field when the text around a redacted grant spells the client secret',
+      async ({ body, dropped }) => {
+        const { error, secrets, sent } = await refusedEchoing(AROUND_A_MARKER, ({ grant }) =>
+          body(`AA${grant}ZZ`),
+        );
+        expect({
+          sent,
+          message: error.message,
+          leaked: leakedSecretsIn(error, [secrets.client, secrets.grant], { fragments: true }),
+        }).toEqual({
+          sent: [secrets.client, secrets.grant],
+          message: `${failed} (400)${dropped}`,
           leaked: [],
         });
       },

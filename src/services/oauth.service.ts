@@ -104,42 +104,65 @@ function echoesOf(text: string, secret: RegExp): number[][] {
 }
 
 /**
- * The text around every echo of a sent secret. Echoes that overlap or touch, of one secret or of
- * several, are cut out as one, so joining the pieces with the marker leaves no piece of a secret.
+ * Echoes that overlap or touch, of one secret or of several, are cut out as one, so joining the
+ * text around the cuts with the marker leaves no piece of a secret.
  */
-function piecesAroundSecrets(text: string, secrets: readonly RegExp[]): string[] {
-  const echoes = secrets.flatMap((secret) => echoesOf(text, secret)).sort(([a], [b]) => a - b);
+function mergedCuts(echoes: number[][]): number[][] {
   const cuts: number[][] = [];
-  echoes.forEach(([start, end]) => {
-    const last = cuts.at(-1);
-    if (last && start <= last[1]) {
-      last[1] = Math.max(last[1], end);
-    } else {
-      cuts.push([start, end]);
-    }
-  });
+  [...echoes]
+    .sort(([a], [b]) => a - b)
+    .forEach(([start, end]) => {
+      const last = cuts.at(-1);
+      if (last && start <= last[1]) {
+        last[1] = Math.max(last[1], end);
+      } else {
+        cuts.push([start, end]);
+      }
+    });
+  return cuts;
+}
+
+/** The charset-filtered text around the cuts, one marker per cut, and where each marker starts. */
+function textAroundCuts(value: string, cuts: number[][]): { text: string; markers: number[] } {
+  let text = '';
   let from = 0;
-  const pieces = cuts.map(([start, end]) => {
-    const piece = text.slice(from, start);
+  const markers: number[] = [];
+  cuts.forEach(([start, end]) => {
+    text += dropOutsideCharset(value.slice(from, start));
+    markers.push(text.length);
+    text += REDACTED;
     from = end;
-    return piece;
   });
-  return [...pieces, text.slice(from)];
+  return { text: text + dropOutsideCharset(value.slice(from)), markers };
+}
+
+function insideAMarker([start, end]: number[], markers: readonly number[]): boolean {
+  return markers.some((at) => at <= start && end <= at + REDACTED.length);
 }
 
 /**
- * Redacted before and after the charset filter, and both before the cut, so no piece survives.
- * The second pass reads only the text between the first pass's markers: a secret made of marker
- * letters would otherwise match inside one.
+ * Echoes are found in the raw text and in its charset-filtered view in one pass, the filtered ones
+ * mapped back to raw offsets, so a secret broken by a dropped character around another secret is
+ * cut whole. The marker goes in once, after every echo is known, so a secret made of marker letters
+ * never matches inside one. The text either side of a cut can still spell a secret with the marker
+ * between (a client secret `AA[redacted]ZZ` around a cut grant): a field where any secret appears
+ * outside a single marker is dropped. All of this runs before the cut, so no piece survives it.
  */
 function cleanErrorField(value: unknown, maxChars: number, secrets: readonly RegExp[]): string {
   if (typeof value !== 'string') return '';
-  const firstPass = piecesAroundSecrets(value, secrets);
-  return firstPass
-    .map((piece) => piecesAroundSecrets(dropOutsideCharset(piece), secrets).join(REDACTED))
-    .join(REDACTED)
-    .slice(0, maxChars)
-    .trim();
+  // UTF-16 units, as match offsets count them: the charset drops each half of a surrogate pair.
+  const keptAt = Array.from({ length: value.length }, (_, at) => at).filter(
+    (at) => dropOutsideCharset(value[at]) !== '',
+  );
+  const filtered = keptAt.map((at) => value[at]).join('');
+  const echoes = secrets.flatMap((secret) => [
+    ...echoesOf(value, secret),
+    ...echoesOf(filtered, secret).map(([start, end]) => [keptAt[start], keptAt[end - 1] + 1]),
+  ]);
+  const { text, markers } = textAroundCuts(value, mergedCuts(echoes));
+  const spelled = secrets.flatMap((secret) => echoesOf(text, secret));
+  if (spelled.some((echo) => !insideAMarker(echo, markers))) return '';
+  return text.slice(0, maxChars).trim();
 }
 
 /**
