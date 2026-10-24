@@ -69,11 +69,13 @@ const SCHEDULE_ARGS = {
   send_at: 'in 1 hour',
 };
 
-function failingSchedulerServer(): McpServer {
+// With no account the double throws in resolveAccountName, before schedule() is reached.
+function failingSchedulerServer(resolvedAccount?: string): McpServer {
   const server = createServer();
   const failingScheduler = {
     resolveAccountName: () => {
-      throw new Error(FAILURE);
+      if (resolvedAccount === undefined) throw new Error(FAILURE);
+      return resolvedAccount;
     },
     list: async () => Promise.reject(new Error(FAILURE)),
     schedule: async () => Promise.reject(new Error(FAILURE)),
@@ -234,6 +236,10 @@ describe('tool failures return isError', () => {
   ])('should return isError for %s when the scheduler service throws', async (name, args) => {
     expectFailure(await callTool(failingSchedulerServer(), name, args));
   });
+
+  it('should return isError for schedule_email when schedule rejects for a resolved account', async () => {
+    expectFailure(await callTool(failingSchedulerServer('work'), 'schedule_email', SCHEDULE_ARGS));
+  });
 });
 
 describe('tool failures are audited', () => {
@@ -247,5 +253,16 @@ describe('tool failures are audited', () => {
       'schedule_email',
       'cancel_scheduled',
     ]);
+  });
+
+  it('should audit a schedule_email whose schedule call rejects as an error with its message', async () => {
+    const server = failingSchedulerServer('work');
+    const before = (await readAuditEntries(auditHome)).length;
+    await callTool(server, 'schedule_email', SCHEDULE_ARGS);
+    expect(
+      (await readAuditEntries(auditHome))
+        .slice(before)
+        .map(({ tool, result, error }) => ({ tool, result, error })),
+    ).toEqual([{ tool: 'schedule_email', result: 'error', error: FAILURE }]);
   });
 });
