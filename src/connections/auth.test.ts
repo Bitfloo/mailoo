@@ -152,6 +152,11 @@ describe('sentCredentials', () => {
     },
   );
 
+  // The first token refresh can fail, and its error is redacted with these all the same.
+  it('should list only the account password for an OAuth2 account no token was issued to', () => {
+    expect(sentCredentials(structuredClone(oauthAccount)).secrets).toEqual([undefined]);
+  });
+
   const issuedToken = (n: number) => `ya29.fake-issued-token-${n}-0123456789`;
 
   /** One IMAP login per token, tokens 1 to `count` in turn. */

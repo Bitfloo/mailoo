@@ -21,8 +21,17 @@ const URL_SECRET_ENCODED_LOWER_HEX = 'P%40ss%20W%2frd%2b%259z';
 const HEX_LETTER_SECRET = 'C@fe/Bad';
 // Encodes to "pw%3A%3D%3EZq9xKd": the hex letters A, D and E no other fixture puts in an escape.
 const ADE_ESCAPE_SECRET = 'pw:=>Zq9xKd';
+// Encode to "%C3%A0-Pa55word" and "%C3%A9-Pa55word": a hex letter beside the digit 0, then 9.
+const DIGIT_0_ESCAPE_SECRET = 'à-Pa55word';
+const DIGIT_9_ESCAPE_SECRET = 'é-Pa55word';
+// Encodes to "pa55%3ACAFE": hex letters side by side outside an escape.
+const HEX_RUN_SECRET = 'pa55:CAFE';
 // encodeURIComponent throws a URIError on a UTF-16 surrogate with no partner.
 const LONE_SURROGATE_SECRET = 'Pa55\ud800word';
+// U+10000 as its two UTF-16 halves; a secret that ends in the first half is not in a text that
+// holds the whole pair.
+const HIGH_SURROGATE = String.fromCharCode(0xd800);
+const SURROGATE_PAIR = `${HIGH_SURROGATE}${String.fromCharCode(0xdc00)}`;
 const NON_ASCII_PASSWORD = 'Zażółć-Hasło9';
 const AUTH_LOGIN_NON_ASCII = 'WmHFvMOzxYLEhy1IYXPFgm85';
 const AUTH_PLAIN_NON_ASCII = 'AHdvcmtAZXhhbXBsZS5jb20AWmHFvMOzxYLEhy1IYXPFgm85';
@@ -38,6 +47,10 @@ const XOAUTH2_NO_TOKEN = 'dXNlcj13b3JrQGV4YW1wbGUuY29tAWF1dGg9QmVhcmVyWAEB';
 const BASE64_BEARER_PROSE = 'dGhlIEJlYXJlciBzY2hlbWUgaXMgcmVxdWlyZWQ=';
 // User "a", token "t": a one-character login and token make the shortest blob.
 const XOAUTH2_SHORTEST = 'dXNlcj1hAWF1dGg9QmVhcmVyIHQBAQ==';
+// "auth=Bearer xyz" in 20 base64 characters and "auth=Bearer xy" in 19 and a pad: either side of
+// the shortest run the blob scan decodes.
+const BASE64_RUN_20 = 'YXV0aD1CZWFyZXIgeHl6';
+const BASE64_RUN_19 = 'YXV0aD1CZWFyZXIgeHk=';
 
 const REPLY = 'Invalid login: 535 5.7.8 Error: authentication failed:';
 
@@ -85,6 +98,25 @@ describe('redactSentCredentials', () => {
     );
   });
 
+  // Each is replaced before encoding, or encodeURIComponent throws on the second.
+  it('should redact a raw secret that holds two lone surrogates', () => {
+    const twice = LONE_SURROGATE_SECRET.repeat(2);
+    expect(redactSentCredentials(`${REPLY} ${twice}`, { user: USER, secrets: [twice] })).toBe(
+      `${REPLY} [redacted]`,
+    );
+  });
+
+  it.each([
+    ['a long secret', `abcdefgh${HIGH_SURROGATE}`, `abcdefgh${SURROGATE_PAIR}`],
+    ['a short secret', `ab${HIGH_SURROGATE}`, `ab${SURROGATE_PAIR}`],
+  ])(
+    'should leave the text unchanged when %s that ends in a lone surrogate meets only half of a pair',
+    (_size, secret, echo) => {
+      const reply = `${REPLY} ${echo}`;
+      expect(redactSentCredentials(reply, { user: USER, secrets: [secret] })).toBe(reply);
+    },
+  );
+
   // UTF-8 sends U+FFFD, bytes EF BF BD, in place of the lone surrogate.
   it('should redact the percent-encoded form of a secret that holds a lone surrogate', () => {
     const reply = `${REPLY} Pa55%ef%bf%bdword`;
@@ -99,6 +131,8 @@ describe('redactSentCredentials', () => {
     ['both cases inside one escape', NON_ASCII_PASSWORD, 'Za%c5%Bc%C3%b3%C5%82%C4%87-Has%C5%82o9'],
     ['a lowercase escape beside uppercase letters', HEX_LETTER_SECRET, 'C%40fe%2fBad'],
     ['lowercase escapes of the hex letters A, D and E', ADE_ESCAPE_SECRET, 'pw%3a%3d%3eZq9xKd'],
+    ['a lowercase hex letter beside the digit 0', DIGIT_0_ESCAPE_SECRET, '%c3%a0-Pa55word'],
+    ['a lowercase hex letter beside the digit 9', DIGIT_9_ESCAPE_SECRET, '%c3%a9-Pa55word'],
   ])('should redact the percent-encoded secret written with %s', (_case, secret, echo) => {
     expect(redactSentCredentials(`${REPLY} ${echo}`, { user: USER, secrets: [secret] })).toBe(
       `${REPLY} [redacted]`,
@@ -111,6 +145,11 @@ describe('redactSentCredentials', () => {
   ])('should keep a percent-encoded echo whose letter %s differs in case', (_where, echo) => {
     const reply = `${REPLY} ${echo}`;
     expect(redactSentCredentials(reply, { user: USER, secrets: [HEX_LETTER_SECRET] })).toBe(reply);
+  });
+
+  it('should keep a percent-encoded echo whose hex letters outside the escapes differ in case', () => {
+    const reply = `${REPLY} pa55%3acafe`;
+    expect(redactSentCredentials(reply, { user: USER, secrets: [HEX_RUN_SECRET] })).toBe(reply);
   });
 
   it.each([
@@ -135,6 +174,21 @@ describe('redactSentCredentials', () => {
   it('should redact the shortest XOAUTH2 blob, from a one-character login and token', () => {
     const reply = `${REPLY} ${XOAUTH2_SHORTEST}`;
     expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} [redacted]`);
+  });
+
+  it('should keep an equals sign that follows the two padding characters of an XOAUTH2 blob', () => {
+    const reply = `${REPLY} ${XOAUTH2_SHORTEST}=`;
+    expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} [redacted]=`);
+  });
+
+  it('should redact a 20-character base64 run that decodes to an auth=Bearer field', () => {
+    const reply = `${REPLY} ${BASE64_RUN_20}`;
+    expect(redactSentCredentials(reply, sent)).toBe(`${REPLY} [redacted]`);
+  });
+
+  it('should leave a 19-character base64 run that decodes to an auth=Bearer field unchanged', () => {
+    const reply = `${REPLY} ${BASE64_RUN_19}`;
+    expect(redactSentCredentials(reply, sent)).toBe(reply);
   });
 
   it('should redact a whole XOAUTH2 blob whose base64 contains a plus and a slash', () => {
@@ -246,6 +300,11 @@ describe('redactSentCredentials', () => {
     expect(redactSentCredentials(reply, { user: USER, secrets: ['q'] })).toBe(reply);
   });
 
+  it('should leave the text unchanged when a short secret occurs in it only in another case', () => {
+    const reply = `${REPLY} Quota exceeded`;
+    expect(redactSentCredentials(reply, { user: USER, secrets: ['q'] })).toBe(reply);
+  });
+
   // "axbcdefgh" differs from the secret only at the metacharacter, so an unescaped "." cuts it too.
   it.each(REGEX_SYNTAX_CHARACTERS)(
     'should cut only the exact text of a long secret that holds %s',
@@ -270,6 +329,7 @@ describe('redactSentCredentials', () => {
   it.each([
     ['a long secret', 'abcd[redacted]wxyz'],
     ['a short secret', 'd['],
+    ['a secret that runs from inside the marker past its end', 'acted]wx'],
   ])('should withhold the whole text when the text around a cut spells %s', (_size, spelled) => {
     const secrets = { user: USER, secrets: [spelled, 'long-token-0123'] };
     expect(redactSentCredentials(`${REPLY} abcdlong-token-0123wxyz`, secrets)).toBe('[redacted]');
