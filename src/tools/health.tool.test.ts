@@ -101,8 +101,20 @@ const QUOTED_SECRETS = [
   ['the XOAUTH2 blob', oauthAccount, XOAUTH2_BLOB],
 ] as const;
 
-// imapflow 2 keeps the server's text in `response` and `responseText`, never in `message`; this
-// message stands for any other source that does quote it.
+// imapflow 2's refused LOGIN or AUTHENTICATE: a generic message, the tagged reply as text in
+// `response` and its human-readable part in `responseText`.
+function imapflowRefusal(secret: string): Error {
+  return Object.assign(new Error('Command failed'), {
+    response: `2 NO [AUTHENTICATIONFAILED] ${secret} rejected`,
+    responseStatus: 'NO',
+    responseText: `${secret} rejected`,
+    serverResponseCode: 'AUTHENTICATIONFAILED',
+    authenticationFailed: true,
+  });
+}
+
+// Defensive input: imapflow 2 never puts the server's text in `message` (see imapflowRefusal);
+// this stands for another source, or a later version, that does.
 function imapRefusal(secret: string): Error {
   return new Error(`Command failed: NO [AUTHENTICATIONFAILED] ${secret} rejected`);
 }
@@ -122,27 +134,35 @@ interface AccountHealth {
   smtp: { error?: string };
 }
 
-function firstAccountHealth(content: unknown): AccountHealth {
-  if (!Array.isArray(content)) throw new Error('check_health returned no content');
-  const [block] = content as { text?: unknown }[];
-  if (typeof block?.text !== 'string') throw new Error('check_health returned no text');
-  const { accounts } = JSON.parse(block.text) as { accounts: AccountHealth[] };
+function firstAccountHealth(text: string): AccountHealth {
+  const { accounts } = JSON.parse(text) as { accounts: AccountHealth[] };
   if (!accounts[0]) throw new Error('check_health reported no account');
   return accounts[0];
 }
 
-async function checkHealth(manager: ConnectionManager): Promise<AccountHealth> {
+/** The text check_health returns, as the client receives it. */
+async function checkHealthText(manager: ConnectionManager): Promise<string> {
   const server = createServer();
   registerHealthTools(server, manager, new ImapService(manager));
   const client = new Client({ name: 'mailoo-health', version: '0.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
   try {
-    const result = await client.callTool({ name: 'check_health', arguments: { account: 'work' } });
-    return firstAccountHealth(result.content);
+    const { content } = await client.callTool({
+      name: 'check_health',
+      arguments: { account: 'work' },
+    });
+    if (!Array.isArray(content)) throw new Error('check_health returned no content');
+    const [block] = content as { text?: unknown }[];
+    if (typeof block?.text !== 'string') throw new Error('check_health returned no text');
+    return block.text;
   } finally {
     await Promise.allSettled([client.close(), server.close()]);
   }
+}
+
+async function checkHealth(manager: ConnectionManager): Promise<AccountHealth> {
+  return firstAccountHealth(await checkHealthText(manager));
 }
 
 beforeEach(() => {
@@ -160,6 +180,34 @@ afterEach(() => {
 });
 
 describe('check_health on a refused IMAP login', () => {
+  it.each(QUOTED_SECRETS)(
+    'should leave %s that imapflow keeps in response and responseText out of the reply',
+    async (_quoted, account, secret) => {
+      h.connectError = imapflowRefusal(secret);
+      const text = await checkHealthText(new ConnectionManager([account()], tokens));
+      expect({
+        refused: firstAccountHealth(text).imap.error !== undefined,
+        quoted: text.includes(secret),
+      }).toEqual({ refused: true, quoted: false });
+    },
+  );
+
+  it.each(QUOTED_SECRETS)(
+    'should leave %s that imapflow keeps in response and responseText out of the repeat while the next connect waits',
+    async (_quoted, account, secret) => {
+      h.connectError = imapflowRefusal(secret);
+      const manager = new ConnectionManager([account()], tokens);
+      await checkHealthText(manager);
+      const text = await checkHealthText(manager);
+      expect({
+        waiting: firstAccountHealth(text).imap.error?.endsWith('(next attempt in 1s)'),
+        quoted: text.includes(secret),
+      }).toEqual({ waiting: true, quoted: false });
+    },
+  );
+});
+
+describe('check_health on a refused IMAP login whose message quotes the server (defensive input)', () => {
   it.each(QUOTED_SECRETS)(
     'should report the IMAP error with %s redacted',
     async (_quoted, account, secret) => {

@@ -116,6 +116,18 @@ function oauthAccount(): AccountConfig {
 
 const tokens: AccessTokenSource = { getAccessToken: async () => ACCESS_TOKEN };
 
+// imapflow 2's refused LOGIN or AUTHENTICATE: a generic message, the tagged reply as text in
+// `response` and its human-readable part in `responseText`.
+function imapflowRefusal(secret: string): Error {
+  return Object.assign(new Error('Command failed'), {
+    response: `2 NO [AUTHENTICATIONFAILED] ${secret} rejected`,
+    responseStatus: 'NO',
+    responseText: `${secret} rejected`,
+    serverResponseCode: 'AUTHENTICATIONFAILED',
+    authenticationFailed: true,
+  });
+}
+
 beforeEach(() => {
   h.connectError = null;
   h.socketError = null;
@@ -186,21 +198,42 @@ describe('testImap', () => {
     });
   });
 
-  // imapflow 2 keeps the server's text in `response` and `responseText`, never in `message` (see
-  // the refused-login test above). These messages stand for any other source that does quote it.
-  it('should redact the password a refused login quotes', async () => {
-    h.connectError = new Error('Command failed: NO [AUTHENTICATIONFAILED] wrong-password rejected');
-    expect(await testImap(account)).toEqual({
-      success: false,
-      error: 'Command failed: NO [AUTHENTICATIONFAILED] [redacted] rejected',
-    });
-  });
+  it.each([
+    ['the password', () => account, 'wrong-password'],
+    ['the OAuth2 access token', oauthAccount, ACCESS_TOKEN],
+  ])(
+    'should leave %s that imapflow keeps in response and responseText out of the result',
+    async (_quoted, probed, secret) => {
+      h.connectError = imapflowRefusal(secret);
+      const result = await testImap(probed(), tokens);
+      expect({ success: result.success, quoted: JSON.stringify(result).includes(secret) }).toEqual({
+        success: false,
+        quoted: false,
+      });
+    },
+  );
 
-  it('should redact the OAuth2 access token a refused login quotes', async () => {
-    h.connectError = new Error(`Command failed: NO [AUTHENTICATIONFAILED] ${ACCESS_TOKEN} expired`);
-    expect(await testImap(oauthAccount(), tokens)).toEqual({
-      success: false,
-      error: 'Command failed: NO [AUTHENTICATIONFAILED] [redacted] expired',
+  // imapflow 2 never puts the server's text in `message` (see imapflowRefusal); these stand for
+  // another source, or a later version, that does.
+  describe('defensive input: a refusal whose message quotes the server', () => {
+    it('should redact the password a refused login quotes', async () => {
+      h.connectError = new Error(
+        'Command failed: NO [AUTHENTICATIONFAILED] wrong-password rejected',
+      );
+      expect(await testImap(account)).toEqual({
+        success: false,
+        error: 'Command failed: NO [AUTHENTICATIONFAILED] [redacted] rejected',
+      });
+    });
+
+    it('should redact the OAuth2 access token a refused login quotes', async () => {
+      h.connectError = new Error(
+        `Command failed: NO [AUTHENTICATIONFAILED] ${ACCESS_TOKEN} expired`,
+      );
+      expect(await testImap(oauthAccount(), tokens)).toEqual({
+        success: false,
+        error: 'Command failed: NO [AUTHENTICATIONFAILED] [redacted] expired',
+      });
     });
   });
 
