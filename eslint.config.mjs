@@ -90,6 +90,7 @@ export default defineConfig([
       '@stylistic/lines-between-class-members': 'off',
       '@stylistic/implicit-arrow-linebreak': 'off',
       '@stylistic/function-paren-newline': 'off',
+      '@typescript-eslint/no-floating-promises': 'error',
     },
   },
 ]);
