@@ -588,7 +588,7 @@ describe.each(FLOWS)('OAuthService $action when the token endpoint refuses', ({ 
     });
   });
 
-  // fetch follows a redirect only when it names a Location, so a 3xx without one is the answer.
+  // Redirects are not followed, so a 3xx is the answer whether or not it names a Location.
   it.each([{ status: 300 }, { status: 302 }, { status: 399 }])(
     'should refuse a $status answer even when its body carries tokens',
     async ({ status }) => {
@@ -1073,10 +1073,10 @@ const ECHOES: Echo[] = [
 const ECHO_CASES = ECHOES.flatMap((echo) => ECHO_FIELDS.map((field) => ({ ...echo, ...field })));
 
 /**
- * Near misses: only an escape's hex digits match in either case, and nothing else matches loosely.
- * These were never sent, so they stay.
+ * Near misses the whole-echo cut leaves in the text, as it matches only an escape's hex digits in
+ * either case. With case and separators set aside each still holds a sent secret.
  */
-const UNSENT_ECHOES: {
+const NEAR_MISS_ECHOES: {
   name: string;
   secrets: SentSecrets;
   echo: (sent: { client: string; grant: string }) => string;
@@ -1200,6 +1200,133 @@ const PAST_A_MARKER_CASES = [
   { name: 'two characters', client: 'acted]ZZ', around: (grant: string) => `x${grant}ZZ` },
   { name: 'one character', client: 'redacted]Z', around: (grant: string) => `${grant}Z` },
 ].flatMap((past) => ECHO_FIELDS.map((field) => ({ ...past, ...field })));
+
+/** Letters and digits only: no reshaping changes them, so only the fragment guard sees a piece. */
+const ALNUM: SentSecrets = {
+  client: 'Kq7Lw2Rt9Vx4Zp8Jd3',
+  grant: 'Hs8Jd3Fq6YbN0cVe5Tm',
+  reshaped: [],
+};
+
+/**
+ * A reserved character after at most three letters or digits. Escaped twice or more, every eight
+ * letters and digits in a row hold escape digits, so only decoding brings the secret back.
+ */
+const RESERVED: SentSecrets = {
+  client: 'Kq7/Lw2+Rt9=Vx4',
+  grant: '1//Hs8+Jd3/Fq6',
+  reshaped: [],
+};
+
+/** A space after every four characters: a form body sends each as `+`, an escape of its own. */
+const SPACED: SentSecrets = {
+  client: 'Kq7L w2Rt 9Vx4 Zp8J',
+  grant: 'Hs8J d3Fq 6YbN 0cVe',
+  reshaped: [],
+};
+
+/** Shaped like real credentials, so no word of a provider's prose holds a piece of them. */
+const REALISTIC: SentSecrets = {
+  client: 'GOCSPX-hT4kWq9ZmB2xLr7Nc',
+  grant: '1//0gHk3NzQ8wLp5Rt2Yv9XcQe6',
+  reshaped: [],
+};
+
+function escapedTimes(times: number): (text: string) => string {
+  return (text) =>
+    Array.from({ length: times }).reduce<string>((escaped) => encodeURIComponent(escaped), text);
+}
+
+function formEncodedTwice(text: string): string {
+  const once = new URLSearchParams({ s: text }).toString().slice(2);
+  return new URLSearchParams({ s: once }).toString().slice(2);
+}
+
+function afterEveryFour(separator: string): (text: string) => string {
+  return (text) => (text.match(/.{1,4}/g) ?? []).join(separator);
+}
+
+const SENT_SECRET_KINDS = [
+  { secret: 'client', label: 'client secret' },
+  { secret: 'grant', label: 'grant' },
+] as const;
+
+/** Pieces and reshapings of a sent secret that the whole-echo cut does not find. */
+const FRAGMENTS = [
+  { name: 'eight of its characters', secrets: ALNUM, reshape: (text: string) => text.slice(2, 10) },
+  {
+    name: 'eight of its characters in swapped case',
+    secrets: ALNUM,
+    reshape: (text: string) => swapCase(text.slice(2, 10)),
+  },
+  { name: 'it escaped twice', secrets: RESERVED, reshape: escapedTimes(2) },
+  // Lowercased between the rounds: escaped twice, the hex letters sit behind `%25`, in no escape.
+  {
+    name: 'it escaped twice in lowercase hex',
+    secrets: RESERVED,
+    reshape: (text: string) => escapedTimes(1)(lowercaseEscapes(escapedTimes(1)(text))),
+  },
+  { name: 'it escaped three times', secrets: RESERVED, reshape: escapedTimes(3) },
+  { name: 'it escaped four times', secrets: RESERVED, reshape: escapedTimes(4) },
+  { name: 'it form-encoded twice', secrets: SPACED, reshape: formEncodedTwice },
+  {
+    name: 'it with a space after every four characters',
+    secrets: ALNUM,
+    reshape: afterEveryFour(' '),
+  },
+  {
+    name: 'it with a dot after every four characters',
+    secrets: ALNUM,
+    reshape: afterEveryFour('.'),
+  },
+];
+
+const FRAGMENT_CASES = FRAGMENTS.flatMap((fragment) =>
+  SENT_SECRET_KINDS.flatMap((kind) =>
+    ECHO_FIELDS.map((field) => ({ ...fragment, ...kind, ...field })),
+  ),
+);
+
+const SEVEN_CHARACTER_CASES = SENT_SECRET_KINDS.flatMap((kind) =>
+  ECHO_FIELDS.map((field) => ({ ...kind, ...field })),
+);
+
+/** Nine characters sent, five of them letters and digits: its skeleton is under the minimum. */
+const SHORT_SKELETON_CLIENT = 'K.q.7.L.w';
+
+/** `%zz` is no escape, so its letters stay in the skeleton and `zzLw2Rt9` is a piece of it. */
+const NON_HEX_ESCAPE_CLIENT = 'Kq7%zzLw2Rt9';
+
+/** Refusals worded as Google and Microsoft word them, holding no piece of what was sent. */
+const PROVIDER_REFUSALS = [
+  {
+    name: 'a Google expired grant',
+    error: 'invalid_grant',
+    description: 'Token has been expired or revoked.',
+  },
+  {
+    name: 'a Google unknown client',
+    error: 'invalid_client',
+    description: 'The OAuth client was not found.',
+  },
+  {
+    name: 'a Google unauthorized client',
+    error: 'unauthorized_client',
+    description: 'Unauthorized',
+  },
+  {
+    name: 'a Microsoft wrong client secret',
+    error: 'invalid_client',
+    description:
+      'AADSTS7000215: Invalid client secret provided. Ensure the secret being sent in the request is the client secret value, not the client secret ID.',
+  },
+  {
+    name: 'a Microsoft expired grant',
+    error: 'invalid_grant',
+    description:
+      'AADSTS70008: The provided authorization code or refresh token has expired due to inactivity.',
+  },
+];
 
 describe.each(ECHOING_FLOWS)(
   'OAuthService $action when the refusal echoes the secrets the request sent',
@@ -1339,16 +1466,14 @@ describe.each(ECHOING_FLOWS)(
       });
     });
 
-    it.each(UNSENT_ECHOES)(
-      'should keep $name as echoed in the error_description',
+    it.each(NEAR_MISS_ECHOES)(
+      'should name nothing when the error_description holds $name',
       async ({ secrets: fixture, echo }) => {
-        const { error, secrets } = await refusedEchoing(fixture, (sent) => ({
+        const { error } = await refusedEchoing(fixture, (sent) => ({
           error: 'invalid_grant',
           error_description: `token ${echo(sent)} refused`,
         }));
-        expect(error.message).toBe(
-          `${failed} (400): invalid_grant: token ${echo(secrets)} refused`,
-        );
+        expect(error.message).toBe(`${failed} (400)`);
       },
     );
 
@@ -1489,6 +1614,110 @@ describe.each(ECHOING_FLOWS)(
         expect(error.message).toBe(
           `${failed} (400): invalid_grant: Token has been expired or revoked.`,
         );
+      },
+    );
+
+    it.each(FRAGMENT_CASES)(
+      'should name nothing when the $field holds $name of the $label',
+      async ({ secrets: fixture, reshape, secret, body }) => {
+        const { error, secrets, sent } = await refusedEchoing(fixture, (echoed) =>
+          body(`${reshape(echoed[secret])} revoked`),
+        );
+        expect({ sent, message: error.message }).toEqual({
+          sent: [secrets.client, secrets.grant],
+          message: `${failed} (400)`,
+        });
+      },
+    );
+
+    it.each(SEVEN_CHARACTER_CASES)(
+      'should keep the $field whole when it holds seven characters of the $label',
+      async ({ secret, body, named }) => {
+        const { error, secrets } = await refusedEchoing(ALNUM, (echoed) =>
+          body(`${echoed[secret].slice(2, 9)} revoked`),
+        );
+        expect(error.message).toBe(
+          `${failed} (400): ${named(`${secrets[secret].slice(2, 9)} revoked`)}`,
+        );
+      },
+    );
+
+    it.each(SENT_SECRET_KINDS)(
+      'should name nothing when the error ends with a piece of the $label and the error_description goes on with it',
+      async ({ secret }) => {
+        const { error } = await refusedEchoing(ALNUM, (echoed) => ({
+          error: `bad_${echoed[secret].slice(0, 5)}`,
+          error_description: `${echoed[secret].slice(5, 9)} revoked`,
+        }));
+        expect(error.message).toBe(`${failed} (400)`);
+      },
+    );
+
+    // A cut is a break, so the marker's letters and the text either side never read as one.
+    it.each(ECHO_FIELDS)(
+      'should keep the $field when a cut stands between two pieces of the client secret each under the minimum',
+      async ({ body, named }) => {
+        const { error } = await refusedEchoing(ALNUM, ({ client, grant }) =>
+          body(`${client.slice(0, 4)}${grant}${client.slice(4, 8)} revoked`),
+        );
+        expect(error.message).toBe(`${failed} (400): ${named('Kq7L[redacted]w2Rt revoked')}`);
+      },
+    );
+
+    it.each(ECHO_FIELDS)(
+      'should name nothing when the $field holds the whole skeleton of a client secret under the minimum',
+      async ({ body }) => {
+        const { error, sent } = await refusedEchoing(
+          { ...ALNUM, client: SHORT_SKELETON_CLIENT },
+          () => body('client Kq7Lw revoked'),
+        );
+        expect({ sentClient: sent[0], message: error.message }).toEqual({
+          sentClient: SHORT_SKELETON_CLIENT,
+          message: `${failed} (400)`,
+        });
+      },
+    );
+
+    it.each(ECHO_FIELDS)(
+      'should keep the $field whole when it holds only part of the skeleton of a client secret under the minimum',
+      async ({ body, named }) => {
+        const { error } = await refusedEchoing({ ...ALNUM, client: SHORT_SKELETON_CLIENT }, () =>
+          body('client Kq7L revoked'),
+        );
+        expect(error.message).toBe(`${failed} (400): ${named('client Kq7L revoked')}`);
+      },
+    );
+
+    it.each(ECHO_FIELDS)(
+      'should name nothing when the $field holds a piece of the client secret that starts at the letters of an escape that is not hex',
+      async ({ body }) => {
+        const { error, sent } = await refusedEchoing(
+          { ...ALNUM, client: NON_HEX_ESCAPE_CLIENT },
+          () => body('zzLw2Rt9 revoked'),
+        );
+        expect({ sentClient: sent[0], message: error.message }).toEqual({
+          sentClient: NON_HEX_ESCAPE_CLIENT,
+          message: `${failed} (400)`,
+        });
+      },
+    );
+
+    it.each(ECHO_FIELDS)(
+      'should keep the $field as written when it holds an escape that is not UTF-8',
+      async ({ body, named }) => {
+        const { error } = await refusedEchoing(REALISTIC, () => body('bad byte %FF in request'));
+        expect(error.message).toBe(`${failed} (400): ${named('bad byte %FF in request')}`);
+      },
+    );
+
+    it.each(PROVIDER_REFUSALS)(
+      'should keep $name whole when it holds no piece of a sent secret',
+      async ({ error: code, description }) => {
+        const { error } = await refusedEchoing(REALISTIC, () => ({
+          error: code,
+          error_description: description,
+        }));
+        expect(error.message).toBe(`${failed} (400): ${code}: ${description}`);
       },
     );
   },

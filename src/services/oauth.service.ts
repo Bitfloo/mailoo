@@ -53,7 +53,8 @@ const OUTSIDE_ERROR_CHARSET = /[^\x20\x21\x23-\x5B\x5D-\x7E]/g;
 
 /**
  * Shorter than this, a secret's shape matches letters and words of the provider's own prose, and
- * cutting each match out garbles the field. A field holding such a shape is dropped instead.
+ * cutting each match out garbles the field. A field holding such a shape is dropped instead. It is
+ * also the length of the pieces of a secret no refusal detail may hold.
  */
 export const SECRET_SHAPE_MIN_CHARS = 8;
 
@@ -186,13 +187,67 @@ function cleanErrorField(value: unknown, maxChars: number, shapes: SecretShapes)
   return text.slice(0, maxChars).trim();
 }
 
+/** Echoes are escaped once, or twice behind a proxy; the bound leaves room for more. */
+const PERCENT_DECODE_MAX_ROUNDS = 4;
+
+const PERCENT_ESCAPE_RUN = /(?:%[0-9A-Fa-f]{2})+/g;
+
+/** Bytes that are not UTF-8 decode to U+FFFD, so a malformed escape never throws. */
+function decodedEscapes(run: string): string {
+  return Buffer.from(run.replaceAll('%', ''), 'hex').toString('utf8');
+}
+
+/** An escape that is not two hex digits stays as written. */
+function percentDecoded(text: string): string {
+  let decoded = text;
+  for (let round = 0; round < PERCENT_DECODE_MAX_ROUNDS; round += 1) {
+    const next = decoded.replace(PERCENT_ESCAPE_RUN, decodedEscapes);
+    if (next === decoded) break;
+    decoded = next;
+  }
+  return decoded;
+}
+
+/**
+ * The ASCII letters and digits of a text once decoded, in lowercase: a form-encoded `+`, a space,
+ * punctuation or a changed case inside an echo no longer hide what it spells.
+ */
+function skeleton(text: string): string {
+  return percentDecoded(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+/** Every piece of a secret no field may hold: its 8-character windows, or all of a shorter one. */
+function piecesOf(secret: string): string[] {
+  if (!secret) return [];
+  const width = Math.min(secret.length, SECRET_SHAPE_MIN_CHARS);
+  const starts = secret.length - width + 1;
+  return Array.from({ length: starts }, (_, at) => secret.slice(at, at + width));
+}
+
+/**
+ * The last check on what the message would carry, after the whole echoes are cut: a piece of a
+ * sent secret split across the two fields, escaped more than once, cased or spaced differently.
+ * The fields are read as one text, the code first, so a secret split between them is found. Each
+ * cut is a break in that text, so the marker's letters and the words either side never spell
+ * anything. A secret broken by letters, digits or the marker itself every few characters is not
+ * looked for.
+ */
+function holdsPieceOfSentSecret(fields: readonly string[], sent: URLSearchParams): boolean {
+  const text = fields.map((field) => field.split(REDACTED).map(skeleton).join(' ')).join('');
+  const secrets = SENT_SECRET_FIELDS.map((field) => skeleton(sent.get(field) ?? ''));
+  return secrets.flatMap(piecesOf).some((piece) => text.includes(piece));
+}
+
 /**
  * The part of a refused answer the error message may carry: only RFC 6749 `error` and
- * `error_description`, with the secrets the request sent replaced. Messages reach tool results,
- * logs and the audit log, and a custom endpoint or a proxy in front of one can put tokens or a
- * whole HTML page in the body, or quote the request back inside those two fields.
+ * `error_description`, with the secrets the request sent replaced, and nothing at all when a piece
+ * of one is left. Messages reach tool results, logs and the audit log, and a custom endpoint or a
+ * proxy in front of one can put tokens or a whole HTML page in the body, or quote the request back
+ * inside those two fields.
  */
-function refusalDetail(body: string, secrets: SecretShapes): string {
+function refusalDetail(body: string, sent: URLSearchParams): string {
   if (body.length > TOKEN_ERROR_BODY_MAX_CHARS) return '';
   let parsed: unknown;
   try {
@@ -202,48 +257,62 @@ function refusalDetail(body: string, secrets: SecretShapes): string {
   }
   if (typeof parsed !== 'object' || parsed === null) return '';
   const fields = parsed as { error?: unknown; error_description?: unknown };
-  const code = cleanErrorField(fields.error, TOKEN_ERROR_CODE_MAX_CHARS, secrets);
+  const shapes = sentSecretShapes(sent);
+  const code = cleanErrorField(fields.error, TOKEN_ERROR_CODE_MAX_CHARS, shapes);
   if (!code) return '';
   const description = cleanErrorField(
     fields.error_description,
     TOKEN_ERROR_DESCRIPTION_MAX_CHARS,
-    secrets,
+    shapes,
   );
+  if (holdsPieceOfSentSecret([code, description], sent)) return '';
   return description ? `: ${code}: ${description}` : `: ${code}`;
 }
 
-/** The timeout also covers the body: an endpoint can send its headers and then stall. */
-async function postTokenRequest<T>(
+/**
+ * Redirects are not followed: a 307 or 308 would send the form, client secret included, on to
+ * whatever the Location names, so a 3xx is refused like any other status. The timeout also covers
+ * the body: an endpoint can send its headers and then stall.
+ */
+async function sendTokenRequest(
   tokenUrl: string,
   body: URLSearchParams,
   action: string,
-): Promise<T> {
+): Promise<{ response: Response; text: string }> {
   try {
     const response = await fetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
+      redirect: 'manual',
       signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
     });
-    const text = await response.text();
-    if (!response.ok) {
-      throw new Error(
-        `OAuth2 ${action} failed (${response.status})${refusalDetail(text, sentSecretShapes(body))}`,
-      );
-    }
-    try {
-      return JSON.parse(text) as T;
-    } catch {
-      // Not chained: a SyntaxError message quotes the start of the body, which can hold a token.
-      throw new Error(`OAuth2 ${action} failed: the token endpoint did not return JSON`);
-    }
+    return { response, text: await response.text() };
   } catch (err) {
     if (err instanceof DOMException && err.name === 'TimeoutError') {
       throw new Error(`OAuth2 ${action} timed out after ${TOKEN_REQUEST_TIMEOUT_MS / 1000}s`, {
         cause: err,
       });
     }
-    throw err;
+    // Not chained: fetch errors quote the token URL, whose userinfo or query can hold a credential.
+    throw new Error(`OAuth2 ${action} failed: the token endpoint could not be reached`);
+  }
+}
+
+async function postTokenRequest<T>(
+  tokenUrl: string,
+  body: URLSearchParams,
+  action: string,
+): Promise<T> {
+  const { response, text } = await sendTokenRequest(tokenUrl, body, action);
+  if (!response.ok) {
+    throw new Error(`OAuth2 ${action} failed (${response.status})${refusalDetail(text, body)}`);
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    // Not chained: a SyntaxError message quotes the start of the body, which can hold a token.
+    throw new Error(`OAuth2 ${action} failed: the token endpoint did not return JSON`);
   }
 }
 
