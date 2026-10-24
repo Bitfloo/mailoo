@@ -11,7 +11,7 @@ export const MAX_ERROR_TEXT_LENGTH = 300;
 const TRUNCATION_MARKER = '…';
 
 /** Shorter needles are redacted only as a whole word, so a one-letter password keeps the reply readable. */
-export const MIN_SUBSTRING_NEEDLE_LENGTH = 8;
+const MIN_SUBSTRING_NEEDLE_LENGTH = 8;
 
 export interface SentCredentials {
   user: string;
