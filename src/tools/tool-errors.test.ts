@@ -227,11 +227,12 @@ describe('tool failures return isError', () => {
     expectFailure(result);
   });
 
-  it('should return isError for scheduler read and write tools when scheduler service throws', async () => {
-    const server = failingSchedulerServer();
-    expectFailure(await callTool(server, 'list_scheduled', { status: 'all' }));
-    expectFailure(await callTool(server, 'schedule_email', SCHEDULE_ARGS));
-    expectFailure(await callTool(server, 'cancel_scheduled', { schedule_id: 'sched-1' }));
+  it.each([
+    ['list_scheduled', { status: 'all' }],
+    ['schedule_email', SCHEDULE_ARGS],
+    ['cancel_scheduled', { schedule_id: 'sched-1' }],
+  ])('should return isError for %s when the scheduler service throws', async (name, args) => {
+    expectFailure(await callTool(failingSchedulerServer(), name, args));
   });
 });
 
