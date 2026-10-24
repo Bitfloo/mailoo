@@ -61,6 +61,29 @@ function expectFailure(result: TextToolResult): void {
   expect(result.content[0]).toMatchObject({ type: 'text', text: expect.stringContaining(FAILURE) });
 }
 
+const SCHEDULE_ARGS = {
+  account: 'work',
+  to: ['recipient@example.com'],
+  subject: 'Hello',
+  body: 'World',
+  send_at: 'in 1 hour',
+};
+
+function failingSchedulerServer(): McpServer {
+  const server = createServer();
+  const failingScheduler = {
+    resolveAccountName: () => {
+      throw new Error(FAILURE);
+    },
+    list: async () => Promise.reject(new Error(FAILURE)),
+    schedule: async () => Promise.reject(new Error(FAILURE)),
+    cancel: async () => Promise.reject(new Error(FAILURE)),
+  } as never;
+  registerSchedulerReadTools(server, failingScheduler);
+  registerSchedulerWriteTools(server, failingScheduler);
+  return server;
+}
+
 describe('tool failures return isError', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -205,32 +228,21 @@ describe('tool failures return isError', () => {
   });
 
   it('should return isError for scheduler read and write tools when scheduler service throws', async () => {
-    const server = createServer();
-    const failingScheduler = {
-      resolveAccountName: () => {
-        throw new Error(FAILURE);
-      },
-      list: async () => Promise.reject(new Error(FAILURE)),
-      schedule: async () => Promise.reject(new Error(FAILURE)),
-      cancel: async () => Promise.reject(new Error(FAILURE)),
-    } as never;
-
-    registerSchedulerReadTools(server, failingScheduler);
-    registerSchedulerWriteTools(server, failingScheduler);
-
+    const server = failingSchedulerServer();
     expectFailure(await callTool(server, 'list_scheduled', { status: 'all' }));
-    expectFailure(
-      await callTool(server, 'schedule_email', {
-        account: 'work',
-        to: ['recipient@example.com'],
-        subject: 'Hello',
-        body: 'World',
-        send_at: 'in 1 hour',
-      }),
-    );
+    expectFailure(await callTool(server, 'schedule_email', SCHEDULE_ARGS));
     expectFailure(await callTool(server, 'cancel_scheduled', { schedule_id: 'sched-1' }));
+  });
+});
+
+describe('tool failures are audited', () => {
+  it('should write one audit entry per failed schedule_email and cancel_scheduled call', async () => {
+    const server = failingSchedulerServer();
+    const before = (await readAuditEntries(auditHome)).length;
+    await callTool(server, 'schedule_email', SCHEDULE_ARGS);
+    await callTool(server, 'cancel_scheduled', { schedule_id: 'sched-1' });
     // The pin's only oracle: a pin set after the imports sends these entries to the real log.
-    expect((await readAuditEntries(auditHome)).map((entry) => entry.tool)).toEqual([
+    expect((await readAuditEntries(auditHome)).slice(before).map((entry) => entry.tool)).toEqual([
       'schedule_email',
       'cancel_scheduled',
     ]);
