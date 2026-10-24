@@ -1,18 +1,41 @@
-import LOOPBACK_HOSTNAMES from './loopback.js';
+import { isLoopbackHost } from './loopback.js';
 
-// Callers look up URL#hostname, which keeps the brackets around an IPv6 address.
-describe('LOOPBACK_HOSTNAMES', () => {
-  it.each(['http://127.0.0.1:8080/token', 'http://localhost/token', 'http://[::1]:8080/token'])(
-    'should contain the hostname of %s',
-    (url) => {
-      expect(LOOPBACK_HOSTNAMES.has(new URL(url).hostname)).toBe(true);
-    },
-  );
+describe('isLoopbackHost', () => {
+  it.each([
+    'localhost',
+    'LOCALHOST',
+    'LocalHost',
+    '127.0.0.1',
+    '127.0.0.2',
+    '127.255.255.254',
+    '::1',
+    '[::1]',
+    '0:0:0:0:0:0:0:1',
+  ])('should accept %j', (host) => {
+    expect(isLoopbackHost(host)).toBe(true);
+  });
 
-  it.each(['http://localhost.example.com/token', 'http://10.0.0.5/token'])(
-    'should not contain the hostname of %s',
-    (url) => {
-      expect(LOOPBACK_HOSTNAMES.has(new URL(url).hostname)).toBe(false);
-    },
-  );
+  // Only localhost and IP literals count: a client looks up any other spelling, '127.1' included, as a name.
+  it.each([
+    '127.1',
+    '0x7f.0.0.1',
+    '2130706433',
+    '::ffff:127.0.0.1',
+    'localhost.',
+    '127.0.0.1.',
+    ' localhost ',
+    '127.0.0.1 ',
+    '[127.0.0.1]',
+    '[::1]:25',
+    '::1%lo0',
+    '0.0.0.0',
+    '128.0.0.1',
+    '126.255.255.255',
+    'localhost.example.com',
+    '127.0.0.1.example.com',
+    'mail.example.com',
+    '',
+  ])('should refuse %j', (host) => {
+    expect(isLoopbackHost(host)).toBe(false);
+  });
 });

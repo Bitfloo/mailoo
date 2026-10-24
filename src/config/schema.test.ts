@@ -1,6 +1,5 @@
 import { readFile } from 'node:fs/promises';
 
-import LOOPBACK_HOSTNAMES from '../utils/loopback.js';
 import {
   AccountConfigSchema,
   AppConfigFileSchema,
@@ -273,8 +272,7 @@ describe('OAuth2ConfigSchema custom endpoints', () => {
     expect(OAuth2ConfigSchema.safeParse(config).error?.issues[0]?.path).toEqual(['auth_url']);
   });
 
-  // The README and the rejection message list the hosts in prose; the
-  // loopback set is what the check reads.
+  // The README and the rejection message list in prose what isLoopbackHost accepts.
   it.each([
     [
       'README.md',
@@ -295,9 +293,7 @@ describe('OAuth2ConfigSchema custom endpoints', () => {
       },
     ],
   ])('should name exactly the loopback hosts in %s', async (_source, listedHosts) => {
-    const loopback = [...LOOPBACK_HOSTNAMES].map((host) => host.replace(/^\[|\]$/g, ''));
-
-    expect((await listedHosts()).sort()).toEqual(loopback.sort());
+    expect((await listedHosts()).sort()).toEqual(['127.0.0.0/8', '::1', 'localhost']);
   });
 
   it('should name https in the rejection message', () => {

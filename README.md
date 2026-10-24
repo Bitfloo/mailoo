@@ -791,7 +791,7 @@ Outbound calls, child processes, files, and environment variables below are what
 | `https://accounts.google.com/o/oauth2/v2/auth` | Authorization URL for the operator's browser; the process does not fetch it | `src/services/oauth.service.ts` |
 | `https://login.microsoftonline.com/common/oauth2/v2.0/token` | Microsoft token refresh and code exchange | `src/services/oauth.service.ts` |
 | `https://login.microsoftonline.com/common/oauth2/v2.0/authorize` | Authorization URL for the operator's browser; the process does not fetch it | `src/services/oauth.service.ts` |
-| Custom `token_url` / `auth_url` | Same split when `oauth2.provider` is `custom`. Config validation requires `https`; plain `http` is accepted only for `127.0.0.1`, `::1`, or `localhost` (`src/config/schema.ts`) | `src/services/oauth.service.ts` |
+| Custom `token_url` / `auth_url` | Same split when `oauth2.provider` is `custom`. Config validation requires `https`; plain `http` is accepted only for `localhost`, `127.0.0.0/8`, or `::1` (`src/config/schema.ts`) | `src/services/oauth.service.ts` |
 | Configured webhook URL (`http` or `https` POST) | Alerts, after a DNS lookup of that host | `src/services/notifier.service.ts`, `src/safety/validation.ts` |
 | `https://api.typesafe.ai` (or `TYPESAFE_BASE_URL`) | System One classification, only when that integration is on. Fields sent: [System One](#system-one-opt-in-typed-filing) | `src/services/mail-arrival/index.ts` |
 
