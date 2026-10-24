@@ -5,6 +5,9 @@
  */
 
 import type { SendMailOptions } from 'nodemailer';
+import { sentCredentials } from '../connections/auth.js';
+import type { SentCredentials } from '../connections/credential-redaction.js';
+import { redactSentCredentials } from '../connections/credential-redaction.js';
 import type { IConnectionManager } from '../connections/types.js';
 import { mcpLog } from '../logging.js';
 import RateLimitError from '../safety/rate-limit-error.js';
@@ -46,6 +49,24 @@ function providerFilesSentMail(smtpHost: string, oauthProvider?: string): boolea
     isHostOrSubdomain(host, 'googlemail.com') ||
     oauthProvider === 'google'
   );
+}
+
+/**
+ * nodemailer's EAUTH carries the server line in `message` and `response`; the tools, the audit
+ * log and the scheduler queue all store `message`. `response` and `cause` stay off on purpose.
+ */
+function redactedTransportError(err: unknown, sent: SentCredentials): Error {
+  if (!(err instanceof Error)) return new Error(redactSentCredentials(String(err), sent));
+  const { code, responseCode, command } = err as Error & {
+    code?: string;
+    responseCode?: number;
+    command?: string;
+  };
+  return Object.assign(new Error(redactSentCredentials(err.message, sent)), {
+    code,
+    responseCode,
+    command,
+  });
 }
 
 function escapeHtml(value: string): string {
@@ -332,13 +353,18 @@ export default class SmtpService {
   }
 
   private async sendAndAppend(accountName: string, mail: SendMailOptions): Promise<SendResult> {
-    const transport = await this.connections.getSmtpTransport(accountName);
     const safeMail: SendMailOptions = {
       ...mail,
       disableFileAccess: true,
       disableUrlAccess: true,
     };
-    const result = await transport.sendMail(safeMail);
+    let result: { messageId?: string };
+    try {
+      const transport = await this.connections.getSmtpTransport(accountName);
+      result = await transport.sendMail(safeMail);
+    } catch (err) {
+      throw redactedTransportError(err, sentCredentials(this.connections.getAccount(accountName)));
+    }
     const messageId =
       result.messageId ?? (typeof mail.messageId === 'string' ? mail.messageId : '');
 
