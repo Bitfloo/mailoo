@@ -77,6 +77,8 @@ describe('account schema credential', () => {
       { sent_mailbox: '' },
       'sent_mailbox: Too small: expected string to have >=1 characters',
     ],
+    ['a blank IMAP host', { imap: { host: '   ' } }, 'imap.host: IMAP host is required'],
+    ['a blank SMTP host', { smtp: { host: '   ' } }, 'smtp.host: SMTP host is required'],
   ])('should refuse %s beside a password, at that field', (_label, field, issue) => {
     const issues =
       AccountConfigSchema.safeParse({ ...account, password: 'pw', ...field }).error?.issues ?? [];

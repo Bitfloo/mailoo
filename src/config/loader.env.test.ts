@@ -1,5 +1,7 @@
 import path from 'node:path';
 
+import { ZodError } from 'zod';
+
 import { MINIMAL_TOML, useConfigSandbox, writeOwnerOnly } from '../test-support/config-sandbox.js';
 import { loadConfig } from './loader.js';
 
@@ -81,6 +83,26 @@ describe('Config Loader', () => {
       const config = await loadConfig(configPath);
 
       expect(config.accounts.map((account) => account.email)).toEqual(['env@example.com']);
+    });
+
+    it.each([
+      ['MCP_EMAIL_IMAP_HOST', 'accounts.0.imap.host: IMAP host is required'],
+      ['MCP_EMAIL_SMTP_HOST', 'accounts.0.smtp.host: SMTP host is required'],
+    ])('should refuse a blank %s beside a password, naming the field', async (name, issue) => {
+      vi.stubEnv('MCP_EMAIL_ADDRESS', 'env@example.com');
+      vi.stubEnv('MCP_EMAIL_PASSWORD', 'env-pass');
+      vi.stubEnv('MCP_EMAIL_IMAP_HOST', 'imap.example.com');
+      vi.stubEnv('MCP_EMAIL_SMTP_HOST', 'smtp.example.com');
+      vi.stubEnv(name, '   ');
+
+      const refused = await loadConfig(path.join(sandbox.dir, 'nonexistent.toml')).catch(
+        (error: unknown) => {
+          if (!(error instanceof ZodError)) throw error;
+          return error.issues.map((item) => `${item.path.join('.')}: ${item.message}`);
+        },
+      );
+
+      expect(refused).toEqual([issue]);
     });
 
     it('should drop empty entries from MCP_EMAIL_WATCHER_FOLDERS', async () => {

@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { ZodError } from 'zod';
+
 import {
   MINIMAL_TOML,
   permissionBits,
@@ -124,6 +126,43 @@ describe('Config Loader', () => {
       expect(config.accounts[0].email).toBe('test@example.com');
       expect(config.accounts[0].imap.host).toBe('imap.example.com');
       expect(config.accounts[0].smtp.host).toBe('smtp.example.com');
+    });
+
+    it.each([
+      ['imap', 'IMAP'],
+      ['smtp', 'SMTP'],
+    ])(
+      'should refuse a config file whose %s host is blank, naming the field',
+      async (table, label) => {
+        const configPath = path.join(sandbox.dir, 'config.toml');
+        await writeOwnerOnly(
+          configPath,
+          MINIMAL_TOML.replace(`host = "${table}.example.com"`, 'host = "   "'),
+        );
+
+        const refused = await loadConfig(configPath).catch((error: unknown) => {
+          if (!(error instanceof ZodError)) throw error;
+          return error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
+        });
+
+        expect(refused).toEqual([`accounts.0.${table}.host: ${label} host is required`]);
+      },
+    );
+
+    // The blank check reads the trimmed host; the host itself is used as written.
+    it('should keep padded IMAP and SMTP hosts from the config file as written', async () => {
+      const configPath = path.join(sandbox.dir, 'config.toml');
+      await writeOwnerOnly(
+        configPath,
+        MINIMAL_TOML.replace('"imap.example.com"', '" imap.example.com "').replace(
+          '"smtp.example.com"',
+          '" smtp.example.com "',
+        ),
+      );
+
+      const { imap, smtp } = (await loadConfig(configPath)).accounts[0];
+
+      expect([imap.host, smtp.host]).toEqual([' imap.example.com ', ' smtp.example.com ']);
     });
 
     it('throws when config file does not exist', async () => {
