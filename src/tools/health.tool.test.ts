@@ -181,28 +181,31 @@ afterEach(() => {
 
 describe('check_health on a refused IMAP login', () => {
   it.each(QUOTED_SECRETS)(
-    'should leave %s that imapflow keeps in response and responseText out of the reply',
+    "should report imapflow's generic message and leave %s it keeps in response and responseText out of the reply",
     async (_quoted, account, secret) => {
       h.connectError = imapflowRefusal(secret);
       const text = await checkHealthText(new ConnectionManager([account()], tokens));
       expect({
-        refused: firstAccountHealth(text).imap.error !== undefined,
+        error: firstAccountHealth(text).imap.error,
         quoted: text.includes(secret),
-      }).toEqual({ refused: true, quoted: false });
+      }).toEqual({ error: 'Command failed', quoted: false });
     },
   );
 
   it.each(QUOTED_SECRETS)(
-    'should leave %s that imapflow keeps in response and responseText out of the repeat while the next connect waits',
+    "should repeat imapflow's generic message and leave %s it keeps in response and responseText out while the next connect waits",
     async (_quoted, account, secret) => {
       h.connectError = imapflowRefusal(secret);
       const manager = new ConnectionManager([account()], tokens);
       await checkHealthText(manager);
       const text = await checkHealthText(manager);
       expect({
-        waiting: firstAccountHealth(text).imap.error?.endsWith('(next attempt in 1s)'),
+        error: firstAccountHealth(text).imap.error,
         quoted: text.includes(secret),
-      }).toEqual({ waiting: true, quoted: false });
+      }).toEqual({
+        error: 'Last IMAP connect for "work" failed: Command failed (next attempt in 1s)',
+        quoted: false,
+      });
     },
   );
 });

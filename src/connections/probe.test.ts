@@ -202,14 +202,10 @@ describe('testImap', () => {
     ['the password', () => account, 'wrong-password'],
     ['the OAuth2 access token', oauthAccount, ACCESS_TOKEN],
   ])(
-    'should leave %s that imapflow keeps in response and responseText out of the result',
+    "should report only imapflow's generic message when it keeps %s in response and responseText",
     async (_quoted, probed, secret) => {
       h.connectError = imapflowRefusal(secret);
-      const result = await testImap(probed(), tokens);
-      expect({ success: result.success, quoted: JSON.stringify(result).includes(secret) }).toEqual({
-        success: false,
-        quoted: false,
-      });
+      expect(await testImap(probed(), tokens)).toEqual({ success: false, error: 'Command failed' });
     },
   );
 
