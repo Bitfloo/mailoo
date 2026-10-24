@@ -847,13 +847,6 @@ const AROUND_A_MARKER: SentSecrets = {
   reshaped: [],
 };
 
-/** The client secret starts inside the marker and ends in the text after it. */
-const PAST_A_MARKER: SentSecrets = {
-  client: 'acted]ZZ',
-  grant: 'INNER-SECRET',
-  reshaped: [],
-};
-
 function lowercaseEscapes(encoded: string): string {
   return encoded.replace(/%[0-9A-F]{2}/g, (escaped) => escaped.toLowerCase());
 }
@@ -1188,6 +1181,12 @@ const BROKEN_AROUND_GRANT_CASES = [
   { name: 'an emoji of two UTF-16 units', echo: 'ABCD\u{1F4A5}EFGHIJKLMNOPQRSTUVWX' },
 ].flatMap((broken) => ECHO_FIELDS.map((field) => ({ ...broken, ...field })));
 
+/** Client secrets that start inside a redacted grant's marker and end two or one characters past it. */
+const PAST_A_MARKER_CASES = [
+  { name: 'two characters', client: 'acted]ZZ', around: (grant: string) => `x${grant}ZZ` },
+  { name: 'one character', client: 'redacted]Z', around: (grant: string) => `${grant}Z` },
+].flatMap((past) => ECHO_FIELDS.map((field) => ({ ...past, ...field })));
+
 describe.each(ECHOING_FLOWS)(
   'OAuthService $action when the refusal echoes the secrets the request sent',
   ({ action, grantField, redactedForm, run }) => {
@@ -1271,11 +1270,12 @@ describe.each(ECHOING_FLOWS)(
       },
     );
 
-    it.each(ECHO_FIELDS)(
-      'should drop the $field when a redacted grant and the text after it spell the client secret',
-      async ({ body, dropped }) => {
-        const { error, secrets, sent } = await refusedEchoing(PAST_A_MARKER, ({ grant }) =>
-          body(`x${grant}ZZ`),
+    it.each(PAST_A_MARKER_CASES)(
+      'should drop the $field when a redacted grant and the $name after it spell the client secret',
+      async ({ client, around, body, dropped }) => {
+        const { error, secrets, sent } = await refusedEchoing(
+          { client, grant: 'INNER-SECRET', reshaped: [] },
+          ({ grant }) => body(around(grant)),
         );
         expect({
           sent,
