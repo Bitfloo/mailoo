@@ -370,6 +370,17 @@ describe('Audit Logger', () => {
     },
   );
 
+  // The leaf sits where a container would be cut: the limit bounds the walk, and a leaf is not walked.
+  it.each(NON_PLAIN_CASES)(
+    'should write $name nested past the depth limit as $logged, not [Truncated]',
+    async ({ value, logged }) => {
+      expect(await loggedParams({ chain: nested(DEPTH_LIMIT, value, inObject) })).toEqual({
+        stderr: [],
+        params: [{ chain: nested(DEPTH_LIMIT, logged, inObject) }],
+      });
+    },
+  );
+
   it('should write each non-plain object inside an array as its own text or marker', async () => {
     expect(await loggedParams({ items: NON_PLAIN_CASES.map((c) => c.value) })).toEqual({
       stderr: [],
