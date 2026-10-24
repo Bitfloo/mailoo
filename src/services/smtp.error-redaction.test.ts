@@ -1,3 +1,5 @@
+import { inspect } from 'node:util';
+
 import type { SmtpAuth } from '../connections/auth.js';
 import { MAX_ERROR_TEXT_LENGTH } from '../connections/credential-redaction.js';
 import ConnectionManager from '../connections/manager.js';
@@ -146,6 +148,15 @@ describe('SmtpService send errors', () => {
     const { transport, service } = serviceFor(passwordAccount);
     transport.sendMail.mockRejectedValue(eauth('535 5.7.8 S3cret-Pa55word! rejected'));
     await expect(service.sendEmail('test', mail)).rejects.not.toHaveProperty('cause');
+  });
+
+  // inspect() prints the stack and every own property, so a copied stack or field shows up here.
+  it('should leave the password nowhere on the redacted error, stack included', async () => {
+    const { transport, service } = serviceFor(passwordAccount);
+    transport.sendMail.mockRejectedValue(eauth('535 5.7.8 S3cret-Pa55word! rejected'));
+    await expect(service.sendEmail('test', mail)).rejects.toSatisfy(
+      (err: unknown) => !inspect(err).includes('S3cret-Pa55word!'),
+    );
   });
 
   it('should cut a long send error to the cap', async () => {
