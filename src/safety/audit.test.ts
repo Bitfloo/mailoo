@@ -8,6 +8,67 @@ import type audit from './audit.js';
 
 type Audit = typeof audit;
 
+/** `leaf` inside `levels` containers made by `wrap`, the outermost first. */
+function nested(levels: number, leaf: unknown, wrap: (inner: unknown) => unknown): unknown {
+  return Array.from({ length: levels }).reduce<unknown>((inner) => wrap(inner), leaf);
+}
+
+/** Written out, so the depth tests fail on the walk rather than on a missing export. */
+const DEPTH_LIMIT = 16;
+
+const inObject = (inner: unknown) => ({ next: inner });
+const inArray = (inner: unknown) => [inner];
+
+class Credentials {
+  token = 'tok-literal-0001';
+
+  toString(): string {
+    return this.token;
+  }
+}
+
+/** An object that refers back to itself and counts every read of it: a key, a property, its type. */
+function watched(): { value: object; reads: () => number } {
+  let reads = 0;
+  const target: Record<string, unknown> = {};
+  // Each proxy operation first looks its trap up on the handler, so counting lookups counts them all.
+  const handler = new Proxy<ProxyHandler<object>>(
+    {},
+    {
+      get: (_, trap: keyof typeof Reflect) => {
+        reads += 1;
+        return Reflect[trap];
+      },
+    },
+  );
+  const value = new Proxy(target, handler);
+  target.self = value;
+  return { value, reads: () => reads };
+}
+
+/** Objects other than arrays and plain objects, and what an entry writes for each. */
+const NON_PLAIN_CASES = [
+  {
+    name: 'a Date',
+    value: new Date('2026-11-02T09:00:00.000Z'),
+    logged: '2026-11-02T09:00:00.000Z',
+  },
+  { name: 'an invalid Date', value: new Date('not a date'), logged: 'Invalid Date' },
+  {
+    name: 'a URL',
+    value: new URL('https://hooks.example.com/notify?channel=ops'),
+    logged: 'https://hooks.example.com/notify?channel=ops',
+  },
+  { name: 'a Buffer', value: Buffer.from('bytes-literal-0002'), logged: '[Binary]' },
+  { name: 'a Uint8Array', value: new Uint8Array([98, 121, 116, 101]), logged: '[Binary]' },
+  { name: 'a Float64Array', value: new Float64Array([0.5, 2]), logged: '[Binary]' },
+  { name: 'a DataView', value: new DataView(new ArrayBuffer(4)), logged: '[Binary]' },
+  { name: 'an ArrayBuffer', value: new ArrayBuffer(4), logged: '[Binary]' },
+  { name: 'a Map', value: new Map([['to', 'a@example.com']]), logged: '[Object]' },
+  { name: 'a Set', value: new Set(['a@example.com']), logged: '[Object]' },
+  { name: 'a class instance with its own toString', value: new Credentials(), logged: '[Object]' },
+];
+
 describe('Audit Logger', () => {
   let dataHome: string;
   let logDir: string;
@@ -26,6 +87,22 @@ describe('Audit Logger', () => {
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line) as AuditEntry);
+  }
+
+  /** The params of each entry written, and the stderr lines a lost entry leaves instead. */
+  async function loggedParams(
+    params: Record<string, unknown>,
+  ): Promise<{ stderr: string[]; params: unknown[] }> {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    await auditLogger.log('test', 'x', params, 'ok');
+    const entries = await readEntries().catch((err: NodeJS.ErrnoException) => {
+      if (err.code === 'ENOENT') return [];
+      throw err;
+    });
+    return {
+      stderr: stderr.mock.calls.map(([line]) => String(line)),
+      params: entries.map((entry) => entry.params),
+    };
   }
 
   beforeEach(async () => {
@@ -216,6 +293,144 @@ describe('Audit Logger', () => {
     await auditLogger.log('test', 'x', { items: [null, 'a@example.com', 42] }, 'ok');
     const [entry] = await readEntries();
     expect(entry.params).toEqual({ items: [null, 'a@example.com', 42] });
+  });
+
+  // A cycle used to recurse until the stack overflowed, and the entry was lost.
+  it('should write [Circular] for a param that refers back to an object holding it', async () => {
+    const params: Record<string, unknown> = { subject: 'kept' };
+    params.self = params;
+    const list: unknown[] = ['a@example.com'];
+    list.push(list);
+    params.to = list;
+    expect(await loggedParams(params)).toEqual({
+      stderr: [],
+      params: [{ subject: 'kept', self: '[Circular]', to: ['a@example.com', '[Circular]'] }],
+    });
+  });
+
+  it('should write [Circular] for an object below the top that refers back to itself or its parent', async () => {
+    const inner: Record<string, unknown> = { subject: 'kept' };
+    inner.back = inner;
+    const child: Record<string, unknown> = { subject: 'kept' };
+    const parent = { child };
+    child.up = parent;
+    expect(await loggedParams({ chain: { inner }, parent })).toEqual({
+      stderr: [],
+      params: [
+        {
+          chain: { inner: { subject: 'kept', back: '[Circular]' } },
+          parent: { child: { subject: 'kept', up: '[Circular]' } },
+        },
+      ],
+    });
+  });
+
+  it.each([
+    { name: 'an array', shared: ['a@example.com'] },
+    { name: 'a plain object', shared: { address: 'a@example.com' } },
+  ])(
+    'should write $name shared by two params out under each when it holds no cycle',
+    async ({ shared }) => {
+      expect(await loggedParams({ to: shared, cc: shared })).toEqual({
+        stderr: [],
+        params: [{ to: shared, cc: shared }],
+      });
+    },
+  );
+
+  it('should export 16 as the deepest a param is written', async () => {
+    expect((await import('./audit.js')).PARAMS_MAX_DEPTH).toBe(DEPTH_LIMIT);
+  });
+
+  it('should write a param nested exactly as deep as the limit whole', async () => {
+    expect(await loggedParams({ chain: nested(DEPTH_LIMIT, 'kept', inObject) })).toEqual({
+      stderr: [],
+      params: [{ chain: nested(DEPTH_LIMIT, 'kept', inObject) }],
+    });
+  });
+
+  it('should write [Truncated] for the object one level past the limit', async () => {
+    expect(await loggedParams({ chain: nested(DEPTH_LIMIT + 1, 'kept', inObject) })).toEqual({
+      stderr: [],
+      params: [{ chain: nested(DEPTH_LIMIT, '[Truncated]', inObject) }],
+    });
+  });
+
+  it('should log a param nested 100000 arrays deep with [Truncated] past the limit', async () => {
+    expect(await loggedParams({ chain: nested(100_000, 'kept', inArray) })).toEqual({
+      stderr: [],
+      params: [{ chain: nested(DEPTH_LIMIT, '[Truncated]', inArray) }],
+    });
+  });
+
+  it.each(NON_PLAIN_CASES)(
+    'should write $name held by a param as $logged',
+    async ({ value, logged }) => {
+      expect(await loggedParams({ value })).toEqual({ stderr: [], params: [{ value: logged }] });
+    },
+  );
+
+  // The leaf sits where a container would be cut: the limit bounds the walk, and a leaf is not walked.
+  it.each(NON_PLAIN_CASES)(
+    'should write $name nested past the depth limit as $logged, not [Truncated]',
+    async ({ value, logged }) => {
+      expect(await loggedParams({ chain: nested(DEPTH_LIMIT, value, inObject) })).toEqual({
+        stderr: [],
+        params: [{ chain: nested(DEPTH_LIMIT, logged, inObject) }],
+      });
+    },
+  );
+
+  it('should write each non-plain object inside an array as its own text or marker', async () => {
+    expect(await loggedParams({ items: NON_PLAIN_CASES.map((c) => c.value) })).toEqual({
+      stderr: [],
+      params: [{ items: NON_PLAIN_CASES.map((c) => c.logged) }],
+    });
+  });
+
+  it('should walk an object without a prototype like a plain one', async () => {
+    const bare = Object.assign(Object.create(null) as object, { subject: 'kept', password: 'pw' });
+    expect(await loggedParams({ bare })).toEqual({
+      stderr: [],
+      params: [{ bare: { subject: 'kept', password: '[REDACTED]' } }],
+    });
+  });
+
+  it('should mask bytes, a Date and a cycle held by a sensitive key before writing them', async () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(
+      await loggedParams({
+        content_base64: Buffer.from('bytes-literal-0003'),
+        password: new Date('2026-11-02T09:00:00.000Z'),
+        refresh_token: cyclic,
+      }),
+    ).toEqual({
+      stderr: [],
+      params: [
+        { content_base64: '[REDACTED]', password: '[REDACTED]', refresh_token: '[REDACTED]' },
+      ],
+    });
+  });
+
+  it('should write [REDACTED] for a sensitive key without reading anything of its value', async () => {
+    const [top, inner, listed] = [watched(), watched(), watched()];
+    const logged = await loggedParams({
+      refresh_token: top.value,
+      nested: { password: inner.value },
+      items: [{ id_token: listed.value }],
+    });
+    expect({ ...logged, reads: [top, inner, listed].map((value) => value.reads()) }).toEqual({
+      stderr: [],
+      params: [
+        {
+          refresh_token: '[REDACTED]',
+          nested: { password: '[REDACTED]' },
+          items: [{ id_token: '[REDACTED]' }],
+        },
+      ],
+      reads: [0, 0, 0],
+    });
   });
 
   // schedule_email is the one caller that logs its whole input; its recipient

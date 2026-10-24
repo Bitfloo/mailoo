@@ -1,4 +1,5 @@
-import { access, mkdir, readdir, readFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { access, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,7 +25,6 @@ const LOADS_AUDIT_WITHOUT_WRITING = new Set([
   'src/tools/annotations.test.ts',
   'src/tools/register.test.ts',
   'src/tools/scheduler.tool.test.ts',
-  'src/tools/tool-errors.test.ts',
 ]);
 
 /** Ways a suite keeps audit.log out of the user's data directory. */
@@ -203,4 +203,61 @@ describe('audit home roster', () => {
     const unpinned = new Set(loading.filter((e) => !e.pinned).map((e) => e.file));
     expect([...LOADS_AUDIT_WITHOUT_WRITING].filter((file) => !unpinned.has(file))).toEqual([]);
   });
+});
+
+const VITEST_ENTRY = path.join(root, 'node_modules', 'vitest', 'vitest.mjs');
+
+/** The child Vitest starts cold and shares the CPU with the parent run's workers. */
+const CHILD_RUN_TIMEOUT_MS = 30_000;
+
+interface ChildRun {
+  exitCode: number;
+  output: string;
+}
+
+/** Resolves on any exit, so a failing child still reaches the assertions on its files. */
+async function runSuite(file: string, env: NodeJS.ProcessEnv): Promise<ChildRun> {
+  return new Promise((resolve) => {
+    // dot: the config's junit and json reporters would overwrite the parent run's reports/.
+    execFile(
+      process.execPath,
+      [VITEST_ENTRY, 'run', file, '--reporter=dot'],
+      { cwd: root, env },
+      (error, stdout, stderr) => {
+        const code = error && typeof error.code === 'number' ? error.code : -1;
+        resolve({ exitCode: error ? code : 0, output: `${stdout}${stderr}` });
+      },
+    );
+  });
+}
+
+describe('tool-errors audit home', () => {
+  it(
+    "should keep the tool-errors suite's audit entries out of the data home and remove its audit home",
+    async () => {
+      const dataHome = await mkdtemp(path.join(os.tmpdir(), 'mailoo-child-data-'));
+      const tmp = await mkdtemp(path.join(os.tmpdir(), 'mailoo-child-tmp-'));
+      try {
+        const run = await runSuite('src/tools/tool-errors.test.ts', {
+          ...process.env,
+          XDG_DATA_HOME: dataHome,
+          TMPDIR: tmp,
+        });
+        expect(
+          {
+            exitCode: run.exitCode,
+            dataHomeLog: await exists(path.join(dataHome, 'mailoo', 'audit.log')),
+            leftHomes: (await readdir(tmp)).filter((name) => name.startsWith('mailoo-audit-')),
+          },
+          run.output.slice(-2000),
+        ).toEqual({ exitCode: 0, dataHomeLog: false, leftHomes: [] });
+      } finally {
+        await Promise.all([
+          rm(dataHome, { recursive: true, force: true }),
+          rm(tmp, { recursive: true, force: true }),
+        ]);
+      }
+    },
+    CHILD_RUN_TIMEOUT_MS,
+  );
 });

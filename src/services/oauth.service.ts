@@ -51,9 +51,22 @@ export const TOKEN_ERROR_BODY_MAX_CHARS = 4096;
 /** The RFC 6749 §5.2 error field charset (%x20-21 / %x23-5B / %x5D-7E); anything else is dropped. */
 const OUTSIDE_ERROR_CHARSET = /[^\x20\x21\x23-\x5B\x5D-\x7E]/g;
 
+/**
+ * Shorter than this, a secret's shape matches letters and words of the provider's own prose, and
+ * cutting each match out garbles the field. A field holding such a shape is dropped instead.
+ */
+export const SECRET_SHAPE_MIN_CHARS = 8;
+
 const REDACTED = '[redacted]';
 
 const SENT_SECRET_FIELDS = ['client_secret', 'refresh_token', 'code'] as const;
+
+interface SecretShapes {
+  /** Cut out of a field wherever they occur. */
+  long: RegExp[];
+  /** Shorter than SECRET_SHAPE_MIN_CHARS: a field holding one is dropped whole. */
+  short: RegExp[];
+}
 
 function dropOutsideCharset(value: string): string {
   return value.replace(OUTSIDE_ERROR_CHARSET, '');
@@ -76,25 +89,31 @@ function encodedPattern(encoded: string): string {
  * carried it, or URL-encoded. The given form also counts with the charset-dropped characters
  * gone, since the filter turns an escaped or broken-up echo back into that; the encoded forms
  * hold none. Encoders write an escape's hex digits in uppercase and an echo can write them in
- * either case, so those digits match either way; everything else matches exactly.
+ * either case, so those digits match either way; everything else matches exactly. A shape's
+ * length is that of the text it matches, not of its pattern, whose escapes are longer.
  */
-function sentSecretShapes(sent: URLSearchParams): RegExp[] {
-  const patterns = new Set<string>();
+function sentSecretShapes(sent: URLSearchParams): SecretShapes {
+  const lengths = new Map<string, number>();
   SENT_SECRET_FIELDS.forEach((field) => {
     // Read back from the form, so no lone surrogate is left for encodeURIComponent to throw on.
     const secret = sent.get(field);
     if (!secret) return;
-    [
-      exactPattern(secret),
-      exactPattern(dropOutsideCharset(secret)),
-      encodedPattern(new URLSearchParams({ x: secret }).toString().slice(2)),
-      encodedPattern(encodeURIComponent(secret)),
-    ].forEach((pattern) => {
-      patterns.add(pattern);
-    });
+    const filtered = dropOutsideCharset(secret);
+    const formEncoded = new URLSearchParams({ x: secret }).toString().slice(2);
+    const urlEncoded = encodeURIComponent(secret);
+    lengths.set(exactPattern(secret), secret.length);
+    lengths.set(exactPattern(filtered), filtered.length);
+    lengths.set(encodedPattern(formEncoded), formEncoded.length);
+    lengths.set(encodedPattern(urlEncoded), urlEncoded.length);
   });
-  patterns.delete('');
-  return [...patterns].map((pattern) => new RegExp(pattern));
+  // A secret made only of dropped characters has an empty filtered shape, which matches anywhere.
+  lengths.delete('');
+  const shapes: SecretShapes = { long: [], short: [] };
+  lengths.forEach((length, pattern) => {
+    const kind = length < SECRET_SHAPE_MIN_CHARS ? 'short' : 'long';
+    shapes[kind].push(new RegExp(pattern));
+  });
+  return shapes;
 }
 
 /** A lookahead match is empty, so the scan steps on one character and finds overlapping echoes. */
@@ -104,42 +123,67 @@ function echoesOf(text: string, secret: RegExp): number[][] {
 }
 
 /**
- * The text around every echo of a sent secret. Echoes that overlap or touch, of one secret or of
- * several, are cut out as one, so joining the pieces with the marker leaves no piece of a secret.
+ * Echoes that overlap or touch, of one secret or of several, are cut out as one, so joining the
+ * text around the cuts with the marker leaves no piece of a secret.
  */
-function piecesAroundSecrets(text: string, secrets: readonly RegExp[]): string[] {
-  const echoes = secrets.flatMap((secret) => echoesOf(text, secret)).sort(([a], [b]) => a - b);
+function mergedCuts(echoes: number[][]): number[][] {
   const cuts: number[][] = [];
-  echoes.forEach(([start, end]) => {
-    const last = cuts.at(-1);
-    if (last && start <= last[1]) {
-      last[1] = Math.max(last[1], end);
-    } else {
-      cuts.push([start, end]);
-    }
-  });
+  [...echoes]
+    .sort(([a], [b]) => a - b)
+    .forEach(([start, end]) => {
+      const last = cuts.at(-1);
+      if (last && start <= last[1]) {
+        last[1] = Math.max(last[1], end);
+      } else {
+        cuts.push([start, end]);
+      }
+    });
+  return cuts;
+}
+
+/** The charset-filtered text around the cuts, one marker per cut, and where each marker starts. */
+function textAroundCuts(value: string, cuts: number[][]): { text: string; markers: number[] } {
+  let text = '';
   let from = 0;
-  const pieces = cuts.map(([start, end]) => {
-    const piece = text.slice(from, start);
+  const markers: number[] = [];
+  cuts.forEach(([start, end]) => {
+    text += dropOutsideCharset(value.slice(from, start));
+    markers.push(text.length);
+    text += REDACTED;
     from = end;
-    return piece;
   });
-  return [...pieces, text.slice(from)];
+  return { text: text + dropOutsideCharset(value.slice(from)), markers };
+}
+
+function insideAMarker([start, end]: number[], markers: readonly number[]): boolean {
+  return markers.some((at) => at <= start && end <= at + REDACTED.length);
 }
 
 /**
- * Redacted before and after the charset filter, and both before the cut, so no piece survives.
- * The second pass reads only the text between the first pass's markers: a secret made of marker
- * letters would otherwise match inside one.
+ * Echoes are found in the raw text and in its charset-filtered view in one pass, the filtered ones
+ * mapped back to raw offsets, so a secret broken by a dropped character around another secret is
+ * cut whole. The marker goes in once, after every echo is known, so a secret made of marker letters
+ * never matches inside one. The text either side of a cut can still spell a secret with the marker
+ * between (a client secret `AA[redacted]ZZ` around a cut grant): a field where any secret appears
+ * outside a single marker is dropped, and so is one that holds a short shape anywhere. All of this
+ * runs before the cut, so no piece survives it.
  */
-function cleanErrorField(value: unknown, maxChars: number, secrets: readonly RegExp[]): string {
+function cleanErrorField(value: unknown, maxChars: number, shapes: SecretShapes): string {
   if (typeof value !== 'string') return '';
-  const firstPass = piecesAroundSecrets(value, secrets);
-  return firstPass
-    .map((piece) => piecesAroundSecrets(dropOutsideCharset(piece), secrets).join(REDACTED))
-    .join(REDACTED)
-    .slice(0, maxChars)
-    .trim();
+  // UTF-16 units, as match offsets count them: the charset drops each half of a surrogate pair.
+  const keptAt = Array.from({ length: value.length }, (_, at) => at).filter(
+    (at) => dropOutsideCharset(value[at]) !== '',
+  );
+  const filtered = keptAt.map((at) => value[at]).join('');
+  if (shapes.short.some((shape) => shape.test(value) || shape.test(filtered))) return '';
+  const echoes = shapes.long.flatMap((secret) => [
+    ...echoesOf(value, secret),
+    ...echoesOf(filtered, secret).map(([start, end]) => [keptAt[start], keptAt[end - 1] + 1]),
+  ]);
+  const { text, markers } = textAroundCuts(value, mergedCuts(echoes));
+  const spelled = [...shapes.long, ...shapes.short].flatMap((secret) => echoesOf(text, secret));
+  if (spelled.some((echo) => !insideAMarker(echo, markers))) return '';
+  return text.slice(0, maxChars).trim();
 }
 
 /**
@@ -148,7 +192,7 @@ function cleanErrorField(value: unknown, maxChars: number, secrets: readonly Reg
  * logs and the audit log, and a custom endpoint or a proxy in front of one can put tokens or a
  * whole HTML page in the body, or quote the request back inside those two fields.
  */
-function refusalDetail(body: string, secrets: readonly RegExp[]): string {
+function refusalDetail(body: string, secrets: SecretShapes): string {
   if (body.length > TOKEN_ERROR_BODY_MAX_CHARS) return '';
   let parsed: unknown;
   try {

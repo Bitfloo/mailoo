@@ -110,6 +110,22 @@ describe('Config Loader', () => {
       );
     });
 
+    it.each([
+      ['MCP_EMAIL_IMAP_HOST', 'imap'],
+      ['MCP_EMAIL_SMTP_HOST', 'smtp'],
+    ] as const)('should keep a padded %s as written', async (name, protocol) => {
+      vi.stubEnv('MCP_EMAIL_ADDRESS', 'env@example.com');
+      vi.stubEnv('MCP_EMAIL_PASSWORD', 'env-pass');
+      vi.stubEnv('MCP_EMAIL_IMAP_HOST', 'imap.example.com');
+      vi.stubEnv('MCP_EMAIL_SMTP_HOST', 'smtp.example.com');
+      vi.stubEnv(name, ` ${protocol}.example.com `);
+
+      const config = await loadConfig(path.join(sandbox.dir, 'nonexistent.toml'));
+
+      // Only the blank check trims (isHostSet in schema.ts); the host itself is used as written.
+      expect(config.accounts[0][protocol].host).toBe(` ${protocol}.example.com `);
+    });
+
     it('should drop empty entries from MCP_EMAIL_WATCHER_FOLDERS', async () => {
       vi.stubEnv('MCP_EMAIL_ADDRESS', 'env@example.com');
       vi.stubEnv('MCP_EMAIL_PASSWORD', 'env-pass');
