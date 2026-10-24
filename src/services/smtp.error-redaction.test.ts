@@ -110,6 +110,23 @@ describe('SmtpService send errors', () => {
     );
   });
 
+  it('should redact with the secrets of the account the mail is sent from', async () => {
+    h.verifyError = eauth('535 5.7.8 0ther-Pa55word! rejected');
+    const other: AccountConfig = {
+      ...passwordAccount,
+      name: 'other',
+      email: 'other@example.com',
+      username: 'other@example.com',
+      password: '0ther-Pa55word!',
+    };
+    const manager = new ConnectionManager([passwordAccount, other], undefined, 'test');
+    const service = new SmtpService(manager, createMockRateLimiter(true), createMockImapService());
+    await expect(service.sendEmail('other', mail)).rejects.toHaveProperty(
+      'message',
+      'Invalid login: 535 5.7.8 [redacted] rejected',
+    );
+  });
+
   it('should redact the password a 535 reply quotes when the first connect fails', async () => {
     const { connections, service } = serviceFor(passwordAccount);
     connections.getSmtpTransport.mockRejectedValue(eauth('535 5.7.8 S3cret-Pa55word! rejected'));
