@@ -39,6 +39,9 @@ const XOAUTH2_SHORTEST = 'dXNlcj1hAWF1dGg9QmVhcmVyIHQBAQ==';
 
 const REPLY = 'Invalid login: 535 5.7.8 Error: authentication failed:';
 
+// ECMAScript's SyntaxCharacter set: what a RegExp reads as syntax unless it is escaped.
+const REGEX_SYNTAX_CHARACTERS = Array.from('\\^$.*+?()[]{}|');
+
 describe('redactSentCredentials', () => {
   it.each([
     ['the raw password', `${REPLY} ${PASSWORD}`],
@@ -231,6 +234,27 @@ describe('redactSentCredentials', () => {
     const reply = 'Invalid login: 535-5.7.8 Username and Password not accepted';
     expect(redactSentCredentials(reply, { user: USER, secrets: ['q'] })).toBe(reply);
   });
+
+  // "axbcdefgh" differs from the secret only at the metacharacter, so an unescaped "." cuts it too.
+  it.each(REGEX_SYNTAX_CHARACTERS)(
+    'should cut only the exact text of a long secret that holds %s',
+    (ch) => {
+      const reply = `${REPLY} a${ch}bcdefgh axbcdefgh`;
+      expect(redactSentCredentials(reply, { user: USER, secrets: [`a${ch}bcdefgh`] })).toBe(
+        `${REPLY} [redacted] axbcdefgh`,
+      );
+    },
+  );
+
+  it.each(REGEX_SYNTAX_CHARACTERS)(
+    'should withhold the whole text when it holds a short secret with %s',
+    (ch) => {
+      const reply = `${REPLY} ${ch}abc`;
+      expect(redactSentCredentials(reply, { user: USER, secrets: [`${ch}abc`] })).toBe(
+        '[redacted]',
+      );
+    },
+  );
 
   it.each([
     ['a long secret', 'abcd[redacted]wxyz'],
