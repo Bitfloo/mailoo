@@ -11,11 +11,21 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import createServer from '../server.js';
 import NotifierService from '../services/notifier.service.js';
+import { readAuditEntries } from '../test-support/audit-home.js';
 import registerAnalyticsTools from './analytics.tool.js';
 import { registerCalendarReadTools, registerCalendarWriteTools } from './calendar.tool.js';
 import registerEmailsTools from './emails.tool.js';
 import { registerSchedulerReadTools, registerSchedulerWriteTools } from './scheduler.tool.js';
 import { registerWatcherWriteTools } from './watcher.tool.js';
+
+const { auditHome } = await vi.hoisted(async () => {
+  const { pinAuditHome } = await import('../test-support/audit-home.js');
+  return { auditHome: await pinAuditHome() };
+});
+
+afterAll(async () => {
+  await auditHome.restore();
+});
 
 const FAILURE = 'mailbox unavailable';
 
@@ -49,6 +59,31 @@ async function callTool(
 function expectFailure(result: TextToolResult): void {
   expect(result.isError).toBe(true);
   expect(result.content[0]).toMatchObject({ type: 'text', text: expect.stringContaining(FAILURE) });
+}
+
+const SCHEDULE_ARGS = {
+  account: 'work',
+  to: ['recipient@example.com'],
+  subject: 'Hello',
+  body: 'World',
+  send_at: 'in 1 hour',
+};
+
+// With no account the double throws in resolveAccountName, before schedule() is reached.
+function failingSchedulerServer(resolvedAccount?: string): McpServer {
+  const server = createServer();
+  const failingScheduler = {
+    resolveAccountName: () => {
+      if (resolvedAccount === undefined) throw new Error(FAILURE);
+      return resolvedAccount;
+    },
+    list: async () => Promise.reject(new Error(FAILURE)),
+    schedule: async () => Promise.reject(new Error(FAILURE)),
+    cancel: async () => Promise.reject(new Error(FAILURE)),
+  } as never;
+  registerSchedulerReadTools(server, failingScheduler);
+  registerSchedulerWriteTools(server, failingScheduler);
+  return server;
 }
 
 describe('tool failures return isError', () => {
@@ -194,30 +229,45 @@ describe('tool failures return isError', () => {
     expectFailure(result);
   });
 
-  it('should return isError for scheduler read and write tools when scheduler service throws', async () => {
-    const server = createServer();
-    const failingScheduler = {
-      resolveAccountName: () => {
-        throw new Error(FAILURE);
+  it.each([
+    ['list_scheduled', { status: 'all' }],
+    ['schedule_email', SCHEDULE_ARGS],
+    ['cancel_scheduled', { schedule_id: 'sched-1' }],
+  ])('should return isError for %s when the scheduler service throws', async (name, args) => {
+    expectFailure(await callTool(failingSchedulerServer(), name, args));
+  });
+
+  it('should return isError for schedule_email when schedule rejects for a resolved account', async () => {
+    expectFailure(await callTool(failingSchedulerServer('work'), 'schedule_email', SCHEDULE_ARGS));
+  });
+});
+
+describe('tool failures are audited', () => {
+  it('should write one audit entry per failed schedule_email and cancel_scheduled call', async () => {
+    const server = failingSchedulerServer();
+    const before = (await readAuditEntries(auditHome)).length;
+    await callTool(server, 'schedule_email', SCHEDULE_ARGS);
+    await callTool(server, 'cancel_scheduled', { schedule_id: 'sched-1' });
+    // A pin set after the imports sends these entries to the inherited data home instead.
+    expect((await readAuditEntries(auditHome)).slice(before).map((entry) => entry.tool)).toEqual([
+      'schedule_email',
+      'cancel_scheduled',
+    ]);
+  });
+
+  it('should audit a schedule_email whose schedule call rejects as an error with its message', async () => {
+    const server = failingSchedulerServer('work-resolved');
+    const before = (await readAuditEntries(auditHome)).length;
+    await callTool(server, 'schedule_email', SCHEDULE_ARGS);
+    expect((await readAuditEntries(auditHome)).slice(before)).toEqual([
+      {
+        ts: expect.any(String),
+        tool: 'schedule_email',
+        account: 'work-resolved',
+        params: { to: ['recipient@example.com'], subject: 'Hello', send_at: 'in 1 hour' },
+        result: 'error',
+        error: FAILURE,
       },
-      list: async () => Promise.reject(new Error(FAILURE)),
-      schedule: async () => Promise.reject(new Error(FAILURE)),
-      cancel: async () => Promise.reject(new Error(FAILURE)),
-    } as never;
-
-    registerSchedulerReadTools(server, failingScheduler);
-    registerSchedulerWriteTools(server, failingScheduler);
-
-    expectFailure(await callTool(server, 'list_scheduled', { status: 'all' }));
-    expectFailure(
-      await callTool(server, 'schedule_email', {
-        account: 'work',
-        to: ['recipient@example.com'],
-        subject: 'Hello',
-        body: 'World',
-        send_at: 'in 1 hour',
-      }),
-    );
-    expectFailure(await callTool(server, 'cancel_scheduled', { schedule_id: 'sched-1' }));
+    ]);
   });
 });
