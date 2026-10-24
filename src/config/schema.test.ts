@@ -1,6 +1,5 @@
 import { readFile } from 'node:fs/promises';
 
-import LOOPBACK_HOSTNAMES from '../utils/loopback.js';
 import {
   AccountConfigSchema,
   AppConfigFileSchema,
@@ -119,6 +118,105 @@ describe('AccountConfigSchema', () => {
   });
 });
 
+// tls = false with starttls = false sends the password or OAuth token in clear text.
+describe.each([
+  ['imap', 'IMAP'],
+  ['smtp', 'SMTP'],
+] as const)('AccountConfigSchema %s with tls = false and starttls = false', (protocol, label) => {
+  function accountOn(host: string, security = { tls: false, starttls: false }) {
+    return validAccount({ name: 'work', [protocol]: { host, ...security } });
+  }
+
+  function issuesOf(input: unknown): string[] {
+    return (AccountConfigSchema.safeParse(input).error?.issues ?? []).map(
+      (issue) => `${issue.path.join('.')}: ${issue.message}`,
+    );
+  }
+
+  function issuePaths(input: unknown): string[] {
+    return (AccountConfigSchema.safeParse(input).error?.issues ?? []).map((issue) =>
+      issue.path.join('.'),
+    );
+  }
+
+  it.each([
+    ['localhost', 'localhost'],
+    ['upper-case localhost', 'LOCALHOST'],
+    ['mixed-case localhost', 'LocalHost'],
+    ['127.0.0.1', '127.0.0.1'],
+    ['another 127/8 address', '127.0.0.2'],
+    ['the top of 127/8', '127.255.255.254'],
+    ['::1', '::1'],
+    ['bracketed ::1', '[::1]'],
+  ])(`should accept ${label} on %s (%j)`, (_kind, host) => {
+    expect(issuesOf(accountOn(host))).toEqual([]);
+  });
+
+  // Only localhost and IP literals count: a client looks up any other spelling,
+  // '127.1' included, as a name.
+  it.each([
+    ['short IPv4', '127.1'],
+    ['IPv4-mapped IPv6', '::ffff:127.0.0.1'],
+    ['localhost with a trailing dot', 'localhost.'],
+    ['127.0.0.1 with a trailing dot', '127.0.0.1.'],
+    ['padded localhost', ' localhost '],
+    ['the unspecified address', '0.0.0.0'],
+    ['the address after 127/8', '128.0.0.1'],
+    ['the address before 127/8', '126.255.255.255'],
+    ['a name under localhost', 'localhost.example.com'],
+    ['a subdomain of localhost', 'app.localhost'],
+    ['a name starting with 127.0.0.1', '127.0.0.1.example.com'],
+    ['a remote name', 'mail.example.com'],
+    ['a ::1 that closes its bracket early', '::1]:80/['],
+  ])(`should refuse ${label} on %s (%j) at ${protocol}.tls`, (_kind, host) => {
+    expect(issuePaths(accountOn(host))).toEqual([`${protocol}.tls`]);
+  });
+
+  it(`should name the account, ${label}, the host, both settings and the loopback hosts in the refusal`, () => {
+    expect(issuesOf(accountOn('mail.example.com'))).toEqual([
+      `${protocol}.tls: Account "work": ${label} to "mail.example.com" would be unencrypted ` +
+        '(tls = false and starttls = false). Set tls = true or starttls = true, ' +
+        'or use a loopback host (localhost, 127.0.0.0/8 or ::1).',
+    ]);
+  });
+
+  it(`should JSON-quote an ${label} host that contains a double quote in the refusal`, () => {
+    expect(issuesOf(accountOn('mail"x.example.com'))).toEqual([
+      `${protocol}.tls: Account "work": ${label} to "mail\\"x.example.com" would be unencrypted ` +
+        '(tls = false and starttls = false). Set tls = true or starttls = true, ' +
+        'or use a loopback host (localhost, 127.0.0.0/8 or ::1).',
+    ]);
+  });
+
+  it(`should accept ${label} with tls = true alone on a remote host`, () => {
+    expect(issuesOf(accountOn('mail.example.com', { tls: true, starttls: false }))).toEqual([]);
+  });
+
+  it(`should accept ${label} with starttls = true alone on a remote host`, () => {
+    expect(issuesOf(accountOn('mail.example.com', { tls: false, starttls: true }))).toEqual([]);
+  });
+
+  // The blank-host issue already says what to fix; a second one about the same host is noise.
+  it(`should report only the missing host when the ${label} host is blank`, () => {
+    expect(issuesOf(accountOn('   '))).toEqual([`${protocol}.host: ${label} host is required`]);
+  });
+});
+
+describe('AccountConfigSchema with IMAP and SMTP both unencrypted', () => {
+  it('should refuse each protocol separately when both go to a remote host', () => {
+    const plain = { tls: false, starttls: false };
+    const account = validAccount({
+      imap: { host: 'imap.example.com', ...plain },
+      smtp: { host: 'smtp.example.com', ...plain },
+    });
+
+    expect(AccountConfigSchema.safeParse(account).error?.issues.map((i) => i.path)).toEqual([
+      ['imap', 'tls'],
+      ['smtp', 'tls'],
+    ]);
+  });
+});
+
 // The token endpoint receives client_secret and refresh_token in the POST body.
 describe('OAuth2ConfigSchema custom endpoints', () => {
   function customOAuth(endpoint: string) {
@@ -135,8 +233,11 @@ describe('OAuth2ConfigSchema custom endpoints', () => {
   it.each([
     'https://auth.example.com/token',
     'http://127.0.0.1:8080/token',
+    'http://127.0.0.2:8080/token',
     'http://[::1]:8080/token',
     'http://localhost:8080/token',
+    // Unlike an IMAP or SMTP host, a URL's host is canonicalised: fetch connects to 127.0.0.1.
+    'http://127.1/token',
   ])('should accept %s', (endpoint) => {
     expect(OAuth2ConfigSchema.safeParse(customOAuth(endpoint)).success).toBe(true);
   });
@@ -183,8 +284,7 @@ describe('OAuth2ConfigSchema custom endpoints', () => {
     expect(OAuth2ConfigSchema.safeParse(config).error?.issues[0]?.path).toEqual(['auth_url']);
   });
 
-  // The README and the rejection message list the hosts in prose; the
-  // loopback set is what the check reads.
+  // The README and the rejection message list in prose what isLoopbackHost accepts.
   it.each([
     [
       'README.md',
@@ -205,9 +305,7 @@ describe('OAuth2ConfigSchema custom endpoints', () => {
       },
     ],
   ])('should name exactly the loopback hosts in %s', async (_source, listedHosts) => {
-    const loopback = [...LOOPBACK_HOSTNAMES].map((host) => host.replace(/^\[|\]$/g, ''));
-
-    expect((await listedHosts()).sort()).toEqual(loopback.sort());
+    expect((await listedHosts()).sort()).toEqual(['127.0.0.0/8', '::1', 'localhost']);
   });
 
   it('should name https in the rejection message', () => {

@@ -126,6 +126,47 @@ describe('Config Loader', () => {
       expect(config.accounts[0][protocol].host).toBe(` ${protocol}.example.com `);
     });
 
+    // The environment account goes through the same account schema as the file.
+    describe.each([
+      ['imap', 'MCP_EMAIL_IMAP_HOST', 'MCP_EMAIL_IMAP_TLS', 'MCP_EMAIL_IMAP_STARTTLS'],
+      ['smtp', 'MCP_EMAIL_SMTP_HOST', 'MCP_EMAIL_SMTP_TLS', 'MCP_EMAIL_SMTP_STARTTLS'],
+    ] as const)('with %s TLS and STARTTLS both false', (protocol, hostVar, tlsVar, starttlsVar) => {
+      function stubPlaintext(host: string): void {
+        vi.stubEnv('MCP_EMAIL_ADDRESS', 'env@example.com');
+        vi.stubEnv('MCP_EMAIL_PASSWORD', 'env-pass');
+        vi.stubEnv('MCP_EMAIL_IMAP_HOST', 'imap.example.com');
+        vi.stubEnv('MCP_EMAIL_SMTP_HOST', 'smtp.example.com');
+        vi.stubEnv(hostVar, host);
+        vi.stubEnv(tlsVar, 'false');
+        vi.stubEnv(starttlsVar, 'false');
+      }
+
+      it(`should refuse a remote ${hostVar} at accounts.0.${protocol}.tls`, async () => {
+        stubPlaintext(`${protocol}.example.com`);
+
+        const refused = await loadConfig(path.join(sandbox.dir, 'nonexistent.toml')).catch(
+          (error: unknown) => {
+            if (!(error instanceof ZodError)) throw error;
+            return error.issues.map((item) => item.path.join('.'));
+          },
+        );
+
+        expect(refused).toEqual([`accounts.0.${protocol}.tls`]);
+      });
+
+      it(`should load ${hostVar}=127.0.0.1 unencrypted`, async () => {
+        stubPlaintext('127.0.0.1');
+
+        const config = await loadConfig(path.join(sandbox.dir, 'nonexistent.toml'));
+
+        expect(config.accounts[0][protocol]).toMatchObject({
+          host: '127.0.0.1',
+          tls: false,
+          starttls: false,
+        });
+      });
+    });
+
     it('should drop empty entries from MCP_EMAIL_WATCHER_FOLDERS', async () => {
       vi.stubEnv('MCP_EMAIL_ADDRESS', 'env@example.com');
       vi.stubEnv('MCP_EMAIL_PASSWORD', 'env-pass');

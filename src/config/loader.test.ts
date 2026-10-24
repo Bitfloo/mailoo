@@ -131,6 +131,61 @@ describe('Config Loader', () => {
     describe.each([
       ['imap', 'IMAP'],
       ['smtp', 'SMTP'],
+    ] as const)('with %s tls = false and starttls = false', (table, label) => {
+      async function writePlaintext(host: string): Promise<string> {
+        const configPath = path.join(sandbox.dir, 'config.toml');
+        await writeOwnerOnly(
+          configPath,
+          MINIMAL_TOML.replace(
+            `host = "${table}.example.com"`,
+            `host = "${host}"\ntls = false\nstarttls = false`,
+          ),
+        );
+        return configPath;
+      }
+
+      it(`should refuse a config file with a remote ${label} host, naming the account, host and fix`, async () => {
+        const configPath = await writePlaintext(`${table}.example.com`);
+
+        const refused = await loadConfig(configPath).catch((error: unknown) => {
+          if (!(error instanceof ZodError)) throw error;
+          return error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
+        });
+
+        expect(refused).toEqual([
+          `accounts.0.${table}.tls: Account "test": ${label} to "${table}.example.com" would be ` +
+            'unencrypted (tls = false and starttls = false). Set tls = true or starttls = true, ' +
+            'or use a loopback host (localhost, 127.0.0.0/8 or ::1).',
+        ]);
+      });
+
+      // The process prints the error message itself on a failed start; zod puts
+      // the issues there as JSON.
+      it(`should carry the ${label} refusal in the error message the process prints`, async () => {
+        const configPath = await writePlaintext(`${table}.example.com`);
+
+        const message = await loadConfig(configPath).then(
+          () => '',
+          (error: unknown) => (error instanceof Error ? error.message : String(error)),
+        );
+
+        expect(message).toContain(
+          `${label} to \\"${table}.example.com\\" would be unencrypted (tls = false and starttls = false)`,
+        );
+      });
+
+      it(`should load a config file with ${label} on 127.0.0.1 unencrypted`, async () => {
+        const configPath = await writePlaintext('127.0.0.1');
+
+        const [account] = (await loadConfig(configPath)).accounts;
+
+        expect(account[table]).toMatchObject({ host: '127.0.0.1', tls: false, starttls: false });
+      });
+    });
+
+    describe.each([
+      ['imap', 'IMAP'],
+      ['smtp', 'SMTP'],
     ])('with a blank %s host', (table, label) => {
       // JSON escapes are TOML escapes, so the file holds the whitespace the row names.
       it.each([

@@ -122,15 +122,18 @@ describe('mailoo account delete and list', () => {
     expect(await fs.readFile(sandbox.configFile, 'utf-8')).toBe(CONFIG_WITH_PERSONAL_AND_WORK);
   });
 
+  // Neither TLS nor STARTTLS loads only for a loopback host.
   it('should list an account with neither TLS nor STARTTLS as plain', async () => {
-    const imap = 'host = "imap.example.com"';
-    const config = CONFIG_WITH_PERSONAL.replace(imap, `${imap}\ntls = false\nstarttls = false`);
+    const config = CONFIG_WITH_PERSONAL.replace(
+      'host = "imap.example.com"',
+      'host = "127.0.0.1"\ntls = false\nstarttls = false',
+    );
     await fs.writeFile(sandbox.configFile, config, { mode: 0o600 });
     const stdout = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
     await (await sandbox.entryPoint('account list'))();
 
-    expect(stdout.mock.calls.flat().join('\n')).toMatch(/imap\.example\.com:993 \(plain\)/);
+    expect(stdout.mock.calls.flat().join('\n')).toMatch(/127\.0\.0\.1:993 \(plain\)/);
   });
 
   it('should point to account add when list finds no config file', async () => {

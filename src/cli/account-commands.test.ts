@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 
 import { parse as parseTOML } from 'smol-toml';
+import { ZodError } from 'zod';
 
 import { SettingsSchema } from '../config/schema.js';
 import {
@@ -175,7 +176,6 @@ describe('mailoo account and setup', () => {
   it.each([
     ['IMAP use TLS?', false, 'imap', { tls: false, starttls: true }],
     ['SMTP security', 'starttls', 'smtp', { tls: false, starttls: true }],
-    ['SMTP security', 'none', 'smtp', { tls: false, starttls: false }],
   ] as const)('should write the %s answer %s as %s %o', async (prompt, value, side, flags) => {
     wizard.overrides.set(prompt, value);
     const run = await sandbox.entryPoint('account add');
@@ -187,6 +187,64 @@ describe('mailoo account and setup', () => {
     };
     const { tls, starttls } = saved.accounts[0][side];
     expect({ tls, starttls }).toEqual(flags);
+  });
+
+  describe('with SMTP security None', () => {
+    beforeEach(() => {
+      wizard.overrides.set('SMTP security', 'none');
+    });
+
+    it('should refuse a remote SMTP host, naming the account, host and fix', async () => {
+      const run = await sandbox.entryPoint('account add');
+
+      const refused = await run().then(
+        () => [],
+        (error: unknown) => {
+          if (!(error instanceof ZodError)) throw error;
+          return error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
+        },
+      );
+
+      expect(refused).toEqual([
+        'accounts.0.smtp.tls: Account "work": SMTP to "smtp.example.com" would be unencrypted ' +
+          '(tls = false and starttls = false). Set tls = true or starttls = true, ' +
+          'or use a loopback host (localhost, 127.0.0.0/8 or ::1).',
+      ]);
+    });
+
+    it('should leave the config byte-identical when the SMTP host is remote', async () => {
+      await fs.writeFile(sandbox.configFile, CONFIG_WITH_PERSONAL, { mode: 0o600 });
+      const run = await sandbox.entryPoint('account add');
+
+      await run().catch(() => undefined);
+
+      expect(await fs.readFile(sandbox.configFile, 'utf-8')).toBe(CONFIG_WITH_PERSONAL);
+    });
+
+    // The probe logs in, so a refused account must not reach it.
+    it('should not probe either server when the SMTP host is remote', async () => {
+      const run = await sandbox.entryPoint('account add');
+
+      await run().catch(() => undefined);
+
+      expect({
+        imap: probes.testImap.mock.calls,
+        smtp: probes.testSmtp.mock.calls,
+      }).toEqual({ imap: [], smtp: [] });
+    });
+
+    it('should write tls = false and starttls = false when the SMTP host is 127.0.0.1', async () => {
+      wizard.overrides.set('SMTP host', '127.0.0.1');
+      const run = await sandbox.entryPoint('account add');
+
+      await run();
+
+      const saved = parseTOML(await fs.readFile(sandbox.configFile, 'utf-8')) as {
+        accounts: { smtp: { host: string; tls: boolean; starttls: boolean } }[];
+      };
+      const { host, tls, starttls } = saved.accounts[0].smtp;
+      expect({ host, tls, starttls }).toEqual({ host: '127.0.0.1', tls: false, starttls: false });
+    });
   });
 
   it('should hand the connection probe the default answers with certificate checks on', async () => {
