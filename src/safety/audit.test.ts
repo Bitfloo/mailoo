@@ -61,6 +61,8 @@ const NON_PLAIN_CASES = [
   },
   { name: 'a Buffer', value: Buffer.from('bytes-literal-0002'), logged: '[Binary]' },
   { name: 'a Uint8Array', value: new Uint8Array([98, 121, 116, 101]), logged: '[Binary]' },
+  { name: 'a Float64Array', value: new Float64Array([0.5, 2]), logged: '[Binary]' },
+  { name: 'a DataView', value: new DataView(new ArrayBuffer(4)), logged: '[Binary]' },
   { name: 'an ArrayBuffer', value: new ArrayBuffer(4), logged: '[Binary]' },
   { name: 'a Map', value: new Map([['to', 'a@example.com']]), logged: '[Object]' },
   { name: 'a Set', value: new Set(['a@example.com']), logged: '[Object]' },
