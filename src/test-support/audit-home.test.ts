@@ -26,9 +26,20 @@ const LOADS_AUDIT_WITHOUT_WRITING = new Set([
   'src/tools/scheduler.tool.test.ts',
 ]);
 
+const PIN_CALL = /\bpinAuditHome\s*\(/;
+
+/** A restore() inside an afterAll or afterEach callback, before the callback's first `}`. */
+const RESTORED_IN_HOOK = /\bafter(?:All|Each)\(\s*(?:async\s*)?\(\)\s*=>\s*\{[^}]*\.restore\(\)/;
+
+/** The helper's own tests restore each home inline, in finally: restore is what they test. */
+const THIS_FILE = path
+  .relative(root, fileURLToPath(import.meta.url))
+  .split(path.sep)
+  .join('/');
+
 /** Ways a suite keeps audit.log out of the user's data directory. */
 const AUDIT_PINS = [
-  /\bpinAuditHome\s*\(/,
+  PIN_CALL,
   /vi\.mock\(\s*['"][^'"]*(?:safety\/|\.\/)audit\.js['"]/,
   /vi\.stubEnv\(\s*['"]XDG_DATA_HOME['"]/,
   /vi\.mock\(\s*['"]node:fs\/promises['"]\s*\)/,
@@ -167,6 +178,7 @@ describe('readAuditEntries', () => {
 
 describe('audit home roster', () => {
   let loading: { file: string; pinned: boolean }[] = [];
+  let pinning: { file: string; restored: boolean }[] = [];
 
   beforeAll(async () => {
     const files = await testFiles();
@@ -182,6 +194,10 @@ describe('audit home roster', () => {
       }))
       .filter((entry) => entry.loads)
       .map(({ file, pinned }) => ({ file, pinned }));
+    pinning = files
+      .map((file, i) => ({ file, text: texts[i] ?? '' }))
+      .filter(({ file, text }) => file !== THIS_FILE && PIN_CALL.test(text))
+      .map(({ file, text }) => ({ file, restored: RESTORED_IN_HOOK.test(text) }));
   });
 
   it('should find the suites that read the audit log among those that load audit.ts', () => {
@@ -201,5 +217,19 @@ describe('audit home roster', () => {
   it('should list as audit-free only suites that still load audit.ts unpinned', () => {
     const unpinned = new Set(loading.filter((e) => !e.pinned).map((e) => e.file));
     expect([...LOADS_AUDIT_WITHOUT_WRITING].filter((file) => !unpinned.has(file))).toEqual([]);
+  });
+
+  it('should restore in an afterAll or afterEach every audit home a test file pins', () => {
+    expect({
+      pinned: pinning.map((entry) => entry.file),
+      unrestored: pinning.filter((entry) => !entry.restored).map((entry) => entry.file),
+    }).toEqual({
+      // One afterAll and one afterEach suite, so a pin regex that matches nothing cannot pass.
+      pinned: expect.arrayContaining([
+        'src/tools/manage.tool.oauth-error.test.ts',
+        'src/tools/tool-errors.test.ts',
+      ]),
+      unrestored: [],
+    });
   });
 });
