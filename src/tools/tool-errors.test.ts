@@ -17,6 +17,15 @@ import registerEmailsTools from './emails.tool.js';
 import { registerSchedulerReadTools, registerSchedulerWriteTools } from './scheduler.tool.js';
 import { registerWatcherWriteTools } from './watcher.tool.js';
 
+const { auditHome } = await vi.hoisted(async () => {
+  const { pinAuditHome } = await import('../test-support/audit-home.js');
+  return { auditHome: await pinAuditHome() };
+});
+
+afterAll(async () => {
+  await auditHome.restore();
+});
+
 const FAILURE = 'mailbox unavailable';
 
 interface TextToolResult {

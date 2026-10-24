@@ -24,7 +24,6 @@ const LOADS_AUDIT_WITHOUT_WRITING = new Set([
   'src/tools/annotations.test.ts',
   'src/tools/register.test.ts',
   'src/tools/scheduler.tool.test.ts',
-  'src/tools/tool-errors.test.ts',
 ]);
 
 /** Ways a suite keeps audit.log out of the user's data directory. */
