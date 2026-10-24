@@ -27,6 +27,25 @@ class Credentials {
   }
 }
 
+/** An object that refers back to itself and counts every read of it: a key, a property, its type. */
+function watched(): { value: object; reads: () => number } {
+  let reads = 0;
+  const target: Record<string, unknown> = {};
+  // Each proxy operation first looks its trap up on the handler, so counting lookups counts them all.
+  const handler = new Proxy<ProxyHandler<object>>(
+    {},
+    {
+      get: (_, trap: keyof typeof Reflect) => {
+        reads += 1;
+        return Reflect[trap];
+      },
+    },
+  );
+  const value = new Proxy(target, handler);
+  target.self = value;
+  return { value, reads: () => reads };
+}
+
 /** Objects other than arrays and plain objects, and what an entry writes for each. */
 const NON_PLAIN_CASES = [
   {
@@ -356,6 +375,26 @@ describe('Audit Logger', () => {
       params: [
         { content_base64: '[REDACTED]', password: '[REDACTED]', refresh_token: '[REDACTED]' },
       ],
+    });
+  });
+
+  it('should write [REDACTED] for a sensitive key without reading anything of its value', async () => {
+    const [top, inner, listed] = [watched(), watched(), watched()];
+    const logged = await loggedParams({
+      refresh_token: top.value,
+      nested: { password: inner.value },
+      items: [{ id_token: listed.value }],
+    });
+    expect({ ...logged, reads: [top, inner, listed].map((value) => value.reads()) }).toEqual({
+      stderr: [],
+      params: [
+        {
+          refresh_token: '[REDACTED]',
+          nested: { password: '[REDACTED]' },
+          items: [{ id_token: '[REDACTED]' }],
+        },
+      ],
+      reads: [0, 0, 0],
     });
   });
 
