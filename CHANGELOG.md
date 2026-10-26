@@ -9,7 +9,7 @@ ship in patch releases too (`bump_patch` in `cog.toml`).
 Mailoo is a fork of [email-mcp](https://github.com/codefuturist/email-mcp);
 its history before the fork is at the end of this file.
 
-## Unreleased
+## [v0.3.0](https://github.com/bitfloo/mailoo/compare/v0.2.2..v0.3.0) - 2026-10-26
 #### ⚠️ Behaviour changes
 
 - OAuth2 token requests no longer follow redirects: a token endpoint that
@@ -33,8 +33,6 @@ its history before the fork is at the end of this file.
   `mailoo account edit` cannot open a file that fails this check.
 - Plain `http` for a custom OAuth2 `token_url` or `auth_url` is now accepted for
   every address in `127.0.0.0/8`, not only `127.0.0.1`. (#70)
-
-#### 🐛 Bug Fixes
 - A token endpoint can no longer make Mailoo buffer an unbounded response body. The read stops
   just past the 4096-character error cap and cancels the rest. Audit redaction ignores key case
   and `_`/`-`, keeps a `__proto__` key as data, does not run getters, and writes `mailto:`, `data:`
@@ -57,6 +55,242 @@ its history before the fork is at the end of this file.
 - In all of the above, when the password or access token is shorter than eight
   characters, an error reply that contains it anywhere, even by chance, is withheld
   whole and shows as `[redacted]`.
+
+#### 🐛 Bug Fixes
+- (**audit**) record the account that ran, not the argument as given - ([30f3f89](https://github.com/bitfloo/mailoo/commit/30f3f89a4a309609698923a1a33bfbbd02627b41)) - Mike, Claude Opus 5.5
+- (**audit**) log alert changes, savePath writes and calendar writes - ([7fc7efe](https://github.com/bitfloo/mailoo/commit/7fc7efe5bf39fa381c3a49fd11c39aba78367c37)) - Mike, Claude Opus 5.5
+- (**audit**) never fail a finished tool call and keep the log owner-only - ([359769a](https://github.com/bitfloo/mailoo/commit/359769a73f07ae5feb820259f7ebe283b29962f5)) - Mike, Claude Opus 5.5
+- (**body**) stop the truncation notice from suggesting format="full" - ([b76f38a](https://github.com/bitfloo/mailoo/commit/b76f38a231d15040778908c11efba309d2e2dd1b)) - Mike, Claude Opus 5.5
+- (**calendar**) read an invitation without DTSTART instead of failing - ([d674124](https://github.com/bitfloo/mailoo/commit/d6741241a1572ba5f868e7eaa9410f3c110ffa56)) - Mike, Claude Opus 5.5
+- (**calendar**) write a carriage return in Linux event text as a line break - ([a689c37](https://github.com/bitfloo/mailoo/commit/a689c377ae5994749d7836614dd963ba6bb163dd)) - Mike, Claude Opus 5.5
+- (**calendar**) read an invitation's METHOD when it carries a parameter - ([45c3709](https://github.com/bitfloo/mailoo/commit/45c37090a0f2892d6db2005a48be4ae8a8a80d6b)) - Mike, Claude Opus 5.5
+- (**calendar**) read the fields of Exchange invitations that carry a parameter as text - ([a6056b5](https://github.com/bitfloo/mailoo/commit/a6056b501e5b9cd05c7ddd99c80b41c67c457cda)) - Mike, Claude Opus 5.5
+- (**calendar**) set event and reminder dates without month rollover - ([e4cc21e](https://github.com/bitfloo/mailoo/commit/e4cc21e49036fc406bcdc467b66b332eb1b5b72e)) - Mike, Claude Opus 5.5
+- (**calendar**) show quotes and event times correctly in the confirm dialog - ([63b1c79](https://github.com/bitfloo/mailoo/commit/63b1c7905360b0960fb6a4e2e53c7e83d2a167fa)) - Mike, Claude Opus 5.5
+- (**calendar**) write calendar state atomically and stop taking a live lock - ([c0bc87c](https://github.com/bitfloo/mailoo/commit/c0bc87c2013c0a2de0c96c4dfe8be0d01b4a75e9)) - Mike, Claude Opus 5.5
+- (**calendar**) match duplicates by UID or title and start time - ([5efb7bb](https://github.com/bitfloo/mailoo/commit/5efb7bb4db096ea4e093b39a5f706806c238f1c5)) - Mike, Claude Opus 5.5
+- (**calendar**) build osascript JSON safely and surface its failures - ([430f8bb](https://github.com/bitfloo/mailoo/commit/430f8bba39bf643562d6933f4bb026bdfdee849b)) - Mike, Claude Opus 5.5
+- (**cli**) keep unprompted account settings on edit (#77) - ([1b08155](https://github.com/bitfloo/mailoo/commit/1b08155ee0a48d12ce135851c40bdc427b36d5be)) - Mike, Cursor
+- (**cli**) keep default_account pointing at an account on delete and rename - ([3858fe7](https://github.com/bitfloo/mailoo/commit/3858fe77aec529d1bff617120e100efa0050498d)) - Mike, Claude Opus 5.5
+- (**cli**) keep the SMTP pool when account edit accepts detected settings - ([82a12e2](https://github.com/bitfloo/mailoo/commit/82a12e2d1b87b377862b3ed8414b8583d54623ea)) - Mike, Claude Opus 5.5
+- (**cli**) fail the launchd install when launchctl does not list the agent after loading it - ([6d86b79](https://github.com/bitfloo/mailoo/commit/6d86b79b568768d57bf5188487f1755b6c3fd34e)) - Mike, Claude Opus 5.5
+- (**cli**) mark an email overdue when a check run now would send it - ([e386bbf](https://github.com/bitfloo/mailoo/commit/e386bbf4a3b2511efa9668b458fdc93257d0b594)) - Mike, Claude Opus 5.5
+- (**cli**) unload the launchd agent before loading it so a reinstall runs the new plist - ([eb2efab](https://github.com/bitfloo/mailoo/commit/eb2efab5327d3e1642583237a26fdbbedfcdce16)) - Mike, Claude Opus 5.5
+- (**cli**) leave a crontab without the scheduler line untouched on uninstall - ([1bb4751](https://github.com/bitfloo/mailoo/commit/1bb4751fba4e682f9d6284a590f245e2c5f94b24)) - Mike, Claude Opus 5.5
+- (**cli**) show emails that are still being sent in scheduler list - ([3991cca](https://github.com/bitfloo/mailoo/commit/3991ccaa0b7449db603d0a9e6e1744bddc3128c9)) - Mike, Claude Opus 5.5
+- (**cli**) stop account add and setup on a config file that does not load - ([eca0575](https://github.com/bitfloo/mailoo/commit/eca057519e1a10fd101af04fc6b9c3710145434c)) - Mike, Claude Opus 5.5
+- (**cli**) send scheduled email from cron with OAuth and save_to_sent, then close connections - ([a152740](https://github.com/bitfloo/mailoo/commit/a1527402c321f2c0bc6ddb093ed723967a373597)) - Mike, Claude Opus 5.5
+- (**cli**) log in with OAuth2 in the connection probe - ([b8b4a32](https://github.com/bitfloo/mailoo/commit/b8b4a32259adb8cefb02d417ec8bdcd4a7a0a438)) - Mike, Claude Opus 5.5
+- (**config**) accept an OAuth2 account with an empty password (#57) - ([0165b57](https://github.com/bitfloo/mailoo/commit/0165b5792f64aea2cc9170376e1be8122b1ef482)) - Mike
+- (**config**) use a reserved example domain in the config template - ([4b04d4f](https://github.com/bitfloo/mailoo/commit/4b04d4f17679bce6ec870bca22f58604d3ee5265)) - Mike, Claude Opus 5.5
+- (**config**) require https for custom OAuth2 endpoints - ([e820d59](https://github.com/bitfloo/mailoo/commit/e820d59f44d12b018f9c6c5c9a4b7ad05e53a5d3)) - Mike, Claude Opus 5.5
+- (**config**) report a TOML syntax error instead of "No configuration found" - ([dce358a](https://github.com/bitfloo/mailoo/commit/dce358a63647fe6e86f967ed7319b0a58a51e8cc)) - Mike, Claude Opus 5.5
+- (**connections**) redact sent credentials from probe and SMTP send errors (#65) - ([b2ce44d](https://github.com/bitfloo/mailoo/commit/b2ce44d64b83d636d88baee504cfad7fe2f96750)) - Mike
+- (**connections**) refuse an account key that matches more than one account - ([8835697](https://github.com/bitfloo/mailoo/commit/883569712d4984a409887ded6bcfa486ed1ec00b)) - Mike, Claude Opus 5.5
+- (**connections**) keep one SMTP transport when two health checks find a stale one at once - ([6e730b4](https://github.com/bitfloo/mailoo/commit/6e730b4924f25c4252785eaaef58942cdb1d73ba)) - Mike, Claude Opus 5.5
+- (**connections**) refresh the OAuth2 token of the cached SMTP transport - ([d2b67a5](https://github.com/bitfloo/mailoo/commit/d2b67a599d91226024a6f6aff47b1ae2875f35b4)) - Mike, Claude Opus 5.5
+- (**connections**) back off after a failed connect and close the failed client - ([8dc7471](https://github.com/bitfloo/mailoo/commit/8dc747155667e8ffcfee07d8bf75e39e6f60cb18)) - Mike, Claude Opus 5.5
+- (**connections**) share one connect per account across concurrent callers - ([5ba6588](https://github.com/bitfloo/mailoo/commit/5ba65888e5ac1e1cf3cf0c6747e06256bafafcd9)) - Mike, Claude Opus 5.5
+- (**drafts**) preview send_draft with dryRun instead of sending - ([8ae714c](https://github.com/bitfloo/mailoo/commit/8ae714c4e385b0ee0e391dfa422595820097b3c0)) - Mike, Claude Opus 5.5
+- (**drafts**) report a sent draft as sent when removing it fails - ([bc5075a](https://github.com/bitfloo/mailoo/commit/bc5075af9a52adeb9a4f498a117b131c93d3ba63)) - Mike, Claude Opus 5.5
+- (**hooks**) treat an empty static rule condition as no condition - ([93402eb](https://github.com/bitfloo/mailoo/commit/93402ebba898d80bfe1170b0b5b71e393c97019b)) - Mike, Claude Opus 5.5
+- (**hooks**) match a static rule's to pattern against each recipient - ([daede93](https://github.com/bitfloo/mailoo/commit/daede9381c2a203b3e4923f2af4700f11106ada0)) - Mike, Claude Opus 5.5
+- (**hooks**) bound the new-mail queue and run batches one at a time - ([8ab31d5](https://github.com/bitfloo/mailoo/commit/8ab31d5a1acc52aa15075748157b12cbc2b1a865)) - Mike, Claude Opus 5.5
+- (**hooks**) record an automatic calendar add only when it settled - ([baa951b](https://github.com/bitfloo/mailoo/commit/baa951bf7cf318286eb830d1b8ad90d6d64ef1f4)) - Mike, Claude Opus 5.5
+- (**http**) answer 404 for an unsupported method on a path no route serves - ([642aaef](https://github.com/bitfloo/mailoo/commit/642aaefe018392d3b714fd70187f79d75b99e21f)) - Mike, Claude Opus 5.5
+- (**http**) send Allow with the guard's 405 for an unsupported method - ([7285319](https://github.com/bitfloo/mailoo/commit/728531968209c6b5ab898f5f14801512340b256a)) - Mike, Claude Opus 5.5
+- (**http**) skip overlapping scheduled-send checks and log failed ones in HTTP mode - ([5ab2152](https://github.com/bitfloo/mailoo/commit/5ab21523def702ee83801ab85c0f82f3e206335f)) - Mike, Claude Opus 5.5
+- (**http**) handle a failed session dispose and stop retaining settled ones - ([c5f8d9b](https://github.com/bitfloo/mailoo/commit/c5f8d9b603c72dbe5341ba20ac7877ae14f3a40b)) - Mike, Claude Opus 5.5
+- (**http**) answer 404 for a session id the server does not hold - ([ce12700](https://github.com/bitfloo/mailoo/commit/ce127009f4378293660f2e36e8b59ccd06f6a3a6)) - Mike, Claude Opus 5.5
+- (**imap**) read In-Reply-To from the message headers - ([7d77d19](https://github.com/bitfloo/mailoo/commit/7d77d19d314a37f4a1fe42a0c4c466928ce048c0)) - Mike, Claude Opus 5.5
+- (**imap**) return capability names from getCapabilities - ([803ba2f](https://github.com/bitfloo/mailoo/commit/803ba2f42e369ba52c50a1986992845dd6c75181)) - Mike, Claude Opus 5.5
+- (**imap**) unfold folded header lines when reading a message - ([3ec6aaa](https://github.com/bitfloo/mailoo/commit/3ec6aaab0d0a4f8d7151214ddd075aa758511413)) - Mike, Claude Opus 5.5
+- (**imap**) read the mailbox quota through imapflow's getQuota - ([bb7198d](https://github.com/bitfloo/mailoo/commit/bb7198d087afbff55c128fb94de2d5c216b3665d)) - Mike, Claude Opus 5.5
+- (**imap**) read the Content-Type name when the disposition has no filename - ([d0ba20f](https://github.com/bitfloo/mailoo/commit/d0ba20f8b2ae74cc29703876e90d033e506aeb25)) - Mike, Claude Opus 5.5
+- (**imap**) follow a thread one In-Reply-To hop at a time - ([4b1118b](https://github.com/bitfloo/mailoo/commit/4b1118b8fc1fa093c5975059606accd976c62e5c)) - Mike, Claude Opus 5.5
+- (**imap**) find inline text/calendar invites that have no .ics attachment - ([326cd97](https://github.com/bitfloo/mailoo/commit/326cd976a3f602c14df387db8dc42710894e0a81)) - Mike, Claude Opus 5.5
+- (**imap**) fail a call that waits more than 60 s for another call's mailbox lock - ([47087d2](https://github.com/bitfloo/mailoo/commit/47087d236677750b3043566655ae9b8980687f4f)) - Mike, Claude Opus 5.5
+- (**imap**) name saved calendar attachments with the filename sanitizer - ([75a239a](https://github.com/bitfloo/mailoo/commit/75a239a54595f359d3f01930d62916b7ca646ce2)) - Mike, Claude Opus 5.5
+- (**imap**) refuse an attachment name two attachments share - ([df69c2f](https://github.com/bitfloo/mailoo/commit/df69c2fca77490ab8da298ef43d9b76a89d970ac)) - Mike, Claude Opus 5.5
+- (**imap**) refuse to delete or rename INBOX and special-use folders - ([98e5a5f](https://github.com/bitfloo/mailoo/commit/98e5a5f96fb5b2fd4b1a1e69bcdd23d5d7a7b678)) - Mike, Claude Opus 5.5
+- (**imap**) validate mailbox names and UIDs in bulk, thread and stats calls - ([abb09fd](https://github.com/bitfloo/mailoo/commit/abb09fd2fdd824a2975832cb6a505f6099dadd10)) - Mike, Claude Opus 5.5
+- (**imap**) stop calendar tools hanging on invites and decode the parts - ([add52db](https://github.com/bitfloo/mailoo/commit/add52db94ba2b134dadc85f7dc275c830f11905b)) - Mike, Claude Opus 5.5
+- (**imap**) stop get_thread hanging on messages with a text body - ([c3453b6](https://github.com/bitfloo/mailoo/commit/c3453b6e765ff7f07b3a6a5e02351f2531fb2031)) - Mike, Claude Opus 5.5
+- (**install**) keep an unparseable client config instead of replacing it - ([4d53c0c](https://github.com/bitfloo/mailoo/commit/4d53c0c41d25e86218b3d8e678a5e59368f04f33)) - Mike, Claude Opus 5.5
+- (**labels**) retry label strategy detection after a failure - ([dfba67e](https://github.com/bitfloo/mailoo/commit/dfba67e1d92e2772e33bca90dc4d77aa4baf177e)) - Mike, Claude Opus 5.5
+- (**logging**) send log notifications to every live HTTP session - ([a5eb745](https://github.com/bitfloo/mailoo/commit/a5eb745ca0d371b8fe246a696b386932bdc003ac)) - Mike, Claude Opus 5.5
+- (**notifier**) keep sender and subject out of alert logs above debug - ([975888e](https://github.com/bitfloo/mailoo/commit/975888e0b20e6c84cdc00cefc616e747fcdb0a1c)) - Mike, Claude Opus 5.5
+- (**oauth**) drop secret fragments from refusals, refuse token redirects, strip audit URL credentials (#69) - ([e9ef7e1](https://github.com/bitfloo/mailoo/commit/e9ef7e1494fee6f20cc86b55cef1bfccb06338f6)) - Mike
+- (**oauth**) harden secret echo redaction and audit param redaction (#62) - ([05e8566](https://github.com/bitfloo/mailoo/commit/05e85669700699997cf7aee1c1289ba6b25dd80c)) - Mike
+- (**oauth**) redact token endpoint responses in errors (#59) - ([9f8b310](https://github.com/bitfloo/mailoo/commit/9f8b31040e2cc2d6024b3d09dd2e164842e0d871)) - Mike
+- (**oauth**) report a stalled token response body as a timeout - ([105ecd9](https://github.com/bitfloo/mailoo/commit/105ecd91f711b0f4a008339834abe3337079edd4)) - Mike, Claude Opus 5.5
+- (**oauth**) time out token requests after 15 seconds - ([ee25a56](https://github.com/bitfloo/mailoo/commit/ee25a5664490e08bfc0430a5c02cfec76b87024b)) - Mike, Claude Opus 5.5
+- (**oauth**) send one token refresh per refresh token at a time - ([29c4ba9](https://github.com/bitfloo/mailoo/commit/29c4ba966a97afbf874ca59357f90adb7878184a)) - Mike, Claude Opus 5.5
+- (**prompts**) list only prompts whose tools the toolset registers - ([c07cb72](https://github.com/bitfloo/mailoo/commit/c07cb72905c1e1c0aa410a0cffa458da87f7da0a)) - Mike, Claude Opus 5.5
+- (**rate-limit**) keep partial refill time so small limits refill on schedule - ([7c7748b](https://github.com/bitfloo/mailoo/commit/7c7748b3970c23d47cfa62f6d8197b0fd899ab5c)) - Mike, Claude Opus 5.5
+- (**scheduler**) resolve the list_scheduled account filter like other tools - ([3f55872](https://github.com/bitfloo/mailoo/commit/3f55872ad9fc71a92b80c7ebdf63688b78843273)) - Mike, Claude Opus 5.5
+- (**scheduler**) stop overlapping queue checks and log their failures - ([32e6de2](https://github.com/bitfloo/mailoo/commit/32e6de2b602da49d656a0513b8441063bf258c65)) - Mike, Claude Opus 5.5
+- (**scheduler**) order every scheduled-email list by send time - ([8587900](https://github.com/bitfloo/mailoo/commit/8587900d90e5fa7c5d7c6fd66fe14f4c1aed4d35)) - Mike, Claude Opus 5.5
+- (**scheduler**) send scheduled replies with their In-Reply-To and References headers - ([ab5ea9f](https://github.com/bitfloo/mailoo/commit/ab5ea9f47a4d581379464c2115530cf3d16c6508)) - Mike, Claude Opus 5.5
+- (**scheduler**) do not spend a send attempt when the rate limit holds an email back - ([cc1503f](https://github.com/bitfloo/mailoo/commit/cc1503f0d8d598c10adac6ca3bc8cc5cef3f9c07)) - Mike, Claude Opus 5.5
+- (**scheduler**) keep one Message-ID per scheduled email and stop resending after delivery - ([8c11c42](https://github.com/bitfloo/mailoo/commit/8c11c421fd2b3f6b4961d4a366a0befef9e4f94a)) - Mike, Claude Opus 5.5
+- (**scheduler**) replace queue files through a temp file and rename - ([e8a6a23](https://github.com/bitfloo/mailoo/commit/e8a6a231200dc73671c09358d58ed2abe6d1f5c6)) - Mike, Claude Opus 5.5
+- (**security**) bound token response reads and harden audit redaction (#76) - ([1c27793](https://github.com/bitfloo/mailoo/commit/1c2779378a480cab7bd00b31bd6e135d016667e3)) - Mike, Cursor
+- ![BREAKING](https://img.shields.io/badge/BREAKING-red) (**security**) refuse unencrypted IMAP and SMTP to a non-loopback host (#71) - ([80592ab](https://github.com/bitfloo/mailoo/commit/80592ab3fd3478c0042e83f34145490fdf7e18b6)) - Mike
+- (**server**) report ok false in structuredContent when a tool fails - ([00330b6](https://github.com/bitfloo/mailoo/commit/00330b69e20a0a63910ccd5700790ccea0ee177f)) - Mike, Claude Opus 5.5
+- (**server**) keep every text block in structuredContent.summary - ([0d3b151](https://github.com/bitfloo/mailoo/commit/0d3b151fe1ebf98acbe2b91577725d7e004ace25)) - Mike, Claude Opus 5.5
+- (**server**) run hooks, watcher and scheduler in one stdio process per machine - ([07f2035](https://github.com/bitfloo/mailoo/commit/07f203534a167e9b3708f71eb315583efc6782b1)) - Mike, Claude Opus 5.5
+- (**server**) give shutdown a deadline and one entry point for both transports - ([24ed395](https://github.com/bitfloo/mailoo/commit/24ed3958ac88f20671c6e98dac744e3392e5b61d)) - Mike, Claude Opus 5.5
+- (**system-one**) classify a message once in each account that received it - ([4f5d3c1](https://github.com/bitfloo/mailoo/commit/4f5d3c1aefd0692d75ac729492c3e2e671ca01f1)) - Mike, Claude Opus 5.5
+- (**system-one**) retry a message whose classification failed - ([80ff47f](https://github.com/bitfloo/mailoo/commit/80ff47f2dbb0c5a785ffb390927db76f1a5f128d)) - Mike, Claude Opus 5.5
+- (**templates**) leave a placeholder named after a built-in object property unresolved - ([0ec052d](https://github.com/bitfloo/mailoo/commit/0ec052d59e8ff1cfe4196af4694dca69ec8e20aa)) - Mike, Claude Opus 5.5
+- (**tools**) mark contact and sender data from mail headers as untrusted - ([c234cc8](https://github.com/bitfloo/mailoo/commit/c234cc87471438087d2b9fa91d6b12e4b6959d22)) - Mike, Claude Opus 5.5
+- (**watcher**) add jitter to IDLE reconnect delays - ([30f611f](https://github.com/bitfloo/mailoo/commit/30f611fd18517054a6e95517b521731259c54f0f)) - Mike, Claude Opus 5.5
+- (**watcher**) report mail that arrived while reconnecting - ([6d7d23f](https://github.com/bitfloo/mailoo/commit/6d7d23fa9b2f6ef568860308ed4989d8484d2593)) - Mike, Claude Opus 5.5
+- (**watcher**) log in to OAuth2 accounts with an access token - ([605213b](https://github.com/bitfloo/mailoo/commit/605213b68ee4ef63d4c6c2b9e4ae312dd3198521)) - Mike, Claude Opus 5.5
+- (**watcher**) fetch new mail by UID range, not sequence numbers - ([3acd64d](https://github.com/bitfloo/mailoo/commit/3acd64d33556a9d9226d4c19fbbbe541d7ee6b38)) - Mike, Claude Opus 5.5
+- (**watcher**) idle on the watched folder instead of holding a lock - ([8a696c7](https://github.com/bitfloo/mailoo/commit/8a696c7abf9a654b2f54ec9d2b7377e68c641a14)) - Mike, Claude Opus 5.5
+- (**watcher**) close failed IDLE connections and handle their errors - ([42bf755](https://github.com/bitfloo/mailoo/commit/42bf7555ea5c84c5ece9471686b6b79ce5f0c58c)) - Mike, Claude Opus 5.5
+- refuse whitespace-only IMAP/SMTP host at config load - ([32c3f28](https://github.com/bitfloo/mailoo/commit/32c3f281608c2ce55cf5b7827d5877956fbd745a)) - Mike
+#### ⚡ Performance
+- (**body**) convert HTML in linear time and cap the input - ([c1580fa](https://github.com/bitfloo/mailoo/commit/c1580fa9bac52c82ad7e283de53e19bd19a299a6)) - Mike, Claude Opus 5.5
+- (**system-one**) build each account's question map once - ([0684dcc](https://github.com/bitfloo/mailoo/commit/0684dcca8676bf8963a9636c1d898cec2122d70d)) - Mike, Claude Opus 5.5
+#### 📚 Documentation
+- (**calendar**) say only an add through the tools is audited as an error - ([e052796](https://github.com/bitfloo/mailoo/commit/e052796fad88f9d095a40885a0528face29b0e6e)) - Mike, Claude Opus 5.5
+- (**calendar**) give the list_events default range as the code sets it - ([c7fda56](https://github.com/bitfloo/mailoo/commit/c7fda56254ad7a651e2c7460639bdd8d9637ae6a)) - Mike, Claude Opus 5.5
+- (**http**) state the session idle TTL and the session cap - ([abb9764](https://github.com/bitfloo/mailoo/commit/abb97641cee0560dbad8bf988d258230a6866411)) - Mike, Claude Opus 5.5
+- (**readme**) list the OAuth2 environment variables an account needs (#60) - ([6eeb9d8](https://github.com/bitfloo/mailoo/commit/6eeb9d8d44b68fc0fa56cf00e56f64371447a629)) - Mike
+- (**readme**) name scheduler status in the launchctl and crontab rows - ([f0b88e1](https://github.com/bitfloo/mailoo/commit/f0b88e1187ae5807072cfaa87c324b0a2b8f092c)) - Mike, Claude Opus 5.5
+- (**scheduler**) say where the attempts and the last error of an entry show - ([e74346e](https://github.com/bitfloo/mailoo/commit/e74346edf3704f4e50db1aa10fbf6ed93fed55b5)) - Mike, Claude Opus 5.5
+- (**scheduler**) state the send attempt limit once and check it against the code - ([243176d](https://github.com/bitfloo/mailoo/commit/243176df9bce69fe78117d9aa06d382088ccb3c9)) - Mike, Claude Opus 5.5
+- (**test**) keep one docblock on the onDarwin helper - ([dee7b5a](https://github.com/bitfloo/mailoo/commit/dee7b5aef0b89bc73bf278e8795c904ca8844c55)) - Mike, Claude Opus 5.5
+- (**test**) say a shorter add budget would cut off a confirmed add - ([1bc1468](https://github.com/bitfloo/mailoo/commit/1bc146819aa161f1edb9ddb88f74cdf61d4b26ba)) - Mike, Claude Opus 5.5
+- point the send section at the shared-name rule and index new topics - ([c9badc2](https://github.com/bitfloo/mailoo/commit/c9badc2e7aa29e0e1aa4bc874e63838672581386)) - Mike, Claude Opus 5.5
+- call the probe's first caller the setup wizard in the source tree - ([3e69126](https://github.com/bitfloo/mailoo/commit/3e69126cd563370036862f59f4ece42682bc6757)) - Mike, Claude Opus 5.5
+- drop a size rule nothing defines and two restating comments - ([5227be3](https://github.com/bitfloo/mailoo/commit/5227be31d21b035a2405a2f2b21730e71e1c42ef)) - Mike, Claude Opus 5.5
+- limit the sender-and-subject-at-debug rule to alert log entries - ([718e027](https://github.com/bitfloo/mailoo/commit/718e027d0019ff43805b33a496e0c277d7c12ae2)) - Mike, Claude Opus 5.5
+- say a failed calendar auto-add leaves the email eligible and the state keeps its subject - ([8f1ce81](https://github.com/bitfloo/mailoo/commit/8f1ce81e59741c13cca6db06699632fe7b939515)) - Mike, Claude Opus 5.5
+- say hook calendar adds are not audited and where low alerts log sender - ([af53891](https://github.com/bitfloo/mailoo/commit/af53891f39e5c5b24f1bab1e81909b477a6bc65c)) - Mike, Claude Opus 5.5
+- list probe.ts in the README source tree - ([a8bb0ac](https://github.com/bitfloo/mailoo/commit/a8bb0aca3f1bd83b8efe8839c7a3754c9c4274cc)) - Mike, Claude Opus 5.5
+- say which attachments the calendar paths save and which calls time out - ([b26870a](https://github.com/bitfloo/mailoo/commit/b26870a194a6b37dd252a307b69a29d56f56299e)) - Mike, Claude Opus 5.5
+- say a never-connected folder reports only mail after its first connect - ([ffcfed2](https://github.com/bitfloo/mailoo/commit/ffcfed209d6256fa500060004cf7cd8f040908d4)) - Mike, Claude Opus 5.5
+- say where failed scheduled sends are logged and when a resend stops - ([c9131a2](https://github.com/bitfloo/mailoo/commit/c9131a200d9c88c15a0a17ba0646a33f43fb9984)) - Mike, Claude Opus 5.5
+- state where a never-connected folder starts and what one IDLE event carries - ([7ad521b](https://github.com/bitfloo/mailoo/commit/7ad521b112e8c426942f6763ef08fc7c8d723d25)) - Mike, Claude Opus 5.5
+- say setup and account add stop on a config that fails validation - ([b13087a](https://github.com/bitfloo/mailoo/commit/b13087a1c132ccf1cce9c67e801e0c8b088b7af0)) - Mike, Claude Opus 5.5
+- say when a delivered scheduled email can go out again, and fix three README rows - ([9dffd96](https://github.com/bitfloo/mailoo/commit/9dffd964faf3b4dc332a52c2f8ad507266646cc3)) - Mike, Claude Opus 5.5
+- name client-config.ts beside install-commands.ts in the file table - ([bb30277](https://github.com/bitfloo/mailoo/commit/bb302776b043034b900844b4d698c348dc1b39ba)) - Mike, Claude Opus 5.5
+- keep the audit log mode statement in SECURITY.md only - ([6fe14e6](https://github.com/bitfloo/mailoo/commit/6fe14e635c60fd36c395e2a785198e15b292d844)) - Mike, Claude Opus 5.5
+- mark IMAP IDLE done in the performance roadmap - ([ec66fde](https://github.com/bitfloo/mailoo/commit/ec66fdec14a1c9105cfcca2df56e7557a533c7e5)) - Mike, Claude Opus 5.5
+- point the watcher's reconnect note at the backoff section - ([ead6c53](https://github.com/bitfloo/mailoo/commit/ead6c53844d511b012aa84343bef292ad2288e44)) - Mike, Claude Opus 5.5
+- name the scheduler subcommands that read the config and spell account delete - ([6cda37c](https://github.com/bitfloo/mailoo/commit/6cda37c732cafbc663fde65bb8971812e7835446)) - Mike, Claude Opus 5.5
+- state when a TOML syntax error stops Mailoo and that a symlinked data directory keeps its mode - ([f10b8dd](https://github.com/bitfloo/mailoo/commit/f10b8ddf565db4b6774518125bc597f7d6268c59)) - Mike, Claude Opus 5.5
+#### ♻️ Refactoring
+- (**alerts**) type configure_alerts arguments from its input schema - ([fd878ef](https://github.com/bitfloo/mailoo/commit/fd878efadc4c24653c2cc9b5937cd5089fef1464)) - Mike, Claude Opus 5.5
+- (**alerts**) move the config.toml alert write out of the tool - ([cbd8ce1](https://github.com/bitfloo/mailoo/commit/cbd8ce19f3adfa6d0f6a67a439dc70aa34e72551)) - Mike, Claude Opus 5.5
+- (**audit**) say why the mode check runs once, and drop a repeated logging comment - ([021c7c3](https://github.com/bitfloo/mailoo/commit/021c7c3eb00128b442969c89ad50f9f27ae70fe1)) - Mike, Claude Opus 5.5
+- (**calendar**) state the list_events default range from one constant - ([c9b4f28](https://github.com/bitfloo/mailoo/commit/c9b4f28f6889d76b67bc7d1344e50a18472bb42c)) - Mike, Claude Opus 5.5
+- (**calendar**) import the calendar timeouts from the modules that define them - ([fe1f57a](https://github.com/bitfloo/mailoo/commit/fe1f57a588df61b1f7b22159c9abc17ce2e0f942)) - Mike, Claude Opus 5.5
+- (**calendar**) move the macOS AppleScript code out of the service - ([bd3926c](https://github.com/bitfloo/mailoo/commit/bd3926c67ceb6bbb04bf0f3a5dcf3df7e29709c7)) - Mike, Claude Opus 5.5
+- (**calendar**) build the add-event confirm dialog in its own helpers - ([63062e6](https://github.com/bitfloo/mailoo/commit/63062e6c35668053f2824f689241c6b68a620901)) - Mike, Claude Opus 5.5
+- (**calendar**) name the confirm dialog wait once and keep the add budget above it - ([8392fca](https://github.com/bitfloo/mailoo/commit/8392fca9c38232bbca3b342e0f1ca86b847cb032)) - Mike, Claude Opus 5.5
+- (**calendar**) decide in one place which add results count as settled - ([6cb0c4a](https://github.com/bitfloo/mailoo/commit/6cb0c4a330dc4fb30bd41283137b51a82a2817e9)) - Mike, Claude Opus 5.5
+- (**calendar**) classify a cancelled or refused osascript run in one place - ([0f4ef81](https://github.com/bitfloo/mailoo/commit/0f4ef81e8d69ef0df3351e620f8727d0918fe80f)) - Mike, Claude Opus 5.5
+- (**cli**) pass the scheduler status options as one object - ([5b7e9fb](https://github.com/bitfloo/mailoo/commit/5b7e9fbb48a815de6f75b898ad11ad64620619bb)) - Mike, Claude Opus 5.5
+- (**cli**) let the scheduler router take its commands and test the routing - ([6c67a0d](https://github.com/bitfloo/mailoo/commit/6c67a0dde752413a607f013f743e548684c27fa5)) - Mike, Claude Opus 5.5
+- (**cli**) give scheduler status an injected runner and test each branch - ([cf43e95](https://github.com/bitfloo/mailoo/commit/cf43e95dccc3498a2de0a59a0b169b3f4f6bee40)) - Mike, Claude Opus 5.5
+- (**cli**) give scheduler uninstall an injected runner and test each branch - ([8b97c66](https://github.com/bitfloo/mailoo/commit/8b97c66228d23563d82d16804cd839c65ee638da)) - Mike, Claude Opus 5.5
+- (**cli**) let scheduler install take the launchd plist path - ([4496836](https://github.com/bitfloo/mailoo/commit/4496836ac1f8cd89425302e562c2ed56ec16ea80)) - Mike, Claude Opus 5.5
+- (**cli**) let scheduler list take its config, output and queue - ([2f804eb](https://github.com/bitfloo/mailoo/commit/2f804eb56f2fa29f390212803232d7b13deed1e4)) - Mike, Claude Opus 5.5
+- (**cli**) move the command runner and the launchctl and crontab helpers into scheduler-install.ts - ([b4589bb](https://github.com/bitfloo/mailoo/commit/b4589bb6c40022b1f6608432f3d284e0e4c276ae)) - Mike, Claude Opus 5.5
+- (**cli**) return the lines of scheduler list from formatScheduledList - ([b9c1973](https://github.com/bitfloo/mailoo/commit/b9c19736ee47bd4370fcb6d43dbde51bb2ed0c40)) - Mike, Claude Opus 5.5
+- (**cli**) take the platform and command runner of scheduler install as parameters - ([7a72333](https://github.com/bitfloo/mailoo/commit/7a7233306574dbfab58ae27e833c92419fdd9719)) - Mike, Claude Opus 5.5
+- (**cli**) move the launchd plist and crontab line builders into scheduler-install.ts - ([74add74](https://github.com/bitfloo/mailoo/commit/74add749406fbfe610d690cc6788cd8877fa6db7)) - Mike, Claude Opus 5.5
+- (**cli**) take the crontab interval from the scheduler interval - ([66940ef](https://github.com/bitfloo/mailoo/commit/66940ef8c227237d3683889fb5ea7720dd9d0dca)) - Mike, Claude Opus 5.5
+- (**cli**) take the launchd check interval from the scheduler interval - ([232b5d1](https://github.com/bitfloo/mailoo/commit/232b5d1ea5fe113ebaecdd9de4f762e8f8816d4e)) - Mike, Claude Opus 5.5
+- (**cli**) let scheduler check take its config, output and queue, and pin what it prints - ([3fb6a71](https://github.com/bitfloo/mailoo/commit/3fb6a71e66339f518ae67e05988bc97030c629a9)) - Mike, Claude Opus 5.5
+- (**cli**) take a new config's settings from the schema defaults - ([7be2c35](https://github.com/bitfloo/mailoo/commit/7be2c3540a4e9a9a4fb42d2ffc3d391a88b4ea5f)) - Mike, Claude Opus 5.5
+- (**cli**) build the scheduler check output as a list of lines - ([14f0e2f](https://github.com/bitfloo/mailoo/commit/14f0e2fb6ca0eecac052f8268371d6bdf69d9703)) - Mike, Claude Opus 5.5
+- (**config**) keep config defaults in the schema only - ([bef7149](https://github.com/bitfloo/mailoo/commit/bef714985a5aac51357a64ca6fa0592ce358e2d4)) - Mike, Claude Opus 5.5
+- (**connections**) move the connection probes out of the manager - ([815d3ca](https://github.com/bitfloo/mailoo/commit/815d3ca0714a0fe761ed3c593edb6c4e4a32a8e4)) - Mike, Claude Opus 5.5
+- (**connections**) build IMAP and SMTP credentials in one module - ([08bda66](https://github.com/bitfloo/mailoo/commit/08bda6655ff476a5bbe6f3d024de25dbfb11f526)) - Mike, Claude Opus 5.5
+- (**http**) narrow the session id once in the host's request handler - ([2965b7c](https://github.com/bitfloo/mailoo/commit/2965b7c7e61a04394c935769a8a1a23757a8ef31)) - Mike, Claude Opus 5.5
+- (**http**) drop the session touch that beginRequest already covers - ([48156ea](https://github.com/bitfloo/mailoo/commit/48156ea1e7559c3c644794731c81691efec89a88)) - Mike, Claude Opus 5.5
+- (**http**) drop the host's unreachable Allow value for /mcp - ([7d172a4](https://github.com/bitfloo/mailoo/commit/7d172a4b433f12231ba6d37fa68da75693df64fe)) - Mike, Claude Opus 5.5
+- (**http**) drop a check in session setup that is always true - ([de38ec9](https://github.com/bitfloo/mailoo/commit/de38ec991fe50ecb4aaad97247fa4ed43c9256fa)) - Mike, Claude Opus 5.5
+- (**http**) move HTTP session setup into its own module - ([af22c6e](https://github.com/bitfloo/mailoo/commit/af22c6efca673ea844e11bf1725f580bf840c844)) - Mike, Claude Opus 5.5
+- (**http**) share the JSON-RPC error body and move session setup out of the handler - ([8316367](https://github.com/bitfloo/mailoo/commit/8316367bed3ab8d0be1882d4a1f984b825e524bd)) - Mike, Claude Opus 5.5
+- (**imap**) export the get_thread message cap and bind its test to it - ([6c582f6](https://github.com/bitfloo/mailoo/commit/6c582f6d588544b4dbd184b3354f49f518a0139b)) - Mike, Claude Opus 5.5
+- (**imap**) move the thread header harvest out of findThreadUids - ([29b1748](https://github.com/bitfloo/mailoo/commit/29b174857d6eae1f8c5975ff3e9d7b448c4a2a3a)) - Mike, Claude Opus 5.5
+- (**imap**) move the attachment write loop out of saveEmailAttachments - ([582f684](https://github.com/bitfloo/mailoo/commit/582f684722692e6d81ec600d008619f8f4b38281)) - Mike, Claude Opus 5.5
+- (**install**) move the client config file helpers into their own module - ([065eb63](https://github.com/bitfloo/mailoo/commit/065eb634e3dab1c947ed901d0adcd93bdd96370b)) - Mike, Claude Opus 5.5
+- (**notifier**) build the alert log entries in a separate function - ([c7b066b](https://github.com/bitfloo/mailoo/commit/c7b066b44b30da8118695e9f9c88978fac43b6d3)) - Mike, Claude Opus 5.5
+- (**scheduler**) split the delivered-record and claimed-send steps out of the queue check - ([9f65e46](https://github.com/bitfloo/mailoo/commit/9f65e46510334a6579396f86531d8ee159bbc27a)) - Mike, Claude Opus 5.5
+- (**scheduler**) record a delivered email in its own step - ([90c550e](https://github.com/bitfloo/mailoo/commit/90c550ec75fd98aa99e2ef1ce834b6d5b0daf2c8)) - Mike, Claude Opus 5.5
+- (**scheduler**) move the lock-file claim helpers into a shared module - ([253b337](https://github.com/bitfloo/mailoo/commit/253b337ac8dc3c329d53c129805507708bf7a6f1)) - Mike, Claude Opus 5.5
+- (**server**) move the stdio writer lease and shutdown order out of main.ts - ([d0e71de](https://github.com/bitfloo/mailoo/commit/d0e71de7012fac8c7044e2877510cf9417304175)) - Mike, Claude Opus 5.5
+- (**server**) read the shutdown deadline from its constant only - ([b35c5a9](https://github.com/bitfloo/mailoo/commit/b35c5a9970234f60bf4028b495231694957db964)) - Mike, Claude Opus 5.5
+- (**smtp**) drop the Message-ID fallback for an address without '@' - ([a3f5579](https://github.com/bitfloo/mailoo/commit/a3f5579a762dee3a92130d128be646d089f8e32d)) - Mike, Claude Opus 5.5
+- (**system-one**) drop the per-account question map cache - ([9ef8c03](https://github.com/bitfloo/mailoo/commit/9ef8c03878a482746f07923872ade218b49735ab)) - Mike, Claude Opus 5.5
+- (**templates**) read template files in parallel and drop a redundant branch - ([629c394](https://github.com/bitfloo/mailoo/commit/629c394d60c158cb2297eda89b07b1f72f652a3c)) - Mike, Claude Opus 5.5
+- (**test**) move the read tests of MailArrival.handle into their own suite - ([eb476d0](https://github.com/bitfloo/mailoo/commit/eb476d09b899946865299938bcdf303889e3ef66)) - Mike, Claude Opus 5.5
+- (**test**) split workflow jobs on plain keys only and cut redundant key fixtures - ([8c58f09](https://github.com/bitfloo/mailoo/commit/8c58f09d60ecaf410411b151ddd9a996186d52f8)) - Mike, Claude Opus 5.5
+- (**test**) leave the ci.yml gate text to the workflow-roster if: list - ([81bae47](https://github.com/bitfloo/mailoo/commit/81bae47bb79faae9c6c60d78751e7f1d529236cd)) - Mike, Claude Opus 5.5
+- (**test**) build the setup-node steps in the step roster from engines.node - ([e1ed80b](https://github.com/bitfloo/mailoo/commit/e1ed80ba477f8b64a7302d87fc760c4a6775a5ea)) - Mike, Claude Opus 5.5
+- (**test**) drop a comment that repeats its code and one naming a deleted check - ([c8be571](https://github.com/bitfloo/mailoo/commit/c8be57106bac7801accd50bca6764b51c4c3eda1)) - Mike, Claude Opus 5.5
+- (**test**) load the scheduler CLI in tests with a throwaway HOME and no launchctl on PATH - ([4924158](https://github.com/bitfloo/mailoo/commit/49241585d351712c3c97b6890d62068afe3d88ba)) - Mike, Claude Opus 5.5
+- (**test**) share the install suite's temp HOME and the stdin TTY stub - ([39e499f](https://github.com/bitfloo/mailoo/commit/39e499f4d35acec8bbedb3c83e435dc2767b4b16)) - Mike, Claude Opus 5.5
+- (**test**) move the attachment save path, write error and audit tests out - ([1d9ea91](https://github.com/bitfloo/mailoo/commit/1d9ea91180c8768c225db826540ade07c27e2277)) - Mike, Claude Opus 5.5
+- (**test**) move the smtp Sent copy, attachment path and draft removal tests out - ([1fd9b29](https://github.com/bitfloo/mailoo/commit/1fd9b29cf73f6d4620de2645eb0b39f09dc0c8a5)) - Mike, Claude Opus 5.5
+- (**test**) move the notifier alert log and desktop command tests out - ([819b447](https://github.com/bitfloo/mailoo/commit/819b447d65d800aa64fa46daa77357a201fbdc21)) - Mike, Claude Opus 5.5
+- (**test**) move the account edit, delete and list tests to their own suites - ([5ce3a90](https://github.com/bitfloo/mailoo/commit/5ce3a90a21215e4462e9a08ecdca9ac81c69ed45)) - Mike, Claude Opus 5.5
+- (**test**) drop refEnv, a docstring and a one-use variable - ([5428820](https://github.com/bitfloo/mailoo/commit/5428820930a4bb14454703588d0a92934baa76cb)) - Mike, Claude Opus 5.5
+- (**test**) fold four single-workflow checks into the step and token rosters - ([801805f](https://github.com/bitfloo/mailoo/commit/801805f2f213eb542034d7079af317d1ff375de5)) - Mike, Claude Opus 5.5
+- (**test**) move the account suite's prompt stand-in into test-support - ([7ebe130](https://github.com/bitfloo/mailoo/commit/7ebe130058b8dd5491ccb155a5c5944d449f7426)) - Mike, Claude Opus 5.5
+- (**test**) read the dependabot config through the YAML parser - ([3c710de](https://github.com/bitfloo/mailoo/commit/3c710ded970691907359fcaa6a127b3062709a93)) - Mike, Claude Opus 5.5
+- (**test**) move the getEmail test out of imap.service.test.ts - ([5d14c01](https://github.com/bitfloo/mailoo/commit/5d14c01e816a4ed2e27f2a0b7706d5c09c89b7d4)) - Mike, Claude Opus 5.5
+- (**test**) move the step harnesses out of their test files - ([c20e153](https://github.com/bitfloo/mailoo/commit/c20e1538215387164d3b0ff183a01091e59b65f3)) - Mike, Claude Opus 5.5
+- (**test**) move the bearer and body-reader tests out of the request suite - ([eed64c0](https://github.com/bitfloo/mailoo/commit/eed64c0c53b68dc8ef0e61802ca7552713f61cff)) - Mike, Claude Opus 5.5
+- (**test**) say why the content tests move the clock and what the full-disk guard stops - ([354af1b](https://github.com/bitfloo/mailoo/commit/354af1b50402939ac4827d0a00cad36da1e6c29c)) - Mike, Claude Opus 5.5
+- (**test**) drop the unused sent/ permission reset from the queue fixture - ([47ded00](https://github.com/bitfloo/mailoo/commit/47ded0063a2ef07a0f91aa39397f77edc3af16de)) - Mike, Claude Opus 5.5
+- (**test**) move the static rule matching tests out of the hooks service suite - ([b502f5f](https://github.com/bitfloo/mailoo/commit/b502f5fbffd742e7dbffe70854279e08cdf981bf)) - Mike, Claude Opus 5.5
+- (**test**) drop the mailbox parameter of flushHooks - ([40176c3](https://github.com/bitfloo/mailoo/commit/40176c3f9aae39f1e0021f3fe99c6c4a4bc5e046)) - Mike, Claude Opus 5.5
+- (**test**) build the reminders service through the shared macOS platform helper - ([417b17d](https://github.com/bitfloo/mailoo/commit/417b17dee7fad48c0095f54686a9c0e7742584de)) - Mike, Claude Opus 5.5
+- (**test**) flush the limiter batches in a plain loop - ([12eb95e](https://github.com/bitfloo/mailoo/commit/12eb95e1b346aa996a7cfea45a7f9e677314344e)) - Mike, Claude Opus 5.5
+- (**test**) move the addEvent duplicate check tests out of the local calendar suite - ([eba2e05](https://github.com/bitfloo/mailoo/commit/eba2e050211922397648874735cddc5ce1ba6278)) - Mike, Claude Opus 5.5
+- (**test**) move the addEvent confirm dialog tests out of the add suite - ([aaf97e7](https://github.com/bitfloo/mailoo/commit/aaf97e7729d88b667f5b58958b4ec6504cf17ab2)) - Mike, Claude Opus 5.5
+- (**test**) move the configure_alerts audit tests out of the watcher tool suite - ([3589ad9](https://github.com/bitfloo/mailoo/commit/3589ad9730297091fd3a29ee7273201abf9d579a)) - Mike, Claude Opus 5.5
+- (**test**) move the addReminder script suites out of the reminders suite - ([96983d4](https://github.com/bitfloo/mailoo/commit/96983d4f66ed137e06b85af1c956b3c920496ed2)) - Mike, Claude Opus 5.5
+- (**test**) move the sampling limiter tests out of the hooks queue suite - ([d73ed18](https://github.com/bitfloo/mailoo/commit/d73ed187a9f7ec18266b7d128040606d182b8dae)) - Mike, Claude Opus 5.5
+- (**test**) move the calendar add-argument tests out of the hooks calendar suite - ([817ec91](https://github.com/bitfloo/mailoo/commit/817ec91f34015b2e6e1f26324057317f076cb3ff)) - Mike, Claude Opus 5.5
+- (**test**) give each calendar status case its email id in the row - ([d960ccf](https://github.com/bitfloo/mailoo/commit/d960ccf90d4d4d56a34118ffc266c39f49173965)) - Mike, Claude Opus 5.5
+- (**test**) resolve audit roster imports by the .js to .ts rule only - ([25ee383](https://github.com/bitfloo/mailoo/commit/25ee383afad992bbfb5207cffeb2ba890f894d89)) - Mike, Claude Opus 5.5
+- (**test**) move the addEvent script suites to their own file - ([29b6b93](https://github.com/bitfloo/mailoo/commit/29b6b93dc7e3ce23a6b4113a3c765af8a3c73403)) - Mike, Claude Opus 5.5
+- (**test**) split the hooks suites into queue and calendar files - ([54ff6e1](https://github.com/bitfloo/mailoo/commit/54ff6e1f3d6340e5a825f705ab3f77a65d4cbdf3)) - Mike, Claude Opus 5.5
+- (**test**) move the flag-then-move test into a suite for what handle does after a verdict - ([a097463](https://github.com/bitfloo/mailoo/commit/a0974634872ddca4d027eed4abbb02eaf82232a0)) - Mike, Claude Opus 5.5
+- (**test**) move the code exchange tests and token endpoint fakes out of the OAuth suite - ([071077d](https://github.com/bitfloo/mailoo/commit/071077d5240cd6c06e2f216a33d11fef02bfb29a)) - Mike, Claude Opus 5.5
+- (**test**) move the session-id integration tests into their own file - ([e04e535](https://github.com/bitfloo/mailoo/commit/e04e53583f96a5577db146afe69450e7f1173caf)) - Mike, Claude Opus 5.5
+- (**test**) move the flag tests out of imap.service.write.test.ts - ([4ed2ba5](https://github.com/bitfloo/mailoo/commit/4ed2ba56b18d199f45b405f54e201b2ff33e573a)) - Mike, Claude Opus 5.5
+- (**test**) move the list and search tests out of imap.service.test.ts - ([99b638c](https://github.com/bitfloo/mailoo/commit/99b638c1357362ffb2b399de4ab5b3cda86e3897)) - Mike, Claude Opus 5.5
+- (**test**) split validation.test.ts by validator - ([e0d0857](https://github.com/bitfloo/mailoo/commit/e0d0857a7fbaff8c350bfb377a22304d1022e0cf)) - Mike, Claude Opus 5.5
+- (**test**) walk the seeded session-table run with for...of loops - ([b2da50a](https://github.com/bitfloo/mailoo/commit/b2da50a5247e68f2e17c48e1ce2aeca09383ffdf)) - Mike, Claude Opus 5.5
+- (**test**) move the account CLI config fixtures into their own file - ([490b1ef](https://github.com/bitfloo/mailoo/commit/490b1ef30c57afd6dc8d9d98e52903d8dc776c6f)) - Mike, Claude Opus 5.5
+- (**test**) name the wait for a log to reach an HTTP session - ([a2707e5](https://github.com/bitfloo/mailoo/commit/a2707e5ec2de4484ba2e6a490388e9145d9eb198)) - Mike, Claude Opus 5.5
+- (**test**) finish the comment over the seeded rate-limiter run - ([b611d79](https://github.com/bitfloo/mailoo/commit/b611d79c1a6796ec4e0facc5339e8192cf694e3a)) - Mike, Claude Opus 5.5
+- (**test**) pick the seeded session-table action apart from applying it - ([a6aaefc](https://github.com/bitfloo/mailoo/commit/a6aaefcfbc24de5c350cd9203ac84a4920591bdc)) - Mike, Claude Opus 5.5
+- (**test**) move the config bound tables into their own file - ([867474a](https://github.com/bitfloo/mailoo/commit/867474ab2e7970c8adf6f1b8c5b93e92af29cbf1)) - Mike, Claude Opus 5.5
+- (**test**) drop the headers option no request test passes - ([e4600b5](https://github.com/bitfloo/mailoo/commit/e4600b5faa7801bf8b1beda3a1a7f41c08a7e2ba)) - Mike, Claude Opus 5.5
+- (**test**) cut two test comments to the reason they give - ([3cc59b6](https://github.com/bitfloo/mailoo/commit/3cc59b65012fba8c224b495dc98beb6959c96a68)) - Mike, Claude Opus 5.5
+- (**test**) split the seeded session-table run into step helpers - ([3be05f1](https://github.com/bitfloo/mailoo/commit/3be05f1ac30bf9098b78a5f7848358369bb39612)) - Mike, Claude Opus 5.5
+- (**test**) move the release job gate tests into their own file - ([3bcee3f](https://github.com/bitfloo/mailoo/commit/3bcee3f68c4839c8ab313475daa2b3f082a9c921)) - Mike, Claude Opus 5.5
+- (**test**) split the CI policy suite by topic and move its parsers into helpers - ([77e3fd9](https://github.com/bitfloo/mailoo/commit/77e3fd9fc745ac8965b097372688e311fb64c676)) - Mike, Claude Opus 5.5
+- (**utils**) export the owner-only file mode and check the README rows against it - ([1f8e15b](https://github.com/bitfloo/mailoo/commit/1f8e15b9f0ecb93f455422718d544d086cf741f8)) - Mike, Claude Opus 5.5
+- (**utils**) take a number mode in hasGroupOrOtherBits - ([7adf1a8](https://github.com/bitfloo/mailoo/commit/7adf1a8520162c1182b48ba1801bf9ff29cd6b17)) - Mike, Claude Opus 5.5
+- (**watcher**) split the configure_alerts handler into named steps - ([392394b](https://github.com/bitfloo/mailoo/commit/392394b1f75897c621f2cdda5e9259bf6a732472)) - Mike, Claude Opus 5.5
+- (**watcher**) drop the unused combined watcher tool registrar - ([ebbd780](https://github.com/bitfloo/mailoo/commit/ebbd780d59aa08e96c2980b10238c6404fef1cad)) - Mike, Claude Opus 5.5
+- drop three comments that restate the code below them - ([62a43fb](https://github.com/bitfloo/mailoo/commit/62a43fb094554b8fe9f7e948086c84fb32a6082f)) - Mike, Claude Opus 5.5
+- name the claim and calendar lock renewal intervals - ([dc36433](https://github.com/bitfloo/mailoo/commit/dc36433ccfe61a9a6756d2b153b9fc1bffb5b470)) - Mike, Claude Opus 5.5
+- give the ENOENT, permission-bit and loopback-name helpers one home each - ([306e142](https://github.com/bitfloo/mailoo/commit/306e142ffa88c62121ca5da97964d0a91b09d039)) - Mike, Claude Opus 5.5
+- remove unreferenced types, reminder helpers and provider OAuth stubs - ([ff6f166](https://github.com/bitfloo/mailoo/commit/ff6f1665e72feaeac17be7e405ade238705066d2)) - Mike, Claude Opus 5.5
 
 - - -
 ## [v0.2.2](https://github.com/bitfloo/mailoo/compare/v0.2.1..v0.2.2) - 2026-10-18
