@@ -35,6 +35,10 @@ its history before the fork is at the end of this file.
   every address in `127.0.0.0/8`, not only `127.0.0.1`. (#70)
 
 #### 🐛 Bug Fixes
+- `mailoo account edit` changes only the group it asked about. `oauth2`, `sent_mailbox`,
+  `sieve_host`, `sieve_port`, `verify_ssl` and `disable_imap4rev2` stay as they were, and an
+  identity or credential edit no longer rewrites IMAP or SMTP security
+  ([#63](https://github.com/bitfloo/mailoo/issues/63)).
 - `mailoo test`, `mailoo account add` and `mailoo account edit` no longer print the
   password or OAuth2 access token when the server's error reply quotes what was sent,
   raw or SASL-encoded, and they cut a long error to 300 characters

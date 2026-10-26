@@ -230,6 +230,115 @@ describe('mailoo account edit', () => {
     expect(offered().Username).toBe('me.login');
   });
 
+  /** Settings the wizard never asks for. An edit used to rebuild the account and drop them. */
+  const CONFIG_WITH_UNPROMPTED = CONFIG_WITH_PERSONAL.replace(
+    'password = "secret"',
+    'sent_mailbox = "Sent Items"\npassword = "secret"\n\n' +
+      '[accounts.oauth2]\nprovider = "google"\nclient_id = "client"\n' +
+      'client_secret = "client-secret"\nrefresh_token = "refresh-token"',
+  )
+    .replace(
+      'host = "imap.example.com"',
+      'host = "127.0.0.1"\nport = 1143\ntls = false\nstarttls = false\n' +
+        'verify_ssl = false\ndisable_imap4rev2 = true\nsieve_host = "127.0.0.1"\nsieve_port = 4190',
+    )
+    .replace(
+      'host = "smtp.example.com"',
+      'host = "127.0.0.1"\nport = 1025\ntls = false\nstarttls = false\nverify_ssl = false',
+    );
+
+  const UNPROMPTED = {
+    oauth2: {
+      provider: 'google',
+      client_id: 'client',
+      client_secret: 'client-secret',
+      refresh_token: 'refresh-token',
+    },
+    sent_mailbox: 'Sent Items',
+    imap: {
+      host: '127.0.0.1',
+      port: 1143,
+      tls: false,
+      starttls: false,
+      verify_ssl: false,
+      disable_imap4rev2: true,
+      sieve_host: '127.0.0.1',
+      sieve_port: 4190,
+    },
+    smtp: {
+      host: '127.0.0.1',
+      port: 1025,
+      tls: false,
+      starttls: false,
+      verify_ssl: false,
+      pool: { enabled: true, max_connections: 1, max_messages: 100 },
+    },
+  };
+
+  it('should keep oauth2, the sent mailbox and connection flags when only the identity is edited', async () => {
+    await fs.writeFile(sandbox.configFile, CONFIG_WITH_UNPROMPTED, { mode: 0o600 });
+
+    await (await sandbox.entryPoint('account edit', 'personal'))();
+
+    expect(await savedAccounts()).toEqual([
+      {
+        name: 'work',
+        email: 'user@example.com',
+        password: 'secret',
+        ...UNPROMPTED,
+      },
+    ]);
+  });
+
+  it('should keep oauth2 and the server settings when only the credentials are edited', async () => {
+    await fs.writeFile(sandbox.configFile, CONFIG_WITH_UNPROMPTED, { mode: 0o600 });
+    wizard.overrides.set(EDIT_PERSONAL, 'credentials');
+
+    await (await sandbox.entryPoint('account edit', 'personal'))();
+
+    expect(await savedAccounts()).toEqual([
+      {
+        name: 'personal',
+        email: 'me@example.com',
+        username: 'user@example.com',
+        password: 'app-password',
+        ...UNPROMPTED,
+      },
+    ]);
+  });
+
+  it('should keep oauth2, sieve and verify_ssl when the server hosts are edited', async () => {
+    await fs.writeFile(sandbox.configFile, CONFIG_WITH_UNPROMPTED, { mode: 0o600 });
+    wizard.overrides.set(EDIT_PERSONAL, 'servers');
+
+    await (await sandbox.entryPoint('account edit', 'personal'))();
+
+    expect(await savedAccounts()).toEqual([
+      {
+        name: 'personal',
+        email: 'me@example.com',
+        password: 'secret',
+        oauth2: UNPROMPTED.oauth2,
+        sent_mailbox: 'Sent Items',
+        imap: {
+          ...UNPROMPTED.imap,
+          host: 'imap.example.com',
+          port: 993,
+          tls: true,
+          starttls: false,
+        },
+        smtp: {
+          ...UNPROMPTED.smtp,
+          host: 'smtp.example.com',
+          port: 465,
+          tls: true,
+          starttls: false,
+          pool: { enabled: false, max_connections: 1, max_messages: 100 },
+        },
+      },
+    ]);
+  });
+
   it('should save the new credentials and keep the rest when the credentials are edited', async () => {
     await fs.writeFile(sandbox.configFile, CONFIG_CUSTOM, { mode: 0o600 });
     wizard.overrides.set(EDIT_PERSONAL, 'credentials');
