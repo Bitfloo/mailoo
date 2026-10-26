@@ -9,7 +9,7 @@ ship in patch releases too (`bump_patch` in `cog.toml`).
 Mailoo is a fork of [email-mcp](https://github.com/codefuturist/email-mcp);
 its history before the fork is at the end of this file.
 
-## Unreleased
+## [v0.3.0](https://github.com/bitfloo/mailoo/compare/v0.2.2..v0.3.0) - 2026-10-26
 #### ⚠️ Behaviour changes
 
 - OAuth2 token requests no longer follow redirects: a token endpoint that
@@ -33,8 +33,6 @@ its history before the fork is at the end of this file.
   `mailoo account edit` cannot open a file that fails this check.
 - Plain `http` for a custom OAuth2 `token_url` or `auth_url` is now accepted for
   every address in `127.0.0.0/8`, not only `127.0.0.1`. (#70)
-
-#### 🐛 Bug Fixes
 - A token endpoint can no longer make Mailoo buffer an unbounded response body. The read stops
   just past the 4096-character error cap and cancels the rest. Audit redaction ignores key case
   and `_`/`-`, keeps a `__proto__` key as data, does not run getters, and writes `mailto:`, `data:`
@@ -58,8 +56,6 @@ its history before the fork is at the end of this file.
   characters, an error reply that contains it anywhere, even by chance, is withheld
   whole and shows as `[redacted]`.
 
-- - -
-## [v0.3.0](https://github.com/bitfloo/mailoo/compare/v0.2.2..v0.3.0) - 2026-10-26
 #### 🐛 Bug Fixes
 - (**audit**) record the account that ran, not the argument as given - ([30f3f89](https://github.com/bitfloo/mailoo/commit/30f3f89a4a309609698923a1a33bfbbd02627b41)) - Mike, Claude Opus 5.5
 - (**audit**) log alert changes, savePath writes and calendar writes - ([7fc7efe](https://github.com/bitfloo/mailoo/commit/7fc7efe5bf39fa381c3a49fd11c39aba78367c37)) - Mike, Claude Opus 5.5
