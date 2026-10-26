@@ -60,7 +60,7 @@ Mailoo is engineered with defense-in-depth sandboxing so AI agents can safely in
 - **Symlink-Free Write Containment (`savePath`)** — Attachment and `.eml` exports via `savePath` are strictly confined to the working directory, walk every path segment with `lstat`, refuse hidden dotfiles and OS persistence directories (`Library/LaunchAgents`, `.ssh`, `.gnupg`), and open targets with `O_CREAT | O_EXCL | O_NOFOLLOW` under a **50 MiB** file size cap (**5 MiB** inline base64 cap).
 - **Prompt Injection Fencing (`<<<UNTRUSTED_EXTERNAL_CONTENT>>>`)** — Untrusted email subjects, sender headers, message bodies, previews, and authentication results are wrapped in `<<<UNTRUSTED_EXTERNAL_CONTENT>>>` … `<<<END_UNTRUSTED_EXTERNAL_CONTENT>>>` delimiters (stripping any forged markers inside the payload) so LLMs treat external mail as data, not instructions.
 - **Strict Credential File Permissions (`0600`)** — `config.toml` is written and verified with mode `0600` inside a `0700` config directory (`$XDG_CONFIG_HOME/mailoo/config.toml`). Passwords and message bodies are redacted from the JSONL write audit log (`src/safety/audit.ts`).
-- **TLS & STARTTLS Verification** — `tls` enforces implicit TLS with certificate verification (`verify_ssl = true` by default); `starttls` fails closed if the server does not advertise `STARTTLS`. ManageSieve refuses `AUTHENTICATE PLAIN` over unencrypted sockets without `STARTTLS`.
+- **TLS & STARTTLS Verification** — `tls` enforces implicit TLS with certificate verification (`verify_ssl = true` by default); `starttls` fails closed if the server does not advertise `STARTTLS`. Turning both off is accepted only for a loopback host. ManageSieve refuses `AUTHENTICATE PLAIN` over unencrypted sockets without `STARTTLS`.
 - **Operational Guardrails (`MCP_EMAIL_READ_ONLY`, `MCP_EMAIL_TOOLSET`, `dryRun`)** —
   - `MCP_EMAIL_READ_ONLY=true` disables all write tools, background watchers, hooks, and schedulers at startup, exposing only the 31 read-only tools.
   - `MCP_EMAIL_TOOLSET=full|core|minimal` scopes the registered tool surface to match the agent's capability tier and context budget.
@@ -461,6 +461,8 @@ max_connections = 1
 max_messages = 100
 ```
 
+An IMAP or SMTP block with `tls = false` and `starttls = false`, in the file or from `MCP_EMAIL_*`, loads only for `localhost`, an address in `127.0.0.0/8` written in full (such as `127.0.0.1`), or `::1`; any other host is refused at config load.
+
 #### OAuth2 _(experimental)_
 
 > **Note:** OAuth2 support is experimental. Token refresh and provider-specific flows may require additional testing in your environment.
@@ -791,7 +793,7 @@ Outbound calls, child processes, files, and environment variables below are what
 | `https://accounts.google.com/o/oauth2/v2/auth` | Authorization URL for the operator's browser; the process does not fetch it | `src/services/oauth.service.ts` |
 | `https://login.microsoftonline.com/common/oauth2/v2.0/token` | Microsoft token refresh and code exchange | `src/services/oauth.service.ts` |
 | `https://login.microsoftonline.com/common/oauth2/v2.0/authorize` | Authorization URL for the operator's browser; the process does not fetch it | `src/services/oauth.service.ts` |
-| Custom `token_url` / `auth_url` | Same split when `oauth2.provider` is `custom`. Config validation requires `https`; plain `http` is accepted only for `127.0.0.1`, `::1`, or `localhost` (`src/config/schema.ts`) | `src/services/oauth.service.ts` |
+| Custom `token_url` / `auth_url` | Same split when `oauth2.provider` is `custom`. Config validation requires `https`; plain `http` is accepted only for `localhost`, `127.0.0.0/8`, or `::1` (`src/config/schema.ts`) | `src/services/oauth.service.ts` |
 | Configured webhook URL (`http` or `https` POST) | Alerts, after a DNS lookup of that host | `src/services/notifier.service.ts`, `src/safety/validation.ts` |
 | `https://api.typesafe.ai` (or `TYPESAFE_BASE_URL`) | System One classification, only when that integration is on. Fields sent: [System One](#system-one-opt-in-typed-filing) | `src/services/mail-arrival/index.ts` |
 

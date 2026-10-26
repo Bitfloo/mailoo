@@ -489,12 +489,7 @@ async function addAccount(): Promise<void> {
   // 3. Credentials
   const creds = await promptCredentials({ email: identity.email });
 
-  // 4. Test connections
-  const testAccount = buildTestAccount(identity, creds, server);
-  const ok = await testConnections(testAccount);
-  if (!ok) return;
-
-  // 5. Build and save
+  // 4. Build and validate before the probe: it logs in with these credentials.
   const newAccount = buildRawAccount(identity, creds, server);
   const config: RawAppConfig = existingConfig
     ? {
@@ -505,8 +500,14 @@ async function addAccount(): Promise<void> {
         settings: SettingsSchema.parse({}),
         accounts: [newAccount],
       };
-
   AppConfigFileSchema.parse(config);
+
+  // 5. Test connections
+  const testAccount = buildTestAccount(identity, creds, server);
+  const ok = await testConnections(testAccount);
+  if (!ok) return;
+
+  // 6. Save
   await saveConfig(config);
   log.success(`Account "${identity.name}" added. Config saved to ${CONFIG_FILE}`);
 
@@ -652,6 +653,21 @@ async function editAccount(nameArg?: string): Promise<void> {
     });
   }
 
+  // Build and validate before the probe: it logs in with these credentials.
+  const updatedAccount = buildRawAccount(identity, creds, server);
+  const updatedAccounts = [...accounts];
+  updatedAccounts[accountIndex] = updatedAccount;
+
+  const updatedConfig: RawAppConfig = {
+    ...config,
+    // A rename or a new address would leave default_account naming no account.
+    ...(isDefaultAccount(config.settings.default_account, current)
+      ? { settings: { ...config.settings, default_account: updatedAccount.name } }
+      : {}),
+    accounts: updatedAccounts,
+  };
+  AppConfigFileSchema.parse(updatedConfig);
+
   // Test connections
   const shouldTest = await confirm({
     message: 'Test connections with updated settings?',
@@ -666,20 +682,6 @@ async function editAccount(nameArg?: string): Promise<void> {
   }
 
   // Save updated account
-  const updatedAccount = buildRawAccount(identity, creds, server);
-  const updatedAccounts = [...accounts];
-  updatedAccounts[accountIndex] = updatedAccount;
-
-  const updatedConfig: RawAppConfig = {
-    ...config,
-    // A rename or a new address would leave default_account naming no account.
-    ...(isDefaultAccount(config.settings.default_account, current)
-      ? { settings: { ...config.settings, default_account: updatedAccount.name } }
-      : {}),
-    accounts: updatedAccounts,
-  };
-
-  AppConfigFileSchema.parse(updatedConfig);
   await saveConfig(updatedConfig);
   log.success(`Account "${identity.name}" updated. Config saved to ${CONFIG_FILE}`);
   outro('Done!');

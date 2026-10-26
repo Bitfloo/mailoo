@@ -21,6 +21,10 @@ always stop on it. `mailoo setup` and `mailoo account add` stop the same way
 on a file that parses but is not a valid config, for example one with no
 `[[accounts]]`; only a missing file starts a new config.
 
+An IMAP or SMTP block with `tls = false` and `starttls = false` is refused at
+load unless its host is `localhost`, an address in `127.0.0.0/8` written in
+full (such as `127.0.0.1`), or `::1`.
+
 Vulnerability reports: [SECURITY.md](../SECURITY.md). Do not open public
 issues for credential leaks.
 

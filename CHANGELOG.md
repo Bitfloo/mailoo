@@ -19,6 +19,20 @@ its history before the fork is at the end of this file.
   holds part of a secret Mailoo sent is reported by its status alone. A URL in
   tool params is written to the audit log as scheme, host and path, followed by
   `?[REDACTED]` when it held credentials, a query or a fragment. (#66, #67)
+- An account whose IMAP or SMTP block sets `tls = false` and `starttls = false`
+  now fails to load unless its host is `localhost`, an IPv4 address in
+  `127.0.0.0/8` written in full (such as `127.0.0.1`), or `::1`. Other
+  spellings, such as `127.1` or `localhost.`, are refused too. The error points
+  at `accounts.N.imap.tls` or `accounts.N.smtp.tls` and reads
+  `Account "<name>": SMTP to "<host>" would be unencrypted (tls = false and starttls = false)`,
+  followed by the fix. Accounts from `MCP_EMAIL_*` are checked the same way, and
+  `mailoo account add` and `account edit` refuse such a choice before they test
+  the connection. (#70)
+- To upgrade, set `tls = true` or `starttls = true`, or use a loopback host such
+  as a local bridge on `127.0.0.1`; edit the config file directly, because
+  `mailoo account edit` cannot open a file that fails this check.
+- Plain `http` for a custom OAuth2 `token_url` or `auth_url` is now accepted for
+  every address in `127.0.0.0/8`, not only `127.0.0.1`. (#70)
 
 - - -
 ## [v0.2.2](https://github.com/bitfloo/mailoo/compare/v0.2.1..v0.2.2) - 2026-10-18

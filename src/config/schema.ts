@@ -4,7 +4,7 @@
 
 import { z } from 'zod';
 
-import LOOPBACK_HOSTNAMES from '../utils/loopback.js';
+import { isLoopbackHost, LOOPBACK_HOSTS_TEXT } from '../utils/loopback.js';
 
 /** A blank host is no host. Only the check trims: the host is used as written. */
 const isHostSet = (host: string): boolean => host.trim() !== '';
@@ -40,9 +40,7 @@ function isHttpsOrLoopback(value: string): boolean {
   const url = URL.parse(value);
   // Zod runs this refine even after .url() failed; that issue already covers it.
   if (!url) return true;
-  return (
-    url.protocol === 'https:' || (url.protocol === 'http:' && LOOPBACK_HOSTNAMES.has(url.hostname))
-  );
+  return url.protocol === 'https:' || (url.protocol === 'http:' && isLoopbackHost(url.hostname));
 }
 
 const OAuthEndpointSchema = z
@@ -50,7 +48,7 @@ const OAuthEndpointSchema = z
   .url()
   .refine(
     isHttpsOrLoopback,
-    'OAuth2 endpoint must use https (http only for 127.0.0.1, ::1 or localhost)',
+    `OAuth2 endpoint must use https (http only for ${LOOPBACK_HOSTS_TEXT})`,
   );
 
 export const OAuth2ConfigSchema = z.object({
@@ -86,6 +84,25 @@ export const AccountConfigSchema = z
   })
   .refine(hasCredential, {
     message: 'Either password or oauth2 config is required',
+  })
+  // The login crosses this connection; with neither TLS nor STARTTLS only loopback keeps it local.
+  .superRefine((account, ctx) => {
+    (
+      [
+        ['imap', 'IMAP'],
+        ['smtp', 'SMTP'],
+      ] as const
+    ).forEach(([protocol, label]) => {
+      const { host, tls, starttls } = account[protocol];
+      // A blank host already carries its own issue.
+      if (!tls && !starttls && isHostSet(host) && !isLoopbackHost(host)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [protocol, 'tls'],
+          message: `Account ${JSON.stringify(account.name)}: ${label} to ${JSON.stringify(host)} would be unencrypted (tls = false and starttls = false). Set tls = true or starttls = true, or use a loopback host (${LOOPBACK_HOSTS_TEXT}).`,
+        });
+      }
+    });
   });
 
 export const WatcherConfigSchema = z.object({

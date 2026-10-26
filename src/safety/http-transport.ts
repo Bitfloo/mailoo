@@ -11,8 +11,6 @@ import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import http from 'node:http';
 
-import LOOPBACK_HOSTNAMES from '../utils/loopback.js';
-
 /** One JSON-RPC POST, including a modest base64 attachment. Larger files use a path. */
 export const DEFAULT_HTTP_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
 
@@ -31,6 +29,9 @@ export const HTTP_REQUEST_TIMEOUT_MS = 60_000;
 export const HTTP_MAX_HEADER_COUNT = 100;
 
 const LOOPBACK_BIND_HOSTS = ['127.0.0.1', '::1'] as const;
+
+/** Default Host allowlist, in URL hostname form, when the listener is loopback-only. */
+const LOOPBACK_HOST_HEADERS = ['127.0.0.1', 'localhost', '[::1]'] as const;
 
 /** The guard's method check, the route match and every 405's Allow read this one table. */
 const ROUTE_METHODS = new Map<string, readonly string[]>([
@@ -193,7 +194,7 @@ export function resolveHttpListen(input: {
   const allowed: string[] = [];
   const portAgnostic: string[] = [];
   if (exposed.length === 0) {
-    LOOPBACK_HOSTNAMES.forEach((name) => {
+    LOOPBACK_HOST_HEADERS.forEach((name) => {
       addAllowed(allowed, name);
     });
   }
