@@ -1,5 +1,8 @@
 import type { AccountConfig } from '../types/index.js';
+import type { SmtpAuth } from './auth.js';
+import { MAX_ERROR_TEXT_LENGTH } from './credential-redaction.js';
 import { testImap, testSmtp } from './probe.js';
+import type { AccessTokenSource } from './types.js';
 
 const h = vi.hoisted(() => ({
   connectError: null as Error | null,
@@ -9,7 +12,7 @@ const h = vi.hoisted(() => ({
   // What emit('error') threw. In imapflow that throw leaves a socket callback, so it would be an
   // uncaught exception that ends the process.
   uncaught: [] as unknown[],
-  verifyError: null as Error | null,
+  verifyError: null as Error | string | null,
   // Folders whose STATUS the server refuses, as for a mailbox that does not exist.
   missing: new Set<string>(),
   // Folders LIST still shows whose STATUS the server refuses: imapflow 2 resolves false for them.
@@ -66,8 +69,17 @@ vi.mock('imapflow', async () => {
 
 vi.mock('nodemailer', () => ({
   default: {
-    createTransport: () => ({
+    createTransport: (options: { auth: SmtpAuth }) => ({
       verify: async () => {
+        // nodemailer asks for the token while it authenticates, before the server answers.
+        const { auth } = options;
+        if ('provisionCallback' in auth) {
+          await new Promise<void>((resolve, reject) => {
+            auth.provisionCallback(auth.user, false, (err) => (err ? reject(err) : resolve()));
+          });
+        }
+        // A string stands for a library that rejects with something other than an Error.
+        // eslint-disable-next-line @typescript-eslint/only-throw-error
         if (h.verifyError) throw h.verifyError;
         return true;
       },
@@ -84,6 +96,37 @@ const account: AccountConfig = {
   imap: { host: 'imap.example.com', port: 993, tls: true, starttls: false, verifySsl: true },
   smtp: { host: 'smtp.example.com', port: 465, tls: true, starttls: false, verifySsl: true },
 };
+
+const ACCESS_TOKEN = 'ya29.fake-access-token-0123456789';
+
+// A fresh oauth2 object per test: the issued token is recorded against it, and a token left by
+// one probe would let the other pass without recording its own.
+function oauthAccount(): AccountConfig {
+  return {
+    ...account,
+    password: undefined,
+    oauth2: {
+      provider: 'google',
+      clientId: 'fake-client-id',
+      clientSecret: 'fake-client-secret',
+      refreshToken: 'fake-refresh-token',
+    },
+  };
+}
+
+const tokens: AccessTokenSource = { getAccessToken: async () => ACCESS_TOKEN };
+
+// imapflow 2's refused LOGIN or AUTHENTICATE: a generic message, the tagged reply as text in
+// `response` and its human-readable part in `responseText`.
+function imapflowRefusal(secret: string): Error {
+  return Object.assign(new Error('Command failed'), {
+    response: `2 NO [AUTHENTICATIONFAILED] ${secret} rejected`,
+    responseStatus: 'NO',
+    responseText: `${secret} rejected`,
+    serverResponseCode: 'AUTHENTICATIONFAILED',
+    authenticationFailed: true,
+  });
+}
 
 beforeEach(() => {
   h.connectError = null;
@@ -155,6 +198,49 @@ describe('testImap', () => {
     });
   });
 
+  it.each([
+    ['the password', () => account, 'wrong-password'],
+    ['the OAuth2 access token', oauthAccount, ACCESS_TOKEN],
+  ])(
+    "should report only imapflow's generic message when it keeps %s in response and responseText",
+    async (_quoted, probed, secret) => {
+      h.connectError = imapflowRefusal(secret);
+      expect(await testImap(probed(), tokens)).toEqual({ success: false, error: 'Command failed' });
+    },
+  );
+
+  // imapflow 2 never puts the server's text in `message` (see imapflowRefusal); these stand for
+  // another source, or a later version, that does.
+  describe('defensive input: a refusal whose message quotes the server', () => {
+    it('should redact the password a refused login quotes', async () => {
+      h.connectError = new Error(
+        'Command failed: NO [AUTHENTICATIONFAILED] wrong-password rejected',
+      );
+      expect(await testImap(account)).toEqual({
+        success: false,
+        error: 'Command failed: NO [AUTHENTICATIONFAILED] [redacted] rejected',
+      });
+    });
+
+    it('should redact the OAuth2 access token a refused login quotes', async () => {
+      h.connectError = new Error(
+        `Command failed: NO [AUTHENTICATIONFAILED] ${ACCESS_TOKEN} expired`,
+      );
+      expect(await testImap(oauthAccount(), tokens)).toEqual({
+        success: false,
+        error: 'Command failed: NO [AUTHENTICATIONFAILED] [redacted] expired',
+      });
+    });
+  });
+
+  it('should cut a long error to the cap', async () => {
+    h.connectError = new Error('x'.repeat(MAX_ERROR_TEXT_LENGTH * 2));
+    expect(await testImap(account)).toEqual({
+      success: false,
+      error: `${'x'.repeat(MAX_ERROR_TEXT_LENGTH - 1)}…`,
+    });
+  });
+
   it('should report a connection that fails after login without raising an uncaught error', async () => {
     h.socketError = Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
     const result = await testImap(account);
@@ -181,5 +267,58 @@ describe('testSmtp', () => {
       error: 'Invalid login: 535-5.7.8 Username and Password not accepted',
     });
     expect(h.close).toHaveBeenCalledOnce();
+  });
+
+  it('should redact the AUTH PLAIN blob a 535 reply quotes', async () => {
+    h.verifyError = Object.assign(
+      new Error(
+        'Invalid login: 535 5.7.8 Error: authentication failed: AHdvcmtAZXhhbXBsZS5jb20Ad3JvbmctcGFzc3dvcmQ=',
+      ),
+      { code: 'EAUTH', responseCode: 535 },
+    );
+    expect(await testSmtp(account)).toEqual({
+      success: false,
+      error: 'Invalid login: 535 5.7.8 Error: authentication failed: [redacted]',
+    });
+  });
+
+  it('should redact the AUTH PLAIN blob built from a login name that differs from the address', async () => {
+    h.verifyError = Object.assign(
+      new Error(
+        'Invalid login: 535 5.7.8 Error: authentication failed: AHdvcmstbG9naW4Ad3JvbmctcGFzc3dvcmQ=',
+      ),
+      { code: 'EAUTH', responseCode: 535 },
+    );
+    expect(await testSmtp({ ...account, username: 'work-login' })).toEqual({
+      success: false,
+      error: 'Invalid login: 535 5.7.8 Error: authentication failed: [redacted]',
+    });
+  });
+
+  it('should redact the OAuth2 access token a 535 reply quotes', async () => {
+    h.verifyError = Object.assign(
+      new Error(`Invalid login: 535 5.7.8 Token ${ACCESS_TOKEN} is not valid`),
+      { code: 'EAUTH', responseCode: 535 },
+    );
+    expect(await testSmtp(oauthAccount(), tokens)).toEqual({
+      success: false,
+      error: 'Invalid login: 535 5.7.8 Token [redacted] is not valid',
+    });
+  });
+
+  it('should redact a rejection that is not an Error', async () => {
+    h.verifyError = '535 5.7.8 wrong-password rejected';
+    expect(await testSmtp(account)).toEqual({
+      success: false,
+      error: '535 5.7.8 [redacted] rejected',
+    });
+  });
+
+  it('should cut a long error to the cap', async () => {
+    h.verifyError = new Error('x'.repeat(MAX_ERROR_TEXT_LENGTH * 2));
+    expect(await testSmtp(account)).toEqual({
+      success: false,
+      error: `${'x'.repeat(MAX_ERROR_TEXT_LENGTH - 1)}…`,
+    });
   });
 });

@@ -34,6 +34,21 @@ its history before the fork is at the end of this file.
 - Plain `http` for a custom OAuth2 `token_url` or `auth_url` is now accepted for
   every address in `127.0.0.0/8`, not only `127.0.0.1`. (#70)
 
+#### 🐛 Bug Fixes
+- `mailoo test`, `mailoo account add` and `mailoo account edit` no longer print the
+  password or OAuth2 access token when the server's error reply quotes what was sent,
+  raw or SASL-encoded, and they cut a long error to 300 characters
+  ([#64](https://github.com/bitfloo/mailoo/issues/64)).
+- A failed send (`send_email`, `reply_email`, `forward_email`, `send_draft` and
+  scheduled sends) no longer returns, audits or queues an SMTP error that quotes the
+  password or OAuth2 access token.
+- `check_health`, and any other tool whose IMAP or SMTP login fails, no longer returns
+  a connection error that quotes the password or OAuth2 access token, nor repeats it
+  while the next connect attempt waits.
+- In all of the above, when the password or access token is shorter than eight
+  characters, an error reply that contains it anywhere, even by chance, is withheld
+  whole and shows as `[redacted]`.
+
 - - -
 ## [v0.2.2](https://github.com/bitfloo/mailoo/compare/v0.2.1..v0.2.2) - 2026-10-18
 #### ✨ Features
