@@ -35,6 +35,11 @@ its history before the fork is at the end of this file.
   every address in `127.0.0.0/8`, not only `127.0.0.1`. (#70)
 
 #### 🐛 Bug Fixes
+- A token endpoint can no longer make Mailoo buffer an unbounded response body. The read stops
+  just past the 4096-character error cap and cancels the rest. Audit redaction ignores key case
+  and `_`/`-`, keeps a `__proto__` key as data, does not run getters, and writes `mailto:`, `data:`
+  and `javascript:` URLs as the scheme plus `[REDACTED]`
+  ([#68](https://github.com/bitfloo/mailoo/issues/68)).
 - `mailoo test`, `mailoo account add` and `mailoo account edit` no longer print the
   password or OAuth2 access token when the server's error reply quotes what was sent,
   raw or SASL-encoded, and they cut a long error to 300 characters

@@ -14,22 +14,29 @@ import hasGroupOrOtherBits from '../utils/file-mode.js';
 
 const AUDIT_LOG_PATH = path.join(xdg.data, 'audit.log');
 
+/** Lower case, with `_` and `-` removed, so `Password` and `access-token` match too. */
+function normaliseField(key: string): string {
+  return key.toLowerCase().replaceAll(/[_-]/g, '');
+}
+
 /** Fields redacted from audit params to protect sensitive data. */
-const REDACTED_FIELDS = new Set([
-  'password',
-  'body',
-  'bodyText',
-  'bodyHtml',
-  'content_base64',
-  'clientSecret',
-  'client_secret',
-  'refreshToken',
-  'refresh_token',
-  'accessToken',
-  'access_token',
-  'idToken',
-  'id_token',
-]);
+const REDACTED_FIELDS = new Set(
+  [
+    'password',
+    'body',
+    'bodyText',
+    'bodyHtml',
+    'content_base64',
+    'clientSecret',
+    'client_secret',
+    'refreshToken',
+    'refresh_token',
+    'accessToken',
+    'access_token',
+    'idToken',
+    'id_token',
+  ].map(normaliseField),
+);
 
 /**
  * Tool params nest a few levels at most (attachment objects in an array). The limit bounds the
@@ -43,6 +50,10 @@ export const PARAMS_MAX_DEPTH = 16;
  * scheme the URL standard does not know, such as `redis:`.
  */
 function urlForEntry(url: URL): string {
+  // mailto:, data: and javascript: have no host. Joining `//` would keep the address in the path.
+  if (url.host === '' && !url.href.startsWith(`${url.protocol}//`)) {
+    return `${url.protocol}[REDACTED]`;
+  }
   const kept = `${url.protocol}//${url.host}${url.pathname}`;
   return url.username || url.password || url.search || url.hash ? `${kept}?[REDACTED]` : kept;
 }
@@ -55,7 +66,7 @@ function isPlainObject(value: object): boolean {
 /**
  * Only arrays and plain objects are walked. A Date is written as its text, a URL as urlForEntry
  * gives it, and bytes never are. Any other object becomes a marker rather than String(value): its
- * own toString can throw or print a secret, and Object.entries would write it as {}. `ancestors`
+ * own toString can throw or print a secret, and walking its keys would write it as {}. `ancestors`
  * holds the containers on the path down from params, so only a reference back to one of them is a
  * cycle; an object two params share is written under each.
  */
@@ -71,11 +82,31 @@ function redactValue(value: unknown, depth: number, ancestors: WeakSet<object>):
   if (depth > PARAMS_MAX_DEPTH) return '[Truncated]';
   ancestors.add(value);
   const cleaned = Array.isArray(value)
-    ? value.map((item) => redactValue(item, depth + 1, ancestors))
+    ? // eslint-disable-next-line @typescript-eslint/no-use-before-define -- redactItems calls back into this function
+      redactItems(value, depth, ancestors)
     : // eslint-disable-next-line @typescript-eslint/no-use-before-define -- the two recurse into each other
       redactEntries(value, depth, ancestors);
   ancestors.delete(value);
   return cleaned;
+}
+
+/** Index, not `.map`: a caller can replace Array.prototype.map or the array's own map. */
+function redactItems(items: unknown[], depth: number, ancestors: WeakSet<object>): unknown[] {
+  const cleaned: unknown[] = [];
+  for (let index = 0; index < items.length; index += 1) {
+    cleaned[index] = redactValue(items[index], depth + 1, ancestors);
+  }
+  return cleaned;
+}
+
+function assignOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  // defineProperty, not assignment: a `__proto__` key must stay a field, not become the prototype.
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
 }
 
 /** A sensitive key masks its whole value before anything reads it. */
@@ -84,11 +115,21 @@ function redactEntries(
   depth: number,
   ancestors: WeakSet<object>,
 ): Record<string, unknown> {
-  const cleaned: Record<string, unknown> = {};
-  Object.entries(params).forEach(([key, value]) => {
-    cleaned[key] = REDACTED_FIELDS.has(key)
-      ? '[REDACTED]'
-      : redactValue(value, depth + 1, ancestors);
+  const cleaned: Record<string, unknown> = Object.create(null);
+  Reflect.ownKeys(params).forEach((key) => {
+    if (typeof key !== 'string') return;
+    const descriptor = Object.getOwnPropertyDescriptor(params, key);
+    if (!descriptor) return;
+    if (REDACTED_FIELDS.has(normaliseField(key))) {
+      assignOwn(cleaned, key, '[REDACTED]');
+      return;
+    }
+    // A getter or a Proxy trap would run if the value were read. The marker stands in for it.
+    if (descriptor.get !== undefined || descriptor.set !== undefined) {
+      assignOwn(cleaned, key, '[Accessor]');
+      return;
+    }
+    assignOwn(cleaned, key, redactValue(descriptor.value, depth + 1, ancestors));
   });
   return cleaned;
 }
