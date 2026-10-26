@@ -293,7 +293,6 @@ its history before the fork is at the end of this file.
 - remove unreferenced types, reminder helpers and provider OAuth stubs - ([ff6f166](https://github.com/bitfloo/mailoo/commit/ff6f1665e72feaeac17be7e405ade238705066d2)) - Mike, Claude Opus 5.5
 
 - - -
-
 ## [v0.2.2](https://github.com/bitfloo/mailoo/compare/v0.2.1..v0.2.2) - 2026-10-18
 #### ✨ Features
 - add toolset profiles, default account resolution, dry-run previews, and structured tool output - ([61eb252](https://github.com/bitfloo/mailoo/commit/61eb25253664561754068ad3756c386f26c8c4bf)) - Mike, Cursor
