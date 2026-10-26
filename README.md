@@ -811,6 +811,12 @@ The count is off. Nothing is sent at `npm install`, at `account add`, or when th
 
 `0`, `false`, `off`, `no`, or an unset `MAILOO_INSTALL_COUNTER` keeps the count off. An opted-in server with an empty URL does not call out. There is no built-in collector address.
 
+Bitfloo runs a collector at `https://mailoo.bitfloo.com/install`. It keeps one count per UTC day, Mailoo version, and Node.js major, stores no IP address, and shows the total on [mailoo.bitfloo.com](https://mailoo.bitfloo.com). To be counted there:
+
+```sh
+MAILOO_INSTALL_COUNTER=1 MAILOO_INSTALL_COUNTER_URL=https://mailoo.bitfloo.com/install npx -y @bitfloo/mailoo
+```
+
 One `POST` runs after the `stdio` or `http` server has started. A later start does not send again. `account add`, `test`, the scheduler, and the other commands do not send. The count is skipped when `CI` is set to something other than `0`, `false`, `no`, or `off`, and when the process is a test run (`VITEST` set, or `NODE_ENV=test`).
 
 The body is a JSON object with exactly these fields:
