@@ -269,6 +269,39 @@ function refusalDetail(body: string, sent: URLSearchParams): string {
   return description ? `: ${code}: ${description}` : `: ${code}`;
 }
 
+/** A token JSON object is small. Past the error cap, only a short margin is kept for a success body. */
+const TOKEN_SUCCESS_BODY_MARGIN_CHARS = 1024;
+
+/**
+ * Stops once the cap is passed and cancels the rest. `response.text()` would buffer an endless body
+ * until the request timeout.
+ */
+async function readBoundedText(response: Response): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return '';
+  const maxChars = TOKEN_ERROR_BODY_MAX_CHARS + TOKEN_SUCCESS_BODY_MARGIN_CHARS;
+  const decoder = new TextDecoder();
+  let text = '';
+  let exceeded = false;
+  try {
+    // The next chunk is only known after the previous one. A loop is the read.
+    for (;;) {
+      // eslint-disable-next-line no-await-in-loop -- each chunk arrives only after the previous read
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      if (text.length > maxChars) {
+        exceeded = true;
+        break;
+      }
+    }
+    if (!exceeded) text += decoder.decode();
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  return text;
+}
+
 /**
  * Redirects are not followed: a 307 or 308 would send the form, client secret included, on to
  * whatever the Location names, so a 3xx is refused like any other status. The timeout also covers
@@ -287,9 +320,10 @@ async function sendTokenRequest(
       redirect: 'manual',
       signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
     });
-    return { response, text: await response.text() };
+    return { response, text: await readBoundedText(response) };
   } catch (err) {
     if (err instanceof DOMException && err.name === 'TimeoutError') {
+      // No response exists yet, so the cause cannot quote a body or the token URL.
       throw new Error(`OAuth2 ${action} timed out after ${TOKEN_REQUEST_TIMEOUT_MS / 1000}s`, {
         cause: err,
       });
