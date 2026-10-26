@@ -372,6 +372,39 @@ describe('OAuthService token error limits', () => {
   it('should export 8 as the shortest secret shape it cuts out of a field', () => {
     expect(SECRET_SHAPE_MIN_CHARS).toBe(8);
   });
+
+  it('should cancel a refusal body once the read passes the cap', async () => {
+    let pulled = 0;
+    let cancelled = false;
+    const chunk = new Uint8Array(1024);
+    fakeTokenEndpoint(
+      () =>
+        new Response(
+          new ReadableStream({
+            pull(controller) {
+              pulled += chunk.byteLength;
+              controller.enqueue(chunk);
+            },
+            cancel() {
+              cancelled = true;
+            },
+          }),
+          { status: 400 },
+        ),
+    );
+
+    const error = await failureOf(async () => OAuthService.refreshAccessToken(googleConfig()));
+
+    expect({
+      message: error.message,
+      cancelled,
+      bounded: pulled < 64 * 1024,
+    }).toEqual({
+      message: 'OAuth2 token refresh failed (400)',
+      cancelled: true,
+      bounded: true,
+    });
+  });
 });
 
 describe.each(FLOWS)('OAuthService $action when the token endpoint refuses', ({ action, run }) => {

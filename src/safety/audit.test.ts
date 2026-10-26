@@ -75,6 +75,9 @@ const URL_QUERY = 'query-literal-0006';
 const URL_FRAGMENT = 'fragment-literal-0007';
 const URL_LITERALS = [URL_USER, URL_PASSWORD, URL_QUERY, URL_FRAGMENT];
 
+/** Split so the source does not contain a script-URL literal. The audit must still redact it. */
+const SCRIPT_SCHEME = 'java'.concat('script:');
+
 /** A URL is written as scheme, host and path; anything else it held leaves one marker. */
 const URL_CASES = [
   {
@@ -117,6 +120,21 @@ const URL_CASES = [
     name: 'only a scheme, a host, a port and a path',
     url: 'https://hooks.example.com:8443/notify/v1',
     logged: 'https://hooks.example.com:8443/notify/v1',
+  },
+  {
+    name: 'a mailto address',
+    url: `mailto:${URL_USER}@example.com`,
+    logged: 'mailto:[REDACTED]',
+  },
+  {
+    name: 'a data URL',
+    url: `data:text/plain,${URL_QUERY}`,
+    logged: 'data:[REDACTED]',
+  },
+  {
+    name: 'a javascript URL',
+    url: `${SCRIPT_SCHEME}${URL_FRAGMENT}`,
+    logged: `${SCRIPT_SCHEME}[REDACTED]`,
   },
 ];
 
@@ -673,5 +691,76 @@ describe('Audit Logger', () => {
     await fs.writeFile(logDir, 'not a directory');
 
     await expect(auditLogger.log('send_email', 'x', {}, 'ok')).resolves.toBeUndefined();
+  });
+
+  it('should redact a sensitive key whatever its case or separator, without reading the getter', async () => {
+    let reads = 0;
+    const params: Record<string, unknown> = {};
+    Object.defineProperty(params, 'Password', {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return 'pw-literal-0008';
+      },
+    });
+    params.ACCESS_TOKEN = 'tok-literal-0009';
+    params['client-secret'] = 'sec-literal-0010';
+
+    expect({ ...(await loggedParams(params)), reads }).toEqual({
+      stderr: [],
+      params: [
+        { Password: '[REDACTED]', ACCESS_TOKEN: '[REDACTED]', 'client-secret': '[REDACTED]' },
+      ],
+      reads: 0,
+    });
+  });
+
+  it('should keep a __proto__ key as data and leave Object.prototype alone', async () => {
+    const params = JSON.parse('{"__proto__":{"note":"kept-note"},"subject":"hello"}') as Record<
+      string,
+      unknown
+    >;
+
+    await auditLogger.log('test', 'x', params, 'ok');
+
+    const entry = (await readEntries())[0];
+    expect({
+      proto: Object.getOwnPropertyDescriptor(entry?.params, '__proto__')?.value,
+      subject: entry?.params.subject,
+      polluted: Object.hasOwn(Object.prototype, 'note'),
+    }).toEqual({
+      proto: { note: 'kept-note' },
+      subject: 'hello',
+      polluted: false,
+    });
+  });
+
+  it('should write an accessor that is not a sensitive key as a marker', async () => {
+    let reads = 0;
+    const params: Record<string, unknown> = {};
+    Object.defineProperty(params, 'label', {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return 'inbox';
+      },
+    });
+
+    expect({ ...(await loggedParams(params)), reads }).toEqual({
+      stderr: [],
+      params: [{ label: '[Accessor]' }],
+      reads: 0,
+    });
+  });
+
+  it('should walk an array by index when its map has been replaced', async () => {
+    const items = ['kept'];
+    Object.defineProperty(items, 'map', {
+      value: () => {
+        throw new Error('shadowed map');
+      },
+    });
+
+    expect(await loggedParams({ items })).toEqual({ stderr: [], params: [{ items: ['kept'] }] });
   });
 });
