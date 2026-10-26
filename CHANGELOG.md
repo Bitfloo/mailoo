@@ -40,6 +40,10 @@ its history before the fork is at the end of this file.
   and `_`/`-`, keeps a `__proto__` key as data, does not run getters, and writes `mailto:`, `data:`
   and `javascript:` URLs as the scheme plus `[REDACTED]`
   ([#68](https://github.com/bitfloo/mailoo/issues/68)).
+- `mailoo account edit` changes only the group it asked about. `oauth2`, `sent_mailbox`,
+  `sieve_host`, `sieve_port`, `verify_ssl` and `disable_imap4rev2` stay as they were, and an
+  identity or credential edit no longer rewrites IMAP or SMTP security
+  ([#63](https://github.com/bitfloo/mailoo/issues/63)).
 - `mailoo test`, `mailoo account add` and `mailoo account edit` no longer print the
   password or OAuth2 access token when the server's error reply quotes what was sent,
   raw or SASL-encoded, and they cut a long error to 300 characters

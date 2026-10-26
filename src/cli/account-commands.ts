@@ -425,6 +425,55 @@ function buildRawAccount(
   };
 }
 
+/**
+ * Edit saves over the account that is already on disk. The wizard only asks for the group the
+ * operator picked, so oauth2, the sent mailbox, sieve and the flags it never shows stay as stored.
+ */
+function accountWithEdits(
+  current: RawAccountConfig,
+  fields: 'identity' | 'credentials' | 'servers' | 'all',
+  identity: { name: string; email: string; fullName: string },
+  creds: { username: string; password: string },
+  server: ServerSettings,
+): RawAccountConfig {
+  const edited: RawAccountConfig = { ...current };
+
+  if (fields === 'identity' || fields === 'all') {
+    edited.name = identity.name;
+    edited.email = identity.email;
+    edited.full_name = identity.fullName || undefined;
+  }
+
+  if (fields === 'credentials' || fields === 'all') {
+    edited.username = creds.username || identity.email;
+    edited.password = creds.password;
+  }
+
+  if (fields === 'servers' || fields === 'all') {
+    edited.imap = {
+      ...current.imap,
+      host: server.imapHost,
+      port: server.imapPort,
+      tls: server.imapTls,
+      starttls: !server.imapTls,
+    };
+    edited.smtp = {
+      ...current.smtp,
+      host: server.smtpHost,
+      port: server.smtpPort,
+      tls: server.smtpTls,
+      starttls: server.smtpStarttls,
+      pool: {
+        enabled: server.smtpPoolEnabled,
+        max_connections: server.smtpPoolMaxConnections,
+        max_messages: server.smtpPoolMaxMessages,
+      },
+    };
+  }
+
+  return edited;
+}
+
 // ---------------------------------------------------------------------------
 // Subcommands
 // ---------------------------------------------------------------------------
@@ -654,7 +703,7 @@ async function editAccount(nameArg?: string): Promise<void> {
   }
 
   // Build and validate before the probe: it logs in with these credentials.
-  const updatedAccount = buildRawAccount(identity, creds, server);
+  const updatedAccount = accountWithEdits(current, fields, identity, creds, server);
   const updatedAccounts = [...accounts];
   updatedAccounts[accountIndex] = updatedAccount;
 
