@@ -117,12 +117,17 @@ async function exitCode(child: ChildProcess): Promise<number | null> {
   });
 }
 
+// The version a server start reports is the one package.json ships.
+const { version: PACKAGE_VERSION } = (
+  await import('../../package.json', { with: { type: 'json' } })
+).default as { version: string };
+
 const EXPECTED_POST = {
   method: 'POST',
   path: '/install',
   body: {
     product: 'mailoo',
-    version: expect.stringMatching(/^\d+\.\d+\.\d+/),
+    version: PACKAGE_VERSION,
     event: 'install',
     node_major: Number.parseInt(process.versions.node, 10),
   },

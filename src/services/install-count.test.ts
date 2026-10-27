@@ -276,6 +276,49 @@ describe('install count', () => {
     expect(fetch.seen).toHaveLength(0);
   });
 
+  it('should keep the generation claim so a start that read the older marker late does not send', async () => {
+    const fetch = recording(204);
+    const dir = await stateDir();
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'install-count'), '0\n');
+    const realReadFile = fs.readFile.bind(fs) as (
+      file: string,
+      encoding: 'utf8',
+    ) => Promise<string>;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let readDone: () => void = () => {};
+    const lateRead = new Promise<void>((resolve) => {
+      readDone = resolve;
+    });
+    // The late start reads the older marker now but only acts on it after the other start
+    // has claimed, replaced the marker, and sent.
+    vi.spyOn(fs, 'readFile').mockImplementationOnce((async (file: string, encoding: 'utf8') => {
+      const text = await realReadFile(file, encoding);
+      readDone();
+      await gate;
+      return text;
+    }) as unknown as typeof fs.readFile);
+    const late = count(dir, opted(), fetch.fetchImpl);
+    await lateRead;
+    expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({ sent: true, reason: 'sent' });
+    release();
+    expect(await late).toEqual({ sent: false, reason: 'already' });
+    expect(fetch.seen).toHaveLength(1);
+    await expect(stat(join(dir, 'install-count.1.claim'))).resolves.toBeDefined();
+  });
+
+  it('should send again after the marker file is deleted', async () => {
+    const fetch = recording(204);
+    const dir = await stateDir();
+    expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({ sent: true, reason: 'sent' });
+    await rm(join(dir, 'install-count'));
+    expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({ sent: true, reason: 'sent' });
+    expect(fetch.seen).toHaveLength(2);
+  });
+
   it('should read the env argument and not the process environment', async () => {
     vi.stubEnv('CI', 'true');
     vi.stubEnv('MAILOO_INSTALL_COUNTER', '0');
@@ -521,16 +564,10 @@ describe('noteInstall', () => {
   });
 
   it('should post once to the process env URL and record it under XDG_STATE_HOME', async () => {
-    let cancelled = false;
     const seen: { url: string; body: unknown }[] = [];
     vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
       seen.push({ url, body: JSON.parse(String(init.body)) });
-      const stream = new ReadableStream({
-        cancel() {
-          cancelled = true;
-        },
-      });
-      return new Response(stream, { status: 200 });
+      return new Response(null, { status: 204 });
     });
     const { stateHome, noteInstall } = await serverStart({
       MAILOO_INSTALL_COUNTER: 'on',
@@ -549,9 +586,30 @@ describe('noteInstall', () => {
         },
       },
     ]);
-    // A collector that keeps the body open must not hold the socket.
-    expect(cancelled).toBe(true);
     expect(await readFile(join(stateHome, 'mailoo', 'install-count'), 'utf8')).toBe('1\n');
+  });
+
+  it('should cancel a response body the collector keeps open', async () => {
+    // A collector that keeps the body open must not hold the socket.
+    let cancelled = false;
+    vi.stubGlobal(
+      'fetch',
+      async () =>
+        new Response(
+          new ReadableStream({
+            cancel() {
+              cancelled = true;
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    const { noteInstall } = await serverStart({
+      MAILOO_INSTALL_COUNTER: 'on',
+      MAILOO_INSTALL_COUNTER_URL: COLLECTOR,
+    });
+    await noteInstall(VERSION);
+    expect(cancelled).toBe(true);
   });
 
   it('should resolve when the real fetch rejects', async () => {
@@ -606,6 +664,19 @@ describe('noteInstall', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(signal?.aborted).toBe(true);
     await expect(pending).resolves.toBeUndefined();
+  });
+
+  it('should be imported by no source file except main.ts', async () => {
+    // Derived from the tree, so a new CLI module that imports the counter fails here.
+    const srcDir = new URL('../', import.meta.url);
+    const files = (await fs.readdir(srcDir, { recursive: true }))
+      .filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts'))
+      .filter((file) => !file.endsWith(join('services', 'install-count.ts')));
+    const texts = await Promise.all(
+      files.map(async (file) => readFile(new URL(file, srcDir), 'utf8')),
+    );
+    const importers = files.filter((_file, i) => texts[i]?.includes('install-count.js'));
+    expect(importers).toEqual(['main.ts']);
   });
 
   it('should be called only from the stdio and http server starts', async () => {
