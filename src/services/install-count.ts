@@ -40,7 +40,10 @@ const MARKER_NAME = 'install-count';
 const SWITCH_ENV = 'MAILOO_INSTALL_COUNTER';
 const URL_ENV = 'MAILOO_INSTALL_COUNTER_URL';
 const USER_AGENT = 'mailoo' as const;
-export const ON_VALUES = new Set(['1', 'true', 'yes', 'on']);
+export const ON_VALUES = new Set(['1', 'true', 'on', 'yes']);
+
+/** The conventional negatives: they keep the switch off and do not mark a CI run. */
+export const NEGATIVE_VALUES = new Set(['0', 'false', 'no', 'off']);
 
 /** Package versions only. Anything else might be a path or an address that leaked into the field. */
 const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
@@ -125,7 +128,7 @@ function isTestRun(env: NodeJS.ProcessEnv): boolean {
 function isCi(raw: string | undefined): boolean {
   if (raw == null) return false;
   const ci = raw.trim().toLowerCase();
-  return ci !== '' && ci !== '0' && ci !== 'false' && ci !== 'no' && ci !== 'off';
+  return ci !== '' && !NEGATIVE_VALUES.has(ci);
 }
 
 function skippedAutomation(env: NodeJS.ProcessEnv): boolean {

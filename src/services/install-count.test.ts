@@ -3,6 +3,7 @@
 import fsPromises, {
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   stat,
@@ -11,7 +12,9 @@ import fsPromises, {
 } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { LOOPBACK_HOSTS_TEXT } from '../utils/loopback.js';
 import type {
   InstallCountFetch,
   InstallCountRequest,
@@ -20,6 +23,7 @@ import type {
 import {
   INSTALL_COUNT_CLAIM_STALE_MS,
   INSTALL_COUNT_TIMEOUT_MS,
+  NEGATIVE_VALUES,
   ON_VALUES,
   recordInstall,
 } from './install-count.js';
@@ -28,8 +32,8 @@ const VERSION = '9.9.9';
 const NODE_MAJOR = 24;
 const COLLECTOR = 'https://collector.example/install';
 
-/** The words README and SECURITY.md give as turning the count off, and as CI values that do not skip it. */
-const NEGATIVE_WORDS = ['0', 'false', 'no', 'off'];
+/** Real time for the collector to see its connection closed after the count resolved. A leak fails the claim instead of waiting out the suite timeout. */
+const BODY_RELEASE_WAIT_MS = 2_000;
 
 /** Real time allowed for the lock release that follows an abort. A hang fails the claim instead of waiting out the suite timeout. */
 const SETTLE_BOUND_MS = 1_000;
@@ -97,10 +101,7 @@ describe('install count', () => {
   it.each([
     ['unset', {}],
     ['empty', { MAILOO_INSTALL_COUNTER: '' }],
-    ['0', { MAILOO_INSTALL_COUNTER: '0' }],
-    ['false', { MAILOO_INSTALL_COUNTER: 'false' }],
-    ['off', { MAILOO_INSTALL_COUNTER: 'off' }],
-    ['no', { MAILOO_INSTALL_COUNTER: 'no' }],
+    ...[...NEGATIVE_VALUES].map((value) => [value, { MAILOO_INSTALL_COUNTER: value }] as const),
     ['unrecognized', { MAILOO_INSTALL_COUNTER: 'enabled' }],
   ] as const)('should not send when the switch is %s', async (_label, flag) => {
     const fetch = recording(204);
@@ -135,7 +136,7 @@ describe('install count', () => {
     },
   );
 
-  it.each([...NEGATIVE_WORDS, 'FALSE', ' false ', '', '   '])(
+  it.each([...NEGATIVE_VALUES, 'FALSE', ' false ', '', '   '])(
     'should send when CI is the negative %j and the counter is on',
     async (ci) => {
       const fetch = recording(204);
@@ -266,32 +267,59 @@ describe('install count', () => {
     expect(JSON.parse(fetch.seen[0]?.init.body ?? '').node_major).toBe(nodeMajor);
   });
 
-  it('should post to the named endpoint with fixed request flags', async () => {
+  it('should post to the named endpoint', async () => {
     const { fetch } = await firstSend();
-    const call = fetch.seen[0];
-    expect(call?.url).toBe(COLLECTOR);
-    expect(Object.keys(call?.init ?? {}).sort()).toEqual(
+    expect(fetch.seen[0]?.url).toBe(COLLECTOR);
+  });
+
+  it('should pass exactly the six request keys', async () => {
+    const { fetch } = await firstSend();
+    expect(Object.keys(fetch.seen[0]?.init ?? {}).sort()).toEqual(
       ['body', 'credentials', 'headers', 'method', 'redirect', 'signal'].sort(),
     );
-    expect(call?.init.method).toBe('POST');
-    expect(call?.init.redirect).toBe('manual');
-    expect(call?.init.credentials).toBe('omit');
-    expect(call?.init.headers).toEqual({
+  });
+
+  it.each([
+    ['method', 'POST'],
+    ['redirect', 'manual'],
+    ['credentials', 'omit'],
+  ] as const)('should set the request %s to %s', async (key, value) => {
+    const { fetch } = await firstSend();
+    expect(fetch.seen[0]?.init[key]).toBe(value);
+  });
+
+  it('should send the content-type and user-agent headers', async () => {
+    const { fetch } = await firstSend();
+    expect(fetch.seen[0]?.init.headers).toEqual({
       'content-type': 'application/json',
       'user-agent': 'mailoo',
     });
   });
 
-  it('should post only the four install fields', async () => {
+  it('should send exactly one request on the first start', async () => {
     const { fetch, result } = await firstSend();
     expect(result).toEqual({ sent: true, reason: 'sent' });
     expect(fetch.seen).toHaveLength(1);
-    expect(JSON.parse(fetch.seen[0]?.init.body ?? '')).toEqual({
-      product: 'mailoo',
-      version: VERSION,
-      event: 'install',
-      node_major: NODE_MAJOR,
-    });
+  });
+
+  it('should post exactly the four install field names', async () => {
+    const { fetch } = await firstSend();
+    expect(Object.keys(JSON.parse(fetch.seen[0]?.init.body ?? '')).sort()).toEqual([
+      'event',
+      'node_major',
+      'product',
+      'version',
+    ]);
+  });
+
+  it.each([
+    ['product', 'mailoo'],
+    ['version', VERSION],
+    ['event', 'install'],
+    ['node_major', NODE_MAJOR],
+  ] as const)('should post %s as %j', async (field, value) => {
+    const { fetch } = await firstSend();
+    expect(JSON.parse(fetch.seen[0]?.init.body ?? '')[field]).toBe(value);
   });
 
   it('should record the generation after the collector accepted', async () => {
@@ -641,8 +669,39 @@ describe('install count', () => {
     expect(fetch.seen[0]?.url).toBe(COLLECTOR);
   });
 
-  async function document(relative: string): Promise<string> {
-    return readFile(new URL(relative, import.meta.url), 'utf8');
+  // Each doc test binds one sentence to values the code owns, so a wrong value or an inverted verb fails.
+  // Claims with a code oracle (mode 0600, digit 1, headers, other commands do not send, redirects,
+  // userinfo) are pinned by the code tests, not here.
+  const CASE_NOTE = 'any letter case, surrounding spaces ignored';
+
+  function codes(values: Iterable<string>): string {
+    return [...values].map((value) => `\`${value}\``).join(', ');
+  }
+
+  function list(values: Iterable<string>): string {
+    const items = [...values].map((value) => `\`${value}\``);
+    return `${items.slice(0, -1).join(', ')}, or ${items.at(-1)}`;
+  }
+
+  const LOOPBACK_FORMS = LOOPBACK_HOSTS_TEXT.split(/,\s*|\s+or\s+/);
+
+  const ON_CLAUSE = `\`MAILOO_INSTALL_COUNTER\` is ${list(ON_VALUES)} (${CASE_NOTE})`;
+  const CI_CLAUSE = `\`CI\` is non-blank and not ${list(NEGATIVE_VALUES)} in any letter case`;
+
+  async function document(target: string): Promise<string> {
+    return readFile(new URL(target, import.meta.url), 'utf8');
+  }
+
+  async function lineStarting(file: string, prefix: string): Promise<string> {
+    const line = (await document(file)).split('\n').find((text) => text.startsWith(prefix));
+    expect(line, `${file} has a line starting ${prefix}`).toBeDefined();
+    return line ?? '';
+  }
+
+  async function lineContaining(file: string, needle: string): Promise<string> {
+    const line = (await document(file)).split('\n').find((text) => text.includes(needle));
+    expect(line, `${file} has a line containing ${needle}`).toBeDefined();
+    return line ?? '';
   }
 
   async function readmeInstallCount(): Promise<string> {
@@ -652,152 +711,100 @@ describe('install count', () => {
     return readme.slice(start, readme.indexOf('### Processes', start));
   }
 
-  const PRIVACY_NOUNS = [
-    'email address',
-    'account name',
-    'password',
-    'token',
-    'mail-server hostname',
-    'message id',
-    'folder name',
-    'machine id',
-    'operating-system username',
-    'home directory',
-    'working directory',
-    'IP address',
-  ];
-  const LOOPBACK_FORMS = ['localhost', '127.0.0.0/8', '::1'];
-
-  async function readmeCiParagraph(): Promise<string> {
-    const section = await readmeInstallCount();
-    const start = section.indexOf('The count is skipped when');
-    expect(start).toBeGreaterThan(-1);
-    return section.slice(start, section.indexOf('\n', start));
-  }
-
-  async function securityInstallCount(): Promise<string> {
-    const security = await document('../../SECURITY.md');
-    const line = security.split('\n').find((text) => text.includes('**Install count**'));
-    expect(line).toBeDefined();
-    return line ?? '';
-  }
-
-  it('should say in the README that the count is off', async () => {
-    expect(await readmeInstallCount()).toContain('The count is off.');
+  it('should say in the README summary which values opt in', async () => {
+    const line = await lineContaining('../../README.md', 'An install count stays off');
+    expect(line).toContain(`${ON_CLAUSE} and \`MAILOO_INSTALL_COUNTER_URL\` is set`);
   });
 
-  it.each(['MAILOO_INSTALL_COUNTER', 'MAILOO_INSTALL_COUNTER_URL'])(
-    'should name %s in the README install count section',
-    async (name) => {
-      expect(await readmeInstallCount()).toContain(`\`${name}\``);
-    },
-  );
-
-  it.each(['product', 'version', 'event', 'install', 'node_major'])(
-    'should list the payload word %s in the README install count section',
-    async (word) => {
-      expect(await readmeInstallCount()).toContain(`\`${word}\``);
-    },
-  );
-
-  it.each([...ON_VALUES])('should list the on value %s in the README', async (value) => {
-    expect(await readmeInstallCount()).toContain(`\`${value}\``);
+  it('should say in the README summary which values keep the count off', async () => {
+    const line = await lineContaining('../../README.md', 'An install count stays off');
+    expect(line).toContain(`Unset, ${list(NEGATIVE_VALUES)} keeps it off`);
   });
 
-  it.each(NEGATIVE_WORDS)(
-    'should list %s among the values the README says keep the count off',
-    async (word) => {
-      const section = await readmeInstallCount();
-      const end = section.indexOf('keeps the count off');
-      expect(end).toBeGreaterThan(-1);
-      expect(section.slice(section.lastIndexOf('\n\n', end), end)).toContain(`\`${word}\``);
-    },
-  );
-
-  it.each(NEGATIVE_WORDS)(
-    'should list %s as a CI value that does not skip the count in the README',
-    async (word) => {
-      expect(await readmeCiParagraph()).toContain(`\`${word}\``);
-    },
-  );
-
-  it.each(['`CI` is non-blank', 'in any letter case', '`VITEST` non-blank', '`NODE_ENV=test`'])(
-    'should say in the README what skips the count: %s',
-    async (clause) => {
-      expect(await readmeCiParagraph()).toContain(clause);
-    },
-  );
-
-  it('should say in the README that the body never includes mail or machine data', async () => {
-    expect(await readmeInstallCount()).toContain('The body never includes');
+  it('should say in the README section which values opt in', async () => {
+    expect(await readmeInstallCount()).toContain(`- ${ON_CLAUSE}\n`);
   });
 
-  it.each(PRIVACY_NOUNS)(
-    'should list %s among what the README says the body never includes',
-    async (noun) => {
-      const section = await readmeInstallCount();
-      const promise = section.slice(section.indexOf('The body never includes'));
-      expect(promise).toContain(noun);
-    },
-  );
-
-  it('should say in the README that a non-loopback URL must be https', async () => {
-    expect(await readmeInstallCount()).toContain('Any other URL must be `https`');
+  it('should say in the README section which values keep the count off', async () => {
+    expect(await readmeInstallCount()).toContain(
+      `${codes(NEGATIVE_VALUES)}, or an unset \`MAILOO_INSTALL_COUNTER\` keeps the count off`,
+    );
   });
 
-  it.each(LOOPBACK_FORMS)('should name the loopback form %s in the README', async (form) => {
-    expect(await readmeInstallCount()).toContain(`\`${form}\``);
+  it('should say in the README section which CI values skip the count', async () => {
+    expect(await readmeInstallCount()).toContain(CI_CLAUSE);
   });
 
-  it('should say in the README that redirects are not followed', async () => {
-    expect(await readmeInstallCount()).toContain('does not follow redirects');
+  it('should say in the README section which URLs are refused', async () => {
+    expect(await readmeInstallCount()).toContain(
+      `\`http\` is refused except for ${list(LOOPBACK_FORMS)}. Any other URL must be \`https\`.`,
+    );
   });
 
-  it('should say in the README that a URL with credentials is refused', async () => {
-    expect(await readmeInstallCount()).toContain('A URL with a username or password is refused');
+  it('should say in the README env table which values opt in', async () => {
+    const row = await lineStarting('../../README.md', '| `MAILOO_INSTALL_COUNTER` |');
+    expect(row).toContain(`${list(ON_VALUES)} opts in (${CASE_NOTE})`);
   });
 
-  it.each(['MAILOO_INSTALL_COUNTER', 'MAILOO_INSTALL_COUNTER_URL'])(
-    'should name %s in docs/configuration.md',
-    async (name) => {
-      expect(await document('../../docs/configuration.md')).toContain(`\`${name}\``);
-    },
-  );
-
-  it.each([...ON_VALUES])('should list the on value %s in docs/configuration.md', async (value) => {
-    expect(await document('../../docs/configuration.md')).toContain(`\`${value}\``);
+  it('should say in the README env table which values force the count off', async () => {
+    const row = await lineStarting('../../README.md', '| `MAILOO_INSTALL_COUNTER` |');
+    expect(row).toContain(`${list(NEGATIVE_VALUES)} forces it off`);
   });
 
-  it('should say in docs/configuration.md that the collector URL is https', async () => {
-    expect(await document('../../docs/configuration.md')).toContain('`https` URL');
+  it('should say in docs/configuration.md which values opt in', async () => {
+    const row = await lineStarting('../../docs/configuration.md', '| `MAILOO_INSTALL_COUNTER` |');
+    expect(row).toContain(`${list(ON_VALUES)} opts in to the install count (${CASE_NOTE})`);
   });
 
-  it.each(LOOPBACK_FORMS)(
-    'should name the loopback form %s in docs/configuration.md',
-    async (form) => {
-      const configuration = await document('../../docs/configuration.md');
-      expect(configuration).toContain('`http` only for');
-      expect(configuration).toContain(`\`${form}\``);
-    },
-  );
-
-  it.each(['MAILOO_INSTALL_COUNTER', 'MAILOO_INSTALL_COUNTER_URL'])(
-    'should name %s in SECURITY.md',
-    async (name) => {
-      expect(await document('../../SECURITY.md')).toContain(`\`${name}\``);
-    },
-  );
-
-  it('should say in SECURITY.md that the install count is off unless opted in', async () => {
-    expect(await securityInstallCount()).toContain('Off unless');
+  it('should say in docs/configuration.md which values keep the count off', async () => {
+    const row = await lineStarting('../../docs/configuration.md', '| `MAILOO_INSTALL_COUNTER` |');
+    expect(row).toContain(`${codes(NEGATIVE_VALUES)}, or any other value keeps it off`);
   });
 
-  it.each([...ON_VALUES])('should list the on value %s in SECURITY.md', async (value) => {
-    expect(await securityInstallCount()).toContain(`\`${value}\``);
+  it('should say in docs/configuration.md which URLs are accepted', async () => {
+    const row = await lineStarting(
+      '../../docs/configuration.md',
+      '| `MAILOO_INSTALL_COUNTER_URL` |',
+    );
+    expect(row).toContain(`\`https\` URL that receives one install POST`);
+    expect(row).toContain(`\`http\` only for ${list(LOOPBACK_FORMS)}`);
   });
 
-  it.each(NEGATIVE_WORDS)('should list the off word %s in SECURITY.md', async (word) => {
-    expect(await securityInstallCount()).toContain(`\`${word}\``);
+  it('should say in SECURITY.md which values opt in', async () => {
+    expect(await lineContaining('../../SECURITY.md', '**Install count**')).toContain(ON_CLAUSE);
+  });
+
+  it('should say in SECURITY.md which values force the count off', async () => {
+    const line = await lineContaining('../../SECURITY.md', '**Install count**');
+    expect(line).toContain(`${list(NEGATIVE_VALUES)} forces it off`);
+  });
+
+  it('should say in SECURITY.md which CI values skip the count', async () => {
+    const line = await lineContaining('../../SECURITY.md', '**Install count**');
+    expect(line).toContain(CI_CLAUSE);
+  });
+});
+
+describe('install count call sites', () => {
+  // A verb that counts would be invisible to the child-process tests unless it is one they drive.
+  it('should be named only by the server entry and its own module', async () => {
+    const src = fileURLToPath(new URL('..', import.meta.url));
+    const entries = await readdir(src, { recursive: true, withFileTypes: true });
+    const sources = entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.ts'))
+      .map((entry) => join(entry.parentPath, entry.name))
+      .filter(
+        (file) =>
+          !file.endsWith('.test.ts') &&
+          !file.includes(`${sep}test-support${sep}`) &&
+          !file.includes(`${sep}__integration__${sep}`),
+      );
+    const texts = await Promise.all(sources.map(async (file) => readFile(file, 'utf8')));
+    const naming = sources.filter((_file, index) => texts[index]?.includes('noteInstall'));
+    expect(naming.map((file) => relative(src, file)).sort()).toEqual([
+      'main.ts',
+      join('services', 'install-count.ts'),
+    ]);
   });
 });
 
@@ -952,6 +959,37 @@ describe('install count through the process environment and the global fetch', (
     const port = typeof address === 'object' && address ? address.port : 0;
     return { url: `http://127.0.0.1:${port}/install`, hits };
   }
+
+  it('should close the connection to a collector that keeps its response body open', async () => {
+    let closed = false;
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.write('partial');
+      res.on('close', () => {
+        closed = true;
+      });
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    onTestFinished(async () => {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+    });
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    const bound = await processBound(undefined, {
+      MAILOO_INSTALL_COUNTER_URL: `http://127.0.0.1:${port}/install`,
+    });
+    await bound.noteInstall(VERSION);
+    await vi.waitFor(() => expect(closed).toBe(true), {
+      timeout: BODY_RELEASE_WAIT_MS,
+      interval: 20,
+    });
+  });
 
   it('should not follow a redirect to a second server through the real fetch', async () => {
     const second = await loopback(204);

@@ -24,7 +24,7 @@ const KILL_GRACE_MS = 2_000;
 // Removing the child's tmpdir, sized for a loaded CI runner rather than a fast disk.
 const TMPDIR_REMOVAL_MS = 8_000;
 
-export const TEARDOWN_MS = KILL_GRACE_MS + TMPDIR_REMOVAL_MS;
+const TEARDOWN_MS = KILL_GRACE_MS + TMPDIR_REMOVAL_MS;
 
 export const SPAWN_TEST_MS = SERVER_START_MS + COLLECTOR_WAIT_MS + TEARDOWN_MS;
 
