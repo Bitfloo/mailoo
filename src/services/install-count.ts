@@ -13,7 +13,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { xdg } from '../config/xdg.js';
-import { PRIVATE_FILE_MODE } from '../utils/atomic-write.js';
+import writeFileAtomic, { PRIVATE_FILE_MODE } from '../utils/atomic-write.js';
 import { errnoCode } from '../utils/file-claim.js';
 import { isLoopbackHost } from '../utils/loopback.js';
 
@@ -147,6 +147,10 @@ function markerFile(stateDir: string): string {
   return path.join(stateDir, MARKER_NAME);
 }
 
+function claimFile(marker: string): string {
+  return `${marker}.${INSTALL_COUNT_GENERATION}.claim`;
+}
+
 async function readMarker(file: string): Promise<'absent' | 'current' | 'other' | 'unreadable'> {
   try {
     const text = await fs.readFile(file, 'utf8');
@@ -164,16 +168,19 @@ async function readMarker(file: string): Promise<'absent' | 'current' | 'other' 
  */
 async function claimMarker(
   file: string,
-  replaceOther: boolean,
+  marker: 'absent' | 'other',
 ): Promise<'claimed' | 'taken' | 'failed'> {
+  const contents = `${INSTALL_COUNT_GENERATION}\n`;
   try {
     await fs.mkdir(path.dirname(file), { recursive: true });
-    if (replaceOther) await fs.rm(file, { force: true });
-    await fs.writeFile(file, `${INSTALL_COUNT_GENERATION}\n`, {
-      encoding: 'utf8',
-      mode: PRIVATE_FILE_MODE,
-      flag: 'wx',
-    });
+    if (marker === 'absent') {
+      await fs.writeFile(file, contents, { encoding: 'utf8', mode: PRIVATE_FILE_MODE, flag: 'wx' });
+      return 'claimed';
+    }
+    // Deleting the old marker before an exclusive create would let a late start delete a
+    // fresh claim and send too. The claim for a new generation is its own file, which stays.
+    await fs.writeFile(claimFile(file), '', { mode: PRIVATE_FILE_MODE, flag: 'wx' });
+    await writeFileAtomic(file, contents);
     return 'claimed';
   } catch (err) {
     return errnoCode(err) === 'EEXIST' ? 'taken' : 'failed';
@@ -216,7 +223,7 @@ export async function recordInstall(input: RecordInstallInput): Promise<InstallC
     if (marker === 'current') return notSent('already');
     if (marker === 'unreadable') return notSent('refused');
     // The claim stays when the request fails: a count may be lost, never repeated.
-    const claim = await claimMarker(file, marker === 'other');
+    const claim = await claimMarker(file, marker);
     if (claim === 'taken') return notSent('already');
     if (claim === 'failed') return notSent('refused');
 

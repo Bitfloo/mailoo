@@ -832,7 +832,7 @@ Mailoo sets the request headers `content-type: application/json` and `user-agent
 
 The body never includes an email address, account name, password, token, mail-server hostname, message id, folder name, or anything taken from a message. It also never includes a machine id, an operating-system username, a home directory, a working directory, or an IP address.
 
-Before the request, the server creates `$XDG_STATE_HOME/mailoo/install-count` (mode `0600`) containing the digit `1` and nothing else. Creation is exclusive, so only the start that creates the file sends. A refused, failed, or timed-out request leaves the file in place and is not retried: each state directory counts at most once, and a count can be lost but not repeated. Delete the file to allow this state directory to count again.
+Before the request, the server creates `$XDG_STATE_HOME/mailoo/install-count` (mode `0600`) containing the digit `1` and nothing else. Creation is exclusive, so only the start that creates the file sends. A refused, failed, or timed-out request leaves the file in place and is not retried: each state directory counts at most once, and a count can be lost but not repeated. When the file holds another generation, the start that creates the empty `install-count.1.claim` next to it replaces the file and sends. Delete `install-count` to allow this state directory to count again.
 
 ### Processes
 
