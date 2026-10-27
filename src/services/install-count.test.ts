@@ -1,9 +1,7 @@
-/**
- * The runner's CI and VITEST variables are not the operator's env. Each test
- * passes the env object the decision reads, and a fetch that records calls.
- */
+/** The runner's CI and VITEST variables are not the operator's env. */
 
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
@@ -283,6 +281,11 @@ describe('install count', () => {
   });
 
   it('should keep the marker private to the owner', async () => {
+    // The mode is masked by the umask: under 077 a 0o644 request would also read back 0o600.
+    const previous = process.umask(0o022);
+    onTestFinished(() => {
+      process.umask(previous);
+    });
     const { dir } = await firstSend();
     const info = await stat(join(dir, 'install-count'));
     // Permission bits only; the high bits are the file type.
@@ -461,28 +464,48 @@ describe('install count', () => {
     expect(fetch.seen[0]?.url).toBe(COLLECTOR);
   });
 
-  it('should disclose the off switch and the payload fields', async () => {
-    const [readme, configuration, security] = await Promise.all([
-      readFile(new URL('../../README.md', import.meta.url), 'utf8'),
-      readFile(new URL('../../docs/configuration.md', import.meta.url), 'utf8'),
-      readFile(new URL('../../SECURITY.md', import.meta.url), 'utf8'),
-    ]);
+  async function document(relative: string): Promise<string> {
+    return readFile(new URL(relative, import.meta.url), 'utf8');
+  }
+
+  async function readmeInstallCount(): Promise<string> {
+    const readme = await document('../../README.md');
     const start = readme.indexOf('### Install count');
-    const end = readme.indexOf('### Processes', start);
     expect(start).toBeGreaterThan(-1);
-    const section = readme.slice(start, end);
-    expect(section).toContain('The count is off.');
-    expect(section).toContain('MAILOO_INSTALL_COUNTER');
-    expect(section).toContain('MAILOO_INSTALL_COUNTER_URL');
-    expect(section).toContain('`product`');
-    expect(section).toContain('`version`');
-    expect(section).toContain('`event`');
-    expect(section).toContain('`install`');
-    expect(section).toContain('`node_major`');
-    expect(configuration).toContain('MAILOO_INSTALL_COUNTER');
-    expect(configuration).toContain('MAILOO_INSTALL_COUNTER_URL');
-    expect(security).toContain('MAILOO_INSTALL_COUNTER');
+    return readme.slice(start, readme.indexOf('### Processes', start));
+  }
+
+  it('should say in the README that the count is off', async () => {
+    expect(await readmeInstallCount()).toContain('The count is off.');
   });
+
+  it.each(['MAILOO_INSTALL_COUNTER', 'MAILOO_INSTALL_COUNTER_URL'])(
+    'should name %s in the README install count section',
+    async (name) => {
+      expect(await readmeInstallCount()).toContain(`\`${name}\``);
+    },
+  );
+
+  it.each(['product', 'version', 'event', 'install', 'node_major'])(
+    'should list the payload word %s in the README install count section',
+    async (word) => {
+      expect(await readmeInstallCount()).toContain(`\`${word}\``);
+    },
+  );
+
+  it.each(['MAILOO_INSTALL_COUNTER', 'MAILOO_INSTALL_COUNTER_URL'])(
+    'should name %s in docs/configuration.md',
+    async (name) => {
+      expect(await document('../../docs/configuration.md')).toContain(`\`${name}\``);
+    },
+  );
+
+  it.each(['MAILOO_INSTALL_COUNTER', 'MAILOO_INSTALL_COUNTER_URL'])(
+    'should name %s in SECURITY.md',
+    async (name) => {
+      expect(await document('../../SECURITY.md')).toContain(`\`${name}\``);
+    },
+  );
 });
 
 describe('install count through the process environment and the global fetch', () => {
@@ -498,7 +521,7 @@ describe('install count through the process environment and the global fetch', (
    * module is imported after the stubs.
    */
   async function processBound(
-    answer: () => Promise<Response>,
+    answer: (() => Promise<Response>) | undefined,
     env: Record<string, string | undefined> = {},
   ): Promise<{
     noteInstall: (version: string) => Promise<void>;
@@ -509,10 +532,12 @@ describe('install count through the process environment and the global fetch', (
     const root = await mkdtemp(join(tmpdir(), 'mailoo-install-count-'));
     roots.push(root);
     const calls: Captured[] = [];
-    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
-      calls.push({ url, init });
-      return answer();
-    });
+    if (answer !== undefined) {
+      vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        return answer();
+      });
+    }
     vi.stubEnv('HOME', root);
     vi.stubEnv('XDG_STATE_HOME', join(root, 'state'));
     vi.stubEnv('XDG_CONFIG_HOME', join(root, 'config'));
@@ -605,5 +630,43 @@ describe('install count through the process environment and the global fetch', (
     expect(result).toEqual({ sent: false, reason: 'refused' });
     expect(bound.calls).toHaveLength(0);
     await expect(stat(join(dir, 'install-count'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  interface Loopback {
+    url: string;
+    hits: string[];
+  }
+
+  async function loopback(status: number, location?: string): Promise<Loopback> {
+    const hits: string[] = [];
+    const server = http.createServer((req, res) => {
+      hits.push(`${req.method} ${req.url}`);
+      res.statusCode = status;
+      if (location !== undefined) res.setHeader('location', location);
+      res.end();
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    onTestFinished(async () => {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+    });
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    return { url: `http://127.0.0.1:${port}/install`, hits };
+  }
+
+  it('should not follow a redirect to a second server through the real fetch', async () => {
+    const second = await loopback(204);
+    const first = await loopback(302, second.url);
+    const bound = await processBound(undefined, { MAILOO_INSTALL_COUNTER_URL: first.url });
+    await bound.noteInstall(VERSION);
+    expect(first.hits).toEqual(['POST /install']);
+    expect(second.hits).toEqual([]);
+    await expect(stat(bound.marker)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
