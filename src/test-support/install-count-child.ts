@@ -18,11 +18,13 @@ export const SERVER_START_MS = 30_000;
 // A started server posts right after setup; this is how long a missing post is waited for before it counts as absent.
 export const COLLECTOR_WAIT_MS = 20_000;
 
-// A child that ignores SIGTERM gets this long before SIGKILL.
+// SIGTERM normally ends the child at once; this only bounds one stuck in shutdown.
 const KILL_GRACE_MS = 2_000;
 
-// Room for KILL_GRACE_MS and for removing the child's tmpdir.
-export const TEARDOWN_MS = 10_000;
+// Removing the child's tmpdir, sized for a loaded CI runner rather than a fast disk.
+const TMPDIR_REMOVAL_MS = 8_000;
+
+export const TEARDOWN_MS = KILL_GRACE_MS + TMPDIR_REMOVAL_MS;
 
 export const SPAWN_TEST_MS = SERVER_START_MS + COLLECTOR_WAIT_MS + TEARDOWN_MS;
 
