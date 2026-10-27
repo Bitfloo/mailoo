@@ -4,8 +4,9 @@
  * Off unless MAILOO_INSTALL_COUNTER is explicitly on. With no
  * MAILOO_INSTALL_COUNTER_URL nothing leaves the machine: there is no default
  * host. The body is four aggregate fields and nothing from a mailbox. A
- * generation file under the state directory stops a second send. CI and the
- * test runner are not installs; release-day npm installs are CI.
+ * generation file under the state directory is claimed before the request, so
+ * one state directory counts at most once. CI and the test runner are not
+ * installs, so installs made by CI jobs are not counted.
  */
 
 import fs from 'node:fs/promises';
@@ -21,8 +22,8 @@ export const INSTALL_COUNT_EVENT = 'install' as const;
 export const INSTALL_COUNT_GENERATION = 1;
 
 /**
- * A stuck collector must not keep the socket. One attempt per process; a
- * refusal is retried on the next server start, not in a loop.
+ * A stuck collector must not keep the socket. One attempt per state
+ * directory: a refusal or timeout is not retried.
  */
 export const INSTALL_COUNT_TIMEOUT_MS = 3_000;
 
@@ -127,10 +128,12 @@ function skippedAutomation(env: NodeJS.ProcessEnv): boolean {
 
 /**
  * Cleartext is refused except to this machine. Redirects are not followed:
- * the payload may go only to the host the operator named. Userinfo is refused
- * so a URL cannot carry a credential.
+ * the payload may go only to the host the operator named. Userinfo, a query
+ * and a fragment are refused so a URL cannot carry a credential. The raw text
+ * is checked because the parser drops an empty `?` or `#`.
  */
 function endpoint(raw: string): string | undefined {
+  if (/[?#]/.test(raw)) return undefined;
   const url = URL.parse(raw.trim());
   if (!url || url.hostname === '') return undefined;
   if (url.username !== '' || url.password !== '') return undefined;
@@ -154,12 +157,27 @@ async function readMarker(file: string): Promise<'absent' | 'current' | 'other' 
   }
 }
 
-async function writeMarker(file: string): Promise<void> {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, `${INSTALL_COUNT_GENERATION}\n`, {
-    encoding: 'utf8',
-    mode: PRIVATE_FILE_MODE,
-  });
+/**
+ * Exclusive create (`wx`) before the request: of several servers starting on
+ * one state directory only one sends, and a directory that cannot be written
+ * sends nothing instead of counting every start.
+ */
+async function claimMarker(
+  file: string,
+  replaceOther: boolean,
+): Promise<'claimed' | 'taken' | 'failed'> {
+  try {
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    if (replaceOther) await fs.rm(file, { force: true });
+    await fs.writeFile(file, `${INSTALL_COUNT_GENERATION}\n`, {
+      encoding: 'utf8',
+      mode: PRIVATE_FILE_MODE,
+      flag: 'wx',
+    });
+    return 'claimed';
+  } catch (err) {
+    return errnoCode(err) === 'EEXIST' ? 'taken' : 'failed';
+  }
 }
 
 function notSent(reason: Exclude<InstallCountReason, 'sent'>): InstallCountResult {
@@ -197,23 +215,33 @@ export async function recordInstall(input: RecordInstallInput): Promise<InstallC
     const marker = await readMarker(file);
     if (marker === 'current') return notSent('already');
     if (marker === 'unreadable') return notSent('refused');
+    // The claim stays when the request fails: a count may be lost, never repeated.
+    const claim = await claimMarker(file, marker === 'other');
+    if (claim === 'taken') return notSent('already');
+    if (claim === 'failed') return notSent('refused');
 
     const fetchImpl = input.fetchImpl ?? liveFetch;
-    const response = await fetchImpl(url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'user-agent': USER_AGENT,
-      },
-      body: JSON.stringify(payload),
-      redirect: 'manual',
-      credentials: 'omit',
-      signal: AbortSignal.timeout(INSTALL_COUNT_TIMEOUT_MS),
-    });
-    await response.body?.cancel().catch(() => undefined);
-    if (!accepted(response.status)) return notSent('refused');
-    await writeMarker(file);
-    return { sent: true, reason: 'sent' };
+    // A plain timer, not AbortSignal.timeout, so the bound can be tested with fake timers.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), INSTALL_COUNT_TIMEOUT_MS);
+    try {
+      const response = await fetchImpl(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'user-agent': USER_AGENT,
+        },
+        body: JSON.stringify(payload),
+        redirect: 'manual',
+        credentials: 'omit',
+        signal: controller.signal,
+      });
+      await response.body?.cancel().catch(() => undefined);
+      if (!accepted(response.status)) return notSent('refused');
+      return { sent: true, reason: 'sent' };
+    } finally {
+      clearTimeout(timer);
+    }
   } catch {
     // Fetch and filesystem errors quote paths and URLs. Callers only see the reason.
     return notSent('refused');

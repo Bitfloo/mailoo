@@ -3,7 +3,7 @@
  * passes the env object the decision reads, and a fetch that records calls.
  */
 
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
@@ -11,11 +11,13 @@ import type {
   InstallCountRequest,
   InstallCountResult,
 } from './install-count.js';
-import { recordInstall } from './install-count.js';
+import { INSTALL_COUNT_TIMEOUT_MS, recordInstall } from './install-count.js';
 
 const VERSION = '9.9.9';
 const NODE_MAJOR = 24;
 const COLLECTOR = 'https://collector.example/install';
+// README promises that a collector which has not answered is dropped after this bound.
+const DOCUMENTED_TIMEOUT_MS = 3_000;
 
 const roots: string[] = [];
 
@@ -56,7 +58,9 @@ async function count(
 }
 
 afterEach(async () => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   await Promise.all(
     roots.splice(0).map(async (root) => rm(root, { recursive: true, force: true })),
   );
@@ -215,25 +219,23 @@ describe('install count', () => {
     expect(fetch.seen).toHaveLength(1);
   });
 
-  it('should send on a later start when the collector did not accept', async () => {
+  it('should not send again after the collector refused the first start', async () => {
     const fetch = recording(503);
     const dir = await stateDir();
     const env = opted();
     expect(await count(dir, env, fetch.fetchImpl)).toEqual({ sent: false, reason: 'refused' });
-    await expect(stat(join(dir, 'install-count'))).rejects.toMatchObject({ code: 'ENOENT' });
     const again = recording(204);
-    expect(await count(dir, env, again.fetchImpl)).toEqual({ sent: true, reason: 'sent' });
-    expect(again.seen).toHaveLength(1);
+    expect(await count(dir, env, again.fetchImpl)).toEqual({ sent: false, reason: 'already' });
+    expect(again.seen).toHaveLength(0);
   });
 
-  it('should not follow a redirect or record it', async () => {
+  it('should report a redirect as refused without following it', async () => {
     const fetch = recording(302);
     const dir = await stateDir();
     const result = await count(dir, opted(), fetch.fetchImpl);
     expect(result).toEqual({ sent: false, reason: 'refused' });
     expect(fetch.seen).toHaveLength(1);
     expect(fetch.seen[0]?.init.redirect).toBe('manual');
-    await expect(stat(join(dir, 'install-count'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('should send again when the marker is an older generation', async () => {
@@ -278,5 +280,204 @@ describe('install count', () => {
     expect(configuration).toContain('MAILOO_INSTALL_COUNTER');
     expect(configuration).toContain('MAILOO_INSTALL_COUNTER_URL');
     expect(security).toContain('MAILOO_INSTALL_COUNTER');
+  });
+
+  it.each([
+    'https://collector.example/install?token=abc',
+    'https://collector.example/install?',
+    'https://collector.example/install#part',
+  ])('should not send to %s, a query or fragment is refused', async (url) => {
+    const fetch = recording(204);
+    const dir = await stateDir();
+    const result = await count(dir, opted({ MAILOO_INSTALL_COUNTER_URL: url }), fetch.fetchImpl);
+    expect(result).toEqual({ sent: false, reason: 'rejected' });
+    expect(fetch.seen).toHaveLength(0);
+  });
+
+  it('should send once when three servers start at the same time on one state dir', async () => {
+    const fetch = recording(204);
+    const dir = await stateDir();
+    const env = opted();
+    const results = await Promise.all([
+      count(dir, env, fetch.fetchImpl),
+      count(dir, env, fetch.fetchImpl),
+      count(dir, env, fetch.fetchImpl),
+    ]);
+    expect(fetch.seen).toHaveLength(1);
+    expect(results.map((r) => r.reason).sort()).toEqual(['already', 'already', 'sent']);
+  });
+
+  it.skipIf(process.getuid?.() === 0)(
+    'should send nothing when the state dir is read-only',
+    async () => {
+      const fetch = recording(204);
+      const dir = await stateDir();
+      await mkdir(dir, { recursive: true });
+      await chmod(dir, 0o555);
+      expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({
+        sent: false,
+        reason: 'refused',
+      });
+      expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({
+        sent: false,
+        reason: 'refused',
+      });
+      expect(fetch.seen).toHaveLength(0);
+    },
+  );
+
+  it('should send nothing when the state dir cannot be created', async () => {
+    const fetch = recording(204);
+    const dir = await stateDir();
+    // A regular file where the state dir's parent should be: mkdir fails even for root.
+    await writeFile(join(dir, '..', 'blocker'), '');
+    const result = await count(join(dir, '..', 'blocker', 'state'), opted(), fetch.fetchImpl);
+    expect(result).toEqual({ sent: false, reason: 'refused' });
+    expect(fetch.seen).toHaveLength(0);
+  });
+
+  it('should send nothing when the marker cannot be read', async () => {
+    const fetch = recording(204);
+    const dir = await stateDir();
+    await mkdir(join(dir, 'install-count'), { recursive: true });
+    expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({ sent: false, reason: 'refused' });
+    expect(fetch.seen).toHaveLength(0);
+  });
+
+  it('should resolve as refused when the fetch throws', async () => {
+    const dir = await stateDir();
+    const fetchImpl: InstallCountFetch = async (url) => {
+      throw new Error(`connect ECONNREFUSED ${url}`);
+    };
+    await expect(count(dir, opted(), fetchImpl)).resolves.toEqual({
+      sent: false,
+      reason: 'refused',
+    });
+  });
+
+  it('should still report sent when cancelling the response body fails', async () => {
+    const dir = await stateDir();
+    const fetchImpl: InstallCountFetch = async () => ({
+      status: 204,
+      body: { cancel: async () => Promise.reject(new Error('stream already closed')) },
+    });
+    expect(await count(dir, opted(), fetchImpl)).toEqual({ sent: true, reason: 'sent' });
+  });
+
+  it('should abort a collector that never answers at the documented bound', async () => {
+    vi.useFakeTimers();
+    const dir = await stateDir();
+    let signal: AbortSignal | undefined;
+    let reached: () => void = () => {};
+    const inFetch = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const fetchImpl: InstallCountFetch = async (_url, init) => {
+      signal = init.signal;
+      reached();
+      return new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+    };
+    const pending = count(dir, opted(), fetchImpl);
+    await inFetch;
+    await vi.advanceTimersByTimeAsync(DOCUMENTED_TIMEOUT_MS - 1);
+    expect(signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(signal?.aborted).toBe(true);
+    await expect(pending).resolves.toEqual({ sent: false, reason: 'refused' });
+    expect(INSTALL_COUNT_TIMEOUT_MS).toBe(DOCUMENTED_TIMEOUT_MS);
+  });
+
+  it('should not open a socket from the test runner when no fetch is injected', async () => {
+    // process.env is the runner's here (VITEST is set); the env argument is not.
+    const globalFetch = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', globalFetch);
+    const dir = await stateDir();
+    const result = await recordInstall({
+      version: VERSION,
+      nodeMajor: NODE_MAJOR,
+      env: opted(),
+      stateDir: dir,
+    });
+    expect(result).toEqual({ sent: false, reason: 'refused' });
+    expect(globalFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('noteInstall', () => {
+  /** The server's own environment: no runner variables, the given counter settings. */
+  async function serverStart(counter: Record<string, string>): Promise<{
+    stateHome: string;
+    noteInstall: (version: string) => Promise<void>;
+  }> {
+    const stateHome = await stateDir();
+    vi.stubEnv('VITEST', '');
+    vi.stubEnv('NODE_ENV', '');
+    vi.stubEnv('CI', '');
+    vi.stubEnv('MAILOO_INSTALL_COUNTER', '');
+    vi.stubEnv('MAILOO_INSTALL_COUNTER_URL', '');
+    for (const [name, value] of Object.entries(counter)) vi.stubEnv(name, value);
+    // xdg.state is read once at import, so the module is loaded after XDG_STATE_HOME is set.
+    vi.stubEnv('XDG_STATE_HOME', stateHome);
+    vi.resetModules();
+    const mod = await import('./install-count.js');
+    return { stateHome, noteInstall: mod.noteInstall };
+  }
+
+  it('should not call fetch when the switch is off in the process env', async () => {
+    const globalFetch = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', globalFetch);
+    const { stateHome, noteInstall } = await serverStart({
+      MAILOO_INSTALL_COUNTER_URL: COLLECTOR,
+    });
+    await noteInstall(VERSION);
+    expect(globalFetch).not.toHaveBeenCalled();
+    await expect(stat(stateHome)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('should post once to the process env URL and record it under XDG_STATE_HOME', async () => {
+    let cancelled = false;
+    const seen: { url: string; body: unknown }[] = [];
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      seen.push({ url, body: JSON.parse(String(init.body)) });
+      const stream = new ReadableStream({
+        cancel() {
+          cancelled = true;
+        },
+      });
+      return new Response(stream, { status: 200 });
+    });
+    const { stateHome, noteInstall } = await serverStart({
+      MAILOO_INSTALL_COUNTER: 'on',
+      MAILOO_INSTALL_COUNTER_URL: COLLECTOR,
+    });
+    await noteInstall(VERSION);
+    await noteInstall(VERSION);
+    expect(seen).toEqual([
+      {
+        url: COLLECTOR,
+        body: {
+          product: 'mailoo',
+          version: VERSION,
+          event: 'install',
+          node_major: Number.parseInt(process.versions.node, 10),
+        },
+      },
+    ]);
+    // A collector that keeps the body open must not hold the socket.
+    expect(cancelled).toBe(true);
+    expect(await readFile(join(stateHome, 'mailoo', 'install-count'), 'utf8')).toBe('1\n');
+  });
+
+  it('should resolve when the real fetch rejects', async () => {
+    vi.stubGlobal('fetch', async (url: string) => {
+      throw new TypeError(`fetch failed: ${url}`);
+    });
+    const { noteInstall } = await serverStart({
+      MAILOO_INSTALL_COUNTER: '1',
+      MAILOO_INSTALL_COUNTER_URL: COLLECTOR,
+    });
+    await expect(noteInstall(VERSION)).resolves.toBeUndefined();
   });
 });
