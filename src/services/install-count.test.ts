@@ -9,11 +9,14 @@ import type {
   InstallCountRequest,
   InstallCountResult,
 } from './install-count.js';
-import { recordInstall } from './install-count.js';
+import { ON_VALUES, recordInstall } from './install-count.js';
 
 const VERSION = '9.9.9';
 const NODE_MAJOR = 24;
 const COLLECTOR = 'https://collector.example/install';
+
+/** The words README and SECURITY.md give as turning the count off, and as CI values that do not skip it. */
+const NEGATIVE_WORDS = ['0', 'false', 'no', 'off'];
 
 const roots: string[] = [];
 
@@ -116,7 +119,7 @@ describe('install count', () => {
     },
   );
 
-  it.each(['false', 'FALSE', ' false ', '0', '', '   ', 'no', 'off'])(
+  it.each([...NEGATIVE_WORDS, 'FALSE', ' false ', '', '   '])(
     'should send when CI is the negative %j and the counter is on',
     async (ci) => {
       const fetch = recording(204);
@@ -404,7 +407,7 @@ describe('install count', () => {
     await vi.advanceTimersByTimeAsync(2_999);
     expect(settled).toBeUndefined();
     await vi.advanceTimersByTimeAsync(1);
-    // setImmediate is not faked: it lets the abort settle before the claim is read.
+    // setImmediate is not faked: it lets the abort settle before the result is read.
     await new Promise((resolve) => {
       setImmediate(resolve);
     });
@@ -475,6 +478,36 @@ describe('install count', () => {
     return readme.slice(start, readme.indexOf('### Processes', start));
   }
 
+  const PRIVACY_NOUNS = [
+    'email address',
+    'account name',
+    'password',
+    'token',
+    'mail-server hostname',
+    'message id',
+    'folder name',
+    'machine id',
+    'operating-system username',
+    'home directory',
+    'working directory',
+    'IP address',
+  ];
+  const LOOPBACK_FORMS = ['localhost', '127.0.0.0/8', '::1'];
+
+  async function readmeCiParagraph(): Promise<string> {
+    const section = await readmeInstallCount();
+    const start = section.indexOf('The count is skipped when');
+    expect(start).toBeGreaterThan(-1);
+    return section.slice(start, section.indexOf('\n', start));
+  }
+
+  async function securityInstallCount(): Promise<string> {
+    const security = await document('../../SECURITY.md');
+    const line = security.split('\n').find((text) => text.includes('**Install count**'));
+    expect(line).toBeDefined();
+    return line ?? '';
+  }
+
   it('should say in the README that the count is off', async () => {
     expect(await readmeInstallCount()).toContain('The count is off.');
   });
@@ -493,10 +526,84 @@ describe('install count', () => {
     },
   );
 
+  it.each([...ON_VALUES])('should list the on value %s in the README', async (value) => {
+    expect(await readmeInstallCount()).toContain(`\`${value}\``);
+  });
+
+  it.each(NEGATIVE_WORDS)(
+    'should list %s among the values the README says keep the count off',
+    async (word) => {
+      const section = await readmeInstallCount();
+      const end = section.indexOf('keeps the count off');
+      expect(end).toBeGreaterThan(-1);
+      expect(section.slice(section.lastIndexOf('\n\n', end), end)).toContain(`\`${word}\``);
+    },
+  );
+
+  it.each(NEGATIVE_WORDS)(
+    'should list %s as a CI value that does not skip the count in the README',
+    async (word) => {
+      expect(await readmeCiParagraph()).toContain(`\`${word}\``);
+    },
+  );
+
+  it.each(['`CI` is non-blank', 'in any letter case', '`VITEST` non-blank', '`NODE_ENV=test`'])(
+    'should say in the README what skips the count: %s',
+    async (clause) => {
+      expect(await readmeCiParagraph()).toContain(clause);
+    },
+  );
+
+  it('should say in the README that the body never includes mail or machine data', async () => {
+    expect(await readmeInstallCount()).toContain('The body never includes');
+  });
+
+  it.each(PRIVACY_NOUNS)(
+    'should list %s among what the README says the body never includes',
+    async (noun) => {
+      const section = await readmeInstallCount();
+      const promise = section.slice(section.indexOf('The body never includes'));
+      expect(promise).toContain(noun);
+    },
+  );
+
+  it('should say in the README that a non-loopback URL must be https', async () => {
+    expect(await readmeInstallCount()).toContain('Any other URL must be `https`');
+  });
+
+  it.each(LOOPBACK_FORMS)('should name the loopback form %s in the README', async (form) => {
+    expect(await readmeInstallCount()).toContain(`\`${form}\``);
+  });
+
+  it('should say in the README that redirects are not followed', async () => {
+    expect(await readmeInstallCount()).toContain('does not follow redirects');
+  });
+
+  it('should say in the README that a URL with credentials is refused', async () => {
+    expect(await readmeInstallCount()).toContain('A URL with a username or password is refused');
+  });
+
   it.each(['MAILOO_INSTALL_COUNTER', 'MAILOO_INSTALL_COUNTER_URL'])(
     'should name %s in docs/configuration.md',
     async (name) => {
       expect(await document('../../docs/configuration.md')).toContain(`\`${name}\``);
+    },
+  );
+
+  it.each([...ON_VALUES])('should list the on value %s in docs/configuration.md', async (value) => {
+    expect(await document('../../docs/configuration.md')).toContain(`\`${value}\``);
+  });
+
+  it('should say in docs/configuration.md that the collector URL is https', async () => {
+    expect(await document('../../docs/configuration.md')).toContain('`https` URL');
+  });
+
+  it.each(LOOPBACK_FORMS)(
+    'should name the loopback form %s in docs/configuration.md',
+    async (form) => {
+      const configuration = await document('../../docs/configuration.md');
+      expect(configuration).toContain('`http` only for');
+      expect(configuration).toContain(`\`${form}\``);
     },
   );
 
@@ -506,6 +613,18 @@ describe('install count', () => {
       expect(await document('../../SECURITY.md')).toContain(`\`${name}\``);
     },
   );
+
+  it('should say in SECURITY.md that the install count is off unless opted in', async () => {
+    expect(await securityInstallCount()).toContain('Off unless');
+  });
+
+  it.each([...ON_VALUES])('should list the on value %s in SECURITY.md', async (value) => {
+    expect(await securityInstallCount()).toContain(`\`${value}\``);
+  });
+
+  it.each(NEGATIVE_WORDS)('should list the off word %s in SECURITY.md', async (word) => {
+    expect(await securityInstallCount()).toContain(`\`${word}\``);
+  });
 });
 
 describe('install count through the process environment and the global fetch', () => {

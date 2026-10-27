@@ -33,7 +33,7 @@ const MARKER_NAME = 'install-count';
 const SWITCH_ENV = 'MAILOO_INSTALL_COUNTER';
 const URL_ENV = 'MAILOO_INSTALL_COUNTER_URL';
 const USER_AGENT = 'mailoo' as const;
-const ON_VALUES = new Set(['1', 'true', 'yes', 'on']);
+export const ON_VALUES = new Set(['1', 'true', 'yes', 'on']);
 
 /** Package versions only. Anything else might be a path or an address that leaked into the field. */
 const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
