@@ -203,8 +203,13 @@ describe('install count', () => {
       event: 'install',
       node_major: NODE_MAJOR,
     });
-    const marker = await readFile(join(dir, 'install-count'), 'utf8');
-    expect(marker).toBe('1\n');
+    expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1\n');
+  });
+
+  it('should write the marker with mode 0600', async () => {
+    const fetch = recording(204);
+    const dir = await stateDir();
+    await count(dir, opted(), fetch.fetchImpl);
     const info = await stat(join(dir, 'install-count'));
     // Permission bits only; the high bits are the file type.
     // eslint-disable-next-line no-bitwise
@@ -511,7 +516,48 @@ describe('install count', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(signal?.aborted).toBe(true);
     await expect(pending).resolves.toEqual({ sent: false, reason: 'refused' });
+  });
+
+  it('should keep the exported timeout at the documented bound', () => {
     expect(INSTALL_COUNT_TIMEOUT_MS).toBe(DOCUMENTED_TIMEOUT_MS);
+  });
+
+  it('should leave no timer behind after a fast response', async () => {
+    vi.useFakeTimers();
+    const fetch = recording(204);
+    const dir = await stateDir();
+    expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({ sent: true, reason: 'sent' });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('should not let its timeout keep the process alive', async () => {
+    // AbortSignal.timeout does not hold the event loop open; the plain timer that replaced it must not either.
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const realSetTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+      ...args: Parameters<typeof setTimeout>
+    ) => {
+      const timer = realSetTimeout(...args);
+      timers.push(timer);
+      return timer;
+    }) as typeof setTimeout);
+    let answer: (response: { status: number; body: null }) => void = () => {};
+    let reached: () => void = () => {};
+    const inFetch = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const fetchImpl: InstallCountFetch = async () =>
+      new Promise((resolve) => {
+        answer = resolve;
+        reached();
+      });
+    const dir = await stateDir();
+    const pending = count(dir, opted(), fetchImpl);
+    await inFetch;
+    const held = timers.map((timer) => timer.hasRef());
+    answer({ status: 204, body: null });
+    await pending;
+    expect(held).toEqual([false]);
   });
 
   it('should not open a socket from the test runner when no fetch is injected', async () => {
@@ -587,6 +633,25 @@ describe('noteInstall', () => {
       },
     ]);
     expect(await readFile(join(stateHome, 'mailoo', 'install-count'), 'utf8')).toBe('1\n');
+  });
+
+  it('should report the major of the running Node.js, not a fixed number', async () => {
+    const real = Object.getOwnPropertyDescriptor(process.versions, 'node');
+    Object.defineProperty(process.versions, 'node', { ...real, value: '31.4.0' });
+    onTestFinished(() => {
+      if (real) Object.defineProperty(process.versions, 'node', real);
+    });
+    const bodies: unknown[] = [];
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)));
+      return new Response(null, { status: 204 });
+    });
+    const { noteInstall } = await serverStart({
+      MAILOO_INSTALL_COUNTER: '1',
+      MAILOO_INSTALL_COUNTER_URL: COLLECTOR,
+    });
+    await noteInstall(VERSION);
+    expect(bodies).toEqual([expect.objectContaining({ node_major: 31 })]);
   });
 
   it('should cancel a response body the collector keeps open', async () => {

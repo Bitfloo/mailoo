@@ -229,8 +229,10 @@ export async function recordInstall(input: RecordInstallInput): Promise<InstallC
 
     const fetchImpl = input.fetchImpl ?? liveFetch;
     // A plain timer, not AbortSignal.timeout, so the bound can be tested with fake timers.
+    // Unref'd like AbortSignal.timeout: the count must never keep a process alive.
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), INSTALL_COUNT_TIMEOUT_MS);
+    timer.unref?.();
     try {
       const response = await fetchImpl(url, {
         method: 'POST',
