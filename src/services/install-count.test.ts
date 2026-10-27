@@ -473,16 +473,23 @@ describe('install count', () => {
     expect(fetch.seen).toHaveLength(0);
   });
 
+  // mkdir reports EEXIST for a file at the state dir path. Nothing is sent; the reason label
+  // ('already') is not what this pins, because nothing was ever counted there.
   it('should send nothing when a file stands at the state dir path itself', async () => {
-    // mkdir reports EEXIST for a file at the directory path, so the label is 'already'
-    // although nothing was ever sent. Either way the request is not made.
     const fetch = recording(204);
     const dir = await stateDir();
     await mkdir(join(dir, '..'), { recursive: true });
     await writeFile(dir, '');
-    expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({ sent: false, reason: 'already' });
+    expect((await count(dir, opted(), fetch.fetchImpl)).sent).toBe(false);
     expect(fetch.seen).toHaveLength(0);
-    expect(await readFile(dir, 'utf8')).toBe('');
+  });
+
+  it('should leave a file at the state dir path as it is', async () => {
+    const dir = await stateDir();
+    await mkdir(join(dir, '..'), { recursive: true });
+    await writeFile(dir, 'kept');
+    await count(dir, opted(), recording(204).fetchImpl);
+    expect(await readFile(dir, 'utf8')).toBe('kept');
   });
 
   it('should send nothing when a directory stands at the marker path', async () => {
@@ -607,6 +614,31 @@ describe('install count', () => {
     await inFetch;
     await vi.advanceTimersByTimeAsync(DOCUMENTED_TIMEOUT_MS);
     expect(await pending).toEqual({ sent: false, reason: 'refused' });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('should leave no timer behind when the state dir was already counted', async () => {
+    vi.useFakeTimers();
+    const dir = await stateDir();
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'install-count'), '1\n');
+    expect(await count(dir, opted(), recording(204).fetchImpl)).toEqual({
+      sent: false,
+      reason: 'already',
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('should leave no timer behind when the file system refuses the claim', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(fs, 'writeFile').mockRejectedValueOnce(
+      Object.assign(new Error('read-only file system'), { code: 'EROFS' }),
+    );
+    const dir = await stateDir();
+    expect(await count(dir, opted(), recording(204).fetchImpl)).toEqual({
+      sent: false,
+      reason: 'refused',
+    });
     expect(vi.getTimerCount()).toBe(0);
   });
 
