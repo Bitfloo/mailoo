@@ -278,7 +278,7 @@ describe('install count', () => {
     expect(fetch.seen).toHaveLength(0);
   });
 
-  it.each(['0.3.0', '0.10.0', '10.20.30', '1.2.3-rc.1', '1.2.3-rc-1', '1.2.3+sha.5'])(
+  it.each(['0.3.0', '0.10.0', '10.20.30', '1.2.3-rc.1', '1.2.3-rc-1', '1.2.3-RC.1', '1.2.3+sha.5'])(
     'should send package version %s as it is',
     async (version) => {
       const fetch = recording(204);
