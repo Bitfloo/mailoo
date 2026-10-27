@@ -31,6 +31,25 @@ const INVALID_CONFIG = '[[accounts]\nname = "test"\n';
 
 const CONFIG_TEXT = { valid: ENTRY_CONFIG, invalid: INVALID_CONFIG, missing: undefined } as const;
 
+// The marker is written right after the collector's 2xx; this bounds a hang only.
+const MARKER_WAIT_MS = 5_000;
+
+/** Holds a loopback port until the test ends, so a server asked to bind it fails. */
+async function occupyLoopbackPort(): Promise<number> {
+  const blocker = http.createServer();
+  await new Promise<void>((resolve, reject) => {
+    blocker.once('error', reject);
+    blocker.listen(0, '127.0.0.1', resolve);
+  });
+  onTestFinished(async () => {
+    await new Promise<void>((resolve) => {
+      blocker.close(() => resolve());
+    });
+  });
+  const address = blocker.address();
+  return typeof address === 'object' && address ? address.port : 0;
+}
+
 async function freeLoopbackPort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const probe = http.createServer();
@@ -88,7 +107,7 @@ describe('install count at the server entry', () => {
     ['stdio', async () => ['stdio']],
     ['http', async () => ['http', String(await freeLoopbackPort()), '127.0.0.1']],
   ] as const)(
-    'should post one install count when the %s server starts',
+    'should post the install fields when the %s server starts',
     async (_transport, argv) => {
       const collector = await startCollector();
       const started = await startMailoo(await argv(), collector.url, ENTRY_CONFIG);
@@ -128,6 +147,55 @@ describe('install count at the server entry', () => {
         transport === 'stdio' ? ['stdio'] : ['http', String(await freeLoopbackPort()), '127.0.0.1'];
       const started = await startMailoo(args, collector.url, CONFIG_TEXT[configFile]);
       const code = await withinMs(started.exited, SERVER_START_MS, 'the failed start to exit');
+      expect(code).not.toBe(0);
+      expect(collector.received).toHaveLength(0);
+      await expect(stat(markerPath(started))).rejects.toMatchObject({ code: 'ENOENT' });
+    },
+    SPAWN_TEST_MS,
+  );
+
+  it.each([
+    ['stdio', async () => ['stdio']],
+    ['http', async () => ['http', String(await freeLoopbackPort()), '127.0.0.1']],
+  ] as const)(
+    'should send exactly one request and record the marker when the %s server starts',
+    async (_transport, argv) => {
+      const collector = await startCollector();
+      const started = await startMailoo(await argv(), collector.url, ENTRY_CONFIG);
+      await withinMs(collector.first, COLLECTOR_WAIT_MS, 'the install count');
+      await vi.waitFor(async () => stat(markerPath(started)), {
+        timeout: MARKER_WAIT_MS,
+        interval: 50,
+      });
+      expect(collector.received).toHaveLength(1);
+    },
+    SPAWN_TEST_MS,
+  );
+
+  it(
+    'should not count an http start whose port is already taken',
+    async () => {
+      const collector = await startCollector();
+      const port = await occupyLoopbackPort();
+      const started = await startMailoo(
+        ['http', String(port), '127.0.0.1'],
+        collector.url,
+        ENTRY_CONFIG,
+      );
+      const code = await withinMs(started.exited, SERVER_START_MS, 'the failed start to exit');
+      expect(code).not.toBe(0);
+      expect(collector.received).toHaveLength(0);
+      await expect(stat(markerPath(started))).rejects.toMatchObject({ code: 'ENOENT' });
+    },
+    SPAWN_TEST_MS,
+  );
+
+  it(
+    'should not count an unknown command',
+    async () => {
+      const collector = await startCollector();
+      const started = await startMailoo(['definitely-not-a-verb'], collector.url, ENTRY_CONFIG);
+      const code = await withinMs(started.exited, SERVER_START_MS, 'the command exit');
       expect(code).not.toBe(0);
       expect(collector.received).toHaveLength(0);
       await expect(stat(markerPath(started))).rejects.toMatchObject({ code: 'ENOENT' });

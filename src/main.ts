@@ -220,6 +220,7 @@ async function runServer(): Promise<void> {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
   process.on('SIGHUP', shutdown);
+  // Last, so a start that fails anywhere above sends nothing.
   await noteInstall(PKG_VERSION);
 }
 
@@ -259,6 +260,7 @@ async function runHttpServer(policy: ReturnType<typeof readHttpLaunchOptions>): 
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  // Last, so a start that fails anywhere above (a taken port) sends nothing.
   await noteInstall(PKG_VERSION);
 }
 
