@@ -1,6 +1,14 @@
 /** The runner's CI and VITEST variables are not the operator's env. */
 
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import fsPromises, {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,7 +17,12 @@ import type {
   InstallCountRequest,
   InstallCountResult,
 } from './install-count.js';
-import { ON_VALUES, recordInstall } from './install-count.js';
+import {
+  INSTALL_COUNT_CLAIM_STALE_MS,
+  INSTALL_COUNT_TIMEOUT_MS,
+  ON_VALUES,
+  recordInstall,
+} from './install-count.js';
 
 const VERSION = '9.9.9';
 const NODE_MAJOR = 24;
@@ -17,6 +30,9 @@ const COLLECTOR = 'https://collector.example/install';
 
 /** The words README and SECURITY.md give as turning the count off, and as CI values that do not skip it. */
 const NEGATIVE_WORDS = ['0', 'false', 'no', 'off'];
+
+/** Real time allowed for the lock release that follows an abort. A hang fails the claim instead of waiting out the suite timeout. */
+const SETTLE_BOUND_MS = 1_000;
 
 const roots: string[] = [];
 
@@ -407,13 +423,171 @@ describe('install count', () => {
     await vi.advanceTimersByTimeAsync(2_999);
     expect(settled).toBeUndefined();
     await vi.advanceTimersByTimeAsync(1);
-    // setImmediate is not faked: it lets the abort settle before the result is read.
-    await new Promise((resolve) => {
-      setImmediate(resolve);
-    });
+    // Neither setImmediate nor Date is faked. Releasing the lock takes real file I/O after the abort,
+    // so the result is read once it settles or after this real-time bound, never by advancing the fake clock.
+    const readyBy = Date.now() + SETTLE_BOUND_MS;
+    while (settled === undefined && Date.now() < readyBy) {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => {
+        setImmediate(resolve);
+      });
+    }
     expect(settled).toEqual({ sent: false, reason: 'refused' });
     await pending;
     await expect(stat(join(dir, 'install-count'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  describe('claim on the state directory', () => {
+    const FOREIGN_TOKEN = 'token-of-another-process';
+
+    function lockOf(dir: string): string {
+      return join(dir, 'install-count.lock');
+    }
+
+    async function foreignLock(dir: string, ageMs: number): Promise<void> {
+      await mkdir(dir, { recursive: true });
+      await writeFile(lockOf(dir), FOREIGN_TOKEN);
+      const then = new Date(Date.now() - ageMs);
+      await utimes(lockOf(dir), then, then);
+    }
+
+    it('should send once and answer already to a start that overlaps the first', async () => {
+      const dir = await stateDir();
+      let requests = 0;
+      let inFlight!: () => void;
+      const firstIsPosting = new Promise<void>((resolve) => {
+        inFlight = resolve;
+      });
+      let answer!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      const holdingFetch: InstallCountFetch = async () => {
+        requests += 1;
+        inFlight();
+        await gate;
+        return { status: 204, body: null };
+      };
+      const first = count(dir, opted(), holdingFetch);
+      await firstIsPosting;
+      const second = await count(dir, opted(), holdingFetch);
+      answer();
+      expect(await first).toEqual({ sent: true, reason: 'sent' });
+      expect(second).toEqual({ sent: false, reason: 'already' });
+      expect(requests).toBe(1);
+    });
+
+    it('should answer already and leave the lock alone when another process holds it', async () => {
+      const fetch = recording(204);
+      const dir = await stateDir();
+      await foreignLock(dir, 0);
+      const result = await count(dir, opted(), fetch.fetchImpl);
+      expect(result).toEqual({ sent: false, reason: 'already' });
+      expect(fetch.seen).toHaveLength(0);
+      expect(await readFile(lockOf(dir), 'utf8')).toBe(FOREIGN_TOKEN);
+      await expect(stat(join(dir, 'install-count'))).rejects.toMatchObject({ code: 'ENOENT' });
+    });
+
+    it('should not take a lock whose holder is still inside its fetch timeout', async () => {
+      const fetch = recording(204);
+      const dir = await stateDir();
+      // A live holder can be at the very end of its fetch timeout, plus the marker write.
+      await foreignLock(dir, INSTALL_COUNT_TIMEOUT_MS + 1_000);
+      const result = await count(dir, opted(), fetch.fetchImpl);
+      expect(result).toEqual({ sent: false, reason: 'already' });
+      expect(fetch.seen).toHaveLength(0);
+    });
+
+    it('should send when the lock is older than the stale window', async () => {
+      const fetch = recording(204);
+      const dir = await stateDir();
+      await foreignLock(dir, INSTALL_COUNT_CLAIM_STALE_MS + 1_000);
+      const result = await count(dir, opted(), fetch.fetchImpl);
+      expect(result).toEqual({ sent: true, reason: 'sent' });
+      expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1\n');
+    });
+
+    it('should send once when another start finishes between its marker read and its claim', async () => {
+      const dir = await stateDir();
+      const markerFile = join(dir, 'install-count');
+      const fetch = recording(204);
+      let other: Promise<InstallCountResult> | undefined;
+      // The only way to force this interleaving: run the other start right after the first marker read.
+      const realRead = fsPromises.readFile.bind(fsPromises);
+      const runOther = async (path: unknown): Promise<void> => {
+        if (path !== markerFile || other !== undefined) return;
+        other = count(dir, opted(), fetch.fetchImpl);
+        await other;
+      };
+      vi.spyOn(fsPromises, 'readFile').mockImplementation(async (...args) => {
+        try {
+          const result = await realRead(...args);
+          await runOther(args[0]);
+          return result;
+        } catch (err) {
+          await runOther(args[0]);
+          throw err;
+        }
+      });
+      const first = await count(dir, opted(), fetch.fetchImpl);
+      const second = await other;
+      expect([first, second].filter((result) => result?.sent)).toHaveLength(1);
+      expect(fetch.seen).toHaveLength(1);
+    });
+
+    it('should leave no lock after a recorded install', async () => {
+      const { dir } = await firstSend();
+      await expect(stat(lockOf(dir))).rejects.toMatchObject({ code: 'ENOENT' });
+    });
+
+    it.each([
+      ['a refusing collector', async () => recording(500).fetchImpl, false],
+      [
+        'a fetch that throws',
+        async () => {
+          const throwing: InstallCountFetch = async () => {
+            throw new Error('connect ECONNREFUSED');
+          };
+          return throwing;
+        },
+        false,
+      ],
+      ['an unreadable marker', async () => recording(204).fetchImpl, true],
+    ] as const)('should leave no lock after %s', async (_label, build, markerIsDir) => {
+      const dir = await stateDir();
+      if (markerIsDir) await mkdir(join(dir, 'install-count'), { recursive: true });
+      await count(dir, opted(), await build());
+      await expect(stat(lockOf(dir))).rejects.toMatchObject({ code: 'ENOENT' });
+    });
+
+    it.each([
+      ['a refusing collector', 500],
+      ['a fetch that throws', 'throw'],
+    ] as const)('should send on the next start after %s', async (_label, first) => {
+      const dir = await stateDir();
+      const failing: InstallCountFetch =
+        first === 'throw'
+          ? async () => {
+              throw new Error('connect ECONNREFUSED');
+            }
+          : recording(first).fetchImpl;
+      await count(dir, opted(), failing);
+      const next = recording(204);
+      expect(await count(dir, opted(), next.fetchImpl)).toEqual({ sent: true, reason: 'sent' });
+      expect(next.seen).toHaveLength(1);
+    });
+
+    it('should record the install when the lock cannot be released afterwards', async () => {
+      const dir = await stateDir();
+      // A directory in place of the lock makes the release read fail with EISDIR.
+      const swapLock: InstallCountFetch = async () => {
+        await rm(lockOf(dir));
+        await mkdir(lockOf(dir));
+        return { status: 204, body: null };
+      };
+      expect(await count(dir, opted(), swapLock)).toEqual({ sent: true, reason: 'sent' });
+      expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1\n');
+    });
   });
 
   it('should not send again after that generation is recorded', async () => {

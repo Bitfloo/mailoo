@@ -13,7 +13,7 @@ import path from 'node:path';
 
 import { xdg } from '../config/xdg.js';
 import { PRIVATE_FILE_MODE } from '../utils/atomic-write.js';
-import { errnoCode } from '../utils/file-claim.js';
+import { acquireClaim, errnoCode, releaseClaim } from '../utils/file-claim.js';
 import { isLoopbackHost } from '../utils/loopback.js';
 
 export const INSTALL_COUNT_PRODUCT = 'mailoo';
@@ -25,6 +25,13 @@ export const INSTALL_COUNT_GENERATION = 1;
  * refusal is retried on the next server start, not in a loop.
  */
 export const INSTALL_COUNT_TIMEOUT_MS = 3_000;
+
+/**
+ * A holder's work is the fetch, bounded by the timeout above, plus one marker
+ * write. Only a crashed holder's lock outlives that, so the window is a
+ * multiple of the timeout and a live holder is never taken over.
+ */
+export const INSTALL_COUNT_CLAIM_STALE_MS = INSTALL_COUNT_TIMEOUT_MS * 4;
 
 /** Above this, the number is not a Node major. Refuse it instead of sending a stray integer. */
 const MAX_NODE_MAJOR = 99;
@@ -155,7 +162,6 @@ async function readMarker(file: string): Promise<'absent' | 'current' | 'other' 
 }
 
 async function writeMarker(file: string): Promise<void> {
-  await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.writeFile(file, `${INSTALL_COUNT_GENERATION}\n`, {
     encoding: 'utf8',
     mode: PRIVATE_FILE_MODE,
@@ -194,25 +200,36 @@ export async function recordInstall(input: RecordInstallInput): Promise<InstallC
     if (payload === undefined) return notSent('rejected');
 
     const file = markerFile(input.stateDir);
-    const marker = await readMarker(file);
-    if (marker === 'current') return notSent('already');
-    if (marker === 'unreadable') return notSent('refused');
+    const lock = `${file}.lock`;
+    // The exclusive create fails with ENOENT in a state dir that does not exist yet.
+    await fs.mkdir(input.stateDir, { recursive: true });
+    const token = await acquireClaim(lock, INSTALL_COUNT_CLAIM_STALE_MS);
+    if (token === undefined) return notSent('already');
+    try {
+      // Read under the claim: a start that read before it could post a second time.
+      const marker = await readMarker(file);
+      if (marker === 'current') return notSent('already');
+      if (marker === 'unreadable') return notSent('refused');
 
-    const fetchImpl = input.fetchImpl ?? liveFetch;
-    const response = await fetchImpl(url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'user-agent': USER_AGENT,
-      },
-      body: JSON.stringify(payload),
-      redirect: 'manual',
-      credentials: 'omit',
-      signal: AbortSignal.timeout(INSTALL_COUNT_TIMEOUT_MS),
-    });
-    await response.body?.cancel().catch(() => undefined);
-    if (!accepted(response.status)) return notSent('refused');
-    await writeMarker(file);
+      const fetchImpl = input.fetchImpl ?? liveFetch;
+      const response = await fetchImpl(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'user-agent': USER_AGENT,
+        },
+        body: JSON.stringify(payload),
+        redirect: 'manual',
+        credentials: 'omit',
+        signal: AbortSignal.timeout(INSTALL_COUNT_TIMEOUT_MS),
+      });
+      await response.body?.cancel().catch(() => undefined);
+      if (!accepted(response.status)) return notSent('refused');
+      await writeMarker(file);
+    } finally {
+      // A failed release must not turn a recorded install into a refusal; the stale window clears the lock.
+      await releaseClaim(lock, token).catch(() => undefined);
+    }
     return { sent: true, reason: 'sent' };
   } catch {
     // Fetch and filesystem errors quote paths and URLs, and a throw would fail server startup.

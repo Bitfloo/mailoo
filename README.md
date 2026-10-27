@@ -832,7 +832,7 @@ Request headers are `content-type: application/json` and `user-agent: mailoo`. T
 
 The body never includes an email address, account name, password, token, mail-server hostname, message id, folder name, or anything taken from a message. It also never includes a machine id, an operating-system username, a home directory, a working directory, or an IP address.
 
-A response in the 200 range writes `$XDG_STATE_HOME/mailoo/install-count` (mode `0600`) containing the digit `1` and nothing else. Any other outcome leaves that file unwritten, so a later server start sends one request again. Each start sends at most one request. Delete the file to allow this state directory to count again.
+A response in the 200 range writes `$XDG_STATE_HOME/mailoo/install-count` (mode `0600`) containing the digit `1` and nothing else. Any other outcome leaves that file unwritten, so a later server start sends one request again. Each start sends at most one request, and two servers that start at once send one request between them. Delete the file to allow this state directory to count again.
 
 ### Processes
 
@@ -858,7 +858,7 @@ Paths follow the XDG defaults in `src/config/xdg.ts` unless `XDG_CONFIG_HOME`, `
 | `$XDG_STATE_HOME/mailoo/scheduled/` and `scheduled/sent/` | Scheduled-send JSON records (mode `0600`), replaced through a temp file and rename | `src/services/scheduler.service.ts` |
 | `$XDG_DATA_HOME/mailoo/calendar-attachments/` | Attachment files saved for a calendar event | `src/services/imap.service.ts` |
 | `$XDG_STATE_HOME/mailoo/mailbox-writers.lock` | Which `stdio` server runs hooks, the watcher and the scheduler. The holder refreshes it and deletes it on shutdown; timings in [configuration](docs/configuration.md#one-mailbox-writer-per-machine) | `src/safety/writer-lease.ts` |
-| `$XDG_STATE_HOME/mailoo/install-count` (mode `0600`) | The digit `1` after one accepted install count. No identity. Absent until a count succeeds | `src/services/install-count.ts` |
+| `$XDG_STATE_HOME/mailoo/install-count` (mode `0600`) and `.lock` | The digit `1` after one accepted install count. No identity. Absent until a count succeeds. The `.lock` holds a random token, no identity, while a start is counting; a later start takes over one left by a crashed start | `src/services/install-count.ts` |
 | `$XDG_STATE_HOME/mailoo/calendar-processed.json` (mode `0600`) and `.lock` | Which messages already had an automatic event added, found, or declined in the dialog, with each email's subject, replaced through a temp file and rename. A failed or timed-out add is not recorded, so the email stays eligible. A damaged file stops automatic calendar processing, and makes `analyze_email_for_scheduling` report an error, instead of starting over | `src/utils/calendar-state.ts` |
 | `savePath` under the working directory | `download_attachment` or `export_email` when that argument is set | `src/tools/attachments.tool.ts`, `src/tools/export.tool.ts` |
 | OS temp directory, `mailoo-event-*.ics` | Linux calendar file passed to `xdg-open` | `src/services/local-calendar.service.ts` |
