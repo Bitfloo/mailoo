@@ -155,7 +155,7 @@ docker build -t ghcr.io/bitfloo/mailoo .
 > **Note:** The server uses stdio transport. Config is created on the host
 > (`npx -y @bitfloo/mailoo account add`, or a hand-written TOML) and mounted into the container.
 
-Installing or starting Mailoo does not send a usage report. An install count stays off until `MAILOO_INSTALL_COUNTER` is `1`, `true`, `on`, or `yes` and `MAILOO_INSTALL_COUNTER_URL` is set. The POST body is only `product`, `version`, `event` (`install`), and `node_major`. Unset, `0`, `false`, `off`, or `no` keeps it off. Full rules: [Install count](#install-count).
+Installing or starting Mailoo does not send a usage report. An install count stays off until `MAILOO_INSTALL_COUNTER` is `1`, `true`, `on`, or `yes` (any letter case, surrounding spaces ignored) and `MAILOO_INSTALL_COUNTER_URL` is set. The POST body is only `product`, `version`, `event` (`install`), and `node_major`. Unset, `0`, `false`, `no`, or `off` keeps it off. Full rules: [Install count](#install-count).
 
 ## Usage
 
@@ -806,10 +806,10 @@ Outbound calls, child processes, files, and environment variables below are what
 
 The count is off. Nothing is sent at `npm install`, at `account add`, or when the server starts, until both of the following are set:
 
-- `MAILOO_INSTALL_COUNTER` is `1`, `true`, `on`, or `yes`
+- `MAILOO_INSTALL_COUNTER` is `1`, `true`, `on`, or `yes` (any letter case, surrounding spaces ignored)
 - `MAILOO_INSTALL_COUNTER_URL` is the collector URL
 
-`0`, `false`, `off`, `no`, or an unset `MAILOO_INSTALL_COUNTER` keeps the count off. An opted-in server with an empty URL does not call out. There is no built-in collector address.
+`0`, `false`, `no`, `off`, or an unset `MAILOO_INSTALL_COUNTER` keeps the count off. An opted-in server with a blank URL does not call out. There is no built-in collector address.
 
 Bitfloo runs a collector at `https://mailoo.bitfloo.com/install`. It keeps one count per UTC day, Mailoo version, and Node.js major, stores no IP address, and shows the total on [mailoo.bitfloo.com](https://mailoo.bitfloo.com). To be counted there:
 
@@ -828,7 +828,7 @@ The body is a JSON object with exactly these fields:
 | `event` | `install` |
 | `node_major` | the Node.js major version, one integer |
 
-Request headers are `content-type: application/json` and `user-agent: mailoo`. The request does not follow redirects. `http` is refused except for `localhost`, an address in `127.0.0.0/8`, or `::1`. Any other URL must be `https`. A URL with a username or password is refused.
+Request headers are `content-type: application/json` and `user-agent: mailoo`. The request does not follow redirects. `http` is refused except for `localhost`, `127.0.0.0/8`, or `::1`. Any other URL must be `https`. A URL with a username or password is refused.
 
 The body never includes an email address, account name, password, token, mail-server hostname, message id, folder name, or anything taken from a message. It also never includes a machine id, an operating-system username, a home directory, a working directory, or an IP address.
 
@@ -888,7 +888,7 @@ Single-account setup reads `MCP_EMAIL_*` (`src/config/loader.ts`). HTTP listens 
 | `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL` | System One credential and optional API root. The SDK reads `TYPESAFE_BASE_URL` |
 | `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `APPDATA` | Override the directories above. `APPDATA` is the Windows Claude config directory used by `mailoo install` |
 | `MCP_EMAIL_HTTP_HOST`, `MCP_EMAIL_HTTP_TOKEN`, `MCP_EMAIL_HTTP_ALLOWED_HOSTS` | HTTP listen policy |
-| `MAILOO_INSTALL_COUNTER` | Install count switch. Unset is off. `1`, `true`, `on`, or `yes` opts in. `0`, `false`, `off`, or `no` forces it off. See [Install count](#install-count) |
+| `MAILOO_INSTALL_COUNTER` | Install count switch. Unset is off. `1`, `true`, `on`, or `yes` opts in (any letter case, surrounding spaces ignored). `0`, `false`, `no`, or `off` forces it off. See [Install count](#install-count) |
 | `MAILOO_INSTALL_COUNTER_URL` | Collector URL for that count. Unset means no request, even when the switch is on |
 
 ## API

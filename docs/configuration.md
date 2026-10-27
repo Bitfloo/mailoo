@@ -245,5 +245,5 @@ These supplement the table in the README (single-account env overlay).
 | `MCP_EMAIL_SIEVE_HOST` | IMAP host | ManageSieve hostname |
 | `MCP_EMAIL_SIEVE_PORT` | `4190` | ManageSieve port |
 | `MCP_EMAIL_ALERT_WEBHOOK_ALLOW_PRIVATE` | `false` | Allow webhook targets on a LAN, VPN, or tailnet |
-| `MAILOO_INSTALL_COUNTER` | unset (off) | `1`, `true`, `on`, or `yes` opts in to the install count. `0`, `false`, `off`, `no`, or any other value keeps it off |
-| `MAILOO_INSTALL_COUNTER_URL` | unset | `https` URL that receives one install POST. Empty means no request. `http` only for `localhost`, `127.0.0.0/8`, or `::1`. See the README install count section |
+| `MAILOO_INSTALL_COUNTER` | unset (off) | `1`, `true`, `on`, or `yes` opts in to the install count (any letter case, surrounding spaces ignored). `0`, `false`, `no`, `off`, or any other value keeps it off |
+| `MAILOO_INSTALL_COUNTER_URL` | unset | `https` URL that receives one install POST. A blank value means no request. `http` only for `localhost`, `127.0.0.0/8`, or `::1`. See the README install count section |
