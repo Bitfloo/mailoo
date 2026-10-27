@@ -233,7 +233,7 @@ describe('install count', () => {
     expect(await count(dir, opted(), fetch.fetchImpl)).toEqual(expected);
   });
 
-  it('should not send again after that generation is recorded', async () => {
+  it('should not send again after the first start is recorded', async () => {
     const fetch = recording(204);
     const dir = await stateDir();
     const env = opted();
@@ -261,103 +261,28 @@ describe('install count', () => {
     expect(fetch.seen[0]?.init.redirect).toBe('manual');
   });
 
-  it('should send again when the marker is an older generation', async () => {
-    const fetch = recording(204);
-    const dir = await stateDir();
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, 'install-count'), '0\n');
-    const result = await count(dir, opted(), fetch.fetchImpl);
-    expect(result).toEqual({ sent: true, reason: 'sent' });
-    expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1\n');
-  });
-
   it.each([
-    ['empty', ''],
-    ['unknown', 'garbage\n'],
-    ['unreleased-generation', '2\n'],
-  ])('should not send or claim over an %s marker', async (_label, contents) => {
-    // An empty marker is what another start's exclusive create shows before it writes.
+    ['an empty file', ''],
+    ['a file holding something else', 'garbage\n'],
+    ['a lower number', '0\n'],
+    ['a higher number', '2\n'],
+  ])('should not send when the marker is %s', async (_label, contents) => {
+    // An empty file is what another start's exclusive create shows before it writes.
     const fetch = recording(204);
     const dir = await stateDir();
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, 'install-count'), contents);
-    const result = await count(dir, opted(), fetch.fetchImpl);
-    expect(result).toEqual({ sent: false, reason: 'already' });
-    expect(fetch.seen).toHaveLength(0);
-    expect(await fs.readdir(dir)).toEqual(['install-count']);
-  });
-
-  it('should leave the replaced older marker with mode 0600', async () => {
-    const fetch = recording(204);
-    const dir = await stateDir();
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, 'install-count'), '0\n');
-    await chmod(join(dir, 'install-count'), 0o644);
-    await count(dir, opted(), fetch.fetchImpl);
-    const info = await stat(join(dir, 'install-count'));
-    // eslint-disable-next-line no-bitwise
-    expect(info.mode & 0o777).toBe(0o600);
-  });
-
-  it('should send once when three servers start at the same time over an older marker', async () => {
-    const fetch = recording(204);
-    const dir = await stateDir();
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, 'install-count'), '0\n');
-    const env = opted();
-    const results = await Promise.all([
-      count(dir, env, fetch.fetchImpl),
-      count(dir, env, fetch.fetchImpl),
-      count(dir, env, fetch.fetchImpl),
-    ]);
-    expect(fetch.seen).toHaveLength(1);
-    expect(results.map((r) => r.reason).sort()).toEqual(['already', 'already', 'sent']);
-    expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1\n');
-  });
-
-  it('should not send over an older marker when that generation was already claimed', async () => {
-    // A start that read the older marker before another start replaced it ends here.
-    const fetch = recording(204);
-    const dir = await stateDir();
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, 'install-count'), '0\n');
-    await writeFile(join(dir, 'install-count.1.claim'), '');
     expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({ sent: false, reason: 'already' });
     expect(fetch.seen).toHaveLength(0);
   });
 
-  it('should keep the generation claim so a start that read the older marker late does not send', async () => {
-    const fetch = recording(204);
+  it('should leave an existing marker as it is', async () => {
     const dir = await stateDir();
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, 'install-count'), '0\n');
-    const realReadFile = fs.readFile.bind(fs) as (
-      file: string,
-      encoding: 'utf8',
-    ) => Promise<string>;
-    let release: () => void = () => {};
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let readDone: () => void = () => {};
-    const lateRead = new Promise<void>((resolve) => {
-      readDone = resolve;
-    });
-    // The late start reads the older marker now but only acts on it after the other start
-    // has claimed, replaced the marker, and sent.
-    vi.spyOn(fs, 'readFile').mockImplementationOnce((async (file: string, encoding: 'utf8') => {
-      const text = await realReadFile(file, encoding);
-      readDone();
-      await gate;
-      return text;
-    }) as unknown as typeof fs.readFile);
-    const late = count(dir, opted(), fetch.fetchImpl);
-    await lateRead;
-    expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({ sent: true, reason: 'sent' });
-    release();
-    expect(await late).toEqual({ sent: false, reason: 'already' });
-    expect(fetch.seen).toHaveLength(1);
-    await expect(stat(join(dir, 'install-count.1.claim'))).resolves.toBeDefined();
+    await count(dir, opted(), recording(204).fetchImpl);
+    expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('0\n');
+    expect(await fs.readdir(dir)).toEqual(['install-count']);
   });
 
   it('should send again after the marker file is deleted', async () => {
@@ -477,14 +402,12 @@ describe('install count', () => {
     expect(fetch.seen).toHaveLength(0);
   });
 
-  it('should send nothing when the marker cannot be read', async () => {
+  it('should send nothing when a directory stands at the marker path', async () => {
     const fetch = recording(204);
     const dir = await stateDir();
     await mkdir(join(dir, 'install-count'), { recursive: true });
-    expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({ sent: false, reason: 'refused' });
+    expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({ sent: false, reason: 'already' });
     expect(fetch.seen).toHaveLength(0);
-    // Refused before any claim: nothing new appears next to the unreadable marker.
-    expect(await fs.readdir(dir)).toEqual(['install-count']);
   });
 
   it('should resolve as refused when the fetch throws', async () => {

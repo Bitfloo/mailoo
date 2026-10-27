@@ -13,7 +13,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { xdg } from '../config/xdg.js';
-import writeFileAtomic, { PRIVATE_FILE_MODE } from '../utils/atomic-write.js';
+import { PRIVATE_FILE_MODE } from '../utils/atomic-write.js';
 import { errnoCode } from '../utils/file-claim.js';
 import { isLoopbackHost } from '../utils/loopback.js';
 
@@ -147,49 +147,22 @@ function markerFile(stateDir: string): string {
   return path.join(stateDir, MARKER_NAME);
 }
 
-function claimFile(marker: string): string {
-  return `${marker}.${INSTALL_COUNT_GENERATION}.claim`;
-}
-
-type MarkerState = 'absent' | 'current' | 'older' | 'taken' | 'unreadable';
-
-/**
- * Only a well-formed older generation may be replaced. An empty file is what
- * another start's exclusive create shows before it writes, so it, and anything
- * else that is not a known generation, counts as taken (fail-closed).
- */
-async function readMarker(file: string): Promise<MarkerState> {
-  try {
-    const text = (await fs.readFile(file, 'utf8')).trim();
-    if (text === String(INSTALL_COUNT_GENERATION)) return 'current';
-    if (/^\d+$/.test(text) && Number(text) < INSTALL_COUNT_GENERATION) return 'older';
-    return 'taken';
-  } catch (err) {
-    if (errnoCode(err) === 'ENOENT') return 'absent';
-    return 'unreadable';
-  }
-}
-
 /**
  * Exclusive create (`wx`) before the request: of several servers starting on
  * one state directory only one sends, and a directory that cannot be written
- * sends nothing instead of counting every start.
+ * sends nothing instead of counting every start. Anything already at the path,
+ * whatever it holds (an empty file is another start mid-write), means already
+ * counted. No released version wrote this file and the generation has never
+ * changed, so there is nothing older to replace.
  */
-async function claimMarker(
-  file: string,
-  marker: 'absent' | 'older',
-): Promise<'claimed' | 'taken' | 'failed'> {
-  const contents = `${INSTALL_COUNT_GENERATION}\n`;
+async function claimMarker(file: string): Promise<'claimed' | 'taken' | 'failed'> {
   try {
     await fs.mkdir(path.dirname(file), { recursive: true });
-    if (marker === 'absent') {
-      await fs.writeFile(file, contents, { encoding: 'utf8', mode: PRIVATE_FILE_MODE, flag: 'wx' });
-      return 'claimed';
-    }
-    // Deleting the old marker before an exclusive create would let a late start delete a
-    // fresh claim and send too. The claim for a new generation is its own file, which stays.
-    await fs.writeFile(claimFile(file), '', { mode: PRIVATE_FILE_MODE, flag: 'wx' });
-    await writeFileAtomic(file, contents);
+    await fs.writeFile(file, `${INSTALL_COUNT_GENERATION}\n`, {
+      encoding: 'utf8',
+      mode: PRIVATE_FILE_MODE,
+      flag: 'wx',
+    });
     return 'claimed';
   } catch (err) {
     return errnoCode(err) === 'EEXIST' ? 'taken' : 'failed';
@@ -227,12 +200,8 @@ export async function recordInstall(input: RecordInstallInput): Promise<InstallC
     const payload = installCountPayload(input.version, input.nodeMajor);
     if (payload === undefined) return notSent('rejected');
 
-    const file = markerFile(input.stateDir);
-    const marker = await readMarker(file);
-    if (marker === 'current' || marker === 'taken') return notSent('already');
-    if (marker === 'unreadable') return notSent('refused');
     // The claim stays when the request fails: a count may be lost, never repeated.
-    const claim = await claimMarker(file, marker);
+    const claim = await claimMarker(markerFile(input.stateDir));
     if (claim === 'taken') return notSent('already');
     if (claim === 'failed') return notSent('refused');
 
