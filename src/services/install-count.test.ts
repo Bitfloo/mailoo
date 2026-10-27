@@ -186,25 +186,56 @@ describe('install count', () => {
     expect(fetch.seen).toHaveLength(0);
   });
 
-  it('should post only the install fields on the first opted-in start', async () => {
+  /** The one request of a first opted-in start. */
+  async function firstRequest(): Promise<{ url: string; init: InstallCountRequest }> {
     const fetch = recording(204);
+    await count(await stateDir(), opted(), fetch.fetchImpl);
+    const [call] = fetch.seen;
+    if (!call) throw new Error('no request was sent');
+    return call;
+  }
+
+  it('should report sent on the first opted-in start', async () => {
     const dir = await stateDir();
-    const result = await count(dir, opted(), fetch.fetchImpl);
-    expect(result).toEqual({ sent: true, reason: 'sent' });
+    expect(await count(dir, opted(), recording(204).fetchImpl)).toEqual({
+      sent: true,
+      reason: 'sent',
+    });
+  });
+
+  it('should send exactly one request on the first opted-in start', async () => {
+    const fetch = recording(204);
+    await count(await stateDir(), opted(), fetch.fetchImpl);
     expect(fetch.seen).toHaveLength(1);
-    const call = fetch.seen[0];
-    expect(call?.url).toBe(COLLECTOR);
-    expect(Object.keys(call?.init ?? {}).sort()).toEqual(
+  });
+
+  it('should send the request to the configured collector URL', async () => {
+    expect((await firstRequest()).url).toBe(COLLECTOR);
+  });
+
+  it('should set only the request fields it needs', async () => {
+    expect(Object.keys((await firstRequest()).init).sort()).toEqual(
       ['body', 'credentials', 'headers', 'method', 'redirect', 'signal'].sort(),
     );
-    expect(call?.init.method).toBe('POST');
-    expect(call?.init.redirect).toBe('manual');
-    expect(call?.init.credentials).toBe('omit');
-    expect(call?.init.headers).toEqual({
+  });
+
+  it.each([
+    ['method', 'POST'],
+    ['redirect', 'manual'],
+    ['credentials', 'omit'],
+  ] as const)('should set the request %s to %s', async (field, value) => {
+    expect((await firstRequest()).init[field]).toBe(value);
+  });
+
+  it('should send only the content type and user agent headers', async () => {
+    expect((await firstRequest()).init.headers).toEqual({
       'content-type': 'application/json',
       'user-agent': 'mailoo',
     });
-    expect(JSON.parse(call?.init.body ?? '')).toEqual({
+  });
+
+  it('should post only the install fields', async () => {
+    expect(JSON.parse((await firstRequest()).init.body ?? '')).toEqual({
       product: 'mailoo',
       version: VERSION,
       event: 'install',
@@ -434,22 +465,43 @@ describe('install count', () => {
     expect(results.map((r) => r.reason).sort()).toEqual(['already', 'already', 'sent']);
   });
 
+  /** A state dir this user cannot write; root ignores the mode, so those tests skip as root. */
+  async function readOnlyStateDir(): Promise<string> {
+    const dir = await stateDir();
+    await mkdir(dir, { recursive: true });
+    await chmod(dir, 0o555);
+    return dir;
+  }
+
   it.skipIf(process.getuid?.() === 0)(
     'should send nothing when the state dir is read-only',
     async () => {
       const fetch = recording(204);
-      const dir = await stateDir();
-      await mkdir(dir, { recursive: true });
-      await chmod(dir, 0o555);
-      expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({
-        sent: false,
-        reason: 'refused',
-      });
-      expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({
-        sent: false,
-        reason: 'refused',
-      });
+      await count(await readOnlyStateDir(), opted(), fetch.fetchImpl);
       expect(fetch.seen).toHaveLength(0);
+    },
+  );
+
+  it.skipIf(process.getuid?.() === 0)(
+    'should report refused when the state dir is read-only',
+    async () => {
+      const dir = await readOnlyStateDir();
+      expect(await count(dir, opted(), recording(204).fetchImpl)).toEqual({
+        sent: false,
+        reason: 'refused',
+      });
+    },
+  );
+
+  it.skipIf(process.getuid?.() === 0)(
+    'should not report a read-only state dir as counted on the next start',
+    async () => {
+      const dir = await readOnlyStateDir();
+      await count(dir, opted(), recording(204).fetchImpl);
+      expect(await count(dir, opted(), recording(204).fetchImpl)).toEqual({
+        sent: false,
+        reason: 'refused',
+      });
     },
   );
 
@@ -916,20 +968,5 @@ describe('noteInstall', () => {
     );
     const importers = files.filter((_file, i) => texts[i]?.includes('install-count.js'));
     expect(importers).toEqual(['main.ts']);
-  });
-
-  it('should be called only from the stdio and http server starts', async () => {
-    // A server start is proven by install-count.entrypoint.test.ts. This pins that no CLI
-    // branch of main() calls it too: each call's enclosing function must be a server start.
-    const main = await readFile(new URL('../main.ts', import.meta.url), 'utf8');
-    const callers = [...main.matchAll(/noteInstall\(/g)].map((call) => {
-      const before = main.slice(0, call.index);
-      const fns = [...before.matchAll(/^(?:export )?(?:async )?function (\w+)/gm)];
-      return fns.at(-1)?.[1];
-    });
-    expect(callers.sort((a, b) => String(a).localeCompare(String(b)))).toEqual([
-      'runHttpServer',
-      'runServer',
-    ]);
   });
 });

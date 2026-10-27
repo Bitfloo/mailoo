@@ -34,8 +34,6 @@ interface Collector {
   firstPost: Promise<void>;
   /** With `hold`, true while the first request waits for its answer. */
   pending: () => boolean;
-  /** With `hold`, true once a held request was closed by the client before release(). */
-  abandoned: () => boolean;
   release: () => void;
 }
 
@@ -47,7 +45,6 @@ async function collector(hold = false): Promise<Collector> {
     posted = resolve;
   });
   let waiting: http.ServerResponse | undefined;
-  let gaveUp = false;
   const server = http.createServer((req, res) => {
     let text = '';
     req.on('data', (chunk: Buffer) => {
@@ -58,7 +55,6 @@ async function collector(hold = false): Promise<Collector> {
       if (hold) {
         waiting = res;
         res.once('close', () => {
-          if (!res.writableEnded) gaveUp = true;
           waiting = undefined;
         });
       } else {
@@ -82,7 +78,6 @@ async function collector(hold = false): Promise<Collector> {
     bodies,
     firstPost,
     pending: () => waiting !== undefined,
-    abandoned: () => gaveUp,
     release: () => waiting?.writeHead(204).end(),
   };
 }
@@ -289,8 +284,7 @@ const CLI_COMMANDS: [string, string[]][] = [
 /**
  * Not run here: setup is an interactive wizard, test probes live mail servers, install and
  * scheduler change the OS, notify sends a desktop notification, config writes the user's
- * config. They are covered by the source check that only runServer and runHttpServer call
- * noteInstall.
+ * config. No test here shows that they do not count.
  */
 const CLI_NOT_RUN = ['setup', 'test', 'config', 'install', 'scheduler', 'notify'];
 
@@ -425,11 +419,11 @@ describe('install count from the entrypoint', () => {
   it(
     'should print the http listen line before the count waits for the collector',
     async () => {
-      // The count runs after the server is listening: a stalled collector cannot delay the announcement.
+      // The child's fetch ignores the count's abort (test-only preload) and nothing releases the
+      // request before the listen line, so a count before the listen line never prints it.
       const sink = await collector(true);
-      const child = await startHttpMailoo(sink.url);
+      const child = await startHttpMailoo(sink.url, [FETCH_WITHOUT_ABORT]);
       expect(child.exitCode).toBeNull();
-      expect(sink.abandoned()).toBe(false);
       await sink.firstPost;
       sink.release();
     },
