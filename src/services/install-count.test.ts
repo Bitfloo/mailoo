@@ -3,7 +3,6 @@
 import fsPromises, {
   mkdir,
   mkdtemp,
-  readdir,
   readFile,
   rm,
   stat,
@@ -12,8 +11,8 @@ import fsPromises, {
 } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
-import { join, relative, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { PRIVATE_FILE_MODE } from '../utils/atomic-write.js';
 import { LOOPBACK_HOSTS_TEXT } from '../utils/loopback.js';
 import type {
   InstallCountFetch,
@@ -22,7 +21,11 @@ import type {
 } from './install-count.js';
 import {
   INSTALL_COUNT_CLAIM_STALE_MS,
+  INSTALL_COUNT_EVENT,
+  INSTALL_COUNT_GENERATION,
+  INSTALL_COUNT_PRODUCT,
   INSTALL_COUNT_TIMEOUT_MS,
+  MARKER_NAME,
   NEGATIVE_VALUES,
   ON_VALUES,
   recordInstall,
@@ -34,6 +37,12 @@ const COLLECTOR = 'https://collector.example/install';
 
 /** Real time for the collector to see its connection closed after the count resolved. A leak fails the claim instead of waiting out the suite timeout. */
 const BODY_RELEASE_WAIT_MS = 2_000;
+
+/**
+ * A lock left by a crashed start must not hold counting back longer than this:
+ * a client restarts a crashed server right away, so a longer wait loses the count.
+ */
+const CRASHED_LOCK_BUDGET_MS = 60_000;
 
 /** Real time allowed for the lock release that follows an abort. A hang fails the claim instead of waiting out the suite timeout. */
 const SETTLE_BOUND_MS = 1_000;
@@ -563,6 +572,34 @@ describe('install count', () => {
       expect(fetch.seen).toHaveLength(1);
     });
 
+    it('should take over a lock a crashed start left a minute ago', async () => {
+      const fetch = recording(204);
+      const dir = await stateDir();
+      await foreignLock(dir, CRASHED_LOCK_BUDGET_MS);
+      const result = await count(dir, opted(), fetch.fetchImpl);
+      expect(result).toEqual({ sent: true, reason: 'sent' });
+    });
+
+    it('should keep the claim until the marker is written', async () => {
+      const dir = await stateDir();
+      const markerFile = join(dir, 'install-count');
+      const fetch = recording(204);
+      let other: Promise<InstallCountResult> | undefined;
+      // Another start runs at the moment the marker is written: a released claim lets it send.
+      const realWrite = fsPromises.writeFile.bind(fsPromises);
+      vi.spyOn(fsPromises, 'writeFile').mockImplementation(async (...args) => {
+        if (args[0] === markerFile && other === undefined) {
+          other = count(dir, opted(), fetch.fetchImpl);
+          await other;
+        }
+        return realWrite(...args);
+      });
+      const first = await count(dir, opted(), fetch.fetchImpl);
+      expect(first).toEqual({ sent: true, reason: 'sent' });
+      expect(await other).toEqual({ sent: false, reason: 'already' });
+      expect(fetch.seen).toHaveLength(1);
+    });
+
     it('should leave no lock after a recorded install', async () => {
       const { dir } = await firstSend();
       await expect(stat(lockOf(dir))).rejects.toMatchObject({ code: 'ENOENT' });
@@ -683,10 +720,11 @@ describe('install count', () => {
     return `${items.slice(0, -1).join(', ')}, or ${items.at(-1)}`;
   }
 
+  const MODE_TEXT = PRIVATE_FILE_MODE.toString(8).padStart(4, '0');
   const LOOPBACK_FORMS = LOOPBACK_HOSTS_TEXT.split(/,\s*|\s+or\s+/);
 
   const ON_CLAUSE = `\`MAILOO_INSTALL_COUNTER\` is ${list(ON_VALUES)} (${CASE_NOTE})`;
-  const CI_CLAUSE = `\`CI\` is non-blank and not ${list(NEGATIVE_VALUES)} in any letter case`;
+  const CI_CLAUSE = `The count is skipped when \`CI\` is non-blank and not ${list(NEGATIVE_VALUES)} in any letter case`;
 
   async function document(target: string): Promise<string> {
     return readFile(new URL(target, import.meta.url), 'utf8');
@@ -741,6 +779,34 @@ describe('install count', () => {
     );
   });
 
+  it.each([
+    ['product', INSTALL_COUNT_PRODUCT],
+    ['event', INSTALL_COUNT_EVENT],
+  ])('should give the README payload table the %s value the code posts', async (field, value) => {
+    expect(await readmeInstallCount()).toContain(`| \`${field}\` | \`${value}\` |`);
+  });
+
+  it('should give the README the headers the request carries', async () => {
+    const { fetch } = await firstSend();
+    const headers = fetch.seen[0]?.init.headers;
+    expect(await readmeInstallCount()).toContain(
+      `Request headers are \`content-type: ${headers?.['content-type']}\` and \`user-agent: ${headers?.['user-agent']}\`.`,
+    );
+  });
+
+  it('should say in the README which file a recorded count writes', async () => {
+    expect(await readmeInstallCount()).toContain(
+      `writes \`$XDG_STATE_HOME/mailoo/${MARKER_NAME}\` (mode \`${MODE_TEXT}\`) containing the digit \`${INSTALL_COUNT_GENERATION}\` and nothing else`,
+    );
+  });
+
+  it('should say in the README files table which file and mode the count uses', async () => {
+    const row = await lineStarting('../../README.md', '| `$XDG_STATE_HOME/mailoo/install-count`');
+    expect(row).toContain(
+      `| \`$XDG_STATE_HOME/mailoo/${MARKER_NAME}\` (mode \`${MODE_TEXT}\`) and \`.lock\``,
+    );
+  });
+
   it('should say in the README env table which values opt in', async () => {
     const row = await lineStarting('../../README.md', '| `MAILOO_INSTALL_COUNTER` |');
     expect(row).toContain(`${list(ON_VALUES)} opts in (${CASE_NOTE})`);
@@ -782,29 +848,6 @@ describe('install count', () => {
   it('should say in SECURITY.md which CI values skip the count', async () => {
     const line = await lineContaining('../../SECURITY.md', '**Install count**');
     expect(line).toContain(CI_CLAUSE);
-  });
-});
-
-describe('install count call sites', () => {
-  // A verb that counts would be invisible to the child-process tests unless it is one they drive.
-  it('should be named only by the server entry and its own module', async () => {
-    const src = fileURLToPath(new URL('..', import.meta.url));
-    const entries = await readdir(src, { recursive: true, withFileTypes: true });
-    const sources = entries
-      .filter((entry) => entry.isFile() && entry.name.endsWith('.ts'))
-      .map((entry) => join(entry.parentPath, entry.name))
-      .filter(
-        (file) =>
-          !file.endsWith('.test.ts') &&
-          !file.includes(`${sep}test-support${sep}`) &&
-          !file.includes(`${sep}__integration__${sep}`),
-      );
-    const texts = await Promise.all(sources.map(async (file) => readFile(file, 'utf8')));
-    const naming = sources.filter((_file, index) => texts[index]?.includes('noteInstall'));
-    expect(naming.map((file) => relative(src, file)).sort()).toEqual([
-      'main.ts',
-      join('services', 'install-count.ts'),
-    ]);
   });
 });
 

@@ -36,10 +36,10 @@ export const INSTALL_COUNT_CLAIM_STALE_MS = INSTALL_COUNT_TIMEOUT_MS * 4;
 /** Above this, the number is not a Node major. Refuse it instead of sending a stray integer. */
 const MAX_NODE_MAJOR = 99;
 
-const MARKER_NAME = 'install-count';
+export const MARKER_NAME = 'install-count';
 const SWITCH_ENV = 'MAILOO_INSTALL_COUNTER';
 const URL_ENV = 'MAILOO_INSTALL_COUNTER_URL';
-const USER_AGENT = 'mailoo' as const;
+export const USER_AGENT = 'mailoo' as const;
 export const ON_VALUES = new Set(['1', 'true', 'on', 'yes']);
 
 /** The conventional negatives: they keep the switch off and do not mark a CI run. */

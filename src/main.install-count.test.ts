@@ -2,7 +2,7 @@
 
 import { readFile, stat } from 'node:fs/promises';
 import http from 'node:http';
-
+import { INSTALL_COUNT_TIMEOUT_MS } from './services/install-count.js';
 import {
   COLLECTOR_WAIT_MS,
   markerPath,
@@ -25,6 +25,60 @@ host = "imap.example.com"
 [accounts.smtp]
 host = "smtp.example.com"
 `;
+
+// The abandoned request closes at the fetch timeout; the slack covers a loaded runner and bounds a hang only.
+const SOCKET_CLOSE_SLACK_MS = 5_000;
+
+const INITIALIZE_REQUEST = JSON.stringify({
+  jsonrpc: '2.0',
+  id: 1,
+  method: 'initialize',
+  params: {
+    protocolVersion: '2025-03-26',
+    capabilities: {},
+    clientInfo: { name: 'install-count-test', version: '0.0.0' },
+  },
+});
+
+interface HungCollector {
+  url: string;
+  requested: Promise<void>;
+  closed: Promise<void>;
+}
+
+/** Takes the request and never answers, so only the client's abort ends it. Order is logged into `events`. */
+async function startHungCollector(events: string[]): Promise<HungCollector> {
+  let seen!: () => void;
+  const requested = new Promise<void>((resolve) => {
+    seen = resolve;
+  });
+  let gone!: () => void;
+  const closed = new Promise<void>((resolve) => {
+    gone = resolve;
+  });
+  const server = http.createServer((req) => {
+    req.resume();
+    req.socket.once('close', () => {
+      events.push('closed');
+      gone();
+    });
+    events.push('request');
+    seen();
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  onTestFinished(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
+  });
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  return { url: `http://127.0.0.1:${port}/install`, requested, closed };
+}
 
 // A TOML table header that never closes: the loader throws before any server exists.
 const INVALID_CONFIG = '[[accounts]\nname = "test"\n';
@@ -168,6 +222,35 @@ describe('install count at the server entry', () => {
         interval: 50,
       });
       expect(collector.received).toHaveLength(1);
+    },
+    SPAWN_TEST_MS,
+  );
+
+  it(
+    'should answer initialize before an unanswered count request is abandoned',
+    async () => {
+      const events: string[] = [];
+      const collector = await startHungCollector(events);
+      const started = await startMailoo(['stdio'], collector.url, ENTRY_CONFIG);
+      let heard = '';
+      const answered = new Promise<void>((resolve) => {
+        started.child.stdout?.on('data', (chunk: Buffer) => {
+          heard += chunk.toString('utf8');
+          if (heard.includes('"id":1') && !events.includes('response')) {
+            events.push('response');
+            resolve();
+          }
+        });
+      });
+      await withinMs(collector.requested, COLLECTOR_WAIT_MS, 'the install count request');
+      started.child.stdin?.write(`${INITIALIZE_REQUEST}\n`);
+      await withinMs(answered, SERVER_START_MS, 'the initialize response');
+      await withinMs(
+        collector.closed,
+        INSTALL_COUNT_TIMEOUT_MS + SOCKET_CLOSE_SLACK_MS,
+        'the abandoned request closing',
+      );
+      expect(events).toEqual(['request', 'response', 'closed']);
     },
     SPAWN_TEST_MS,
   );
