@@ -151,10 +151,19 @@ function claimFile(marker: string): string {
   return `${marker}.${INSTALL_COUNT_GENERATION}.claim`;
 }
 
-async function readMarker(file: string): Promise<'absent' | 'current' | 'other' | 'unreadable'> {
+type MarkerState = 'absent' | 'current' | 'older' | 'taken' | 'unreadable';
+
+/**
+ * Only a well-formed older generation may be replaced. An empty file is what
+ * another start's exclusive create shows before it writes, so it, and anything
+ * else that is not a known generation, counts as taken (fail-closed).
+ */
+async function readMarker(file: string): Promise<MarkerState> {
   try {
-    const text = await fs.readFile(file, 'utf8');
-    return text.trim() === String(INSTALL_COUNT_GENERATION) ? 'current' : 'other';
+    const text = (await fs.readFile(file, 'utf8')).trim();
+    if (text === String(INSTALL_COUNT_GENERATION)) return 'current';
+    if (/^\d+$/.test(text) && Number(text) < INSTALL_COUNT_GENERATION) return 'older';
+    return 'taken';
   } catch (err) {
     if (errnoCode(err) === 'ENOENT') return 'absent';
     return 'unreadable';
@@ -168,7 +177,7 @@ async function readMarker(file: string): Promise<'absent' | 'current' | 'other' 
  */
 async function claimMarker(
   file: string,
-  marker: 'absent' | 'other',
+  marker: 'absent' | 'older',
 ): Promise<'claimed' | 'taken' | 'failed'> {
   const contents = `${INSTALL_COUNT_GENERATION}\n`;
   try {
@@ -220,7 +229,7 @@ export async function recordInstall(input: RecordInstallInput): Promise<InstallC
 
     const file = markerFile(input.stateDir);
     const marker = await readMarker(file);
-    if (marker === 'current') return notSent('already');
+    if (marker === 'current' || marker === 'taken') return notSent('already');
     if (marker === 'unreadable') return notSent('refused');
     // The claim stays when the request fails: a count may be lost, never repeated.
     const claim = await claimMarker(file, marker);

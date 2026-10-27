@@ -254,6 +254,34 @@ describe('install count', () => {
     expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1\n');
   });
 
+  it.each([
+    ['empty', ''],
+    ['unknown', 'garbage\n'],
+    ['unreleased-generation', '2\n'],
+  ])('should not send or claim over an %s marker', async (_label, contents) => {
+    // An empty marker is what another start's exclusive create shows before it writes.
+    const fetch = recording(204);
+    const dir = await stateDir();
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'install-count'), contents);
+    const result = await count(dir, opted(), fetch.fetchImpl);
+    expect(result).toEqual({ sent: false, reason: 'already' });
+    expect(fetch.seen).toHaveLength(0);
+    expect(await fs.readdir(dir)).toEqual(['install-count']);
+  });
+
+  it('should leave the replaced older marker with mode 0600', async () => {
+    const fetch = recording(204);
+    const dir = await stateDir();
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'install-count'), '0\n');
+    await chmod(join(dir, 'install-count'), 0o644);
+    await count(dir, opted(), fetch.fetchImpl);
+    const info = await stat(join(dir, 'install-count'));
+    // eslint-disable-next-line no-bitwise
+    expect(info.mode & 0o777).toBe(0o600);
+  });
+
   it('should send once when three servers start at the same time over an older marker', async () => {
     const fetch = recording(204);
     const dir = await stateDir();
@@ -609,17 +637,16 @@ describe('noteInstall', () => {
     await expect(stat(stateHome)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('should post once to the process env URL and record it under XDG_STATE_HOME', async () => {
+  it('should post the install fields to the process env URL', async () => {
     const seen: { url: string; body: unknown }[] = [];
     vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
       seen.push({ url, body: JSON.parse(String(init.body)) });
       return new Response(null, { status: 204 });
     });
-    const { stateHome, noteInstall } = await serverStart({
+    const { noteInstall } = await serverStart({
       MAILOO_INSTALL_COUNTER: 'on',
       MAILOO_INSTALL_COUNTER_URL: COLLECTOR,
     });
-    await noteInstall(VERSION);
     await noteInstall(VERSION);
     expect(seen).toEqual([
       {
@@ -632,7 +659,28 @@ describe('noteInstall', () => {
         },
       },
     ]);
+  });
+
+  it('should record the start under XDG_STATE_HOME', async () => {
+    vi.stubGlobal('fetch', async () => new Response(null, { status: 204 }));
+    const { stateHome, noteInstall } = await serverStart({
+      MAILOO_INSTALL_COUNTER: 'on',
+      MAILOO_INSTALL_COUNTER_URL: COLLECTOR,
+    });
+    await noteInstall(VERSION);
     expect(await readFile(join(stateHome, 'mailoo', 'install-count'), 'utf8')).toBe('1\n');
+  });
+
+  it('should not post again on the next start', async () => {
+    const posted = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', posted);
+    const { noteInstall } = await serverStart({
+      MAILOO_INSTALL_COUNTER: 'on',
+      MAILOO_INSTALL_COUNTER_URL: COLLECTOR,
+    });
+    await noteInstall(VERSION);
+    await noteInstall(VERSION);
+    expect(posted).toHaveBeenCalledTimes(1);
   });
 
   it('should report the major of the running Node.js, not a fixed number', async () => {
@@ -654,28 +702,31 @@ describe('noteInstall', () => {
     expect(bodies).toEqual([expect.objectContaining({ node_major: 31 })]);
   });
 
-  it('should cancel a response body the collector keeps open', async () => {
-    // A collector that keeps the body open must not hold the socket.
-    let cancelled = false;
-    vi.stubGlobal(
-      'fetch',
-      async () =>
-        new Response(
-          new ReadableStream({
-            cancel() {
-              cancelled = true;
-            },
-          }),
-          { status: 200 },
-        ),
-    );
-    const { noteInstall } = await serverStart({
-      MAILOO_INSTALL_COUNTER: 'on',
-      MAILOO_INSTALL_COUNTER_URL: COLLECTOR,
-    });
-    await noteInstall(VERSION);
-    expect(cancelled).toBe(true);
-  });
+  it.each([200, 503])(
+    'should cancel a response body the collector keeps open with status %i',
+    async (status) => {
+      // A collector that keeps the body open must not hold the socket.
+      let cancelled = false;
+      vi.stubGlobal(
+        'fetch',
+        async () =>
+          new Response(
+            new ReadableStream({
+              cancel() {
+                cancelled = true;
+              },
+            }),
+            { status },
+          ),
+      );
+      const { noteInstall } = await serverStart({
+        MAILOO_INSTALL_COUNTER: 'on',
+        MAILOO_INSTALL_COUNTER_URL: COLLECTOR,
+      });
+      await noteInstall(VERSION);
+      expect(cancelled).toBe(true);
+    },
+  );
 
   it('should resolve when the real fetch rejects', async () => {
     vi.stubGlobal('fetch', async (url: string) => {

@@ -76,12 +76,16 @@ async function freePort(): Promise<number> {
   });
 }
 
-async function startMailoo(args: string[], counterUrl: string): Promise<ChildProcess> {
+async function startMailoo(
+  args: string[],
+  counterUrl: string,
+  config = CONFIG,
+): Promise<ChildProcess> {
   const root = await mkdtemp(path.join(os.tmpdir(), 'mailoo-install-entry-'));
   const configHome = path.join(root, 'config');
   await mkdir(path.join(configHome, 'mailoo'), { recursive: true });
   const configPath = path.join(configHome, 'mailoo', 'config.toml');
-  await writeFile(configPath, CONFIG);
+  await writeFile(configPath, config);
   await chmod(configPath, 0o600);
   const child = spawn(process.execPath, ['--import', 'tsx', 'src/main.ts', ...args], {
     cwd: fileURLToPath(new URL('../../', import.meta.url)),
@@ -167,6 +171,18 @@ describe('install count from the entrypoint', () => {
       const sink = await collector();
       const child = await startMailoo(args, sink.url);
       expect(await exitCode(child)).toBe(0);
+      expect(sink.bodies).toEqual([]);
+    },
+    ENTRYPOINT_TEST_MS,
+  );
+
+  it.each(['stdio', 'http'])(
+    'should not post when the %s server fails to load its config',
+    async (mode) => {
+      const sink = await collector();
+      const args = mode === 'http' ? ['http', String(await freePort()), '127.0.0.1'] : [mode];
+      const child = await startMailoo(args, sink.url, '[[accounts]\nname = ');
+      expect(await exitCode(child)).not.toBe(0);
       expect(sink.bodies).toEqual([]);
     },
     ENTRYPOINT_TEST_MS,
