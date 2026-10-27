@@ -95,7 +95,7 @@
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@typesafe-ai/sdk": "^0.7.0",
     "imapflow": "^2.5.8",
-    "node-ical": "^0.25.2",
+    "node-ical": "^0.27.3",
     "nodemailer": "^10.1.2",
     "smol-toml": "^1.9.1",
     "zod": "^4.6.7"
