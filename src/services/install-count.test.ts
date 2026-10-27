@@ -29,6 +29,7 @@ import {
   NEGATIVE_VALUES,
   ON_VALUES,
   recordInstall,
+  USER_AGENT,
 } from './install-count.js';
 
 const VERSION = '9.9.9';
@@ -246,7 +247,7 @@ describe('install count', () => {
     },
   );
 
-  it.each(['0.3.0', '1.2.3-rc.1', '1.2.3+sha.5'])(
+  it.each(['0.3.0', '0.10.0', '10.20.30', '1.2.3-rc.1', '1.2.3+sha.5'])(
     'should send package version %s as it is',
     async (version) => {
       const fetch = recording(204);
@@ -301,7 +302,7 @@ describe('install count', () => {
     const { fetch } = await firstSend();
     expect(fetch.seen[0]?.init.headers).toEqual({
       'content-type': 'application/json',
-      'user-agent': 'mailoo',
+      'user-agent': USER_AGENT,
     });
   });
 
@@ -707,8 +708,8 @@ describe('install count', () => {
   });
 
   // Each doc test binds one sentence to values the code owns, so a wrong value or an inverted verb fails.
-  // Claims with a code oracle (mode 0600, digit 1, headers, other commands do not send, redirects,
-  // userinfo) are pinned by the code tests, not here.
+  // Prose with no value in the code (other commands do not send, redirects, userinfo) is owned by the
+  // code tests, not here.
   const CASE_NOTE = 'any letter case, surrounding spaces ignored';
 
   function codes(values: Iterable<string>): string {
@@ -748,6 +749,48 @@ describe('install count', () => {
     expect(start).toBeGreaterThan(-1);
     return readme.slice(start, readme.indexOf('### Processes', start));
   }
+
+  async function sentFields(): Promise<string[]> {
+    const { fetch } = await firstSend();
+    return Object.keys(JSON.parse(fetch.seen[0]?.init.body ?? '{}'));
+  }
+
+  function fieldsClause(fields: string[]): string {
+    const items = fields.map((field) => {
+      if (field === 'event') return `\`event\` (\`${INSTALL_COUNT_EVENT}\`)`;
+      return `\`${field}\``;
+    });
+    return `${items.slice(0, -1).join(', ')}, and ${items.at(-1)}`;
+  }
+
+  it('should list in the README summary the fields the request posts', async () => {
+    const line = await lineContaining('../../README.md', 'An install count stays off');
+    expect(line).toContain(`The POST body is only ${fieldsClause(await sentFields())}.`);
+  });
+
+  it('should list in SECURITY.md the fields the request posts', async () => {
+    const line = await lineContaining('../../SECURITY.md', '**Install count**');
+    expect(line).toContain(`POSTs ${fieldsClause(await sentFields())} (`);
+  });
+
+  it('should list in the README payload table exactly the fields the request posts', async () => {
+    const lines = (await readmeInstallCount()).split('\n');
+    const header = lines.indexOf('| Field | Value |');
+    expect(header).toBeGreaterThan(-1);
+    const end = lines.findIndex((line, index) => index > header && !line.startsWith('|'));
+    const names = lines.slice(header + 2, end).map((row) => /^\| `([^`]+)` \|/.exec(row)?.[1]);
+    expect(names).toEqual(await sentFields());
+  });
+
+  it('should declare no npm install lifecycle script, so installing sends nothing', async () => {
+    const manifest = JSON.parse(await document('../../package.json')) as {
+      scripts: Record<string, string>;
+    };
+    const hooks = ['preinstall', 'install', 'postinstall'].filter(
+      (name) => name in manifest.scripts,
+    );
+    expect(hooks).toEqual([]);
+  });
 
   it('should say in the README summary which values opt in', async () => {
     const line = await lineContaining('../../README.md', 'An install count stays off');
@@ -804,6 +847,13 @@ describe('install count', () => {
     const row = await lineStarting('../../README.md', '| `$XDG_STATE_HOME/mailoo/install-count`');
     expect(row).toContain(
       `| \`$XDG_STATE_HOME/mailoo/${MARKER_NAME}\` (mode \`${MODE_TEXT}\`) and \`.lock\``,
+    );
+  });
+
+  it('should say in the README files table what the marker holds', async () => {
+    const row = await lineStarting('../../README.md', '| `$XDG_STATE_HOME/mailoo/install-count`');
+    expect(row).toContain(
+      `| The digit \`${INSTALL_COUNT_GENERATION}\` after one accepted install count.`,
     );
   });
 
