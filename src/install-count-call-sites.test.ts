@@ -1,7 +1,8 @@
 /**
  * Where the install count may run. The child-process tests drive the paths a
  * start can reach; these read the source, so a call placed on a path they do
- * not drive (a CLI verb, a branch, an early line) still fails.
+ * not drive (a CLI verb, a branch, an early line) still fails, including one made
+ * through an alias or through recordInstall.
  */
 
 import { readdir, readFile } from 'node:fs/promises';
@@ -43,16 +44,21 @@ function functionNamed(source: ts.SourceFile, name: string): ts.FunctionDeclarat
   );
 }
 
+interface ModuleLoad {
+  node: ts.Node;
+  specifier: string;
+}
+
 /** Modules a source file imports, re-exports or loads dynamically by a literal specifier. */
-function moduleSpecifiers(source: ts.SourceFile): string[] {
-  const found: string[] = [];
+function moduleLoads(source: ts.SourceFile): ModuleLoad[] {
+  const found: ModuleLoad[] = [];
   walk(source, (node) => {
     if (
       (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
       node.moduleSpecifier !== undefined &&
       ts.isStringLiteral(node.moduleSpecifier)
     ) {
-      found.push(node.moduleSpecifier.text);
+      found.push({ node, specifier: node.moduleSpecifier.text });
     }
     if (
       ts.isCallExpression(node) &&
@@ -60,10 +66,17 @@ function moduleSpecifiers(source: ts.SourceFile): string[] {
       node.arguments[0] !== undefined &&
       ts.isStringLiteral(node.arguments[0])
     ) {
-      found.push(node.arguments[0].text);
+      found.push({ node, specifier: node.arguments[0].text });
     }
   });
   return found;
+}
+
+function loadsInstallCount(file: string, specifier: string): boolean {
+  return (
+    specifier.startsWith('.') &&
+    path.resolve(path.dirname(file), specifier.replace(/\.js$/, '.ts')) === INSTALL_COUNT_MODULE
+  );
 }
 
 async function productionSources(): Promise<string[]> {
@@ -108,15 +121,34 @@ describe('install count call sites', () => {
     await Promise.all(
       (await productionSources()).map(async (file) => {
         const source = parse(file, await readFile(file, 'utf8'));
-        const loadsIt = moduleSpecifiers(source).some(
-          (specifier) =>
-            specifier.startsWith('.') &&
-            path.resolve(path.dirname(file), specifier.replace(/\.js$/, '.ts')) ===
-              INSTALL_COUNT_MODULE,
+        const loadsIt = moduleLoads(source).some(({ specifier }) =>
+          loadsInstallCount(file, specifier),
         );
         if (loadsIt) importers.push(path.relative(SRC, file));
       }),
     );
     expect(importers).toEqual(['main.ts']);
+  });
+
+  it('should bind only noteInstall, under its own name, from the install count module', async () => {
+    const loads = moduleLoads(await mainSource())
+      .filter(({ specifier }) => loadsInstallCount(MAIN, specifier))
+      .map(({ node }) => {
+        const shown = ts.isImportDeclaration(node) ? node.importClause : node;
+        return shown?.getText().replace(/\s+/g, ' ');
+      });
+    expect(loads).toEqual(['{ noteInstall }']);
+  });
+
+  it('should use noteInstall in the server entry only as the function a call invokes', async () => {
+    const source = await mainSource();
+    const stray: number[] = [];
+    walk(source, (node) => {
+      if (!ts.isIdentifier(node) || node.text !== 'noteInstall') return;
+      if (ts.isImportSpecifier(node.parent)) return;
+      if (ts.isCallExpression(node.parent) && node.parent.expression === node) return;
+      stray.push(source.getLineAndCharacterOfPosition(node.getStart()).line + 1);
+    });
+    expect(stray).toEqual([]);
   });
 });

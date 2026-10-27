@@ -157,6 +157,17 @@ describe('install count', () => {
     },
   );
 
+  it('should answer automation, not disabled, when CI is set and the switch is off', async () => {
+    const fetch = recording(204);
+    const dir = await stateDir();
+    const result = await count(
+      dir,
+      { CI: 'true', MAILOO_INSTALL_COUNTER: '0', MAILOO_INSTALL_COUNTER_URL: COLLECTOR },
+      fetch.fetchImpl,
+    );
+    expect(result).toEqual({ sent: false, reason: 'automation' });
+  });
+
   it('should not send when CI names a provider and not a boolean', async () => {
     const fetch = recording(204);
     const dir = await stateDir();
@@ -202,6 +213,20 @@ describe('install count', () => {
   });
 
   it.each([
+    ['no endpoint', { MAILOO_INSTALL_COUNTER: '1' }, VERSION],
+    ['a refused URL', opted({ MAILOO_INSTALL_COUNTER_URL: 'http://collector.example/i' }), VERSION],
+    ['a refused version', opted(), 'v1.2.3'],
+  ] as const)(
+    'should not create the state directory when %s stops the request',
+    async (_label, env, version) => {
+      const fetch = recording(204);
+      const dir = await stateDir();
+      await count(dir, env, fetch.fetchImpl, version);
+      await expect(stat(dir)).rejects.toMatchObject({ code: 'ENOENT' });
+    },
+  );
+
+  it.each([
     'http://collector.example/install',
     'https://user:secret@collector.example/install',
     'https://user@collector.example/install',
@@ -236,18 +261,24 @@ describe('install count', () => {
     },
   );
 
-  it.each(['user@example.com', '0.2', '1.2.3 /home/u', 'v1.2.3', '1.2.3-', '1.2.3\n'])(
-    'should not send when version is %j',
-    async (version) => {
-      const fetch = recording(204);
-      const dir = await stateDir();
-      const result = await count(dir, opted(), fetch.fetchImpl, version);
-      expect(result).toEqual({ sent: false, reason: 'rejected' });
-      expect(fetch.seen).toHaveLength(0);
-    },
-  );
+  it.each([
+    'user@example.com',
+    '0.2',
+    '1.2.3 /home/u',
+    '1.2.3-/home/u',
+    '1.2.3+user@example.test',
+    'v1.2.3',
+    '1.2.3-',
+    '1.2.3\n',
+  ])('should not send when version is %j', async (version) => {
+    const fetch = recording(204);
+    const dir = await stateDir();
+    const result = await count(dir, opted(), fetch.fetchImpl, version);
+    expect(result).toEqual({ sent: false, reason: 'rejected' });
+    expect(fetch.seen).toHaveLength(0);
+  });
 
-  it.each(['0.3.0', '0.10.0', '10.20.30', '1.2.3-rc.1', '1.2.3+sha.5'])(
+  it.each(['0.3.0', '0.10.0', '10.20.30', '1.2.3-rc.1', '1.2.3-rc-1', '1.2.3+sha.5'])(
     'should send package version %s as it is',
     async (version) => {
       const fetch = recording(204);
@@ -402,11 +433,11 @@ describe('install count', () => {
     await expect(stat(join(dir, 'install-count'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('should release the response body after the answer', async () => {
+  it.each([204, 503])('should release the response body after a %s answer', async (status) => {
     const dir = await stateDir();
     let released = false;
     const fetchImpl: InstallCountFetch = async () => ({
-      status: 204,
+      status,
       body: {
         cancel: async () => {
           released = true;
@@ -782,7 +813,7 @@ describe('install count', () => {
     expect(names).toEqual(await sentFields());
   });
 
-  it('should declare no npm install lifecycle script, so installing sends nothing', async () => {
+  it('should declare no script npm runs when the package is installed from the registry', async () => {
     const manifest = JSON.parse(await document('../../package.json')) as {
       scripts: Record<string, string>;
     };
@@ -1053,36 +1084,39 @@ describe('install count through the process environment and the global fetch', (
     return { url: `http://127.0.0.1:${port}/install`, hits };
   }
 
-  it('should close the connection to a collector that keeps its response body open', async () => {
-    let closed = false;
-    const server = http.createServer((_req, res) => {
-      res.writeHead(200, { 'content-type': 'text/plain' });
-      res.write('partial');
-      res.on('close', () => {
-        closed = true;
+  it.each([200, 503])(
+    'should close the connection to a collector that answers %s and keeps its body open',
+    async (status) => {
+      let closed = false;
+      const server = http.createServer((_req, res) => {
+        res.writeHead(status, { 'content-type': 'text/plain' });
+        res.write('partial');
+        res.on('close', () => {
+          closed = true;
+        });
       });
-    });
-    await new Promise<void>((resolve, reject) => {
-      server.once('error', reject);
-      server.listen(0, '127.0.0.1', resolve);
-    });
-    onTestFinished(async () => {
-      server.closeAllConnections();
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', resolve);
       });
-    });
-    const address = server.address();
-    const port = typeof address === 'object' && address ? address.port : 0;
-    const bound = await processBound(undefined, {
-      MAILOO_INSTALL_COUNTER_URL: `http://127.0.0.1:${port}/install`,
-    });
-    await bound.noteInstall(VERSION);
-    await vi.waitFor(() => expect(closed).toBe(true), {
-      timeout: BODY_RELEASE_WAIT_MS,
-      interval: 20,
-    });
-  });
+      onTestFinished(async () => {
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => {
+          server.close(() => resolve());
+        });
+      });
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      const bound = await processBound(undefined, {
+        MAILOO_INSTALL_COUNTER_URL: `http://127.0.0.1:${port}/install`,
+      });
+      await bound.noteInstall(VERSION);
+      await vi.waitFor(() => expect(closed).toBe(true), {
+        timeout: BODY_RELEASE_WAIT_MS,
+        interval: 20,
+      });
+    },
+  );
 
   it('should not follow a redirect to a second server through the real fetch', async () => {
     const second = await loopback(204);
