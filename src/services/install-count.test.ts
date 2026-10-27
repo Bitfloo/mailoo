@@ -207,13 +207,30 @@ describe('install count', () => {
   });
 
   it('should write the marker with mode 0600', async () => {
-    const fetch = recording(204);
+    // Under umask 077 a 0644 create also lands at 0600, so the umask is pinned to the common 022.
+    const previous = process.umask(0o022);
+    try {
+      const fetch = recording(204);
+      const dir = await stateDir();
+      await count(dir, opted(), fetch.fetchImpl);
+      const info = await stat(join(dir, 'install-count'));
+      // Permission bits only; the high bits are the file type.
+      // eslint-disable-next-line no-bitwise
+      expect(info.mode & 0o777).toBe(0o600);
+    } finally {
+      process.umask(previous);
+    }
+  });
+
+  it.each([
+    [199, { sent: false, reason: 'refused' }],
+    [200, { sent: true, reason: 'sent' }],
+    [299, { sent: true, reason: 'sent' }],
+    [300, { sent: false, reason: 'refused' }],
+  ])('should report a collector status %i as %j', async (status, expected) => {
+    const fetch = recording(status);
     const dir = await stateDir();
-    await count(dir, opted(), fetch.fetchImpl);
-    const info = await stat(join(dir, 'install-count'));
-    // Permission bits only; the high bits are the file type.
-    // eslint-disable-next-line no-bitwise
-    expect(info.mode & 0o777).toBe(0o600);
+    expect(await count(dir, opted(), fetch.fetchImpl)).toEqual(expected);
   });
 
   it('should not send again after that generation is recorded', async () => {
@@ -681,6 +698,20 @@ describe('noteInstall', () => {
     await noteInstall(VERSION);
     await noteInstall(VERSION);
     expect(posted).toHaveBeenCalledTimes(1);
+  });
+
+  it('should hand the real fetch no redirect following and no credentials', async () => {
+    const seen: RequestInit[] = [];
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      seen.push(init);
+      return new Response(null, { status: 204 });
+    });
+    const { noteInstall } = await serverStart({
+      MAILOO_INSTALL_COUNTER: 'on',
+      MAILOO_INSTALL_COUNTER_URL: COLLECTOR,
+    });
+    await noteInstall(VERSION);
+    expect(seen).toEqual([expect.objectContaining({ redirect: 'manual', credentials: 'omit' })]);
   });
 
   it('should report the major of the running Node.js, not a fixed number', async () => {
