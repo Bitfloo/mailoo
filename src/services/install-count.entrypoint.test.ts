@@ -6,7 +6,7 @@
 
 import type { ChildProcess } from 'node:child_process';
 import { spawn } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -32,14 +32,22 @@ interface Collector {
   url: string;
   bodies: unknown[];
   firstPost: Promise<void>;
+  /** With `hold`, true while the first request waits for its answer. */
+  pending: () => boolean;
+  /** With `hold`, true once a held request was closed by the client before release(). */
+  abandoned: () => boolean;
+  release: () => void;
 }
 
-async function collector(): Promise<Collector> {
+/** With `hold`, the first request gets no answer until release(), so a test can act while it waits. */
+async function collector(hold = false): Promise<Collector> {
   const bodies: unknown[] = [];
   let posted: () => void = () => {};
   const firstPost = new Promise<void>((resolve) => {
     posted = resolve;
   });
+  let waiting: http.ServerResponse | undefined;
+  let gaveUp = false;
   const server = http.createServer((req, res) => {
     let text = '';
     req.on('data', (chunk: Buffer) => {
@@ -47,7 +55,15 @@ async function collector(): Promise<Collector> {
     });
     req.on('end', () => {
       bodies.push({ method: req.method, path: req.url, body: JSON.parse(text) as unknown });
-      res.writeHead(204).end();
+      if (hold) {
+        waiting = res;
+        res.once('close', () => {
+          if (!res.writableEnded) gaveUp = true;
+          waiting = undefined;
+        });
+      } else {
+        res.writeHead(204).end();
+      }
       posted();
     });
   });
@@ -61,7 +77,14 @@ async function collector(): Promise<Collector> {
   });
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
-  return { url: `http://127.0.0.1:${port}/install`, bodies, firstPost };
+  return {
+    url: `http://127.0.0.1:${port}/install`,
+    bodies,
+    firstPost,
+    pending: () => waiting !== undefined,
+    abandoned: () => gaveUp,
+    release: () => waiting?.writeHead(204).end(),
+  };
 }
 
 async function freePort(): Promise<number> {
@@ -76,11 +99,13 @@ async function freePort(): Promise<number> {
   });
 }
 
-async function startMailoo(
-  args: string[],
-  counterUrl: string,
-  config = CONFIG,
-): Promise<ChildProcess> {
+interface Started {
+  child: ChildProcess;
+  /** Where this start's install-count marker would be. */
+  marker: string;
+}
+
+async function startMailoo(args: string[], counterUrl: string, config = CONFIG): Promise<Started> {
   const root = await mkdtemp(path.join(os.tmpdir(), 'mailoo-install-entry-'));
   const configHome = path.join(root, 'config');
   await mkdir(path.join(configHome, 'mailoo'), { recursive: true });
@@ -111,7 +136,7 @@ async function startMailoo(
     }
     await rm(root, { recursive: true, force: true });
   });
-  return child;
+  return { child, marker: path.join(root, 'state', 'mailoo', 'install-count') };
 }
 
 /**
@@ -121,7 +146,7 @@ async function startMailoo(
  */
 async function startHttpMailoo(counterUrl: string, attemptsLeft = 3): Promise<ChildProcess> {
   const port = await freePort();
-  const child = await startMailoo(['http', String(port), '127.0.0.1'], counterUrl);
+  const { child } = await startMailoo(['http', String(port), '127.0.0.1'], counterUrl);
   let stderr = '';
   const outcome = await new Promise<'listening' | 'exited'>((resolve) => {
     child.stderr?.on('data', (chunk: Buffer) => {
@@ -162,7 +187,7 @@ describe('install count from the entrypoint', () => {
     'should post once when the opted-in stdio server starts',
     async () => {
       const sink = await collector();
-      const child = await startMailoo(['stdio'], sink.url);
+      const { child } = await startMailoo(['stdio'], sink.url);
       await sink.firstPost;
       expect(child.exitCode).toBeNull();
       child.stdin?.end();
@@ -188,7 +213,7 @@ describe('install count from the entrypoint', () => {
     'should not post from the %j command when opted in',
     async (args) => {
       const sink = await collector();
-      const child = await startMailoo(args, sink.url);
+      const { child } = await startMailoo(args, sink.url);
       expect(await exitCode(child)).toBe(0);
       expect(sink.bodies).toEqual([]);
     },
@@ -200,9 +225,97 @@ describe('install count from the entrypoint', () => {
     async (mode) => {
       const sink = await collector();
       const args = mode === 'http' ? ['http', String(await freePort()), '127.0.0.1'] : [mode];
-      const child = await startMailoo(args, sink.url, '[[accounts]\nname = ');
+      const { child } = await startMailoo(args, sink.url, '[[accounts]\nname = ');
       expect(await exitCode(child)).not.toBe(0);
       expect(sink.bodies).toEqual([]);
+    },
+    ENTRYPOINT_TEST_MS,
+  );
+
+  it(
+    'should not post or claim when the http server cannot bind its port',
+    async () => {
+      // A start that never serves must not use up the one count of its state directory.
+      const sink = await collector();
+      const holder = http.createServer();
+      await new Promise<void>((resolve) => {
+        holder.listen(0, '127.0.0.1', resolve);
+      });
+      onTestFinished(async () => {
+        await new Promise<void>((resolve) => {
+          holder.close(() => resolve());
+        });
+      });
+      const address = holder.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      const { child, marker } = await startMailoo(['http', String(port), '127.0.0.1'], sink.url);
+      let stderr = '';
+      child.stderr?.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString('utf8');
+      });
+      expect(await exitCode(child)).not.toBe(0);
+      expect(stderr).toContain('EADDRINUSE');
+      expect(sink.bodies).toEqual([]);
+      await expect(stat(marker)).rejects.toMatchObject({ code: 'ENOENT' });
+    },
+    ENTRYPOINT_TEST_MS,
+  );
+
+  it(
+    'should answer on stdio while the count is still waiting for the collector',
+    async () => {
+      // The count runs after the transport is connected: a stalled collector cannot delay the server.
+      const sink = await collector(true);
+      const { child } = await startMailoo(['stdio'], sink.url);
+      let stdout = '';
+      const answered = new Promise<boolean>((resolve) => {
+        child.stdout?.on('data', (chunk: Buffer) => {
+          stdout += chunk.toString('utf8');
+          if (stdout.includes('"id":1')) resolve(sink.pending());
+        });
+        child.once('exit', () => resolve(false));
+      });
+      await sink.firstPost;
+      child.stdin?.write(
+        `${JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: {
+            protocolVersion: '2025-06-18',
+            capabilities: {},
+            clientInfo: { name: 'install-count-test', version: '0.0.0' },
+          },
+        })}\n`,
+      );
+      expect(await answered).toBe(true);
+      sink.release();
+      child.stdin?.end();
+      await exitCode(child);
+    },
+    ENTRYPOINT_TEST_MS,
+  );
+
+  it(
+    'should print the http listen line before the count waits for the collector',
+    async () => {
+      // The count runs after the server is listening: a stalled collector cannot delay the announcement.
+      const sink = await collector(true);
+      const { child } = await startMailoo(
+        ['http', String(await freePort()), '127.0.0.1'],
+        sink.url,
+      );
+      const listened = await new Promise<boolean>((resolve) => {
+        let text = '';
+        child.stderr?.on('data', (chunk: Buffer) => {
+          text += chunk.toString('utf8');
+          if (text.includes('listening on')) resolve(!sink.abandoned());
+        });
+        child.once('exit', () => resolve(false));
+      });
+      expect(listened).toBe(true);
+      await sink.firstPost;
+      sink.release();
     },
     ENTRYPOINT_TEST_MS,
   );

@@ -218,7 +218,8 @@ describe('install count', () => {
     expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1\n');
   });
 
-  it.each([
+  // A start with a bad setting must not use up the one count of this state dir.
+  const refusedSettings = [
     ['the endpoint is unset', { MAILOO_INSTALL_COUNTER: '1' }, VERSION, NODE_MAJOR, 'no-endpoint'],
     [
       'the endpoint is blank',
@@ -250,19 +251,29 @@ describe('install count', () => {
     ],
     ['the version is not a package version', opted(), 'user@example.com', NODE_MAJOR, 'rejected'],
     ['the node major is out of range', opted(), VERSION, 100, 'rejected'],
-  ] as const)(
-    'should leave no marker when %s, so a corrected start still counts',
+  ] as const;
+
+  it.each(refusedSettings)(
+    'should leave no marker when %s',
     async (_label, env, version, nodeMajor, reason) => {
-      // A start with a bad setting must not use up the one count of this state dir.
       const fetch = recording(204);
       const dir = await stateDir();
       expect(await count(dir, env, fetch.fetchImpl, version, nodeMajor)).toEqual({
         sent: false,
         reason,
       });
+      expect(fetch.seen).toHaveLength(0);
       await expect(stat(join(dir, 'install-count'))).rejects.toMatchObject({ code: 'ENOENT' });
+    },
+  );
+
+  it.each(refusedSettings)(
+    'should still count a corrected start after %s',
+    async (_label, env, version, nodeMajor) => {
+      const fetch = recording(204);
+      const dir = await stateDir();
+      await count(dir, env, fetch.fetchImpl, version, nodeMajor);
       expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({ sent: true, reason: 'sent' });
-      expect(fetch.seen).toHaveLength(1);
     },
   );
 
@@ -560,6 +571,43 @@ describe('install count', () => {
 
   it('should keep the exported timeout at the documented bound', () => {
     expect(INSTALL_COUNT_TIMEOUT_MS).toBe(DOCUMENTED_TIMEOUT_MS);
+  });
+
+  it.each([
+    ['a 503', async () => ({ status: 503, body: null })],
+    [
+      'a fetch that throws',
+      async () => {
+        throw new Error('socket hang up');
+      },
+    ],
+  ] as [string, InstallCountFetch][])(
+    'should leave no timer behind after %s',
+    async (_label, fetchImpl) => {
+      vi.useFakeTimers();
+      const dir = await stateDir();
+      expect(await count(dir, opted(), fetchImpl)).toEqual({ sent: false, reason: 'refused' });
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it('should leave no timer behind after a request that timed out', async () => {
+    vi.useFakeTimers();
+    const dir = await stateDir();
+    let reached: () => void = () => {};
+    const inFetch = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const hanging: InstallCountFetch = async (_url, init) =>
+      new Promise((_resolve, reject) => {
+        reached();
+        init.signal.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+    const pending = count(dir, opted(), hanging);
+    await inFetch;
+    await vi.advanceTimersByTimeAsync(DOCUMENTED_TIMEOUT_MS);
+    expect(await pending).toEqual({ sent: false, reason: 'refused' });
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('should leave no timer behind after a fast response', async () => {
