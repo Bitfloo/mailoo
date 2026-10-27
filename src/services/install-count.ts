@@ -215,7 +215,8 @@ export async function recordInstall(input: RecordInstallInput): Promise<InstallC
     await writeMarker(file);
     return { sent: true, reason: 'sent' };
   } catch {
-    // Fetch and filesystem errors quote paths and URLs. Callers only see the reason.
+    // Fetch and filesystem errors quote paths and URLs, and a throw would fail server startup.
+    // Callers only see the reason.
     return notSent('refused');
   }
 }
@@ -225,14 +226,10 @@ export async function recordInstall(input: RecordInstallInput): Promise<InstallC
  * not call this. A collector failure must not fail startup.
  */
 export async function noteInstall(version: string): Promise<void> {
-  try {
-    await recordInstall({
-      version,
-      nodeMajor: Number.parseInt(process.versions.node, 10),
-      env: process.env,
-      stateDir: xdg.state,
-    });
-  } catch {
-    // A thrown fetch error quotes the URL and would fail server startup.
-  }
+  await recordInstall({
+    version,
+    nodeMajor: Number.parseInt(process.versions.node, 10),
+    env: process.env,
+    stateDir: xdg.state,
+  });
 }
