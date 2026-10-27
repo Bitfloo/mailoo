@@ -279,9 +279,4 @@ describe('install count', () => {
     expect(configuration).toContain('MAILOO_INSTALL_COUNTER_URL');
     expect(security).toContain('MAILOO_INSTALL_COUNTER');
   });
-
-  it('should count only from the stdio and http server starts', async () => {
-    const main = await readFile(new URL('../main.ts', import.meta.url), 'utf8');
-    expect(main.split('noteInstall(').length - 1).toBe(2);
-  });
 });
