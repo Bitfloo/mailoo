@@ -109,13 +109,16 @@ describe('install count', () => {
     },
   );
 
-  it('should send when CI is false and the counter is on', async () => {
-    const fetch = recording(204);
-    const dir = await stateDir();
-    const result = await count(dir, opted({ CI: 'false' }), fetch.fetchImpl);
-    expect(result).toEqual({ sent: true, reason: 'sent' });
-    expect(fetch.seen).toHaveLength(1);
-  });
+  it.each(['false', 'FALSE', '0', 'no', ' Off '])(
+    'should send when CI is %j and the counter is on',
+    async (ci) => {
+      const fetch = recording(204);
+      const dir = await stateDir();
+      const result = await count(dir, opted({ CI: ci }), fetch.fetchImpl);
+      expect(result).toEqual({ sent: true, reason: 'sent' });
+      expect(fetch.seen).toHaveLength(1);
+    },
+  );
 
   it.each([
     ['VITEST', { VITEST: 'true' }],
@@ -143,6 +146,7 @@ describe('install count', () => {
   it.each([
     'http://collector.example/install',
     'https://user:secret@collector.example/install',
+    'https://:secret@collector.example/install',
     'ftp://collector.example/install',
   ])('should not send to %s', async (url) => {
     const fetch = recording(204);
@@ -163,13 +167,16 @@ describe('install count', () => {
     },
   );
 
-  it.each(['user@example.com', '0.2'])('should not send when version is %s', async (version) => {
-    const fetch = recording(204);
-    const dir = await stateDir();
-    const result = await count(dir, opted(), fetch.fetchImpl, version);
-    expect(result).toEqual({ sent: false, reason: 'rejected' });
-    expect(fetch.seen).toHaveLength(0);
-  });
+  it.each(['user@example.com', '0.2', 'dist/1.2.3', '1.2.3 build'])(
+    'should not send when version is %s',
+    async (version) => {
+      const fetch = recording(204);
+      const dir = await stateDir();
+      const result = await count(dir, opted(), fetch.fetchImpl, version);
+      expect(result).toEqual({ sent: false, reason: 'rejected' });
+      expect(fetch.seen).toHaveLength(0);
+    },
+  );
 
   it.each([24.5, 100, -1])('should not send when node major is %s', async (nodeMajor) => {
     const fetch = recording(204);
@@ -203,8 +210,61 @@ describe('install count', () => {
       event: 'install',
       node_major: NODE_MAJOR,
     });
+  });
+
+  it('should write the generation to the marker on the first send', async () => {
+    const dir = await stateDir();
+    await count(dir, opted(), recording(204).fetchImpl);
     expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1\n');
   });
+
+  it.each([
+    ['the endpoint is unset', { MAILOO_INSTALL_COUNTER: '1' }, VERSION, NODE_MAJOR, 'no-endpoint'],
+    [
+      'the endpoint is blank',
+      opted({ MAILOO_INSTALL_COUNTER_URL: '   ' }),
+      VERSION,
+      NODE_MAJOR,
+      'no-endpoint',
+    ],
+    [
+      'the URL has a query',
+      opted({ MAILOO_INSTALL_COUNTER_URL: `${COLLECTOR}?token=abc` }),
+      VERSION,
+      NODE_MAJOR,
+      'rejected',
+    ],
+    [
+      'the URL has a fragment',
+      opted({ MAILOO_INSTALL_COUNTER_URL: `${COLLECTOR}#part` }),
+      VERSION,
+      NODE_MAJOR,
+      'rejected',
+    ],
+    [
+      'the URL is cleartext to another host',
+      opted({ MAILOO_INSTALL_COUNTER_URL: 'http://collector.example/install' }),
+      VERSION,
+      NODE_MAJOR,
+      'rejected',
+    ],
+    ['the version is not a package version', opted(), 'user@example.com', NODE_MAJOR, 'rejected'],
+    ['the node major is out of range', opted(), VERSION, 100, 'rejected'],
+  ] as const)(
+    'should leave no marker when %s, so a corrected start still counts',
+    async (_label, env, version, nodeMajor, reason) => {
+      // A start with a bad setting must not use up the one count of this state dir.
+      const fetch = recording(204);
+      const dir = await stateDir();
+      expect(await count(dir, env, fetch.fetchImpl, version, nodeMajor)).toEqual({
+        sent: false,
+        reason,
+      });
+      await expect(stat(join(dir, 'install-count'))).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({ sent: true, reason: 'sent' });
+      expect(fetch.seen).toHaveLength(1);
+    },
+  );
 
   it('should write the marker with mode 0600', async () => {
     // Under umask 077 a 0644 create also lands at 0600, so the umask is pinned to the common 022.
@@ -400,6 +460,18 @@ describe('install count', () => {
     const result = await count(join(dir, '..', 'blocker', 'state'), opted(), fetch.fetchImpl);
     expect(result).toEqual({ sent: false, reason: 'refused' });
     expect(fetch.seen).toHaveLength(0);
+  });
+
+  it('should send nothing when a file stands at the state dir path itself', async () => {
+    // mkdir reports EEXIST for a file at the directory path, so the label is 'already'
+    // although nothing was ever sent. Either way the request is not made.
+    const fetch = recording(204);
+    const dir = await stateDir();
+    await mkdir(join(dir, '..'), { recursive: true });
+    await writeFile(dir, '');
+    expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({ sent: false, reason: 'already' });
+    expect(fetch.seen).toHaveLength(0);
+    expect(await readFile(dir, 'utf8')).toBe('');
   });
 
   it('should send nothing when a directory stands at the marker path', async () => {
@@ -734,6 +806,23 @@ describe('noteInstall', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(signal?.aborted).toBe(true);
     await expect(pending).resolves.toBeUndefined();
+  });
+
+  it('should report refused when the real fetch rejects', async () => {
+    // The server's own environment, so the runner guard does not answer first.
+    vi.stubEnv('VITEST', '');
+    vi.stubEnv('NODE_ENV', '');
+    vi.stubGlobal('fetch', async () => {
+      throw new TypeError('fetch failed');
+    });
+    const dir = await stateDir();
+    const result = await recordInstall({
+      version: VERSION,
+      nodeMajor: NODE_MAJOR,
+      env: opted(),
+      stateDir: dir,
+    });
+    expect(result).toEqual({ sent: false, reason: 'refused' });
   });
 
   it('should be imported by no source file except main.ts', async () => {

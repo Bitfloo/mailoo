@@ -115,22 +115,23 @@ async function startMailoo(
 }
 
 /**
- * The port from freePort() can be taken before the child binds it. A child that
- * exits before it prints its listen line is started again on a fresh port.
+ * The port from freePort() can be taken before the child binds it. Only a child
+ * that failed to bind (EADDRINUSE) is started again on a fresh port; any other
+ * exit before the listen line is returned as is, so the caller's assertions fail.
  */
 async function startHttpMailoo(counterUrl: string, attemptsLeft = 3): Promise<ChildProcess> {
   const port = await freePort();
   const child = await startMailoo(['http', String(port), '127.0.0.1'], counterUrl);
+  let stderr = '';
   const outcome = await new Promise<'listening' | 'exited'>((resolve) => {
-    let text = '';
     child.stderr?.on('data', (chunk: Buffer) => {
-      text += chunk.toString('utf8');
-      if (text.includes('listening on')) resolve('listening');
+      stderr += chunk.toString('utf8');
+      if (stderr.includes('listening on')) resolve('listening');
     });
     child.once('exit', () => resolve('exited'));
   });
-  const retry = outcome === 'exited' && attemptsLeft > 1;
-  return retry ? startHttpMailoo(counterUrl, attemptsLeft - 1) : child;
+  const portTaken = outcome === 'exited' && stderr.includes('EADDRINUSE');
+  return portTaken && attemptsLeft > 1 ? startHttpMailoo(counterUrl, attemptsLeft - 1) : child;
 }
 
 async function exitCode(child: ChildProcess): Promise<number | null> {
