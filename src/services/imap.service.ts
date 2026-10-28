@@ -151,12 +151,23 @@ export function decodedBase64Size(encodedSize: number): number {
   return Math.round((encodedSize * lineBytes) / lineOctets);
 }
 
+function attachmentMeta({
+  filename,
+  mimeType,
+  encodedSize,
+  encoding,
+}: AttachmentPart): AttachmentMeta {
+  // Quoted-printable keeps the reported size: unlike base64, its overhead depends on the content.
+  if (encoding !== 'base64') return { filename, mimeType, size: encodedSize };
+  return { filename, mimeType, size: decodedBase64Size(encodedSize), sizeIsEstimate: true };
+}
+
 function extractAttachments(bodyStructure: unknown): AttachmentMeta[] {
-  return listAttachmentParts(bodyStructure).map(({ filename, mimeType, encodedSize, encoding }) => {
-    // Quoted-printable keeps the reported size: unlike base64, its overhead depends on the content.
-    if (encoding !== 'base64') return { filename, mimeType, size: encodedSize };
-    return { filename, mimeType, size: decodedBase64Size(encodedSize), sizeIsEstimate: true };
-  });
+  return listAttachmentParts(bodyStructure).map(attachmentMeta);
+}
+
+function mebibytes(bytes: number): string {
+  return (bytes / (1024 * 1024)).toFixed(1);
 }
 
 /** A file name not yet used in this directory; compared without case for case-insensitive disks. */
@@ -1791,8 +1802,12 @@ export default class ImapService {
 
       // The encoded size, not the decoded estimate: the inline cap bounds the base64 response.
       if (attachment.encodedSize > maxSizeBytes) {
+        // Leads with the size get_email showed, so a "~3.7MB" file refused at 5MB reads as one story.
+        const shown = attachmentMeta(attachment);
+        const encoded = `${mebibytes(attachment.encodedSize)}MB encoded`;
+        const size = shown.sizeIsEstimate ? `~${mebibytes(shown.size)}MB (${encoded})` : encoded;
         throw new Error(
-          `Attachment "${filename}" is ${Math.round(attachment.encodedSize / 1024 / 1024)}MB encoded, exceeds ${Math.round(maxSizeBytes / 1024 / 1024)}MB limit`,
+          `Attachment "${filename}" is ${size}, exceeds ${Math.round(maxSizeBytes / 1024 / 1024)}MB limit`,
         );
       }
 
@@ -1883,7 +1898,7 @@ export default class ImapService {
    * Download and save all non-ICS attachments from an email to a local directory.
    * Returns metadata including the saved file paths and file:// URLs.
    *
-   * Attachments larger than maxSizeBytes are skipped.
+   * Attachments whose encoded size exceeds maxSizeBytes are skipped.
    */
   async saveEmailAttachments(
     accountName: string,

@@ -277,27 +277,31 @@ describe('ImapService', () => {
     // to switch to the decoded estimate, 5 MiB + 1 encoded bytes would pass as about 3.7MB.
     it.each([
       [
-        '5 MiB + 1 byte',
-        5 * 1024 * 1024 + 1,
-        'Attachment "scan.pdf" is 5MB encoded, exceeds 5MB limit',
+        '5 MiB + 1 byte of base64',
+        { size: 5 * 1024 * 1024 + 1 },
+        'Attachment "scan.pdf" is ~3.7MB (5.0MB encoded), exceeds 5MB limit',
       ],
-      ['17 MiB', 17 * 1024 * 1024, 'Attachment "scan.pdf" is 17MB encoded, exceeds 5MB limit'],
-      // 5.38 MiB: round and floor say 5, ceil says 6.
       [
-        '5 MiB + 400000 bytes',
-        5 * 1024 * 1024 + 400_000,
-        'Attachment "scan.pdf" is 5MB encoded, exceeds 5MB limit',
+        '17 MiB of base64',
+        { size: 17 * 1024 * 1024 },
+        'Attachment "scan.pdf" is ~12.4MB (17.0MB encoded), exceeds 5MB limit',
       ],
-      // 5.57 MiB: round and ceil say 6, floor says 5.
+      // 5.38 MiB encoded: rounding says 5.4, truncation 5.3.
       [
-        '5 MiB + 600000 bytes',
-        5 * 1024 * 1024 + 600_000,
-        'Attachment "scan.pdf" is 6MB encoded, exceeds 5MB limit',
+        '5 MiB + 400000 bytes of base64',
+        { size: 5 * 1024 * 1024 + 400_000 },
+        'Attachment "scan.pdf" is ~3.9MB (5.4MB encoded), exceeds 5MB limit',
       ],
-    ])('should name the encoded size in the refusal of %s', async (_, size, message) => {
+      // get_email shows no estimate for a part that is not base64, so neither does the refusal.
+      [
+        '5 MiB + 600000 bytes of 7bit',
+        { size: 5 * 1024 * 1024 + 600_000, encoding: '7bit' },
+        'Attachment "scan.pdf" is 5.6MB encoded, exceeds 5MB limit',
+      ],
+    ])('should name the encoded size in the refusal of %s', async (_, overrides, message) => {
       fetchOneByUid(client, {
         uid: 9,
-        bodyStructure: mixedStructure(attachmentNode('2', 'scan.pdf', { size })),
+        bodyStructure: mixedStructure(attachmentNode('2', 'scan.pdf', overrides)),
       });
       downloadReturnsPartName(client);
 
