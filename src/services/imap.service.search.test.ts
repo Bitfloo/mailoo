@@ -370,8 +370,9 @@ describe('ImapService', () => {
     /**
      * UID FETCH BODY.PEEK[section]<start.maxLength> as a server answers it: those octets of each
      * message's section, or NIL, which imapflow hands over as false, for a section it lacks.
+     * A FETCH of a section in `refused` fails as a server's NO does.
      */
-    function serveSections(byUid: Record<number, Record<string, string>>) {
+    function serveSections(byUid: Record<number, Record<string, string>>, refused: string[] = []) {
       client.fetchAll.mockImplementation(
         async (
           range: string,
@@ -380,6 +381,7 @@ describe('ImapService', () => {
         ) => {
           requireUidRange('fetchAll', range, options);
           const [{ key, start, maxLength }] = query.bodyParts;
+          if (refused.includes(key)) throw new Error('Command failed');
           const end = maxLength === undefined ? undefined : start + maxLength;
           return range.split(',').map((uid) => {
             const text = byUid[Number(uid)]?.[key];
@@ -444,15 +446,16 @@ describe('ImapService', () => {
       expect(await previewsById()).toEqual({ 1: 'Only HTML here' });
     });
 
-    // A blank line is 2 octets: 1500 of them put the text at octet 3000, 2100 at octet 4200.
+    // A blank line is 2 octets: 2045 of them put the text at octet 4090, so six of its characters
+    // fit in 4096; 2100 put it at octet 4200.
     it.each([
-      [1500, 'Text'],
+      [2045, 'Text 1'],
       [2100, undefined],
     ])(
       'should read only the first 4096 octets of a part (text after %i blank lines → %s)',
       async (blankLines, preview) => {
         listPage(plainSinglePart);
-        serveSections({ 1: { TEXT: `${'\r\n'.repeat(blankLines)}Text` } });
+        serveSections({ 1: { TEXT: `${'\r\n'.repeat(blankLines)}Text 123456789` } });
 
         expect(await previewsById()).toEqual({ 1: preview });
       },
@@ -463,6 +466,14 @@ describe('ImapService', () => {
       serveSections({});
 
       expect(await previewsById()).toEqual({ 1: undefined });
+    });
+
+    it("should keep another section's previews when the server refuses one section", async () => {
+      // Message 1 is fetched by TEXT, message 2 by part 1.
+      listPage(plainSinglePart, alternative);
+      serveSections({ 2: { 1: BASE64_UTF8 } }, ['TEXT']);
+
+      expect(await previewsById()).toEqual({ 1: undefined, 2: POLISH });
     });
 
     it('should list a message without a preview when the preview FETCH fails', async () => {

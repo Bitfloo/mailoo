@@ -269,6 +269,11 @@ describe('decodePartPrefix', () => {
     );
   });
 
+  // RFC 2045 asks for uppercase hex, but some encoders write lowercase.
+  it('should decode a quoted-printable escape written in lowercase hex', () => {
+    expect(decodePartPrefix(Buffer.from('Za=c5=bc'), 'quoted-printable', 'utf-8')).toBe('Zaż');
+  });
+
   it.each([
     ['a bare =', 'Za=C5=BC='],
     ['= and one hex digit', 'Za=C5=BC=C'],
