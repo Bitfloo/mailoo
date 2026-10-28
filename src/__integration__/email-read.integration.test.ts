@@ -222,6 +222,7 @@ describe('Email Read Operations', () => {
     const QP_UTF8 = 'Za=C5=BC=C3=B3=C5=82=C4=87 g=C4=99=C5=9Bl=C4=85 ja=C5=BA=C5=84';
     const QP_ISO_8859_2 = 'Za=BF=F3=B3=E6 g=EA=B6l=B1 ja=BC=F1';
     const RELAYED = 'Pchnąć w tę łódź jeża';
+    const ALTERNATIVE = 'Źdźbło żyta w łódce';
     const QP_RELAYED = 'Pchn=C4=85=C4=87 w t=C4=99 =C5=82=C3=B3d=C5=BA je=C5=BCa';
     /** More than the 4096 octets a preview reads, in headers alone: no cut from the start of the message reaches the body. */
     const RELAYED_HEADER_OCTETS = 8192;
@@ -301,6 +302,26 @@ describe('Email Read Operations', () => {
           QP_ISO_8859_2,
         ),
         preview: POLISH,
+      },
+      {
+        subject: 'Preview multipart/alternative base64',
+        raw: rawMessage(
+          'Preview multipart/alternative base64',
+          ['Content-Type: multipart/alternative; boundary="b1"'],
+          [
+            '--b1',
+            'Content-Type: text/plain; charset="utf-8"',
+            'Content-Transfer-Encoding: base64',
+            '',
+            Buffer.from(ALTERNATIVE).toString('base64'),
+            '--b1',
+            'Content-Type: text/html; charset="utf-8"',
+            '',
+            '<p>HTML version</p>',
+            '--b1--',
+          ].join('\r\n'),
+        ),
+        preview: ALTERNATIVE,
       },
     ];
 
