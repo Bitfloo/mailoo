@@ -828,7 +828,7 @@ The body is a JSON object with exactly these fields:
 | `event` | `install` |
 | `node_major` | the Node.js major version, one integer |
 
-Request headers are `content-type: application/json` and `user-agent: mailoo`. The request does not follow redirects. `http` is refused except for `localhost`, `127.0.0.0/8`, or `::1`. Any other URL must be `https`. A URL with a username or password is refused.
+Request headers are `content-type: application/json` and `user-agent: mailoo`. The request does not follow redirects. `http` is refused except for `localhost`, `127.0.0.0/8`, or `::1`. Any other URL must be `https`. A URL with a username, a password, a query, or a fragment is refused.
 
 The body never includes an email address, account name, password, token, mail-server hostname, message id, folder name, or anything taken from a message. It also never includes a machine id, an operating-system username, a home directory, a working directory, or an IP address.
 

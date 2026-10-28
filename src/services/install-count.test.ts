@@ -220,6 +220,10 @@ describe('install count', () => {
     'https://:pw@collector.example/install',
     'ftp://collector.example/install',
     'collector.example/install',
+    'https://collector.example/install?token=abc',
+    'https://collector.example/install?',
+    'https://collector.example/install#part',
+    'https://collector.example/install#',
   ])('should not send to %s', async (url) => {
     const fetch = recording(204);
     const dir = await stateDir();

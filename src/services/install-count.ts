@@ -131,10 +131,12 @@ function skippedAutomation(env: NodeJS.ProcessEnv): boolean {
 
 /**
  * Cleartext is refused except to this machine. Redirects are not followed:
- * the payload may go only to the host the operator named. Userinfo is refused
- * so a URL cannot carry a credential.
+ * the payload may go only to the host the operator named. Userinfo, a query
+ * and a fragment are refused so a URL cannot carry a credential. The raw text
+ * is checked because the parser drops an empty `?` or `#`.
  */
 function endpoint(raw: string): string | undefined {
+  if (/[?#]/.test(raw)) return undefined;
   const url = URL.parse(raw.trim());
   if (!url || url.hostname === '') return undefined;
   if (url.username !== '' || url.password !== '') return undefined;
