@@ -29,7 +29,7 @@ A symlink is rejected.
 
 Both caps compare the part size the server reports, not the file size.
 Base64 carries 57 bytes in each 78-octet line, so that size runs about 37%
-over the file, and the 5 MB cap holds a base64 file of about 3.6 MB. A
+over the file, and the 5 MB cap holds a base64 file of about 3.65 MB. A
 refusal of a base64 part names both sizes: the `~` estimate `get_email`
 shows and the encoded one.
 
