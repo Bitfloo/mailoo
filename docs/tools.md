@@ -27,6 +27,9 @@ on a writable server because this path writes disk, and **true** when
 (one path segment). An existing file is left unchanged.
 A symlink is rejected.
 
+Both caps compare the part size the server reports (base64 adds about a
+third), and a refusal names that size as encoded.
+
 An attachment is chosen by `filename`. When two or more attachments in the
 message carry that name, the call fails and the error lists their MIME
 parts instead of returning the first one. The same refusal applies to

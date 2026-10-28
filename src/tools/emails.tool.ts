@@ -215,7 +215,7 @@ export default function registerEmailsTools(
 
         if (email.attachments.length > 0) {
           parts.push(
-            `📎 Attachments: ${email.attachments.map((a) => `${a.filename} (${a.mimeType}, ${formatSize(a.size)})`).join(', ')}`,
+            `📎 Attachments: ${email.attachments.map((a) => `${a.filename} (${a.mimeType}, ${a.sizeIsEstimate ? '~' : ''}${formatSize(a.size)})`).join(', ')}`,
           );
         }
 

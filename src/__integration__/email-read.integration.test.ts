@@ -140,6 +140,76 @@ describe('Email Read Operations', () => {
       expect(email.from).toBeDefined();
       expect(email.messageId).toBeTruthy();
     });
+
+    describe('attachment size', () => {
+      const ATTACHMENT_BYTES = 200_000;
+      /** nodemailer's 76-column CRLF body decodes to within 3 bytes of the estimate (imap.service.attachments.test.ts). */
+      const ESTIMATE_TOLERANCE_BYTES = 3;
+      const FILENAME = 'próbka-ąę.bin';
+      const subject = 'Attachment size is the decoded size';
+
+      async function seededEmailId(): Promise<string> {
+        const found = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { subject });
+        if (found.items.length === 0)
+          throw new Error(`no delivered message with subject "${subject}"`);
+        return found.items[0].id;
+      }
+
+      beforeAll(async () => {
+        await seedEmail({
+          subject,
+          attachments: [
+            {
+              filename: FILENAME,
+              content: Buffer.from(
+                Uint8Array.from({ length: ATTACHMENT_BYTES }, (_, i) => (i * 131 + 7) % 256),
+              ),
+              contentType: 'application/octet-stream',
+            },
+          ],
+        });
+        await waitForDelivery(subject);
+      });
+
+      it('should report the decoded size of a base64 attachment within the estimate tolerance', async () => {
+        const email = await services.imapService.getEmail(TEST_ACCOUNT_NAME, await seededEmailId());
+
+        const [attachment] = email.attachments;
+
+        expect(Math.abs((attachment?.size ?? 0) - ATTACHMENT_BYTES)).toBeLessThanOrEqual(
+          ESTIMATE_TOLERANCE_BYTES,
+        );
+      });
+
+      it('should flag the size of a base64 attachment as an estimate', async () => {
+        const email = await services.imapService.getEmail(TEST_ACCOUNT_NAME, await seededEmailId());
+
+        expect(email.attachments.map((a) => [a.filename, a.sizeIsEstimate])).toStrictEqual([
+          [FILENAME, true],
+        ]);
+      });
+
+      it('should print the decoded size with a tilde in the get_email text', async () => {
+        const emailId = await seededEmailId();
+        const server = createServer();
+        registerEmailsTools(server, services.imapService, true);
+        const mcp = new Client({ name: 'mailoo-attachment-size', version: '0.0.0' });
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([mcp.connect(clientTransport), server.connect(serverTransport)]);
+        try {
+          const result = await mcp.callTool({
+            name: 'get_email',
+            arguments: { account: TEST_ACCOUNT_NAME, emailId, mailbox: 'INBOX' },
+          });
+          if (!isTextToolResult(result)) throw new Error('tool result has no text content');
+          const line = result.content[0]?.text?.split('\n').find((l) => l.startsWith('📎'));
+
+          expect(line).toBe(`📎 Attachments: ${FILENAME} (application/octet-stream, ~195.3KB)`);
+        } finally {
+          await Promise.allSettled([mcp.close(), server.close()]);
+        }
+      });
+    });
   });
 
   // ---------------------------------------------------------------------------

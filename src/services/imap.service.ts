@@ -87,9 +87,13 @@ function partParameters(bs: Record<string, unknown>): Record<string, string> {
   };
 }
 
-interface AttachmentPart extends AttachmentMeta {
+interface AttachmentPart extends Pick<AttachmentMeta, 'filename' | 'mimeType'> {
   /** IMAP part number (BODY[part]); empty for the root of a single-part message. */
   part: string;
+  /** BODYSTRUCTURE size: octets in the transfer encoding, not decoded (RFC 3501 section 7.4.2). */
+  encodedSize: number;
+  /** Content-Transfer-Encoding, which imapflow lowercases; empty when the part has none. */
+  encoding: string;
 }
 
 /**
@@ -107,8 +111,9 @@ function listAttachmentParts(bodyStructure: unknown, partPath = ''): AttachmentP
     attachments.push({
       filename: params.filename ?? params.name ?? 'unnamed',
       mimeType: mimeTypeOf(bs) || 'application/octet-stream',
-      size: (bs.size as number) ?? 0,
       part: effectivePath,
+      encodedSize: (bs.size as number) ?? 0,
+      encoding: typeof bs.encoding === 'string' ? bs.encoding : '',
     });
   }
 
@@ -122,12 +127,32 @@ function listAttachmentParts(bodyStructure: unknown, partPath = ''): AttachmentP
   return attachments;
 }
 
+/** RFC 2045 section 6.8: a base64 line holds at most 76 characters. */
+const BASE64_LINE_CHARS = 76;
+/** The CRLF that separates lines (RFC 2045 section 2.10). */
+const CRLF_OCTETS = 2;
+/** Every 4 base64 characters carry 3 bytes. */
+const BASE64_QUANTUM_CHARS = 4;
+const BASE64_QUANTUM_BYTES = 3;
+
+/**
+ * Decoded size of a base64 part from the size the server reports: a full line, 76
+ * characters and a CRLF, is 78 octets that carry 57 bytes. Within 3 bytes for
+ * 76-character CRLF-wrapped bodies, the layout nodemailer and most mail clients write.
+ * Base64 written without line breaks comes out low, by about 2.6% on a large part.
+ */
+export function decodedBase64Size(encodedSize: number): number {
+  const lineOctets = BASE64_LINE_CHARS + CRLF_OCTETS;
+  const lineBytes = (BASE64_LINE_CHARS / BASE64_QUANTUM_CHARS) * BASE64_QUANTUM_BYTES;
+  return Math.round((encodedSize * lineBytes) / lineOctets);
+}
+
 function extractAttachments(bodyStructure: unknown): AttachmentMeta[] {
-  return listAttachmentParts(bodyStructure).map(({ filename, mimeType, size }) => ({
-    filename,
-    mimeType,
-    size,
-  }));
+  return listAttachmentParts(bodyStructure).map(({ filename, mimeType, encodedSize, encoding }) => {
+    // Quoted-printable keeps the reported size: unlike base64, its overhead depends on the content.
+    if (encoding !== 'base64') return { filename, mimeType, size: encodedSize };
+    return { filename, mimeType, size: decodedBase64Size(encodedSize), sizeIsEstimate: true };
+  });
 }
 
 /** A file name not yet used in this directory; compared without case for case-insensitive disks. */
@@ -1738,9 +1763,10 @@ export default class ImapService {
       }
       const [attachment] = matches;
 
-      if (attachment.size > maxSizeBytes) {
+      // The encoded size, not the decoded estimate: the inline cap bounds the base64 response.
+      if (attachment.encodedSize > maxSizeBytes) {
         throw new Error(
-          `Attachment "${filename}" is ${Math.round(attachment.size / 1024 / 1024)}MB, exceeds ${Math.round(maxSizeBytes / 1024 / 1024)}MB limit`,
+          `Attachment "${filename}" is ${Math.round(attachment.encodedSize / 1024 / 1024)}MB encoded, exceeds ${Math.round(maxSizeBytes / 1024 / 1024)}MB limit`,
         );
       }
 
@@ -1848,7 +1874,7 @@ export default class ImapService {
       const msg = await client.fetchOne(uidText, { uid: true, bodyStructure: true }, { uid: true });
       if (!msg) return [];
       // biome-ignore format: line too long; eslint implicit-arrow-linebreak prevents multi-line implicit return
-      const parts = listAttachmentParts(msg.bodyStructure).filter((a) => a.size <= maxSizeBytes && !a.mimeType.includes('calendar') && !a.filename.toLowerCase().endsWith('.ics'));
+      const parts = listAttachmentParts(msg.bodyStructure).filter((a) => a.encodedSize <= maxSizeBytes && !a.mimeType.includes('calendar') && !a.filename.toLowerCase().endsWith('.ics'));
       if (parts.length === 0) return [];
       return await writeAttachmentParts(client, uidText, parts, destDir);
     } finally {
