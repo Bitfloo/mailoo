@@ -450,6 +450,14 @@ describe('redactedError', () => {
       expect(redactedError(refusal, sent).message).toBe(`Login refused by the server (${code})`);
     });
 
+    // The rebuilt text is fixed wording plus a registered code, so a sent secret can reach it only
+    // by coinciding with it; the refusal branch must still redact it, not trust its wording.
+    it('should redact the code when the password sent is the registered code the server answered', () => {
+      const refusal = imapflowRefusal({ serverResponseCode: 'AUTHENTICATIONFAILED' });
+      const { message } = redactedError(refusal, { user: USER, secrets: ['AUTHENTICATIONFAILED'] });
+      expect(message).toBe('Login refused by the server ([redacted])');
+    });
+
     // imapflow uppercases the first atom inside the brackets (`getStatusCode`), so a password the
     // server echoes as `[S3cret-Pa55word!]` arrives as `S3CRET-PA55WORD!`, a case the credential
     // shapes do not match. An atom-special in a secret (space, parenthesis, quote, `%`, `*`, `]`)
@@ -470,6 +478,8 @@ describe('redactedError', () => {
     it.each([
       ['a vendor atom', 'XVENDORHINT'],
       ['a registered code with a character added', 'AUTHENTICATIONFAILEDX'],
+      // imapflow hands the code over already uppercased, so a lower-case one is not the server's.
+      ['a registered code in lower case', 'unavailable'],
     ])(
       'should leave out a code that is not a registered response code when it is %s',
       (_quoted, code) => {
