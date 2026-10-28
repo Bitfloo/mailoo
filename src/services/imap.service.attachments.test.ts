@@ -282,6 +282,18 @@ describe('ImapService', () => {
         'Attachment "scan.pdf" is 5MB encoded, exceeds 5MB limit',
       ],
       ['17 MiB', 17 * 1024 * 1024, 'Attachment "scan.pdf" is 17MB encoded, exceeds 5MB limit'],
+      // 5.38 MiB: round and floor say 5, ceil says 6.
+      [
+        '5 MiB + 400000 bytes',
+        5 * 1024 * 1024 + 400_000,
+        'Attachment "scan.pdf" is 5MB encoded, exceeds 5MB limit',
+      ],
+      // 5.57 MiB: round and ceil say 6, floor says 5.
+      [
+        '5 MiB + 600000 bytes',
+        5 * 1024 * 1024 + 600_000,
+        'Attachment "scan.pdf" is 6MB encoded, exceeds 5MB limit',
+      ],
     ])('should name the encoded size in the refusal of %s', async (_, size, message) => {
       fetchOneByUid(client, {
         uid: 9,
@@ -391,7 +403,22 @@ describe('ImapService', () => {
       ]);
     });
 
-    // Only base64 inflates the part. A guard that matched "not 7bit" would shrink these too.
+    // imapflow leaves `encoding` unset for a NIL BODYSTRUCTURE field, and RFC 2045 section 6.1
+    // makes 7bit the default, so the reported size is already the decoded size.
+    it('should keep the reported size, without an estimate flag, for an attachment with no transfer encoding', async () => {
+      const node = attachmentNode('2', 'plain.txt', { size: 2048 });
+      const nodeWithoutEncoding = Object.fromEntries(
+        Object.entries(node).filter(([key]) => key !== 'encoding'),
+      );
+
+      const attachments = await attachmentsOf(nodeWithoutEncoding);
+
+      expect(attachments).toStrictEqual([
+        { filename: 'plain.txt', mimeType: 'text/plain', size: 2048 },
+      ]);
+    });
+
+    // Only base64 inflates a part by a fixed factor. A guard that matched "not 7bit" would shrink these.
     it.each(['8bit', 'binary', 'quoted-printable'])(
       'should keep the reported size without an estimate flag for an attachment encoded as %s',
       async (encoding) => {
