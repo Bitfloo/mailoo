@@ -85,7 +85,7 @@ const INVALID_CONFIG = '[[accounts]\nname = "test"\n';
 
 const CONFIG_TEXT = { valid: ENTRY_CONFIG, invalid: INVALID_CONFIG, missing: undefined } as const;
 
-// The marker is written right after the collector's 2xx; this bounds a hang only.
+// The marker is created before the request goes out; this bounds a hang only.
 const MARKER_WAIT_MS = 5_000;
 
 /** Holds a loopback port until the test ends, so a server asked to bind it fails. */

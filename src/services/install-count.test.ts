@@ -13,8 +13,8 @@ import type {
 } from './install-count.js';
 import {
   INSTALL_COUNT_EVENT,
-  INSTALL_COUNT_GENERATION,
   INSTALL_COUNT_PRODUCT,
+  MARKER_DIGIT,
   MARKER_NAME,
   NEGATIVE_VALUES,
   ON_VALUES,
@@ -354,7 +354,7 @@ describe('install count', () => {
     expect(JSON.parse(fetch.seen[0]?.init.body ?? '')[field]).toBe(value);
   });
 
-  it('should record the generation after the collector accepted', async () => {
+  it('should write the marker digit and a newline', async () => {
     const { dir } = await firstSend();
     expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1\n');
   });
@@ -608,7 +608,7 @@ describe('install count', () => {
     );
   });
 
-  it('should not send again after that generation is recorded', async () => {
+  it('should not send again once the marker exists', async () => {
     const fetch = recording(204);
     const dir = await stateDir();
     const env = opted();
@@ -769,7 +769,7 @@ describe('install count', () => {
 
   it('should say in the README which file the count creates before the request', async () => {
     expect(await readmeInstallCount()).toContain(
-      `the server creates \`$XDG_STATE_HOME/mailoo/${MARKER_NAME}\` (mode \`${MODE_TEXT}\`) containing the digit \`${INSTALL_COUNT_GENERATION}\` and nothing else`,
+      `the server creates \`$XDG_STATE_HOME/mailoo/${MARKER_NAME}\` (mode \`${MODE_TEXT}\`) containing the digit \`${MARKER_DIGIT}\` and nothing else`,
     );
   });
 
@@ -781,7 +781,7 @@ describe('install count', () => {
   it('should say in the README files table what the marker holds', async () => {
     const row = await lineStarting('../../README.md', '| `$XDG_STATE_HOME/mailoo/install-count`');
     expect(row).toContain(
-      `| The digit \`${INSTALL_COUNT_GENERATION}\`, written before the install count request and kept whatever the answer.`,
+      `| The digit \`${MARKER_DIGIT}\`, written before the install count request and kept whatever the answer.`,
     );
   });
 

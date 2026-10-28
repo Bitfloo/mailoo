@@ -19,7 +19,7 @@ import { isLoopbackHost } from '../utils/loopback.js';
 
 export const INSTALL_COUNT_PRODUCT = 'mailoo';
 export const INSTALL_COUNT_EVENT = 'install' as const;
-export const INSTALL_COUNT_GENERATION = 1;
+export const MARKER_DIGIT = 1;
 
 /**
  * A stuck collector must not keep the socket. One attempt per state
@@ -132,8 +132,8 @@ function skippedAutomation(env: NodeJS.ProcessEnv): boolean {
 /**
  * Cleartext is refused except to this machine. Redirects are not followed:
  * the payload may go only to the host the operator named. Userinfo, a query
- * and a fragment are refused so a URL cannot carry a credential. The raw text
- * is checked because the parser drops an empty `?` or `#`.
+ * and a fragment are refused, the usual places for a credential. The raw text
+ * is checked because a bare `?` or `#` leaves `search` and `hash` empty.
  */
 function endpoint(raw: string): string | undefined {
   if (/[?#]/.test(raw)) return undefined;
@@ -155,11 +155,11 @@ function markerFile(stateDir: string): string {
  * directory only one sends, and a directory that cannot be written sends
  * nothing. Anything already at the path means counted, whatever it holds: an
  * empty file is another start mid-write, and no released version wrote this
- * file, so there is no older generation to replace.
+ * file, so no older content needs replacing.
  */
 async function claimMarker(file: string): Promise<'claimed' | 'taken' | 'failed'> {
   try {
-    await fs.writeFile(file, `${INSTALL_COUNT_GENERATION}\n`, {
+    await fs.writeFile(file, `${MARKER_DIGIT}\n`, {
       encoding: 'utf8',
       mode: PRIVATE_FILE_MODE,
       flag: 'wx',
