@@ -3,6 +3,7 @@ import {
   createMockConnectionManager,
   createMockImapClient,
   fetchServesRows,
+  requireUidRange,
 } from '../test-support/imap-client-fake.js';
 import ImapService from './imap.service.js';
 
@@ -303,6 +304,128 @@ describe('ImapService', () => {
       expect(fetchedUids[0]).toBe('251');
       expect(fetchedUids[249]).toBe('500');
       expect(result.total).toBe(500);
+    });
+  });
+
+  describe('preview', () => {
+    const POLISH = 'Zażółć gęślą jaźń';
+
+    const BASE64_UTF8 = Buffer.from(POLISH).toString('base64');
+
+    /**
+     * BODYSTRUCTURE of multipart/alternative mail as imapflow parses it. The plain part is base64,
+     * as many clients send non-ASCII text: decoding the whole TEXT section by it yields no text.
+     */
+    const alternative = {
+      type: 'multipart/alternative',
+      parameters: { boundary: 'b1' },
+      childNodes: [
+        {
+          part: '1',
+          type: 'text/plain',
+          parameters: { charset: 'utf-8' },
+          encoding: 'base64',
+          size: 36,
+          lineCount: 1,
+        },
+        {
+          part: '2',
+          type: 'text/html',
+          parameters: { charset: 'utf-8' },
+          encoding: '7bit',
+          size: 19,
+          lineCount: 1,
+        },
+      ],
+    };
+    const alternativeText = [
+      '--b1',
+      'Content-Type: text/plain; charset=utf-8',
+      'Content-Transfer-Encoding: base64',
+      '',
+      BASE64_UTF8,
+      '--b1',
+      'Content-Type: text/html; charset=utf-8',
+      '',
+      '<p>HTML version</p>',
+      '--b1--',
+      '',
+    ].join('\r\n');
+    const plainSinglePart = {
+      type: 'text/plain',
+      parameters: { charset: 'utf-8' },
+      encoding: '7bit',
+      size: 4209,
+      lineCount: 2101,
+    };
+
+    /**
+     * UID FETCH BODY.PEEK[section]<start.maxLength> as a server answers it: those octets of the
+     * section, or NIL, which imapflow hands over as false, for a section the message lacks.
+     */
+    function serveSections(sections: Record<string, string>) {
+      client.fetchAll.mockImplementation(
+        async (
+          range: string,
+          query: { bodyParts: { key: string; start: number; maxLength?: number }[] },
+          options?: { uid?: boolean },
+        ) => {
+          requireUidRange('fetchAll', range, options);
+          const [{ key, start, maxLength }] = query.bodyParts;
+          const text = sections[key];
+          const end = maxLength === undefined ? undefined : start + maxLength;
+          const octets = text === undefined ? false : Buffer.from(text).subarray(start, end);
+          return range.split(',').map((uid) => ({
+            uid: Number(uid),
+            bodyParts: new Map([[key.toLowerCase(), octets]]),
+          }));
+        },
+      );
+    }
+
+    function listOne(bodyStructure: object) {
+      client.search.mockResolvedValue([1]);
+      fetchServesRows(client, [listedMessage(1, '2026-10-27T09:12:44Z', { bodyStructure })]);
+    }
+
+    it.each(listers)(
+      'should preview the plain part of multipart/alternative mail in %s',
+      async (_name, list) => {
+        listOne(alternative);
+        serveSections({ TEXT: alternativeText, 1: BASE64_UTF8, 2: '<p>HTML version</p>' });
+
+        const result = await list(service, {});
+
+        expect(result.items.map((item) => item.preview)).toEqual([POLISH]);
+      },
+    );
+
+    it('should read no further than the first 4096 octets of a text part', async () => {
+      listOne(plainSinglePart);
+      // 2100 blank lines are 4200 octets, so the text starts past the preview's fetch cap.
+      serveSections({ TEXT: `${'\r\n'.repeat(2100)}Late text` });
+
+      const result = await service.listEmails('test', {});
+
+      expect(result.items.map((item) => item.preview)).toEqual([undefined]);
+    });
+
+    it('should list a message without a preview when the server answers NIL', async () => {
+      listOne(alternative);
+      serveSections({});
+
+      const result = await service.listEmails('test', {});
+
+      expect(result.items.map((item) => [item.id, item.preview])).toEqual([['1', undefined]]);
+    });
+
+    it('should list a message without a preview when the preview FETCH fails', async () => {
+      listOne(alternative);
+      client.fetchAll.mockRejectedValue(new Error('Command failed'));
+
+      const result = await service.listEmails('test', {});
+
+      expect(result.items.map((item) => [item.id, item.preview])).toEqual([['1', undefined]]);
     });
   });
 });

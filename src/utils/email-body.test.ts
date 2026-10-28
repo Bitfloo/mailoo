@@ -2,6 +2,7 @@ import {
   applyBodyFormat,
   applyBodyFormatWithDefaultCap,
   DEFAULT_BODY_MAX_LENGTH,
+  decodePartPrefix,
   HTML_TRUNCATED_NOTE,
   looksLikeRawMime,
   MAX_HTML_INPUT_CHARS,
@@ -238,5 +239,56 @@ describe('applyBodyFormat', () => {
     expect(applyBodyFormatWithDefaultCap(huge, undefined, 'full')).toBe(
       applyBodyFormatWithDefaultCap(huge, undefined, 'text'),
     );
+  });
+});
+
+describe('decodePartPrefix', () => {
+  const POLISH = 'Zażółć gęślą jaźń';
+
+  it('should decode base64 wrapped in CRLF lines', () => {
+    const wrapped =
+      Buffer.from(POLISH)
+        .toString('base64')
+        .match(/.{1,8}/g)
+        ?.join('\r\n') ?? '';
+
+    expect(decodePartPrefix(Buffer.from(wrapped), 'base64', 'utf-8')).toBe(POLISH);
+  });
+
+  it('should decode the whole groups of base64 cut mid-group', () => {
+    // 10 characters: two whole groups carry "Zażó", the last two are cut off.
+    const cut = Buffer.from(POLISH).toString('base64').slice(0, 10);
+
+    expect(decodePartPrefix(Buffer.from(cut), 'base64', 'utf-8')).toBe('Zażó');
+  });
+
+  it('should join a quoted-printable soft line break', () => {
+    expect(decodePartPrefix(Buffer.from('Za=C5=BC=\r\n=C3=B3'), 'quoted-printable', 'utf-8')).toBe(
+      'Zażó',
+    );
+  });
+
+  it.each([
+    ['a bare =', 'Za=C5=BC='],
+    ['= and one hex digit', 'Za=C5=BC=C'],
+    ['the CR of a soft break', 'Za=C5=BC=\r'],
+  ])('should drop a quoted-printable escape the cut left as %s', (_cut, qp) => {
+    expect(decodePartPrefix(Buffer.from(qp), 'quoted-printable', 'utf-8')).toBe('Zaż');
+  });
+
+  it('should hold back a UTF-8 character the cut split', () => {
+    const cut = Buffer.from('Zaż').subarray(0, 3);
+
+    expect(decodePartPrefix(cut, undefined, 'utf-8')).toBe('Za');
+  });
+
+  it('should decode the declared charset', () => {
+    const iso88592 = Buffer.from([0x5a, 0x61, 0xbf, 0xf3, 0xb3, 0xe6]);
+
+    expect(decodePartPrefix(iso88592, '7bit', 'iso-8859-2')).toBe('Zażółć');
+  });
+
+  it('should fall back to UTF-8 for a charset label it does not know', () => {
+    expect(decodePartPrefix(Buffer.from('Zażółć'), '8bit', 'x-unknown-charset')).toBe('Zażółć');
   });
 });

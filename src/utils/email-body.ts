@@ -281,7 +281,6 @@ export function applyBodyFormatWithDefaultCap(
   return formatted;
 }
 
-/** Every 4 base64 characters carry 3 bytes. */
 export const BASE64_QUANTUM_CHARS = 4;
 export const BASE64_QUANTUM_BYTES = 3;
 

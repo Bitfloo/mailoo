@@ -274,7 +274,7 @@ describe('ImapService', () => {
     });
 
     // The cap bounds the base64 response, so it compares the size the server reports. Were it
-    // to switch to the decoded estimate, 5 MiB + 1 encoded bytes would pass as about 3.6 MB.
+    // to switch to the decoded estimate, 5 MiB + 1 encoded bytes would pass as about 3.7MB.
     it.each([
       [
         '5 MiB + 1 byte',
