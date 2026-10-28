@@ -246,10 +246,11 @@ describe('decodePartPrefix', () => {
   const POLISH = 'Zażółć gęślą jaźń';
 
   it('should decode base64 wrapped in CRLF lines', () => {
+    // 36 characters on 10-character lines: 3 CRLFs make 42 octets, not a multiple of 4.
     const wrapped =
       Buffer.from(POLISH)
         .toString('base64')
-        .match(/.{1,8}/g)
+        .match(/.{1,10}/g)
         ?.join('\r\n') ?? '';
 
     expect(decodePartPrefix(Buffer.from(wrapped), 'base64', 'utf-8')).toBe(POLISH);

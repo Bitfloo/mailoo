@@ -359,11 +359,19 @@ describe('ImapService', () => {
       lineCount: 2101,
     };
 
+    const htmlSinglePart = {
+      type: 'text/html',
+      parameters: { charset: 'utf-8' },
+      encoding: '7bit',
+      size: 30,
+      lineCount: 1,
+    };
+
     /**
-     * UID FETCH BODY.PEEK[section]<start.maxLength> as a server answers it: those octets of the
-     * section, or NIL, which imapflow hands over as false, for a section the message lacks.
+     * UID FETCH BODY.PEEK[section]<start.maxLength> as a server answers it: those octets of each
+     * message's section, or NIL, which imapflow hands over as false, for a section it lacks.
      */
-    function serveSections(sections: Record<string, string>) {
+    function serveSections(byUid: Record<number, Record<string, string>>) {
       client.fetchAll.mockImplementation(
         async (
           range: string,
@@ -372,60 +380,96 @@ describe('ImapService', () => {
         ) => {
           requireUidRange('fetchAll', range, options);
           const [{ key, start, maxLength }] = query.bodyParts;
-          const text = sections[key];
           const end = maxLength === undefined ? undefined : start + maxLength;
-          const octets = text === undefined ? false : Buffer.from(text).subarray(start, end);
-          return range.split(',').map((uid) => ({
-            uid: Number(uid),
-            bodyParts: new Map([[key.toLowerCase(), octets]]),
-          }));
+          return range.split(',').map((uid) => {
+            const text = byUid[Number(uid)]?.[key];
+            const octets = text === undefined ? false : Buffer.from(text).subarray(start, end);
+            return { uid: Number(uid), bodyParts: new Map([[key.toLowerCase(), octets]]) };
+          });
         },
       );
     }
 
-    function listOne(bodyStructure: object) {
-      client.search.mockResolvedValue([1]);
-      fetchServesRows(client, [listedMessage(1, '2026-10-27T09:12:44Z', { bodyStructure })]);
+    /** One page of messages with these BODYSTRUCTUREs, UIDs 1, 2, … in order. */
+    function listPage(...bodyStructures: object[]) {
+      client.search.mockResolvedValue(bodyStructures.map((_, i) => i + 1));
+      fetchServesRows(
+        client,
+        bodyStructures.map((bodyStructure, i) =>
+          listedMessage(i + 1, `2026-10-2${i + 1}T09:12:44Z`, { bodyStructure }),
+        ),
+      );
+    }
+
+    async function previewsById(
+      list: Lister = async (svc, options) => svc.listEmails('test', options),
+    ) {
+      const { items } = await list(service, {});
+      return Object.fromEntries(items.map((item) => [item.id, item.preview]));
     }
 
     it.each(listers)(
       'should preview the plain part of multipart/alternative mail in %s',
       async (_name, list) => {
-        listOne(alternative);
-        serveSections({ TEXT: alternativeText, 1: BASE64_UTF8, 2: '<p>HTML version</p>' });
+        listPage(alternative);
+        serveSections({ 1: { TEXT: alternativeText, 1: BASE64_UTF8, 2: '<p>HTML version</p>' } });
 
-        const result = await list(service, {});
-
-        expect(result.items.map((item) => item.preview)).toEqual([POLISH]);
+        expect(await previewsById(list)).toEqual({ 1: POLISH });
       },
     );
 
-    it('should read no further than the first 4096 octets of a text part', async () => {
-      listOne(plainSinglePart);
-      // 2100 blank lines are 4200 octets, so the text starts past the preview's fetch cap.
-      serveSections({ TEXT: `${'\r\n'.repeat(2100)}Late text` });
+    it.each(listers)(
+      'should give each message on a %s page its own preview',
+      async (_name, list) => {
+        // Messages 1 and 3 share the TEXT section, message 2 is fetched by part 1.
+        listPage(plainSinglePart, alternative, plainSinglePart);
+        serveSections({
+          1: { TEXT: 'First message' },
+          2: { TEXT: alternativeText, 1: BASE64_UTF8 },
+          3: { TEXT: 'Third message' },
+        });
 
-      const result = await service.listEmails('test', {});
+        expect(await previewsById(list)).toEqual({
+          1: 'First message',
+          2: POLISH,
+          3: 'Third message',
+        });
+      },
+    );
 
-      expect(result.items.map((item) => item.preview)).toEqual([undefined]);
+    it('should preview HTML-only mail as text', async () => {
+      listPage(htmlSinglePart);
+      serveSections({ 1: { TEXT: '<p>Only <b>HTML</b> here</p>' } });
+
+      expect(await previewsById()).toEqual({ 1: 'Only HTML here' });
     });
 
+    // A blank line is 2 octets: 1500 of them put the text at octet 3000, 2100 at octet 4200.
+    it.each([
+      [1500, 'Text'],
+      [2100, undefined],
+    ])(
+      'should read only the first 4096 octets of a part (text after %i blank lines → %s)',
+      async (blankLines, preview) => {
+        listPage(plainSinglePart);
+        serveSections({ 1: { TEXT: `${'\r\n'.repeat(blankLines)}Text` } });
+
+        expect(await previewsById()).toEqual({ 1: preview });
+      },
+    );
+
     it('should list a message without a preview when the server answers NIL', async () => {
-      listOne(alternative);
+      listPage(alternative);
       serveSections({});
 
-      const result = await service.listEmails('test', {});
-
-      expect(result.items.map((item) => [item.id, item.preview])).toEqual([['1', undefined]]);
+      expect(await previewsById()).toEqual({ 1: undefined });
     });
 
     it('should list a message without a preview when the preview FETCH fails', async () => {
-      listOne(alternative);
+      listPage(alternative);
       client.fetchAll.mockRejectedValue(new Error('Command failed'));
 
-      const result = await service.listEmails('test', {});
-
-      expect(result.items.map((item) => [item.id, item.preview])).toEqual([['1', undefined]]);
+      expect(await previewsById()).toEqual({ 1: undefined });
     });
   });
 });

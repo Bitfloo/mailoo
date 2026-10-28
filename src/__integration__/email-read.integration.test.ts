@@ -221,7 +221,9 @@ describe('Email Read Operations', () => {
     const POLISH = 'Zażółć gęślą jaźń';
     const QP_UTF8 = 'Za=C5=BC=C3=B3=C5=82=C4=87 g=C4=99=C5=9Bl=C4=85 ja=C5=BA=C5=84';
     const QP_ISO_8859_2 = 'Za=BF=F3=B3=E6 g=EA=B6l=B1 ja=BC=F1';
-    /** Past the 4096 octets of source that the old preview read. */
+    const RELAYED = 'Pchnąć w tę łódź jeża';
+    const QP_RELAYED = 'Pchn=C4=85=C4=87 w t=C4=99 =C5=82=C3=B3d=C5=BA je=C5=BCa';
+    /** More than the 4096 octets a preview reads, in headers alone: no cut from the start of the message reaches the body. */
     const RELAYED_HEADER_OCTETS = 8192;
     const mailbox = `Preview-${process.pid}`;
 
@@ -262,7 +264,7 @@ describe('Email Read Operations', () => {
         subject,
         'utf-8',
         'quoted-printable',
-        QP_UTF8,
+        QP_RELAYED,
         relayHeaders(RELAYED_HEADER_OCTETS),
       );
       const text = raw.toString('latin1');
@@ -288,7 +290,7 @@ describe('Email Read Operations', () => {
       {
         subject: 'Preview behind relay headers',
         raw: relayedMessage('Preview behind relay headers'),
-        preview: POLISH,
+        preview: RELAYED,
       },
       {
         subject: 'Preview quoted-printable ISO-8859-2',
