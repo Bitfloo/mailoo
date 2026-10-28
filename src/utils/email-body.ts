@@ -280,3 +280,51 @@ export function applyBodyFormatWithDefaultCap(
   }
   return formatted;
 }
+
+/** Every 4 base64 characters carry 3 bytes. */
+export const BASE64_QUANTUM_CHARS = 4;
+export const BASE64_QUANTUM_BYTES = 3;
+
+/** RFC 2045 section 6.7: `=` and two hex digits stand for one octet; `=` ending a line is a soft break. */
+const QP_ESCAPE = /=(?:\r?\n|([0-9A-Fa-f]{2}))/g;
+/** An escape the cut left unfinished: `=` alone, with one hex digit, or with the CR of a soft break. */
+const QP_CUT_ESCAPE = /=(?:[0-9A-Fa-f]|\r)?$/;
+/** RFC 2045 section 6.8: characters outside the base64 alphabet, line breaks among them, are ignored. */
+const NOT_BASE64 = /[^A-Za-z0-9+/=]/g;
+
+function decodeQuotedPrintablePrefix(bytes: Buffer): Buffer {
+  // latin1 maps each octet to one character and back, so the escapes are matched octet for octet.
+  const text = bytes.toString('latin1').replace(QP_CUT_ESCAPE, '');
+  const decoded = text.replace(QP_ESCAPE, (_escape: string, hex?: string) => {
+    if (!hex) return '';
+    return String.fromCharCode(Number.parseInt(hex, 16));
+  });
+  return Buffer.from(decoded, 'latin1');
+}
+
+function decodeBase64Prefix(bytes: Buffer): Buffer {
+  const data = bytes.toString('latin1').replace(NOT_BASE64, '');
+  return Buffer.from(data.slice(0, data.length - (data.length % BASE64_QUANTUM_CHARS)), 'base64');
+}
+
+function textDecoder(charset: string | undefined): TextDecoder {
+  try {
+    return new TextDecoder(charset);
+  } catch {
+    // TextDecoder throws a RangeError for a label it does not know.
+    return new TextDecoder();
+  }
+}
+
+/**
+ * Text of the first octets of a MIME part, as a partial FETCH returns them, with the transfer
+ * encoding and the charset decoded. What the cut left unfinished at the end (half an escape, part
+ * of a base64 group or of a multibyte character) is dropped instead of shown as U+FFFD.
+ */
+export function decodePartPrefix(bytes: Buffer, encoding?: string, charset?: string): string {
+  let octets = bytes;
+  if (encoding === 'quoted-printable') octets = decodeQuotedPrintablePrefix(bytes);
+  if (encoding === 'base64') octets = decodeBase64Prefix(bytes);
+  // A streaming decode holds back a character the cut split; no final flush call may follow.
+  return textDecoder(charset).decode(octets, { stream: true });
+}

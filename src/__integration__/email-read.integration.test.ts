@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import createServer from '../server.js';
+import { MAX_HEADER_LINE_OCTETS, relayHeaders } from '../test-support/mail-headers.js';
 import registerEmailsTools from '../tools/emails.tool.js';
 import type { TestServices } from './helpers/index.js';
 import {
@@ -210,6 +211,127 @@ describe('Email Read Operations', () => {
         }
       });
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // preview of received mail
+  // ---------------------------------------------------------------------------
+
+  describe('preview', () => {
+    const POLISH = 'Zażółć gęślą jaźń';
+    const QP_UTF8 = 'Za=C5=BC=C3=B3=C5=82=C4=87 g=C4=99=C5=9Bl=C4=85 ja=C5=BA=C5=84';
+    const QP_ISO_8859_2 = 'Za=BF=F3=B3=E6 g=EA=B6l=B1 ja=BC=F1';
+    /** Past the 4096 octets of source that the old preview read. */
+    const RELAYED_HEADER_OCTETS = 8192;
+    const mailbox = `Preview-${process.pid}`;
+
+    function rawMessage(subject: string, contentHeaders: string[], body: string, extra = '') {
+      const header = [
+        'From: Alice Example <alice@example.test>',
+        'To: Bob Example <bob@example.test>',
+        `Subject: ${subject}`,
+        'Date: Tue, 27 Oct 2026 09:12:44 +0000',
+        `Message-ID: <${subject.replace(/\W+/g, '-')}@example.test>`,
+        'MIME-Version: 1.0',
+        ...(extra ? [extra] : []),
+        ...contentHeaders,
+      ].join('\r\n');
+      return Buffer.from(`${header}\r\n\r\n${body}\r\n`);
+    }
+
+    function singlePart(
+      subject: string,
+      charset: string,
+      encoding: string,
+      body: string,
+      extra = '',
+    ) {
+      return rawMessage(
+        subject,
+        [
+          `Content-Type: text/plain; charset="${charset}"`,
+          `Content-Transfer-Encoding: ${encoding}`,
+        ],
+        body,
+        extra,
+      );
+    }
+
+    function relayedMessage(subject: string) {
+      const raw = singlePart(
+        subject,
+        'utf-8',
+        'quoted-printable',
+        QP_UTF8,
+        relayHeaders(RELAYED_HEADER_OCTETS),
+      );
+      const text = raw.toString('latin1');
+      const headerOctets = text.indexOf('\r\n\r\n');
+      const longestLine = Math.max(
+        ...text
+          .slice(0, headerOctets)
+          .split('\r\n')
+          .map((l) => l.length),
+      );
+      if (headerOctets <= RELAYED_HEADER_OCTETS || longestLine > MAX_HEADER_LINE_OCTETS) {
+        throw new Error(`header block ${headerOctets} octets, longest line ${longestLine}`);
+      }
+      return raw;
+    }
+
+    const fixtures: { subject: string; raw: Buffer; preview: string }[] = [
+      {
+        subject: 'Preview quoted-printable UTF-8',
+        raw: singlePart('Preview quoted-printable UTF-8', 'utf-8', 'quoted-printable', QP_UTF8),
+        preview: POLISH,
+      },
+      {
+        subject: 'Preview behind relay headers',
+        raw: relayedMessage('Preview behind relay headers'),
+        preview: POLISH,
+      },
+      {
+        subject: 'Preview quoted-printable ISO-8859-2',
+        raw: singlePart(
+          'Preview quoted-printable ISO-8859-2',
+          'iso-8859-2',
+          'quoted-printable',
+          QP_ISO_8859_2,
+        ),
+        preview: POLISH,
+      },
+    ];
+
+    beforeAll(async () => {
+      const client = await services.connections.getImapClient(TEST_ACCOUNT_NAME);
+      await client.mailboxCreate(mailbox);
+      for (const { raw } of fixtures) {
+        // eslint-disable-next-line no-await-in-loop
+        await client.append(mailbox, raw, [], new Date('2026-10-27T09:12:44Z'));
+      }
+    });
+
+    afterAll(async () => {
+      const client = await services.connections.getImapClient(TEST_ACCOUNT_NAME);
+      await client.mailboxDelete(mailbox);
+    });
+
+    it.each(fixtures.map(({ subject, preview }) => [subject, preview]))(
+      'should show the decoded text of "%s" when listed and when searched',
+      async (subject, preview) => {
+        const listed = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { mailbox });
+        const searched = await services.imapService.searchEmails(TEST_ACCOUNT_NAME, '', {
+          mailbox,
+        });
+        const previewIn = ({ items }: typeof listed) =>
+          items.find((item) => item.subject === subject)?.preview;
+
+        expect({ listed: previewIn(listed), searched: previewIn(searched) }).toEqual({
+          listed: preview,
+          searched: preview,
+        });
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
