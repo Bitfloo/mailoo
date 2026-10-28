@@ -425,13 +425,58 @@ describe('redactedError', () => {
       );
     });
 
+    // RFC 5530 §3 response codes. Spelled out here, not imported, so a code dropped from the
+    // implementation's list fails a row.
+    it.each([
+      'UNAVAILABLE',
+      'AUTHENTICATIONFAILED',
+      'AUTHORIZATIONFAILED',
+      'EXPIRED',
+      'PRIVACYREQUIRED',
+      'CONTACTADMIN',
+      'NOPERM',
+      'INUSE',
+      'EXPUNGEISSUED',
+      'CORRUPTION',
+      'SERVERBUG',
+      'CLIENTBUG',
+      'CANNOT',
+      'LIMIT',
+      'OVERQUOTA',
+      'ALREADYEXISTS',
+      'NONEXISTENT',
+    ])('should show the code when the server sent the registered response code %s', (code) => {
+      const refusal = imapflowRefusal({ serverResponseCode: code });
+      expect(redactedError(refusal, sent).message).toBe(`Login refused by the server (${code})`);
+    });
+
+    // imapflow uppercases the first atom inside the brackets (`getStatusCode`), so a password the
+    // server echoes as `[S3cret-Pa55word!]` arrives as `S3CRET-PA55WORD!`, a case the credential
+    // shapes do not match. An atom-special in a secret (space, parenthesis, quote, `%`, `*`, `]`)
+    // cuts it to a prefix in the same parser (`[Pa55 (word)]` arrives as `PA55`), which no
+    // whole-secret shape matches in any case. Redaction cannot cover either, so only a
+    // registered code is shown.
     it.each([
       ['the password', PASSWORD],
       ['the access token', TOKEN],
-    ])('should redact %s that the server sent back as the code', (_quoted, secret) => {
-      const refusal = imapflowRefusal({ serverResponseCode: secret });
-      expect(redactedError(refusal, sent).message).toBe('Login refused by the server ([redacted])');
-    });
+    ])(
+      'should leave out a code that is not a registered response code when it is %s as imapflow uppercases it',
+      (_quoted, secret) => {
+        const refusal = imapflowRefusal({ serverResponseCode: secret.toUpperCase() });
+        expect(redactedError(refusal, sent).message).toBe('Login refused by the server');
+      },
+    );
+
+    it.each([
+      ['a vendor atom', 'XVENDORHINT'],
+      ['a registered code with a character added', 'AUTHENTICATIONFAILEDX'],
+    ])(
+      'should leave out a code that is not a registered response code when it is %s',
+      (_quoted, code) => {
+        const refusal = imapflowRefusal({ serverResponseCode: code });
+        expect(redactedError(refusal, sent).message).toBe('Login refused by the server');
+      },
+    );
 
     it('should leave response and responseText off the returned error', () => {
       const refusal = imapflowRefusal({

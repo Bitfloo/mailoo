@@ -35,6 +35,29 @@ const BASE64_RUN = /[A-Za-z0-9+/]{20,}={0,2}/gu;
 
 const XOAUTH2_BEARER = 'auth=Bearer ';
 
+// RFC 5530 §3. imapflow's `getStatusCode` uppercases the response code and keeps only its first
+// atom, so the sent-credential shapes cannot see a secret a server put there, whole or cut. A
+// fixed vocabulary keeps any other server-chosen text out of the message too.
+const REGISTERED_RESPONSE_CODES: ReadonlySet<string> = new Set([
+  'UNAVAILABLE',
+  'AUTHENTICATIONFAILED',
+  'AUTHORIZATIONFAILED',
+  'EXPIRED',
+  'PRIVACYREQUIRED',
+  'CONTACTADMIN',
+  'NOPERM',
+  'INUSE',
+  'EXPUNGEISSUED',
+  'CORRUPTION',
+  'SERVERBUG',
+  'CLIENTBUG',
+  'CANNOT',
+  'LIMIT',
+  'OVERQUOTA',
+  'ALREADYEXISTS',
+  'NONEXISTENT',
+]);
+
 function base64(value: string): string {
   return Buffer.from(value, 'utf8').toString('base64');
 }
@@ -162,9 +185,10 @@ export function redactSentCredentials(text: string, sent: SentCredentials): stri
  * `responseText` and `cause` stay off on purpose.
  *
  * imapflow words every refused LOGIN or AUTHENTICATE as "Command failed", so that message is
- * rebuilt from the refusal flag, the tagged NO or BAD and the response code, leaving out the
- * server's free text. imapflow's own AuthenticationFailure ("Already logged out", Exchange's
- * "Authentication failed") sets the flag without a tagged status and keeps its message.
+ * rebuilt from the refusal flag, the tagged NO or BAD and, only when it is a registered one, the
+ * response code, leaving out the server's free text. imapflow's own AuthenticationFailure
+ * ("Already logged out", Exchange's "Authentication failed") sets the flag without a tagged
+ * status and keeps its message.
  */
 export function redactedError(err: unknown, sent: SentCredentials): Error {
   if (!(err instanceof Error)) return new Error(redactSentCredentials(String(err), sent));
@@ -180,7 +204,9 @@ export function redactedError(err: unknown, sent: SentCredentials): Error {
   let { message } = err;
   if (authenticationFailed === true && (responseStatus === 'NO' || responseStatus === 'BAD')) {
     message = 'Login refused by the server';
-    if (serverResponseCode) message += ` (${serverResponseCode})`;
+    if (serverResponseCode && REGISTERED_RESPONSE_CODES.has(serverResponseCode)) {
+      message += ` (${serverResponseCode})`;
+    }
   }
   return Object.assign(new Error(redactSentCredentials(message, sent)), {
     code,
