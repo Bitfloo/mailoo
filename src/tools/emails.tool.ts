@@ -9,6 +9,7 @@ import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
 import type { Email, EmailMeta } from '../types/index.js';
 import { applyBodyFormatWithDefaultCap } from '../utils/email-body.js';
+import formatSize from '../utils/format-size.js';
 import {
   accountParam,
   attachmentFilterFields,
@@ -22,12 +23,6 @@ import {
 // ---------------------------------------------------------------------------
 // Formatting helpers
 // ---------------------------------------------------------------------------
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-}
 
 function formatEmailMeta(email: EmailMeta): string {
   const flags = [

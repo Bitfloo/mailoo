@@ -39,6 +39,7 @@ import {
   preferRicherPlain,
   stripHtml,
 } from '../utils/email-body.js';
+import formatSize from '../utils/format-size.js';
 import toIsoDate from '../utils/iso-date.js';
 import compileRfc822 from '../utils/mail-compose.js';
 import type { LabelStrategy } from './label-strategy.js';
@@ -164,10 +165,6 @@ function attachmentMeta({
 
 function extractAttachments(bodyStructure: unknown): AttachmentMeta[] {
   return listAttachmentParts(bodyStructure).map(attachmentMeta);
-}
-
-function mebibytes(bytes: number): string {
-  return (bytes / (1024 * 1024)).toFixed(1);
 }
 
 /** A file name not yet used in this directory; compared without case for case-insensitive disks. */
@@ -1804,8 +1801,8 @@ export default class ImapService {
       if (attachment.encodedSize > maxSizeBytes) {
         // Leads with the size get_email showed, so a "~3.7MB" file refused at 5MB reads as one story.
         const shown = attachmentMeta(attachment);
-        const encoded = `${mebibytes(attachment.encodedSize)}MB encoded`;
-        const size = shown.sizeIsEstimate ? `~${mebibytes(shown.size)}MB (${encoded})` : encoded;
+        const encoded = `${formatSize(attachment.encodedSize)} encoded`;
+        const size = shown.sizeIsEstimate ? `~${formatSize(shown.size)} (${encoded})` : encoded;
         throw new Error(
           `Attachment "${filename}" is ${size}, exceeds ${Math.round(maxSizeBytes / 1024 / 1024)}MB limit`,
         );
