@@ -160,15 +160,29 @@ export function redactSentCredentials(text: string, sent: SentCredentials): stri
  * nodemailer's EAUTH carries the server line in `message` and `response`, imapflow's in
  * `response` and `responseText`; callers print, return, audit or queue `message`. `response`,
  * `responseText` and `cause` stay off on purpose.
+ *
+ * imapflow words every refused LOGIN or AUTHENTICATE as "Command failed", so that message is
+ * rebuilt from the refusal flag, the tagged NO or BAD and the response code, leaving out the
+ * server's free text. imapflow's own AuthenticationFailure ("Already logged out", Exchange's
+ * "Authentication failed") sets the flag without a tagged status and keeps its message.
  */
 export function redactedError(err: unknown, sent: SentCredentials): Error {
   if (!(err instanceof Error)) return new Error(redactSentCredentials(String(err), sent));
-  const { code, responseCode, command } = err as Error & {
-    code?: string;
-    responseCode?: number;
-    command?: string;
-  };
-  return Object.assign(new Error(redactSentCredentials(err.message, sent)), {
+  const { code, responseCode, command, authenticationFailed, responseStatus, serverResponseCode } =
+    err as Error & {
+      code?: string;
+      responseCode?: number;
+      command?: string;
+      authenticationFailed?: boolean;
+      responseStatus?: string;
+      serverResponseCode?: string;
+    };
+  let { message } = err;
+  if (authenticationFailed === true && (responseStatus === 'NO' || responseStatus === 'BAD')) {
+    message = 'Login refused by the server';
+    if (serverResponseCode) message += ` (${serverResponseCode})`;
+  }
+  return Object.assign(new Error(redactSentCredentials(message, sent)), {
     code,
     responseCode,
     command,

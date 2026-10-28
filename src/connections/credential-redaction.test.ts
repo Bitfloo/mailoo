@@ -1,4 +1,6 @@
-import { redactSentCredentials } from './credential-redaction.js';
+import { inspect } from 'node:util';
+
+import { redactedError, redactSentCredentials } from './credential-redaction.js';
 
 const USER = 'work@example.com';
 const PASSWORD = 'S3cret-Pa55word!';
@@ -381,5 +383,141 @@ describe('redactSentCredentials', () => {
   it('should redact before cutting so a secret across the cap leaves no prefix', () => {
     const lead = 'x'.repeat(295);
     expect(redactSentCredentials(`${lead}${PASSWORD}`, sent)).toBe(`${lead}[red…`);
+  });
+});
+
+const GREENMAIL_REFUSAL_TEXT = `LOGIN failed. Invalid login/password for user id ${USER}`;
+
+// imapflow 2's refused LOGIN or AUTHENTICATE as GreenMail answers it: a generic message, the
+// reason in fields, and no `serverResponseCode` because that server sends no [CODE].
+function imapflowRefusal(fields: Record<string, unknown> = {}): Error {
+  return Object.assign(new Error('Command failed'), {
+    authenticationFailed: true,
+    responseStatus: 'NO',
+    response: `2 NO ${GREENMAIL_REFUSAL_TEXT}`,
+    responseText: GREENMAIL_REFUSAL_TEXT,
+    ...fields,
+  });
+}
+
+describe('redactedError', () => {
+  describe('on a login the server refused', () => {
+    it('should name the refusal without a code when the server sent none', () => {
+      expect(redactedError(imapflowRefusal(), sent).message).toBe('Login refused by the server');
+    });
+
+    it.each(['NO', 'BAD'])(
+      'should name the refusal and its code when the server answered %s with one',
+      (responseStatus) => {
+        const refusal = imapflowRefusal({
+          responseStatus,
+          serverResponseCode: 'AUTHENTICATIONFAILED',
+        });
+        expect(redactedError(refusal, sent).message).toBe(
+          'Login refused by the server (AUTHENTICATIONFAILED)',
+        );
+      },
+    );
+
+    it('should name the refusal without a code when the code is an empty string', () => {
+      expect(redactedError(imapflowRefusal({ serverResponseCode: '' }), sent).message).toBe(
+        'Login refused by the server',
+      );
+    });
+
+    it.each([
+      ['the password', PASSWORD],
+      ['the access token', TOKEN],
+    ])('should redact %s that the server sent back as the code', (_quoted, secret) => {
+      const refusal = imapflowRefusal({ serverResponseCode: secret });
+      expect(redactedError(refusal, sent).message).toBe('Login refused by the server ([redacted])');
+    });
+
+    it('should leave response and responseText off the returned error', () => {
+      const refusal = imapflowRefusal({
+        response: `2 NO [AUTHENTICATIONFAILED] ${PASSWORD} rejected`,
+        responseText: `${PASSWORD} rejected`,
+      });
+      const shown = inspect(redactedError(refusal, sent));
+      expect({ password: shown.includes(PASSWORD), reply: shown.includes('rejected') }).toEqual({
+        password: false,
+        reply: false,
+      });
+    });
+
+    it('should leave the cause off the returned error', () => {
+      const refusal = new Error('Command failed', { cause: new Error(`${PASSWORD} rejected`) });
+      Object.assign(refusal, { authenticationFailed: true, responseStatus: 'NO' });
+      expect(inspect(redactedError(refusal, sent))).not.toContain(PASSWORD);
+    });
+
+    it('should keep code, responseCode and command', () => {
+      const refusal = imapflowRefusal({ code: 'AuthFailed', responseCode: 535, command: 'LOGIN' });
+      expect(redactedError(refusal, sent)).toMatchObject({
+        code: 'AuthFailed',
+        responseCode: 535,
+        command: 'LOGIN',
+      });
+    });
+  });
+
+  describe('on any other failure', () => {
+    it.each(['Already logged out', 'Authentication failed'])(
+      'should keep the message "%s" that imapflow raises with no server refusal behind it',
+      (message) => {
+        const notARefusal = Object.assign(new Error(message), { authenticationFailed: true });
+        expect(redactedError(notARefusal, sent).message).toBe(message);
+      },
+    );
+
+    it('should keep the message of a refusal of a command other than a login', () => {
+      const missingFolder = Object.assign(new Error('Command failed'), {
+        responseStatus: 'NO',
+        serverResponseCode: 'NONEXISTENT',
+        response: '3 NO [NONEXISTENT] Unknown Mailbox',
+        responseText: 'Unknown Mailbox',
+      });
+      expect(redactedError(missingFolder, sent).message).toBe('Command failed');
+    });
+
+    it('should keep the message of a failure that has only a server code', () => {
+      const withCode = Object.assign(new Error('Command failed'), {
+        serverResponseCode: 'NONEXISTENT',
+      });
+      expect(redactedError(withCode, sent).message).toBe('Command failed');
+    });
+
+    it('should keep the message of a login flagged as failed that the server did not answer NO or BAD', () => {
+      const dropped = imapflowRefusal({ responseStatus: 'BYE' });
+      expect(redactedError(dropped, sent).message).toBe('Command failed');
+    });
+
+    it('should keep the redacted message of an SMTP EAUTH error', () => {
+      const eauth = Object.assign(new Error(`Invalid login: 535 5.7.8 ${PASSWORD} rejected`), {
+        code: 'EAUTH',
+        response: `535 5.7.8 ${PASSWORD} rejected`,
+        responseCode: 535,
+        command: 'AUTH PLAIN',
+      });
+      expect(redactedError(eauth, sent)).toMatchObject({
+        message: 'Invalid login: 535 5.7.8 [redacted] rejected',
+        code: 'EAUTH',
+        responseCode: 535,
+        command: 'AUTH PLAIN',
+      });
+    });
+
+    it('should redact a message that quotes the server on a failure with no refusal fields', () => {
+      const quoting = new Error(`Command failed: NO [AUTHENTICATIONFAILED] ${PASSWORD} rejected`);
+      expect(redactedError(quoting, sent).message).toBe(
+        'Command failed: NO [AUTHENTICATIONFAILED] [redacted] rejected',
+      );
+    });
+
+    it('should redact a rejection that is not an Error', () => {
+      expect(redactedError(`535 5.7.8 ${PASSWORD} rejected`, sent).message).toBe(
+        '535 5.7.8 [redacted] rejected',
+      );
+    });
   });
 });

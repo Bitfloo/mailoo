@@ -140,14 +140,26 @@ beforeEach(() => {
 });
 
 describe('testImap', () => {
-  it('should report the refused login and still log out', async () => {
-    // imapflow's shape for a refused LOGIN: a generic message, the reason in the fields.
-    h.connectError = Object.assign(new Error('Command failed'), {
+  // GreenMail's refusal, as imapflow 2 raises it: no `serverResponseCode`, the reason in the fields.
+  const greenmailRefusal = (): Error =>
+    Object.assign(new Error('Command failed'), {
       authenticationFailed: true,
-      serverResponseCode: 'AUTHENTICATIONFAILED',
-      response: 'Invalid credentials (Failure)',
+      responseStatus: 'NO',
+      response: '2 NO LOGIN failed. Invalid login/password for user id work@example.com',
+      responseText: 'LOGIN failed. Invalid login/password for user id work@example.com',
     });
-    expect(await testImap(account)).toEqual({ success: false, error: 'Command failed' });
+
+  it('should report a refused login as such when the server sends no code', async () => {
+    h.connectError = greenmailRefusal();
+    expect(await testImap(account)).toEqual({
+      success: false,
+      error: 'Login refused by the server',
+    });
+  });
+
+  it('should log out after a refused login', async () => {
+    h.connectError = greenmailRefusal();
+    await testImap(account);
     expect(h.logout).toHaveBeenCalledOnce();
   });
 
@@ -202,10 +214,13 @@ describe('testImap', () => {
     ['the password', () => account, 'wrong-password'],
     ['the OAuth2 access token', oauthAccount, ACCESS_TOKEN],
   ])(
-    "should report only imapflow's generic message when it keeps %s in response and responseText",
+    'should report the refusal and its code, and leave %s out, when imapflow keeps it in response and responseText',
     async (_quoted, probed, secret) => {
       h.connectError = imapflowRefusal(secret);
-      expect(await testImap(probed(), tokens)).toEqual({ success: false, error: 'Command failed' });
+      expect(await testImap(probed(), tokens)).toEqual({
+        success: false,
+        error: 'Login refused by the server (AUTHENTICATIONFAILED)',
+      });
     },
   );
 
