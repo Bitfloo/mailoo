@@ -211,6 +211,16 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 </details>
 
 <details>
+<summary><strong>Claude Code</strong></summary>
+
+Register the server with the `claude` CLI. The default scope is the current project only; add `--scope user` to make it available in every project, or `--scope project` to write a shareable `.mcp.json`:
+
+```bash
+claude mcp add mailoo -- npx -y @bitfloo/mailoo stdio
+```
+</details>
+
+<details>
 <summary><strong>VS Code (GitHub Copilot)</strong></summary>
 
 Mailoo is not in the VS Code Extensions gallery. Point Copilot at the `npx` launch below.
