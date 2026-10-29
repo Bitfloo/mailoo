@@ -38,7 +38,7 @@
   <text x="66" y="45" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#f8fafc">Mailoo (@bitfloo/mailoo)</text>
   <text x="276" y="45" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13" fill="#94a3b8">Email, Calendar, Reminders &amp; ManageSieve MCP Architecture</text>
   <rect x="786" y="28" width="136" height="24" rx="12" fill="#064e3b" stroke="#10b981" stroke-width="1" />
-  <text x="854" y="44" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600" fill="#6ee7b7">MCP 2025/2026</text>
+  <text x="854" y="44" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600" fill="#6ee7b7">MCP server</text>
 
   <!-- Column 1: MCP Clients & LLM Tiers -->
   <rect x="24" y="78" width="210" height="320" rx="12" fill="url(#coreGrad)" stroke="#334155" stroke-width="1.5" />
@@ -125,5 +125,5 @@
   <rect x="704" y="324" width="218" height="62" rx="8" fill="#0f172a" stroke="#1e293b" stroke-width="1" />
   <text x="716" y="342" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#f1f5f9">AI Triage, Calendar &amp; Tasks</text>
   <text x="716" y="358" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#94a3b8">System One hooks, .ics parsing,</text>
-  <text x="716" y="373" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#94a3b8">CalDAV, EventKit &amp; Reminders</text>
+  <text x="716" y="373" font-family="system-ui, -apple-system, sans-serif" font-size="11" fill="#94a3b8">EventKit &amp; Reminders</text>
 </svg>
