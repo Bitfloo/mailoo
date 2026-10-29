@@ -252,6 +252,32 @@ describe('published identity', () => {
     expect(readme).not.toMatch(/npx @bitfloo\/mailoo` will fail/);
     expect(readme).not.toMatch(/until npm/i);
   });
+
+  // A bare name lets npx run any copy installed globally or in the working directory, however old.
+  it('should tag every npx run of the package with @latest in the docs, smithery.yaml and issue templates', async () => {
+    const listed = async (dir: string, ext: string) =>
+      (await readdir(join(root, dir)))
+        .filter((file) => file.endsWith(ext))
+        .map((file) => join(dir, file));
+    const files = [
+      'README.md',
+      'smithery.yaml',
+      ...(await listed('docs', '.md')),
+      ...(await listed('.github/ISSUE_TEMPLATE', '.yml')),
+    ];
+    const name = pkg.name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+    const untagged = new RegExp(`npx(?: -y)? ${name}(?!@)|["']${name}["']`, 'g');
+
+    const hits = await Promise.all(
+      files.map(async (file) =>
+        ((await readFile(join(root, file), 'utf8')).match(untagged) ?? []).map(
+          (hit) => `${file}: ${hit}`,
+        ),
+      ),
+    );
+
+    expect(hits.flat()).toEqual([]);
+  });
 });
 
 describe('README Environment Variables table', () => {
