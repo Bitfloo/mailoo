@@ -28,7 +28,6 @@ const ON: Record<string, string[]> = {
     '    - cron: "17 5 * * 1"',
     '  workflow_dispatch:',
   ],
-  'docker-rebuild.yml': ['  schedule:', '    - cron: "0 6 * * 1"', '  workflow_dispatch:'],
   'docker-sha.yml': ['  workflow_dispatch:'],
   // Another trigger would pass the npm gate as a run that is not a manual dispatch, and a string
   // skip-npm would make !inputs.skip-npm false on every manual run.
@@ -64,7 +63,6 @@ const IFS: Record<string, string[]> = {
     "    if: github.event_name == 'pull_request'",
   ],
   'codeql.yml': [],
-  'docker-rebuild.yml': [],
   'docker-sha.yml': [],
   'release.yml': [
     "    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.skip-npm }}",
@@ -86,7 +84,6 @@ const CONCURRENCY: Record<string, Record<string, unknown>> = {
     workflow: { group: '${{ github.workflow }}-${{ github.ref }}', 'cancel-in-progress': true },
   },
   'codeql.yml': {},
-  'docker-rebuild.yml': { workflow: { group: 'docker-rebuild', 'cancel-in-progress': true } },
   'docker-sha.yml': {
     workflow: { group: 'docker-sha-${{ github.sha }}', 'cancel-in-progress': true },
   },
