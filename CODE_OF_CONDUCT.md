@@ -60,7 +60,7 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported privately to the community leaders responsible for enforcement at
-touch@bitfloo.com.
+mailoo@bitfloo.com.
 
 All complaints will be reviewed and investigated promptly and fairly.
 
