@@ -3,12 +3,12 @@
 # ==============================================================================
 # Docs: https://docs.cocogitto.io/reference/config.html
 #
-# `feat` bumps the patch (bump_patch below), so --auto never starts a new minor line.
+# Releases use `cog bump --patch`. cog 7 `--auto` bumps the minor of a 0.x
+# version for any `feat` commit (0.3.1 -> 0.4.0), whatever the commit types set.
 # Labels like 0.1.001 map to 0.1.1 (SemVer rejects leading zeros).
 # Quick Commands:
-#   cog bump --auto          # Auto-bump based on commit types (patch-only)
-#   cog bump --minor         # Manual minor bump
-#   cog bump --patch         # Manual patch bump
+#   cog bump --patch         # Release: next patch version
+#   cog bump --minor         # Deliberate new minor line only
 #   cog check                # Verify commit history
 #   cog log                  # View conventional commit log
 #   cog changelog            # Generate changelog
@@ -56,7 +56,7 @@ post_bump_hooks = [
 # Commit Types
 # ------------------------------------------------------------------------------
 [commit_types]
-feat = { changelog_title = "✨ Features", bump_patch = true }
+feat = { changelog_title = "✨ Features" }
 fix = { changelog_title = "🐛 Bug Fixes" }
 perf = { changelog_title = "⚡ Performance" }
 refactor = { changelog_title = "♻️ Refactoring" }
