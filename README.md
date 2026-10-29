@@ -217,6 +217,7 @@ Register the server with the `claude` CLI. The default scope is the current proj
 
 ```bash
 claude mcp add mailoo -- npx -y @bitfloo/mailoo stdio
+# or, available in every project:
 claude mcp add --scope user mailoo -- npx -y @bitfloo/mailoo stdio
 ```
 </details>
