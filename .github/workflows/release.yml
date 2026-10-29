@@ -134,3 +134,27 @@ jobs:
           args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  aliases:
+    name: Publish npm aliases
+    runs-on: ubuntu-latest
+    needs: [npm]
+    if: always() && (needs.npm.result == 'success' || needs.npm.result == 'skipped')
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+      - run: npm ci --ignore-scripts
+        working-directory: .github/npm-cli
+      # Nothing waits for this job, so an alias that cannot be published (no trusted
+      # publisher yet, a name taken) leaves npm, the MCP Registry and Docker alone.
+      # The script runs on the same hash-pinned npm as the npm job (>= 11.5.1 is
+      # what the OIDC exchange needs), so that one goes first on PATH.
+      - run: PATH="$PWD/.github/npm-cli/node_modules/.bin:$PATH" bash scripts/publish-npm-aliases.sh
+        env:
+          NPM_JOB_RESULT: ${{ needs.npm.result }}

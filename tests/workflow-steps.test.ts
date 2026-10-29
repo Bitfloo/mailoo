@@ -144,6 +144,14 @@ const STEPS: Record<string, Record<string, string[]>> = {
       'run: Write release notes (run by a harness)',
       'goreleaser/goreleaser-action {"args":"release --clean --release-notes=${{ runner.temp }}/release-notes.md","version":"~> v2"}',
     ],
+    // Nothing waits for it, so the aliases cannot hold back the MCP Registry or the images. The
+    // script runs on the same hash-pinned npm as the npm job.
+    aliases: [
+      'actions/checkout',
+      `actions/setup-node {"node-version":"${node}","registry-url":"https://registry.npmjs.org"}`,
+      'run: npm ci --ignore-scripts (in .github/npm-cli)',
+      'run: PATH="$PWD/.github/npm-cli/node_modules/.bin:$PATH" bash scripts/publish-npm-aliases.sh',
+    ],
   },
   'scorecard.yml': {
     analysis: [
