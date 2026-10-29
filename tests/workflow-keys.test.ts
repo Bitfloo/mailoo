@@ -22,15 +22,15 @@ const workflows = workflowTexts().map(
 
 /**
  * The keys the workflows set at each level. Every one is read by a roster in this file,
- * workflow-roster, workflow-steps or workflow-security, and step name and id are the labels
- * the step harnesses find a step by. A key outside this list (timeout-minutes, environment,
+ * workflow-roster, workflow-steps or workflow-security, and step name is the label the step
+ * harnesses find a step by. A key outside this list (timeout-minutes, environment,
  * services, container, strategy, secrets) is read by no test, so it fails here until a roster
  * reads it.
  */
 const KEYS = {
   workflow: ['concurrency', 'jobs', 'name', 'on', 'permissions'],
   job: ['env', 'if', 'name', 'needs', 'permissions', 'runs-on', 'steps'],
-  step: ['env', 'id', 'name', 'run', 'uses', 'with', 'working-directory'],
+  step: ['env', 'name', 'run', 'uses', 'with', 'working-directory'],
 };
 
 /**
@@ -47,10 +47,6 @@ const JOBS: Record<string, string[]> = {
     'public-log: {"name":"Public commit and pull request text","runs-on":"ubuntu-latest"}',
   ],
   'codeql.yml': ['codeql', 'analyze: {"name":"Analyze","runs-on":"ubuntu-latest"}'],
-  'docker-rebuild.yml': [
-    'docker-rebuild',
-    'rebuild: {"name":"Rebuild GHCR image","runs-on":"ubuntu-latest"}',
-  ],
   'docker-sha.yml': [
     'docker-sha',
     'sha-images: {"name":"Push SHA-tagged image","runs-on":"ubuntu-latest"}',
@@ -81,7 +77,6 @@ const ENV: Record<string, string[]> = {
     'public-log: {"PR_TITLE":"${{ github.event.pull_request.title }}","PR_BODY":"${{ github.event.pull_request.body }}"}',
   ],
   'codeql.yml': [],
-  'docker-rebuild.yml': [],
   'docker-sha.yml': [],
   'release.yml': [
     'mcp: {"INPUT_VERSION":"${{ inputs.version }}"}',
