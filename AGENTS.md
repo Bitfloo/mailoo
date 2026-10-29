@@ -23,7 +23,7 @@ Project subagents live in `.cursor/agents/` (this clone). Cursor Cloud has no
 | `oss-push-gate` | Before `git push`: public log + slop. |
 
 Rubrics: `.claude/rules/testing-doctrine.md`, `.claude/rules/public-git.md`.
-Runners: `pnpm ci:local` (lint + unit; GreenMail if Docker), `pnpm test`,
+Runners: `pnpm ci:local` (lint, typecheck, unit; GreenMail if Docker), `pnpm test`,
 `pnpm test:integration`, `pnpm test:all`. `mailoo test` is a live-account
 probe, not Vitest.
 

@@ -47,8 +47,8 @@ body:
     id: version
     attributes:
       label: Version
-      description: "Run: node dist/main.js --version (from a built clone)"
-      placeholder: 0.1.0
+      description: "Run: npx -y @bitfloo/mailoo --version"
+      placeholder: x.y.z
     validations:
       required: true
 
@@ -64,6 +64,7 @@ body:
         - Fastmail
         - ProtonMail (Bridge)
         - Zoho
+        - GMX
         - Other / Self-hosted
     validations:
       required: true
@@ -77,6 +78,8 @@ body:
         - VS Code (Copilot)
         - Cursor
         - Windsurf
+        - Zed
+        - Mistral Vibe
         - Other
     validations:
       required: true
