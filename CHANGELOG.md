@@ -10,6 +10,19 @@ Mailoo is a fork of [email-mcp](https://github.com/codefuturist/email-mcp);
 its history before the fork is at the end of this file.
 
 - - -
+## [v0.3.2](https://github.com/bitfloo/mailoo/compare/v0.3.1..v0.3.2) - 2026-10-29
+#### ✨ Features
+- add npm aliases mailoo and mailoo-mcp, republished at each release (#91) - ([3699686](https://github.com/bitfloo/mailoo/commit/3699686880b74c3e0a909025cc6818a70cb78885)) - Mike, Claude Sonnet 5.5
+#### 🐛 Bug Fixes
+- (**cli**) print the npx @latest entry after account add - ([5384e9e](https://github.com/bitfloo/mailoo/commit/5384e9eb07696466533ac1bd44422397858bcff5)) - Mike, Claude Opus 5.5
+- (**cli**) register npx at @latest so clients pick up new releases - ([9d931a2](https://github.com/bitfloo/mailoo/commit/9d931a2b7d0ac4906d0c72a4e8f1af6a1ea8b10c)) - Mike, Claude Opus 5.5
+- (**release**) show npx at @latest in the release notes install line - ([e78a205](https://github.com/bitfloo/mailoo/commit/e78a205973aff62a7f88a3335dfc5f9d1351db33)) - Mike, Claude Opus 5.5
+- launch @latest from smithery.yaml and every documented npx command - ([92cc131](https://github.com/bitfloo/mailoo/commit/92cc131d630a0301257c91f384a9c93f01061397)) - Mike, Claude Opus 5.5
+#### 📚 Documentation
+- say npx reuses a stale copy from the project, not only the directory - ([fcd8fa8](https://github.com/bitfloo/mailoo/commit/fcd8fa88b06929ef1c3bccacc5488f7b44118670)) - Mike, Claude Opus 5.5
+
+- - -
+
 ## [v0.3.1](https://github.com/bitfloo/mailoo/compare/v0.3.0..v0.3.1) - 2026-10-29
 #### ⚠️ Behaviour changes
 
