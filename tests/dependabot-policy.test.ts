@@ -43,6 +43,52 @@ describe('dependabot groups', () => {
 
   const byName = (a: string[], b: string[]) => a[0].localeCompare(b[0]);
 
+  /** Each update root, as dependabot.yml writes it, of the tracked files git lists for `patterns`. */
+  function trackedDirs(patterns: string[]): string[] {
+    return execFileSync('git', ['ls-files', '--', ...patterns], { cwd: repoRoot, encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean)
+      .map((file) => `/${dirname(file)}`.replace(/\/\.$/, '/'));
+  }
+
+  const dockerfiles = ['Dockerfile', 'Dockerfile.*', '**/Dockerfile', '**/Dockerfile.*'];
+
+  function covered(ecosystem: string): (string | undefined)[] {
+    return updates
+      .filter((update) => update['package-ecosystem'] === ecosystem)
+      .flatMap((update) => update.directories ?? [update.directory]);
+  }
+
+  /** The major after the one every tracked Dockerfile's node base image runs. */
+  function nextImageMajor(): string {
+    const majors = new Set(
+      execFileSync('git', ['ls-files', '--', ...dockerfiles], { cwd: repoRoot, encoding: 'utf8' })
+        .split('\n')
+        .filter(Boolean)
+        .flatMap((file) => {
+          // Every FROM naming node is read, in any case as Docker reads it, so a form the major
+          // pattern misses throws instead of leaving the hold to the other Dockerfiles.
+          const tags = [
+            ...readFileSync(join(repoRoot, file), 'utf8').matchAll(/^FROM\s.*\bnode:(\S+)/gim),
+          ].map(([, tag]) => tag);
+          if (tags.length === 0) {
+            throw new Error(`${file}: no FROM names a node image`);
+          }
+          return tags.map((tag) => {
+            const major = tag.match(/^(\d+)-/)?.[1];
+            if (!major) {
+              throw new Error(`${file}: node:${tag} names no major`);
+            }
+            return major;
+          });
+        }),
+    );
+    if (majors.size !== 1) {
+      throw new Error(`expected one node major across the Dockerfiles, got ${[...majors]}`);
+    }
+    return `${Number([...majors][0]) + 1}.0.0`;
+  }
+
   /** Every ignore entry of every update, read whole and sorted by name. */
   function holds(): string[][] {
     return updates
@@ -82,17 +128,19 @@ describe('dependabot groups', () => {
 
   it('should update every npm manifest the repository tracks', () => {
     // With only / listed, the release npm CLI and the image pnpm CLI never got an update.
-    const manifests = execFileSync('git', ['ls-files', '--', 'package.json', '**/package.json'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-    })
-      .split('\n')
-      .filter(Boolean)
-      .map((file) => `/${dirname(file)}`.replace(/\/\.$/, '/'));
-    const covered = updates
-      .filter((update) => update['package-ecosystem'] === 'npm')
-      .flatMap((update) => update.directories ?? [update.directory]);
-    expect(manifests.filter((dir) => !covered.includes(dir))).toEqual([]);
+    const npm = covered('npm');
+    expect(
+      trackedDirs(['package.json', '**/package.json']).filter((dir) => !npm.includes(dir)),
+    ).toEqual([]);
+  });
+
+  it('should update the base image of every Dockerfile the repository tracks', () => {
+    // The FROM lines pin node by digest, so a Dockerfile no docker update covers never moves.
+    const dirs = trackedDirs(dockerfiles);
+    const docker = covered('docker');
+    expect({ read: dirs.length > 0, missing: dirs.filter((dir) => !docker.includes(dir)) }).toEqual(
+      { read: true, missing: [] },
+    );
   });
 
   it('should hold each blocked major at the first version its holder rules out', () => {
@@ -109,6 +157,7 @@ describe('dependabot groups', () => {
         typescript: peerCeiling(lockPeerRange('typescript-eslint', 'typescript')),
         vite: nextMajor('vite'),
         '@types/node': nextMajor('@types/node'),
+        node: nextImageMajor(),
       }).sort(byName),
     );
   });
@@ -138,6 +187,7 @@ describe('dependabot groups', () => {
       ['npm', ['/'], weekly, 10],
       ['npm', ['/.github/npm-cli', '/docker/pnpm-cli'], weekly, 2],
       ['github-actions', ['/'], weekly, 5],
+      ['docker', ['/'], weekly, 2],
     ]);
   });
 
@@ -188,6 +238,10 @@ describe('dependabot groups', () => {
       {
         keys: ['directory', 'groups', 'open-pull-requests-limit', 'package-ecosystem', 'schedule'],
         groups: { 'github-actions': ['patterns', 'update-types'] },
+      },
+      {
+        keys: ['directory', 'ignore', 'open-pull-requests-limit', 'package-ecosystem', 'schedule'],
+        groups: {},
       },
     ]);
   });
