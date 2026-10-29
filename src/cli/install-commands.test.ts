@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { confirm, select } from '@clack/prompts';
+import { confirm, note, select } from '@clack/prompts';
 
 import { useInstallHome } from '../test-support/cli-wizard.js';
 import { permissionBits } from '../test-support/config-sandbox.js';
@@ -118,7 +118,7 @@ describe('mailoo install', () => {
     expect(JSON.parse(await fs.readFile(sandbox.cursorConfig, 'utf-8'))).toEqual({
       mcpServers: {
         other: { command: 'other-server', args: ['--stdio'] },
-        mailoo: { command: 'npx', args: ['@bitfloo/mailoo', 'stdio'] },
+        mailoo: { command: 'npx', args: ['-y', '@bitfloo/mailoo@latest', 'stdio'] },
       },
     });
   });
@@ -156,7 +156,22 @@ describe('mailoo install', () => {
     await runInstallCommand();
 
     expect(JSON.parse(await fs.readFile(sandbox.cursorConfig, 'utf-8'))).toEqual({
-      mcpServers: { mailoo: { command: 'npx', args: [expect.any(String), 'stdio'] } },
+      mcpServers: { mailoo: { command: 'npx', args: ['-y', expect.any(String), 'stdio'] } },
+    });
+  });
+
+  it('should print the npx @latest entry to add by hand when no client is detected', async () => {
+    await fs.rm(path.join(sandbox.home, '.cursor'), { recursive: true });
+    vi.mocked(note).mockClear();
+
+    await runInstallCommand();
+
+    const printed = vi
+      .mocked(note)
+      .mock.calls.map(([message]) => String(message))
+      .find((message) => message.includes('mcpServers'));
+    expect(JSON.parse(printed ?? '{}')).toEqual({
+      mcpServers: { mailoo: { command: 'npx', args: ['-y', '@bitfloo/mailoo@latest', 'stdio'] } },
     });
   });
 

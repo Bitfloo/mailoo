@@ -170,7 +170,7 @@ startCommand:
   commandFunction: |-
     (config) => ({
       command: "npx",
-      args: ["-y", "@bitfloo/mailoo"],
+      args: ["-y", "@bitfloo/mailoo@latest"],
       env: Object.fromEntries(
         Object.entries(config).filter(
           ([key, value]) => /^MCP_EMAIL_/.test(key) && value !== undefined && value !== ""

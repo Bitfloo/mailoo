@@ -125,8 +125,8 @@ jobs:
           notes="$RUNNER_TEMP/release-notes.md"
           awk -v head="## [v${version}](" 'index($0, head) == 1 { found = on = 1; next } on && $0 == "- - -" { exit } on; END { if (!found) { print "no CHANGELOG.md section for " head > "/dev/stderr"; exit 1 } }' CHANGELOG.md > "$notes"
           # shellcheck disable=SC2016 # the backticks are Markdown code spans
-          printf '\n**Install:** `npx -y @bitfloo/mailoo@%s` · `docker pull ghcr.io/bitfloo/mailoo:%s` (or `%s-alpine`)\n\nFull history: [CHANGELOG.md](https://github.com/bitfloo/mailoo/blob/v%s/CHANGELOG.md)\n' \
-            "$version" "$version" "$version" "$version" >> "$notes"
+          printf '\n**Install:** `npx -y @bitfloo/mailoo@latest` · `docker pull ghcr.io/bitfloo/mailoo:%s` (or `%s-alpine`)\n\nFull history: [CHANGELOG.md](https://github.com/bitfloo/mailoo/blob/v%s/CHANGELOG.md)\n' \
+            "$version" "$version" "$version" >> "$notes"
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:

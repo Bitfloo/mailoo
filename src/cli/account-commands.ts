@@ -27,6 +27,7 @@ import { AppConfigFileSchema, SettingsSchema } from '../config/schema.js';
 import { testImap, testSmtp } from '../connections/probe.js';
 import type { AccountConfig } from '../types/index.js';
 import ensureInteractive from './guard.js';
+import { manualClientConfig } from './install-commands.js';
 import { detectProvider } from './providers.js';
 
 // ---------------------------------------------------------------------------
@@ -560,21 +561,7 @@ async function addAccount(): Promise<void> {
   await saveConfig(config);
   log.success(`Account "${identity.name}" added. Config saved to ${CONFIG_FILE}`);
 
-  note(
-    JSON.stringify(
-      {
-        mcpServers: {
-          mailoo: {
-            command: 'mailoo',
-            args: ['stdio'],
-          },
-        },
-      },
-      null,
-      2,
-    ),
-    'Add this to your MCP client config (e.g., Claude Desktop, Cursor)',
-  );
+  note(manualClientConfig(), 'Add this to your MCP client config (e.g., Claude Desktop, Cursor)');
 
   outro('Done!');
 }
