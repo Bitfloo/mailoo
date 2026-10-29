@@ -118,7 +118,7 @@ describe('mailoo install', () => {
     expect(JSON.parse(await fs.readFile(sandbox.cursorConfig, 'utf-8'))).toEqual({
       mcpServers: {
         other: { command: 'other-server', args: ['--stdio'] },
-        mailoo: { command: 'npx', args: ['@bitfloo/mailoo', 'stdio'] },
+        mailoo: { command: 'npx', args: ['-y', '@bitfloo/mailoo@latest', 'stdio'] },
       },
     });
   });
@@ -156,7 +156,7 @@ describe('mailoo install', () => {
     await runInstallCommand();
 
     expect(JSON.parse(await fs.readFile(sandbox.cursorConfig, 'utf-8'))).toEqual({
-      mcpServers: { mailoo: { command: 'npx', args: [expect.any(String), 'stdio'] } },
+      mcpServers: { mailoo: { command: 'npx', args: ['-y', expect.any(String), 'stdio'] } },
     });
   });
 
