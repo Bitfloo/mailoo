@@ -206,6 +206,7 @@ describe('workflow token is no wider than the job writes', () => {
         npm: ['contents: read', 'id-token: write'],
         mcp: ['contents: read', 'id-token: write'],
         docker: ['contents: write', 'packages: write'],
+        aliases: ['contents: read', 'id-token: write'],
       },
       'scorecard.yml': {
         '(workflow)': ['read-all'],

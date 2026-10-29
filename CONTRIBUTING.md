@@ -93,6 +93,24 @@ Run it on `develop`: it commits the version and pushes that commit as the branch
 commit, so the commit the tag names stays in `develop`'s history. Then push
 the tag with `git push origin v<version>`; the tag starts the publish.
 
+npm aliases: the names in `scripts/npm-aliases.txt` are static shims that start
+`@bitfloo/mailoo` (`scripts/build-npm-alias.sh`). The release workflow republishes
+each one at the release version, after the main package, with an exact dependency
+on it (the `aliases` job; nothing waits for it, so a failure there holds back
+neither the MCP Registry nor the images). A range would freeze: npx keeps the
+dependencies it resolved on the first run while the alias's own version stays the
+same. Trusted publishing cannot create a package, so a new name is set up once by a
+maintainer from a terminal, at a released version, with npm 11.15 or newer, 2FA on
+the account and a logged-in session: pick a name that is free (npm also refuses one
+that differs from an existing package only by `.`, `-` or `_`, so compare the name
+with the existing ones with those characters removed on both sides), add it to the
+list, run
+`scripts/publish-npm-aliases.sh` (npm opens a browser to confirm), then
+`npm trust github <name> --file release.yml --repo Bitfloo/mailoo --allow-publish`.
+The `aliases` job warns about a name that is not on npm and fails for one that is
+published but not yet trusted; both leave the rest of the release alone.
+`--dry-run` builds and packs without publishing.
+
 ## Project Structure
 
 ```

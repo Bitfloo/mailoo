@@ -1,0 +1,4 @@
+# npm names that start the same server (scripts/build-npm-alias.sh). One name per line.
+# A new name is published once by a maintainer, then by the release workflow: CONTRIBUTING.md.
+mailoo
+mailoo-mcp

@@ -60,6 +60,7 @@ const JOBS: Record<string, string[]> = {
     'npm: {"name":"Publish to npm","runs-on":"ubuntu-latest"}',
     'mcp: {"name":"Publish to MCP Registry","runs-on":"ubuntu-latest","needs":["npm"]}',
     'docker: {"name":"Publish Docker images","runs-on":"ubuntu-latest","needs":["npm","mcp"]}',
+    'aliases: {"name":"Publish npm aliases","runs-on":"ubuntu-latest","needs":["npm"]}',
   ],
   'scorecard.yml': [
     'scorecard',
@@ -86,6 +87,7 @@ const ENV: Record<string, string[]> = {
     'mcp: {"INPUT_VERSION":"${{ inputs.version }}"}',
     'docker: {"INPUT_VERSION":"${{ inputs.version }}"}',
     'docker: {"GITHUB_TOKEN":"${{ secrets.GITHUB_TOKEN }}"}',
+    'aliases: {"NPM_JOB_RESULT":"${{ needs.npm.result }}"}',
   ],
   'scorecard.yml': [],
 };
