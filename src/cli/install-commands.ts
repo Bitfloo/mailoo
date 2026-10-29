@@ -50,7 +50,7 @@ const esmRequire = createRequire(import.meta.url);
 const pkg = esmRequire('../../package.json') as { name: string; bin?: Record<string, string> };
 const PKG_NPM = pkg.name;
 // npx checks a dist-tag against the registry on every start. A bare name runs any copy installed
-// globally or in the client's working directory, however old.
+// globally or in the project the client starts it from, however old.
 const PKG_NPX_SPEC = `${PKG_NPM}@latest`;
 const PKG_BIN = Object.keys(pkg.bin ?? { mailoo: true })[0] ?? 'mailoo';
 

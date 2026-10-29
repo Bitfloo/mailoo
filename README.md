@@ -115,7 +115,7 @@ npx -y @bitfloo/mailoo@latest
 npx -y @bitfloo/mailoo@latest test
 ```
 
-`npx -y @bitfloo/mailoo@latest` with no subcommand starts the MCP server over stdio. Keep the `@latest` tag: npx then checks the registry on every start, while a bare package name runs any copy installed globally or in the current directory, however old. Or install the `mailoo` command:
+`npx -y @bitfloo/mailoo@latest` with no subcommand starts the MCP server over stdio. Keep the `@latest` tag: npx then checks the registry on every start, while a bare package name runs any copy installed globally or in the current project, however old. Or install the `mailoo` command:
 
 ```bash
 npm install -g @bitfloo/mailoo

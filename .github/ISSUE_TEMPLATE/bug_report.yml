@@ -47,7 +47,7 @@ body:
     id: version
     attributes:
       label: Version
-      description: "Run your install's command with --version: npx -y @bitfloo/mailoo@latest --version, docker run --rm ghcr.io/bitfloo/mailoo:<tag> --version, or node dist/main.js --version in a clone"
+      description: "Run the command from your MCP client config with --version, for example npx -y @bitfloo/mailoo@latest --version, docker run --rm ghcr.io/bitfloo/mailoo:<tag> --version, or node dist/main.js --version in a clone"
       placeholder: x.y.z
     validations:
       required: true
