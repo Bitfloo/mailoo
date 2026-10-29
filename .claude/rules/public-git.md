@@ -32,7 +32,7 @@ than same-named plugin agents. That file is for agents, not for the git log.
 
 Cocogitto (`cog.toml`): tags `v*`, `CHANGELOG.md`, `package.json` version.
 `from_latest_tag = true` — upstream email-mcp tags are not Mailoo releases.
-Bump with `cog bump --auto` (or `--minor` / `--patch`) on `develop`
+Bump with `cog bump --patch` on `develop` (never `--auto`: cog 7 jumps a `feat` to the next minor)
 when you **intend** a release. Do not bump for docs-only work.
 MCP tool/schema/URI changes need a **major** bump (`CLAUDE.md`).
 `server.json` `version` and each `packages[].version` track `package.json`

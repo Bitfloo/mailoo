@@ -38,7 +38,6 @@
     "commit": "cog commit",
     "changelog": "cog changelog",
     "version:check": "cog check",
-    "version:bump": "cog bump --auto",
     "version:bump:minor": "cog bump --minor",
     "version:bump:patch": "cog bump --patch",
     "version:log": "cog log",
