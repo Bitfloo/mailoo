@@ -9,7 +9,7 @@
 
 ![Mailoo Architecture](https://raw.githubusercontent.com/Bitfloo/mailoo/develop/docs/assets/mailoo-architecture.svg)
 
-Enables AI assistants and autonomous agents to read, search, send, manage, schedule, and analyze emails, calendars, Reminders, and ManageSieve filter scripts across multiple accounts. Exposes up to 57 tools (with `full`, `core`, and `minimal` toolset profiles), up to 7 prompts, and 6 resources over the MCP 2025/2026 protocol with `outputSchema` / `structuredContent`, OAuth2 support _(experimental)_, email scheduling, calendar extraction, analytics, provider-aware label management, real-time IMAP IDLE watcher with AI-powered triage, customizable presets and static rules, ManageSieve filters, and a guided setup wizard.
+Enables AI assistants and autonomous agents to read, search, send, manage, schedule, and analyze emails, calendars, Reminders, and ManageSieve filter scripts across multiple accounts. Exposes up to 57 tools (with `full`, `core`, and `minimal` toolset profiles), up to 7 prompts, and 6 resources over MCP with `outputSchema` / `structuredContent`, OAuth2 support _(experimental)_, email scheduling, calendar extraction, analytics, provider-aware label management, real-time IMAP IDLE watcher with AI-powered triage, customizable presets and static rules, ManageSieve filters, and a guided setup wizard.
 
 Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, read-only side effects, and reconnect backoff is documented in [`docs/configuration.md`](docs/configuration.md) and [`docs/tools.md`](docs/tools.md).
 
@@ -25,14 +25,14 @@ Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, read-only si
 | Real-time IMAP IDLE watcher | ✅ |
 | AI triage with presets | ✅ |
 | Desktop & webhook alerts | ✅ |
-| Calendar (ICS, CalDAV & Apple Calendar/Reminders) | ✅ |
+| Calendar (ICS, Apple Calendar/Reminders) | ✅ |
 | Email analytics | ✅ |
 | OAuth2 (Gmail / M365) | ✅ _experimental_ |
 | Guided setup wizard | ✅ |
 | ManageSieve (server-side filters) | ✅ |
 | Sender auth headers (SPF/DKIM/DMARC) | ✅ |
 | Toolset profiles (`full` / `core` / `minimal`) & GBNF small-LLM ergonomics | ✅ |
-| MCP 2025/2026 `outputSchema` & `structuredContent` | ✅ |
+| MCP `outputSchema` & `structuredContent` | ✅ |
 
 ## Table of Contents
 
@@ -55,7 +55,7 @@ Policy and how to report a vulnerability: **[SECURITY.md](SECURITY.md)**.
 
 Mailoo is engineered with defense-in-depth sandboxing so AI agents can safely interact with untrusted mail and external servers:
 
-- **Zero Shell Execution (`execFile` only)** — Native OS integrations (macOS `osascript` for EventKit/Reminders/notifications, Linux `notify-send`, Windows `powershell`, and crontab installation) invoke `child_process.execFile` with strict argument arrays (`shell: false`), eliminating command injection vectors.
+- **Zero Shell Execution (`execFile` only)** — Native OS integrations (macOS `osascript` for Calendar/Reminders/notifications, Linux `notify-send`, Windows `powershell`, and crontab installation) invoke `child_process.execFile` with strict argument arrays (`shell: false`), eliminating command injection vectors.
 - **SSRF & DNS-Rebinding Protection (`net.BlockList`)** — Outbound alert webhooks validate URLs against an IPv4/IPv6 `net.BlockList` covering loopback, RFC 1918 private ranges, link-local/cloud metadata (`169.254.169.254`, `100.100.100.200`), CGNAT, NAT64, 6to4, and reserved prefixes both at configuration time and at socket connection time (`createWebhookConnectLookup`), preventing DNS-rebinding attacks (`src/safety/validation.ts`).
 - **Symlink-Free Write Containment (`savePath`)** — Attachment and `.eml` exports via `savePath` are strictly confined to the working directory, walk every path segment with `lstat`, refuse hidden dotfiles and OS persistence directories (`Library/LaunchAgents`, `.ssh`, `.gnupg`), and open targets with `O_CREAT | O_EXCL | O_NOFOLLOW` under a **50 MiB** cap (**5 MiB** inline base64 cap). An `.eml` export is capped by its own size; an attachment by its encoded size in the message, which for base64 runs above the file size ([details](docs/tools.md#download_attachment)).
 - **Prompt Injection Fencing (`<<<UNTRUSTED_EXTERNAL_CONTENT>>>`)** — Untrusted email subjects, sender headers, message bodies, previews, and authentication results are wrapped in `<<<UNTRUSTED_EXTERNAL_CONTENT>>>` … `<<<END_UNTRUSTED_EXTERNAL_CONTENT>>>` delimiters (stripping any forged markers inside the payload) so LLMs treat external mail as data, not instructions.
@@ -78,7 +78,7 @@ Mailoo is designed to work across both frontier models (Claude, GPT, Gemini) and
 - **Optional `account` & Smart Account Resolution** — When only a single account is configured or `default_account` (`MCP_EMAIL_DEFAULT_ACCOUNT`) is set, the `account` parameter is completely optional across tools. Account lookup also matches case-insensitively by profile name or email address (e.g., passing `"you@example.com"` resolves the matching account), and returns actionable error messages listing valid accounts (`name (email)` pairs) when ambiguous.
 - **Lossless Parameter Normalization & GBNF Compatibility** — Single-message tools accept `emailId`, `id`, or `email_id` as either string or integer (`42` or `"42"`). Batch tools (`get_emails`, `bulk_action`) accept string or numeric ID arrays (`["42", "43"]` or `[42, 43]`). `list_emails` and `search_emails` accept both `hasAttachment` and `has_attachment`. All Zod schemas avoid regex lookaheads so `llama.cpp` GBNF grammar compilation succeeds without errors.
 - **Context Window Protection** — `get_email` and `get_thread` default to `format="text"` and enforce a default `maxLength` of `20000` characters (appending a clear truncation notice when exceeded) so large HTML newsletters never overflow small context windows.
-- **MCP 2025/2026 `outputSchema` & `structuredContent`** — Tools declare structured `outputSchema` contracts and return machine-readable `structuredContent` alongside human-readable text blocks.
+- **MCP `outputSchema` & `structuredContent`** — Tools declare structured `outputSchema` contracts and return machine-readable `structuredContent` alongside human-readable text blocks.
 - Outgoing attachment paths must be regular files under the working directory or home — [Security considerations](SECURITY.md#security-considerations)
 
 ## Docs
@@ -140,7 +140,7 @@ node dist/main.js account add
 
 The running image needs Docker, not Node on the host. Create the config first with `npx -y @bitfloo/mailoo account add` (or write the TOML by hand), then mount that directory into the container.
 
-The image is `ghcr.io/bitfloo/mailoo`, built for linux/amd64 and linux/arm64. Tags are bare semver (no `v` prefix). The `0.3` tag follows the newest 0.3.x release. Production setups should pin the full version from the release (it matches the npm version) or the image digest.
+The image is `ghcr.io/bitfloo/mailoo`, built for linux/amd64 and linux/arm64. Version tags are bare semver (no `v` prefix); `latest`, `alpine` and the `-bookworm` / `-alpine` variants are published too. The `0.3` tag follows the newest 0.3.x release. Production setups should pin the full version from the release (it matches the npm version) or the image digest.
 
 ```bash
 docker pull ghcr.io/bitfloo/mailoo:0.3
@@ -185,7 +185,7 @@ npx -y @bitfloo/mailoo test personal   # specific account
 
 ### Configure Your MCP Client
 
-Run the guided installer, or paste a snippet below. There is no VS Code / MCP gallery listing.
+Run the guided installer, or paste a snippet below. Mailoo is published to the official MCP Registry as `io.github.Bitfloo/mailoo`.
 
 ```bash
 npx -y @bitfloo/mailoo install
@@ -834,7 +834,7 @@ Templates under `$XDG_CONFIG_HOME/mailoo/templates/` are read, not written by th
 
 ### Environment
 
-Single-account setup reads `MCP_EMAIL_*` (`src/config/loader.ts`). HTTP listens reads `MCP_EMAIL_HTTP_HOST`, `MCP_EMAIL_HTTP_TOKEN`, and `MCP_EMAIL_HTTP_ALLOWED_HOSTS` (`src/safety/http-transport.ts`). The same names are the Smithery config keys and the `packages[].environmentVariables` list in `server.json`.
+Single-account setup reads `MCP_EMAIL_*` (`src/config/loader.ts`). The HTTP listener reads `MCP_EMAIL_HTTP_HOST`, `MCP_EMAIL_HTTP_TOKEN`, and `MCP_EMAIL_HTTP_ALLOWED_HOSTS` (`src/safety/http-transport.ts`). The same names are the Smithery config keys and the `packages[].environmentVariables` list in `server.json`.
 
 | Name | Role |
 |---|---|
