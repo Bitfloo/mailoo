@@ -11,6 +11,16 @@ Mailoo is a fork of [email-mcp](https://github.com/codefuturist/email-mcp);
 its history before the fork is at the end of this file.
 
 - - -
+## [v0.3.3](https://github.com/bitfloo/mailoo/compare/v0.3.2..v0.3.3) - 2026-10-29
+#### 📦 Dependencies
+- The Docker images install `@modelcontextprotocol/sdk` 1.32.2 from the
+  lockfile ([#95](https://github.com/bitfloo/mailoo/pull/95)). npm installs
+  already resolved it through the `^1.32.1` range.
+#### 📚 Documentation
+- note that 0.3.2 published only the mailoo-mcp npm alias - ([dad4c1b](https://github.com/bitfloo/mailoo/commit/dad4c1b76e0451fd804376f90d0fe90db32042c6)) - Mike, Claude Opus 5.5
+
+- - -
+
 ## [v0.3.2](https://github.com/bitfloo/mailoo/compare/v0.3.1..v0.3.2) - 2026-10-29
 #### ✨ Features
 - add npm aliases mailoo and mailoo-mcp, republished at each release (#91) - ([3699686](https://github.com/bitfloo/mailoo/commit/3699686880b74c3e0a909025cc6818a70cb78885)) - Mike, Claude Sonnet 5.5
