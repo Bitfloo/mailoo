@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import createServer from '../server.js';
+import { MAX_HEADER_LINE_OCTETS, relayHeaders } from '../test-support/mail-headers.js';
 import registerEmailsTools from '../tools/emails.tool.js';
 import type { TestServices } from './helpers/index.js';
 import {
@@ -140,6 +141,220 @@ describe('Email Read Operations', () => {
       expect(email.from).toBeDefined();
       expect(email.messageId).toBeTruthy();
     });
+
+    describe('attachment size', () => {
+      const ATTACHMENT_BYTES = 200_000;
+      /** nodemailer's 76-column CRLF body decodes to within 3 bytes of the estimate (imap.service.attachments.test.ts). */
+      const ESTIMATE_TOLERANCE_BYTES = 3;
+      const FILENAME = 'próbka-ąę.bin';
+      const subject = 'Attachment size is the decoded size';
+
+      async function seededEmailId(): Promise<string> {
+        const found = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { subject });
+        if (found.items.length === 0)
+          throw new Error(`no delivered message with subject "${subject}"`);
+        return found.items[0].id;
+      }
+
+      beforeAll(async () => {
+        await seedEmail({
+          subject,
+          attachments: [
+            {
+              filename: FILENAME,
+              content: Buffer.from(
+                Uint8Array.from({ length: ATTACHMENT_BYTES }, (_, i) => (i * 131 + 7) % 256),
+              ),
+              contentType: 'application/octet-stream',
+            },
+          ],
+        });
+        await waitForDelivery(subject);
+      });
+
+      it('should report the decoded size of a base64 attachment within the estimate tolerance', async () => {
+        const email = await services.imapService.getEmail(TEST_ACCOUNT_NAME, await seededEmailId());
+
+        const [attachment] = email.attachments;
+
+        expect(Math.abs((attachment?.size ?? 0) - ATTACHMENT_BYTES)).toBeLessThanOrEqual(
+          ESTIMATE_TOLERANCE_BYTES,
+        );
+      });
+
+      it('should flag the size of a base64 attachment as an estimate', async () => {
+        const email = await services.imapService.getEmail(TEST_ACCOUNT_NAME, await seededEmailId());
+
+        expect(email.attachments.map((a) => [a.filename, a.sizeIsEstimate])).toStrictEqual([
+          [FILENAME, true],
+        ]);
+      });
+
+      it('should print the decoded size with a tilde in the get_email text', async () => {
+        const emailId = await seededEmailId();
+        const server = createServer();
+        registerEmailsTools(server, services.imapService, true);
+        const mcp = new Client({ name: 'mailoo-attachment-size', version: '0.0.0' });
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([mcp.connect(clientTransport), server.connect(serverTransport)]);
+        try {
+          const result = await mcp.callTool({
+            name: 'get_email',
+            arguments: { account: TEST_ACCOUNT_NAME, emailId, mailbox: 'INBOX' },
+          });
+          if (!isTextToolResult(result)) throw new Error('tool result has no text content');
+          const line = result.content[0]?.text?.split('\n').find((l) => l.startsWith('📎'));
+
+          expect(line).toBe(`📎 Attachments: ${FILENAME} (application/octet-stream, ~195.3KB)`);
+        } finally {
+          await Promise.allSettled([mcp.close(), server.close()]);
+        }
+      });
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // preview of received mail
+  // ---------------------------------------------------------------------------
+
+  describe('preview', () => {
+    const POLISH = 'Zażółć gęślą jaźń';
+    const QP_UTF8 = 'Za=C5=BC=C3=B3=C5=82=C4=87 g=C4=99=C5=9Bl=C4=85 ja=C5=BA=C5=84';
+    const QP_ISO_8859_2 = 'Za=BF=F3=B3=E6 g=EA=B6l=B1 ja=BC=F1';
+    const RELAYED = 'Pchnąć w tę łódź jeża';
+    const ALTERNATIVE = 'Źdźbło żyta w łódce';
+    const QP_RELAYED = 'Pchn=C4=85=C4=87 w t=C4=99 =C5=82=C3=B3d=C5=BA je=C5=BCa';
+    /** More than the 4096 octets a preview reads, in headers alone: no cut from the start of the message reaches the body. */
+    const RELAYED_HEADER_OCTETS = 8192;
+    const mailbox = `Preview-${process.pid}`;
+
+    function rawMessage(subject: string, contentHeaders: string[], body: string, extra = '') {
+      const header = [
+        'From: Alice Example <alice@example.test>',
+        'To: Bob Example <bob@example.test>',
+        `Subject: ${subject}`,
+        'Date: Tue, 27 Oct 2026 09:12:44 +0000',
+        `Message-ID: <${subject.replace(/\W+/g, '-')}@example.test>`,
+        'MIME-Version: 1.0',
+        ...(extra ? [extra] : []),
+        ...contentHeaders,
+      ].join('\r\n');
+      return Buffer.from(`${header}\r\n\r\n${body}\r\n`);
+    }
+
+    function singlePart(
+      subject: string,
+      charset: string,
+      encoding: string,
+      body: string,
+      extra = '',
+    ) {
+      return rawMessage(
+        subject,
+        [
+          `Content-Type: text/plain; charset="${charset}"`,
+          `Content-Transfer-Encoding: ${encoding}`,
+        ],
+        body,
+        extra,
+      );
+    }
+
+    function relayedMessage(subject: string) {
+      const raw = singlePart(
+        subject,
+        'utf-8',
+        'quoted-printable',
+        QP_RELAYED,
+        relayHeaders(RELAYED_HEADER_OCTETS),
+      );
+      const text = raw.toString('latin1');
+      const headerOctets = text.indexOf('\r\n\r\n');
+      const longestLine = Math.max(
+        ...text
+          .slice(0, headerOctets)
+          .split('\r\n')
+          .map((l) => l.length),
+      );
+      if (headerOctets <= RELAYED_HEADER_OCTETS || longestLine > MAX_HEADER_LINE_OCTETS) {
+        throw new Error(`header block ${headerOctets} octets, longest line ${longestLine}`);
+      }
+      return raw;
+    }
+
+    const fixtures: { subject: string; raw: Buffer; preview: string }[] = [
+      {
+        subject: 'Preview quoted-printable UTF-8',
+        raw: singlePart('Preview quoted-printable UTF-8', 'utf-8', 'quoted-printable', QP_UTF8),
+        preview: POLISH,
+      },
+      {
+        subject: 'Preview behind relay headers',
+        raw: relayedMessage('Preview behind relay headers'),
+        preview: RELAYED,
+      },
+      {
+        subject: 'Preview quoted-printable ISO-8859-2',
+        raw: singlePart(
+          'Preview quoted-printable ISO-8859-2',
+          'iso-8859-2',
+          'quoted-printable',
+          QP_ISO_8859_2,
+        ),
+        preview: POLISH,
+      },
+      {
+        subject: 'Preview multipart/alternative base64',
+        raw: rawMessage(
+          'Preview multipart/alternative base64',
+          ['Content-Type: multipart/alternative; boundary="b1"'],
+          [
+            '--b1',
+            'Content-Type: text/plain; charset="utf-8"',
+            'Content-Transfer-Encoding: base64',
+            '',
+            Buffer.from(ALTERNATIVE).toString('base64'),
+            '--b1',
+            'Content-Type: text/html; charset="utf-8"',
+            '',
+            '<p>HTML version</p>',
+            '--b1--',
+          ].join('\r\n'),
+        ),
+        preview: ALTERNATIVE,
+      },
+    ];
+
+    beforeAll(async () => {
+      const client = await services.connections.getImapClient(TEST_ACCOUNT_NAME);
+      await client.mailboxCreate(mailbox);
+      for (const { raw } of fixtures) {
+        // eslint-disable-next-line no-await-in-loop
+        await client.append(mailbox, raw, [], new Date('2026-10-27T09:12:44Z'));
+      }
+    });
+
+    afterAll(async () => {
+      const client = await services.connections.getImapClient(TEST_ACCOUNT_NAME);
+      await client.mailboxDelete(mailbox);
+    });
+
+    it.each(fixtures.map(({ subject, preview }) => [subject, preview]))(
+      'should show the decoded text of "%s" when listed and when searched',
+      async (subject, preview) => {
+        const listed = await services.imapService.listEmails(TEST_ACCOUNT_NAME, { mailbox });
+        const searched = await services.imapService.searchEmails(TEST_ACCOUNT_NAME, '', {
+          mailbox,
+        });
+        const previewIn = ({ items }: typeof listed) =>
+          items.find((item) => item.subject === subject)?.preview;
+
+        expect({ listed: previewIn(listed), searched: previewIn(searched) }).toEqual({
+          listed: preview,
+          searched: preview,
+        });
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 import ConnectionManager from '../connections/manager.js';
+import { testImap } from '../connections/probe.js';
 import ImapService from '../services/imap.service.js';
 import type { AccountConfig } from '../types/index.js';
 import { getGreenMailPorts } from './helpers/config.js';
@@ -21,6 +22,27 @@ describe('Error Handling', () => {
   // ---------------------------------------------------------------------------
 
   describe('bad credentials', () => {
+    // GreenMail refuses LOGIN with a tagged NO and no [CODE]; imapflow keeps the reason in fields
+    // and raises the generic "Command failed".
+    it('should report a refused login from the connection probe when the password is wrong', async () => {
+      expect(await testImap(buildTestAccount({ password: 'wrong-password' }))).toEqual({
+        success: false,
+        error: 'Login refused by the server',
+      });
+    });
+
+    it('should reject a connection with the refusal when the password is wrong', async () => {
+      const account = buildTestAccount({ password: 'wrong-password' });
+      const refused = new ConnectionManager([account]);
+      try {
+        await expect(refused.getImapClient(account.name)).rejects.toMatchObject({
+          message: 'Login refused by the server',
+        });
+      } finally {
+        await refused.closeAll();
+      }
+    });
+
     it('should throw on invalid account name', async () => {
       await expect(services.imapService.listEmails('nonexistent-account')).rejects.toThrow(
         /not found/i,

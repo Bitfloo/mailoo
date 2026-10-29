@@ -3,6 +3,7 @@ import {
   createMockConnectionManager,
   createMockImapClient,
   fetchServesRows,
+  requireUidRange,
 } from '../test-support/imap-client-fake.js';
 import ImapService from './imap.service.js';
 
@@ -292,7 +293,6 @@ describe('ImapService', () => {
             uid: 500,
             envelope: { date: new Date('2026-03-01'), subject: 'latest', from: [], to: [] },
             flags: new Set(),
-            bodyParts: new Map([['1', Buffer.from('Preview text from part 1')]]),
           };
         }
         return fetchMock();
@@ -304,29 +304,183 @@ describe('ImapService', () => {
       expect(fetchedUids[0]).toBe('251');
       expect(fetchedUids[249]).toBe('500');
       expect(result.total).toBe(500);
-      expect(result.items[0].preview).toBe('Preview text from part 1');
+    });
+  });
+
+  describe('preview', () => {
+    const POLISH = 'Zażółć gęślą jaźń';
+
+    const BASE64_UTF8 = Buffer.from(POLISH).toString('base64');
+
+    /**
+     * BODYSTRUCTURE of multipart/alternative mail as imapflow parses it. The plain part is base64,
+     * as many clients send non-ASCII text: decoding the whole TEXT section by it yields no text.
+     */
+    const alternative = {
+      type: 'multipart/alternative',
+      parameters: { boundary: 'b1' },
+      childNodes: [
+        {
+          part: '1',
+          type: 'text/plain',
+          parameters: { charset: 'utf-8' },
+          encoding: 'base64',
+          size: 36,
+          lineCount: 1,
+        },
+        {
+          part: '2',
+          type: 'text/html',
+          parameters: { charset: 'utf-8' },
+          encoding: '7bit',
+          size: 19,
+          lineCount: 1,
+        },
+      ],
+    };
+    const alternativeText = [
+      '--b1',
+      'Content-Type: text/plain; charset=utf-8',
+      'Content-Transfer-Encoding: base64',
+      '',
+      BASE64_UTF8,
+      '--b1',
+      'Content-Type: text/html; charset=utf-8',
+      '',
+      '<p>HTML version</p>',
+      '--b1--',
+      '',
+    ].join('\r\n');
+    const plainSinglePart = {
+      type: 'text/plain',
+      parameters: { charset: 'utf-8' },
+      encoding: '7bit',
+      size: 4209,
+      lineCount: 2101,
+    };
+
+    const htmlSinglePart = {
+      type: 'text/html',
+      parameters: { charset: 'utf-8' },
+      encoding: '7bit',
+      size: 30,
+      lineCount: 1,
+    };
+
+    /**
+     * UID FETCH BODY.PEEK[section]<start.maxLength> as a server answers it: those octets of each
+     * message's section, or NIL, which imapflow hands over as false, for a section it lacks.
+     * A FETCH of a section in `refused` fails as a server's NO does.
+     */
+    function serveSections(byUid: Record<number, Record<string, string>>, refused: string[] = []) {
+      client.fetchAll.mockImplementation(
+        async (
+          range: string,
+          query: { bodyParts: { key: string; start: number; maxLength?: number }[] },
+          options?: { uid?: boolean },
+        ) => {
+          requireUidRange('fetchAll', range, options);
+          const [{ key, start, maxLength }] = query.bodyParts;
+          if (refused.includes(key)) throw new Error('Command failed');
+          const end = maxLength === undefined ? undefined : start + maxLength;
+          return range.split(',').map((uid) => {
+            const text = byUid[Number(uid)]?.[key];
+            const octets = text === undefined ? false : Buffer.from(text).subarray(start, end);
+            return { uid: Number(uid), bodyParts: new Map([[key.toLowerCase(), octets]]) };
+          });
+        },
+      );
+    }
+
+    /** One page of messages with these BODYSTRUCTUREs, UIDs 1, 2, … in order. */
+    function listPage(...bodyStructures: object[]) {
+      client.search.mockResolvedValue(bodyStructures.map((_, i) => i + 1));
+      fetchServesRows(
+        client,
+        bodyStructures.map((bodyStructure, i) =>
+          listedMessage(i + 1, `2026-10-2${i + 1}T09:12:44Z`, { bodyStructure }),
+        ),
+      );
+    }
+
+    async function previewsById(
+      list: Lister = async (svc, options) => svc.listEmails('test', options),
+    ) {
+      const { items } = await list(service, {});
+      return Object.fromEntries(items.map((item) => [item.id, item.preview]));
+    }
+
+    it.each(listers)(
+      'should preview the plain part of multipart/alternative mail in %s',
+      async (_name, list) => {
+        listPage(alternative);
+        serveSections({ 1: { TEXT: alternativeText, 1: BASE64_UTF8, 2: '<p>HTML version</p>' } });
+
+        expect(await previewsById(list)).toEqual({ 1: POLISH });
+      },
+    );
+
+    it.each(listers)(
+      'should give each message on a %s page its own preview',
+      async (_name, list) => {
+        // Messages 1 and 3 share the TEXT section, message 2 is fetched by part 1.
+        listPage(plainSinglePart, alternative, plainSinglePart);
+        serveSections({
+          1: { TEXT: 'First message' },
+          2: { TEXT: alternativeText, 1: BASE64_UTF8 },
+          3: { TEXT: 'Third message' },
+        });
+
+        expect(await previewsById(list)).toEqual({
+          1: 'First message',
+          2: POLISH,
+          3: 'Third message',
+        });
+      },
+    );
+
+    it('should preview HTML-only mail as text', async () => {
+      listPage(htmlSinglePart);
+      serveSections({ 1: { TEXT: '<p>Only <b>HTML</b> here</p>' } });
+
+      expect(await previewsById()).toEqual({ 1: 'Only HTML here' });
     });
 
-    it('extracts preview even when RFC 822 headers exceed 256 bytes', async () => {
-      client.search.mockResolvedValue([42]);
-      const longHeaders = `${'X-Header-Padding: '.padEnd(80, 'a')}\r\n`.repeat(10);
-      const source = Buffer.from(
-        `${longHeaders}Subject: Long headers\r\n\r\nActual body preview text!`,
-      );
-      client.fetch.mockImplementation(() => {
-        async function* fetchMock() {
-          yield {
-            uid: 42,
-            envelope: { date: new Date('2026-03-01'), subject: 'Long headers', from: [], to: [] },
-            flags: new Set(),
-            source,
-          };
-        }
-        return fetchMock();
-      });
+    // A blank line is 2 octets: 2045 of them put the text at octet 4090, so six of its characters
+    // fit in 4096; 2100 put it at octet 4200.
+    it.each([
+      [2045, 'Text 1'],
+      [2100, undefined],
+    ])(
+      'should read only the first 4096 octets of a part (text after %i blank lines → %s)',
+      async (blankLines, preview) => {
+        listPage(plainSinglePart);
+        serveSections({ 1: { TEXT: `${'\r\n'.repeat(blankLines)}Text 123456789` } });
 
-      const result = await service.listEmails('test', { page: 1, pageSize: 10 });
-      expect(result.items[0].preview).toBe('Actual body preview text!');
+        expect(await previewsById()).toEqual({ 1: preview });
+      },
+    );
+
+    it('should list a message without a preview when the server answers NIL', async () => {
+      listPage(alternative);
+      serveSections({});
+
+      expect(await previewsById()).toEqual({ 1: undefined });
+    });
+
+    it("should keep another section's previews when the server refuses one section", async () => {
+      // Message 1 is fetched by TEXT, message 2 by part 1.
+      listPage(plainSinglePart, alternative);
+      serveSections({ 2: { 1: BASE64_UTF8 } }, ['TEXT']);
+
+      expect(await previewsById()).toEqual({ 1: undefined, 2: POLISH });
+    });
+
+    it('should list a message without a preview when the preview FETCH fails', async () => {
+      listPage(alternative);
+      client.fetchAll.mockRejectedValue(new Error('Command failed'));
+
+      expect(await previewsById()).toEqual({ 1: undefined });
     });
   });
 });

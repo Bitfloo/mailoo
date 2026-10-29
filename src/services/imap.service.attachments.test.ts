@@ -14,7 +14,7 @@ import {
   fetchOneByUid,
   rejectCommandsDuringFetch,
 } from '../test-support/imap-client-fake.js';
-import ImapService from './imap.service.js';
+import ImapService, { decodedBase64Size } from './imap.service.js';
 
 describe('ImapService', () => {
   let client: ReturnType<typeof createMockImapClient>;
@@ -273,6 +273,43 @@ describe('ImapService', () => {
         : expect(download).rejects.toThrow('exceeds 5MB'));
     });
 
+    // The cap bounds the base64 response, so it compares the size the server reports. Were it
+    // to switch to the decoded estimate, 5 MiB + 1 encoded bytes would pass as about 3.7MB.
+    it.each([
+      [
+        '5 MiB + 1 byte of base64',
+        { size: 5 * 1024 * 1024 + 1 },
+        'Attachment "scan.pdf" is ~3.7MB (5.0MB encoded), exceeds 5MB limit',
+      ],
+      [
+        '17 MiB of base64',
+        { size: 17 * 1024 * 1024 },
+        'Attachment "scan.pdf" is ~12.4MB (17.0MB encoded), exceeds 5MB limit',
+      ],
+      // 5.38 MiB encoded: rounding says 5.4, truncation 5.3.
+      [
+        '5 MiB + 400000 bytes of base64',
+        { size: 5 * 1024 * 1024 + 400_000 },
+        'Attachment "scan.pdf" is ~3.9MB (5.4MB encoded), exceeds 5MB limit',
+      ],
+      // get_email shows no estimate for a part that is not base64, so neither does the refusal.
+      [
+        '5 MiB + 600000 bytes of 7bit',
+        { size: 5 * 1024 * 1024 + 600_000, encoding: '7bit' },
+        'Attachment "scan.pdf" is 5.6MB encoded, exceeds 5MB limit',
+      ],
+    ])('should name the encoded size in the refusal of %s', async (_, overrides, message) => {
+      fetchOneByUid(client, {
+        uid: 9,
+        bodyStructure: mixedStructure(attachmentNode('2', 'scan.pdf', overrides)),
+      });
+      downloadReturnsPartName(client);
+
+      await expect(
+        service.downloadAttachment('test', '9', 'INBOX', 'scan.pdf'),
+      ).rejects.toMatchObject({ message });
+    });
+
     // An empty part number downloads BODY[], the whole message, as the attachment.
     it('should refuse a single-part attachment that has no MIME part number', async () => {
       fetchOneByUid(client, { uid: 9, bodyStructure: singlePartAttachment });
@@ -314,5 +351,136 @@ describe('ImapService', () => {
 
       expect(client._releaseFn).toHaveBeenCalledTimes(1);
     });
+  });
+
+  describe('getEmail attachment sizes', () => {
+    const REPORTED_BASE64_SIZE = 273_684;
+    const DECODED_SIZE = 200_000;
+
+    async function attachmentsOf(...nodes: object[]) {
+      fetchOneByUid(client, {
+        uid: 9,
+        envelope: { subject: 'Sizes', from: [{ address: 'sender@example.com' }] },
+        flags: new Set<string>(),
+        bodyStructure: mixedStructure(...nodes),
+      });
+      downloadReturnsPartName(client);
+      return (await service.getEmail('test', '9')).attachments;
+    }
+
+    // BODYSTRUCTURE of the 200000-byte file GreenMail received from nodemailer.
+    const greenMailBin = () =>
+      attachmentNode('2', 'próbka-ąę.bin', {
+        type: 'application/octet-stream',
+        size: REPORTED_BASE64_SIZE,
+      });
+
+    it('should report the decoded size of a base64 attachment and flag it as an estimate', async () => {
+      const attachments = await attachmentsOf(greenMailBin());
+
+      expect(attachments).toStrictEqual([
+        {
+          filename: 'próbka-ąę.bin',
+          mimeType: 'application/octet-stream',
+          size: DECODED_SIZE,
+          sizeIsEstimate: true,
+        },
+      ]);
+    });
+
+    it('should keep the reported size, without an estimate flag, for 7bit and quoted-printable parts', async () => {
+      const attachments = await attachmentsOf(
+        greenMailBin(),
+        attachmentNode('3', 'notes.txt', { encoding: '7bit', size: 34 }),
+        attachmentNode('4', 'quoted.txt', { encoding: 'quoted-printable', size: 2048 }),
+      );
+
+      expect(attachments).toStrictEqual([
+        {
+          filename: 'próbka-ąę.bin',
+          mimeType: 'application/octet-stream',
+          size: DECODED_SIZE,
+          sizeIsEstimate: true,
+        },
+        { filename: 'notes.txt', mimeType: 'text/plain', size: 34 },
+        { filename: 'quoted.txt', mimeType: 'text/plain', size: 2048 },
+      ]);
+    });
+
+    // imapflow leaves `encoding` unset for a NIL BODYSTRUCTURE field, and RFC 2045 section 6.1
+    // makes 7bit the default, so the reported size is already the decoded size.
+    it('should keep the reported size, without an estimate flag, for an attachment with no transfer encoding', async () => {
+      const node = attachmentNode('2', 'plain.txt', { size: 2048 });
+      const nodeWithoutEncoding = Object.fromEntries(
+        Object.entries(node).filter(([key]) => key !== 'encoding'),
+      );
+
+      const attachments = await attachmentsOf(nodeWithoutEncoding);
+
+      expect(attachments).toStrictEqual([
+        { filename: 'plain.txt', mimeType: 'text/plain', size: 2048 },
+      ]);
+    });
+
+    // Only base64 inflates a part by a fixed factor. A guard that matched "not 7bit" would shrink these.
+    it.each(['8bit', 'binary', 'quoted-printable'])(
+      'should keep the reported size without an estimate flag for an attachment encoded as %s',
+      async (encoding) => {
+        const attachments = await attachmentsOf(
+          attachmentNode('2', 'raw.dat', { encoding, size: 2048 }),
+        );
+
+        expect(attachments).toStrictEqual([
+          { filename: 'raw.dat', mimeType: 'text/plain', size: 2048 },
+        ]);
+      },
+    );
+  });
+});
+
+// Mail clients wrap base64 at 76 characters and end each line with CRLF (RFC 2045 section 6.8),
+// so every 57 decoded bytes occupy 78 octets in the part BODYSTRUCTURE sizes.
+describe('decodedBase64Size', () => {
+  /**
+   * Measured, not derived: for every n in 1..20000, decodedBase64Size(S) - n is in -1..2
+   * when S is the 76-column CRLF-wrapped length without a trailing CRLF (what nodemailer
+   * writes) and in 0..3 with one. 3 is the widest observed error and no wider: n = 1 with
+   * a trailing CRLF gives S = 6, which rounds to 4 (error 3) but would ceil to 5.
+   */
+  const ESTIMATE_TOLERANCE_BYTES = 3;
+
+  /** Matches nodemailer's body byte for byte for the sizes below (measured against its MIME output). */
+  function mimeBase64Length(content: Buffer, trailingCrlf: boolean): number {
+    const wrapped = content.toString('base64').replace(/.{76}(?=.)/g, '$&\r\n');
+    return Buffer.byteLength(trailingCrlf ? `${wrapped}\r\n` : wrapped);
+  }
+
+  const bytesOf = (n: number) =>
+    Buffer.from(Uint8Array.from({ length: n }, (_, i) => (i * 131 + 7) % 256));
+
+  const cases = [1, 2, 3, 57, 58, 200_000].flatMap((n) => [
+    { n, trailingCrlf: false, label: 'without' },
+    { n, trailingCrlf: true, label: 'with' },
+  ]);
+
+  it.each(cases)(
+    'should estimate $n decoded bytes within tolerance from a 76-column body $label a trailing CRLF',
+    ({ n, trailingCrlf }) => {
+      const encoded = mimeBase64Length(bytesOf(n), trailingCrlf);
+
+      expect(Math.abs(decodedBase64Size(encoded) - n)).toBeLessThanOrEqual(
+        ESTIMATE_TOLERANCE_BYTES,
+      );
+    },
+  );
+
+  it.each([
+    ['the size GreenMail reports for 200000 bytes sent by nodemailer', 273_684, 200_000],
+    ['base64 written without line breaks, which comes out low', 266_668, 194_873],
+    ['a fraction above one half, rounded up', 76, 56],
+    ['a fraction below one half, rounded down', 80, 58],
+    ['an empty part', 0, 0],
+  ])('should map %s: %i encoded to %i decoded', (_, encoded, decoded) => {
+    expect(decodedBase64Size(encoded)).toBe(decoded);
   });
 });

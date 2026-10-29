@@ -1,7 +1,7 @@
 # Performance Improvements Roadmap
 
 > **Status**: Active  
-> **Last Updated**: 2026-10-18
+> **Last Updated**: 2026-10-29
 
 Performance for Mailoo operates across **three distinct layers**, each with different bottlenecks and optimization strategies. This roadmap tracks shipped optimizations and remaining improvements against the current implementation, ordered by impact.
 
@@ -23,7 +23,7 @@ Performance for Mailoo operates across **three distinct layers**, each with diff
 | BODYSTRUCTURE for attachment detection | ✅ Done | `imap.service.ts` — uses `{ bodyStructure: true }` |
 | Selective MIME part fetching | ✅ Done | `imap.service.ts` — `getEmail()`, `getEmails()`, `getThread()`, and `peekText()` walk `bodyStructure` (`findTextMimeParts`) and download leaf `text/plain` / `text/html` parts instead of full `source: true` (with a 64 KiB `source` fallback only when no text MIME parts exist) |
 | Bounded UID date-sorting window | ✅ Done | `imap.service.ts` — `orderUidsByDate()` in `listEmails()` and `searchEmails()` fetches `ENVELOPE` only for the newest UID window (`Math.max(page * pageSize * 3, 250)`) for mailboxes with >250 matching messages |
-| Source preview truncation & MIME stripping | ✅ Done | `imap.service.ts` — `maxLength: 4096` (`LIST_PREVIEW_SOURCE_MAX_BYTES`) with MIME boundary stripping and a 200-character preview cap |
+| Bounded preview part fetch | ✅ Done | `imap.service.ts` — after the page FETCH, `listEmails()` and `searchEmails()` fetch the first `PREVIEW_PART_MAX_BYTES` of each message's text part, one partial FETCH per text section on the page, decode its transfer encoding and charset (`decodePartPrefix`), and cap the preview at `PREVIEW_MAX_CHARS` |
 | Body truncation & quote/signature stripping | ✅ Done | `email-body.ts`, `emails.tool.ts`, `thread.tool.ts` — default `format="text"` strips signatures and quoted replies (`strip_signature`, `strip_quoted`) and enforces a default 20,000-character cap (`applyBodyFormatWithDefaultCap`) plus `settings.body_max_chars` |
 | Real-time IMAP IDLE watcher | ✅ Done | `watcher.service.ts` (`WatcherService`) — dedicated IDLE connections per monitored folder with exponential backoff reconnect (`1s` → `60s`) |
 | Nodemailer SMTP connection pooling | ✅ Done | `manager.ts` — `pool: true` enabled by default (`max_connections = 1`, `max_messages = 100`) |
@@ -230,7 +230,7 @@ class ImapConnectionPool {
 
 #### P4.5 — Selective BODYSTRUCTURE Fetch
 
-**Current**: Fetches BODYSTRUCTURE on list operations alongside ENVELOPE to compute `hasAttachments` and extract text previews. **Target**: Make BODYSTRUCTURE fetching optional when attachment metadata is not needed.
+**Current**: Fetches BODYSTRUCTURE on list operations alongside ENVELOPE to compute `hasAttachments` and to choose the part each preview is fetched from. **Target**: Make BODYSTRUCTURE fetching optional when attachment metadata is not needed.
 
 ---
 

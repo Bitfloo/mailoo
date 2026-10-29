@@ -229,7 +229,15 @@ export interface EmailMeta {
 export interface AttachmentMeta {
   filename: string;
   mimeType: string;
+  /**
+   * Size in bytes. A base64 part gets its decoded size, estimated from the size the
+   * server reports, and sizeIsEstimate is true. Any other part keeps the reported size,
+   * which equals its decoded size in 7bit, 8bit and binary and can exceed it in
+   * quoted-printable.
+   */
   size: number;
+  /** True on a base64 part; absent, not false, on the others. */
+  sizeIsEstimate?: boolean;
 }
 
 /** Input for send_email / save_draft attachments. */

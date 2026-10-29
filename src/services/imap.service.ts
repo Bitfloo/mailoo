@@ -5,7 +5,7 @@
  */
 
 import { join } from 'node:path';
-import type { ImapFlow } from 'imapflow';
+import type { FetchMessageObject, ImapFlow } from 'imapflow';
 import type { IConnectionManager } from '../connections/types.js';
 import { sanitizeAttachmentFilename } from '../safety/local-paths.js';
 import {
@@ -31,7 +31,15 @@ import type {
   SenderStat,
 } from '../types/index.js';
 import { parseSenderAuth } from '../utils/auth-headers.js';
-import { looksLikeRawMime, preferRicherPlain, stripHtml } from '../utils/email-body.js';
+import {
+  BASE64_QUANTUM_BYTES,
+  BASE64_QUANTUM_CHARS,
+  decodePartPrefix,
+  looksLikeRawMime,
+  preferRicherPlain,
+  stripHtml,
+} from '../utils/email-body.js';
+import formatSize from '../utils/format-size.js';
 import toIsoDate from '../utils/iso-date.js';
 import compileRfc822 from '../utils/mail-compose.js';
 import type { LabelStrategy } from './label-strategy.js';
@@ -87,9 +95,13 @@ function partParameters(bs: Record<string, unknown>): Record<string, string> {
   };
 }
 
-interface AttachmentPart extends AttachmentMeta {
+interface AttachmentPart extends Pick<AttachmentMeta, 'filename' | 'mimeType'> {
   /** IMAP part number (BODY[part]); empty for the root of a single-part message. */
   part: string;
+  /** BODYSTRUCTURE size: octets in the transfer encoding, not decoded (RFC 3501 section 7.4.2). */
+  encodedSize: number;
+  /** Content-Transfer-Encoding, which imapflow lowercases; empty when the part has none. */
+  encoding: string;
 }
 
 /**
@@ -107,8 +119,9 @@ function listAttachmentParts(bodyStructure: unknown, partPath = ''): AttachmentP
     attachments.push({
       filename: params.filename ?? params.name ?? 'unnamed',
       mimeType: mimeTypeOf(bs) || 'application/octet-stream',
-      size: (bs.size as number) ?? 0,
       part: effectivePath,
+      encodedSize: (bs.size as number) ?? 0,
+      encoding: typeof bs.encoding === 'string' ? bs.encoding : '',
     });
   }
 
@@ -122,12 +135,36 @@ function listAttachmentParts(bodyStructure: unknown, partPath = ''): AttachmentP
   return attachments;
 }
 
+/** RFC 2045 section 6.8: a base64 line holds at most 76 characters. */
+const BASE64_LINE_CHARS = 76;
+/** The CRLF that separates lines (RFC 2045 section 2.10). */
+const CRLF_OCTETS = 2;
+
+/**
+ * Decoded size of a base64 part from the size the server reports: a full line, 76
+ * characters and a CRLF, is 78 octets that carry 57 bytes. Within 3 bytes for
+ * 76-character CRLF-wrapped bodies, the layout nodemailer and most mail clients write.
+ * Base64 written without line breaks comes out low, by about 2.6% on a large part.
+ */
+export function decodedBase64Size(encodedSize: number): number {
+  const lineOctets = BASE64_LINE_CHARS + CRLF_OCTETS;
+  const lineBytes = (BASE64_LINE_CHARS / BASE64_QUANTUM_CHARS) * BASE64_QUANTUM_BYTES;
+  return Math.round((encodedSize * lineBytes) / lineOctets);
+}
+
+function attachmentMeta({
+  filename,
+  mimeType,
+  encodedSize,
+  encoding,
+}: AttachmentPart): AttachmentMeta {
+  // Quoted-printable keeps the reported size: unlike base64, its overhead depends on the content.
+  if (encoding !== 'base64') return { filename, mimeType, size: encodedSize };
+  return { filename, mimeType, size: decodedBase64Size(encodedSize), sizeIsEstimate: true };
+}
+
 function extractAttachments(bodyStructure: unknown): AttachmentMeta[] {
-  return listAttachmentParts(bodyStructure).map(({ filename, mimeType, size }) => ({
-    filename,
-    mimeType,
-    size,
-  }));
+  return listAttachmentParts(bodyStructure).map(attachmentMeta);
 }
 
 /** A file name not yet used in this directory; compared without case for case-insensitive disks. */
@@ -149,11 +186,21 @@ export interface TextMimeParts {
   html?: string;
 }
 
+interface TextMimeLeaf {
+  part: string;
+  node: Record<string, unknown>;
+}
+
+interface TextMimeLeaves {
+  plain?: TextMimeLeaf;
+  html?: TextMimeLeaf;
+}
+
 /**
- * Walk ImapFlow bodyStructure and return the first non-attachment text/plain
- * and text/html leaf part numbers. Skips message/rfc822 subtrees.
+ * The leaves findTextMimeParts names, with their bodyStructure nodes: a listing preview is
+ * decoded by the encoding and charset of the node its part was fetched from.
  */
-export function findTextMimeParts(bodyStructure: unknown, partPath = ''): TextMimeParts {
+function findTextMimeLeaves(bodyStructure: unknown, partPath = ''): TextMimeLeaves {
   if (!bodyStructure || typeof bodyStructure !== 'object') return {};
   const bs = bodyStructure as Record<string, unknown>;
   const mime = mimeTypeOf(bs);
@@ -161,23 +208,32 @@ export function findTextMimeParts(bodyStructure: unknown, partPath = ''): TextMi
   if (mime === 'message/rfc822' || mime.startsWith('message/')) return {};
 
   const currentPart = (typeof bs.part === 'string' && bs.part ? bs.part : partPath) || '1';
-  const here: TextMimeParts = {};
-  if (mime === 'text/plain') here.plain = currentPart;
-  if (mime === 'text/html') here.html = currentPart;
+  const here: TextMimeLeaves = {};
+  if (mime === 'text/plain') here.plain = { part: currentPart, node: bs };
+  if (mime === 'text/html') here.html = { part: currentPart, node: bs };
 
   if (!Array.isArray(bs.childNodes)) return here;
 
-  return bs.childNodes.reduce<TextMimeParts>((acc, child: unknown, i: number) => {
+  return bs.childNodes.reduce<TextMimeLeaves>((acc, child: unknown, i: number) => {
     const childRecord = child as Record<string, unknown> | undefined;
     const childPart =
       (typeof childRecord?.part === 'string' && childRecord.part) ||
       (currentPart && currentPart !== '1' ? `${currentPart}.${i + 1}` : String(i + 1));
-    const nested = findTextMimeParts(child, childPart);
+    const nested = findTextMimeLeaves(child, childPart);
     return {
       plain: acc.plain ?? nested.plain,
       html: acc.html ?? nested.html,
     };
   }, here);
+}
+
+/**
+ * Walk ImapFlow bodyStructure and return the first non-attachment text/plain
+ * and text/html leaf part numbers. Skips message/rfc822 subtrees.
+ */
+export function findTextMimeParts(bodyStructure: unknown): TextMimeParts {
+  const { plain, html } = findTextMimeLeaves(bodyStructure);
+  return { plain: plain?.part, html: html?.part };
 }
 
 /** Content of one MIME part with its transfer encoding (base64, quoted-printable) removed. */
@@ -325,7 +381,15 @@ async function findThreadUids(client: ImapFlow, messageId: string, max: number):
 
 const DEFAULT_DATE_SORT_WINDOW = 250;
 const FALLBACK_SOURCE_MAX_BYTES = 65_536;
-const LIST_PREVIEW_SOURCE_MAX_BYTES = 4096;
+const PREVIEW_MAX_CHARS = 200;
+/**
+ * Octets of a listed message's text part fetched for its preview. Dense text costs at most 12.5
+ * octets a character, the quoted-printable worst case: up to 4 octets of UTF-8 written as 3-octet
+ * escapes, and a 3-octet soft break per 72 such octets on 76-column lines. PREVIEW_MAX_CHARS
+ * characters fit with room left for white space or markup ahead of the text; text that starts
+ * past the cap gets no preview.
+ */
+const PREVIEW_PART_MAX_BYTES = 4096;
 // In-Reply-To rides along because some servers (GreenMail among them) leave it out of ENVELOPE.
 const MESSAGE_HEADER_FIELDS = ['references', 'in-reply-to', 'content-type'];
 
@@ -405,49 +469,57 @@ function cleanPreviewCandidate(raw: string): string | undefined {
   }
   if (looksLikeRawMime(text)) return undefined;
   const stripped = stripHtml(text).replace(/\s+/g, ' ').trim();
-  return stripped ? stripped.slice(0, 200) : undefined;
+  return stripped ? stripped.slice(0, PREVIEW_MAX_CHARS) : undefined;
 }
 
-function extractPreview(msg: Record<string, unknown>): string | undefined {
-  // 1. Prefer decoded/fetched MIME text part from bodyParts Map when present
-  if (msg.bodyParts instanceof Map && msg.bodyParts.size > 0) {
-    const textParts = findTextMimeParts(msg.bodyStructure);
-    const preferredKeys = [
-      textParts.plain,
-      '1.1',
-      '1',
-      'text',
-      textParts.html,
-      ...Array.from(msg.bodyParts.keys()).map(String),
-    ].filter((k): k is string => Boolean(k));
+/**
+ * Previews of listed messages by UID. Each text section the page uses is fetched once for all
+ * its messages, cut at PREVIEW_PART_MAX_BYTES, so a page of single-part mail costs one FETCH.
+ */
+async function fetchPreviews(
+  client: ImapFlow,
+  rows: FetchMessageObject[],
+): Promise<Map<number, string>> {
+  const sections = new Map<string, Map<number, TextMimeLeaf>>();
+  rows.forEach((row) => {
+    const { plain, html } = findTextMimeLeaves(row.bodyStructure);
+    const leaf = plain ?? html;
+    if (!leaf) return;
+    // A single-part body is fetched as TEXT, as imapflow's download() fetches it.
+    const section = row.bodyStructure?.childNodes ? leaf.part : 'TEXT';
+    const leaves = sections.get(section) ?? new Map<number, TextMimeLeaf>();
+    sections.set(section, leaves.set(row.uid, leaf));
+  });
 
-    // eslint-disable-next-line no-restricted-syntax
-    for (const key of preferredKeys) {
-      const buf = msg.bodyParts.get(key) ?? msg.bodyParts.get(key.toLowerCase());
-      if (Buffer.isBuffer(buf) && buf.length > 0) {
-        const candidate = cleanPreviewCandidate(buf.toString('utf-8'));
-        if (candidate) return candidate;
-      }
-    }
+  const previews = new Map<number, string>();
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [section, leaves] of sections) {
+    // eslint-disable-next-line no-await-in-loop
+    const answered = await client
+      .fetchAll(
+        [...leaves.keys()].join(','),
+        { uid: true, bodyParts: [{ key: section, start: 0, maxLength: PREVIEW_PART_MAX_BYTES }] },
+        { uid: true },
+      )
+      // A preview must never cost the listing: a refused section leaves its messages without one.
+      .catch((): FetchMessageObject[] => []);
+    answered.forEach(({ uid, bodyParts }) => {
+      const leaf = leaves.get(uid);
+      if (!leaf) return;
+      const octets = bodyParts?.get(section.toLowerCase());
+      // Typed Map<string, Buffer>, but imapflow answers a NIL section with false.
+      if (!Buffer.isBuffer(octets)) return;
+      const { encoding, parameters } = leaf.node;
+      const text = decodePartPrefix(
+        octets,
+        typeof encoding === 'string' ? encoding : undefined,
+        (parameters as Record<string, string> | undefined)?.charset,
+      );
+      const preview = cleanPreviewCandidate(text);
+      if (preview) previews.set(uid, preview);
+    });
   }
-
-  // 2. Fallback to source slice (after RFC 822 headers)
-  if (msg.source && Buffer.isBuffer(msg.source)) {
-    const rawText = msg.source.toString('utf-8');
-    const crlfStart = rawText.indexOf('\r\n\r\n');
-    const lfStart = rawText.indexOf('\n\n');
-    let bodySlice: string | undefined;
-    if (crlfStart >= 0) {
-      bodySlice = rawText.slice(crlfStart + 4);
-    } else if (lfStart >= 0) {
-      bodySlice = rawText.slice(lfStart + 2);
-    }
-    if (bodySlice) {
-      return cleanPreviewCandidate(bodySlice);
-    }
-  }
-
-  return undefined;
+  return previews;
 }
 
 async function orderUidsByDate(
@@ -485,14 +557,12 @@ async function orderUidsByDate(
   return [...dated.map((d) => d.uid), ...missingTailDesc, ...olderUidsDesc];
 }
 
-function messageToEmailMeta(msg: Record<string, unknown>): EmailMeta {
+function messageToEmailMeta(msg: Record<string, unknown>, preview?: string): EmailMeta {
   const envelope = (msg.envelope ?? {}) as Record<string, unknown>;
   const flags = new Set((msg.flags ?? []) as string[]);
 
   // Extract non-system flags as labels (IMAP keywords)
   const labels = [...flags].filter((f) => !f.startsWith('\\'));
-
-  const preview = extractPreview(msg);
 
   return {
     id: String(msg.uid ?? msg.seq),
@@ -508,6 +578,27 @@ function messageToEmailMeta(msg: Record<string, unknown>): EmailMeta {
     preview,
     messageId: (envelope.messageId as string) ?? undefined,
   };
+}
+
+/**
+ * The listed messages of one page. Their previews are fetched once the page FETCH has finished:
+ * a command issued while a FETCH iterator is open never starts.
+ */
+async function fetchPage(client: ImapFlow, pageUids: number[]): Promise<EmailMeta[]> {
+  const rows: FetchMessageObject[] = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for await (const msg of client.fetch(
+    pageUids.join(','),
+    { uid: true, envelope: true, flags: true, bodyStructure: true },
+    { uid: true },
+  )) {
+    rows.push(msg);
+  }
+  const previews = await fetchPreviews(client, rows);
+  return rows.map((row) => {
+    const raw = row as unknown as Record<string, unknown>;
+    return messageToEmailMeta(raw, previews.get(row.uid));
+  });
 }
 
 async function messageToEmail(
@@ -586,7 +677,7 @@ async function messageToEmail(
 
   return {
     ...meta,
-    preview: meta.preview ?? (bodyText ? cleanPreviewCandidate(bodyText) : undefined),
+    preview: bodyText ? cleanPreviewCandidate(bodyText) : undefined,
     cc: parseAddresses(envelope.cc as Record<string, string>[]),
     bcc: parseAddresses(envelope.bcc as Record<string, string>[]),
     bodyText,
@@ -800,23 +891,7 @@ export default class ImapService {
         };
       }
 
-      const items: EmailMeta[] = [];
-      const range = pageUids.join(',');
-
-      // eslint-disable-next-line no-restricted-syntax
-      for await (const msg of client.fetch(
-        range,
-        {
-          uid: true,
-          envelope: true,
-          flags: true,
-          bodyStructure: true,
-          source: { start: 0, maxLength: LIST_PREVIEW_SOURCE_MAX_BYTES },
-        },
-        { uid: true },
-      )) {
-        items.push(messageToEmailMeta(msg as unknown as Record<string, unknown>));
-      }
+      const items = await fetchPage(client, pageUids);
 
       // Sort by date descending
       items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -1074,23 +1149,7 @@ export default class ImapService {
         };
       }
 
-      const items: EmailMeta[] = [];
-      const range = pageUids.join(',');
-
-      // eslint-disable-next-line no-restricted-syntax
-      for await (const msg of client.fetch(
-        range,
-        {
-          uid: true,
-          envelope: true,
-          flags: true,
-          bodyStructure: true,
-          source: { start: 0, maxLength: LIST_PREVIEW_SOURCE_MAX_BYTES },
-        },
-        { uid: true },
-      )) {
-        items.push(messageToEmailMeta(msg as unknown as Record<string, unknown>));
-      }
+      const items = await fetchPage(client, pageUids);
 
       items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -1738,9 +1797,14 @@ export default class ImapService {
       }
       const [attachment] = matches;
 
-      if (attachment.size > maxSizeBytes) {
+      // The encoded size, not the decoded estimate: the inline cap bounds the base64 response.
+      if (attachment.encodedSize > maxSizeBytes) {
+        // Leads with the size get_email showed, so a "~3.7MB" file refused at 5MB reads as one story.
+        const shown = attachmentMeta(attachment);
+        const encoded = `${formatSize(attachment.encodedSize)} encoded`;
+        const size = shown.sizeIsEstimate ? `~${formatSize(shown.size)} (${encoded})` : encoded;
         throw new Error(
-          `Attachment "${filename}" is ${Math.round(attachment.size / 1024 / 1024)}MB, exceeds ${Math.round(maxSizeBytes / 1024 / 1024)}MB limit`,
+          `Attachment "${filename}" is ${size}, exceeds ${Math.round(maxSizeBytes / 1024 / 1024)}MB limit`,
         );
       }
 
@@ -1831,7 +1895,7 @@ export default class ImapService {
    * Download and save all non-ICS attachments from an email to a local directory.
    * Returns metadata including the saved file paths and file:// URLs.
    *
-   * Attachments larger than maxSizeBytes are skipped.
+   * Attachments whose encoded size exceeds maxSizeBytes are skipped.
    */
   async saveEmailAttachments(
     accountName: string,
@@ -1848,7 +1912,7 @@ export default class ImapService {
       const msg = await client.fetchOne(uidText, { uid: true, bodyStructure: true }, { uid: true });
       if (!msg) return [];
       // biome-ignore format: line too long; eslint implicit-arrow-linebreak prevents multi-line implicit return
-      const parts = listAttachmentParts(msg.bodyStructure).filter((a) => a.size <= maxSizeBytes && !a.mimeType.includes('calendar') && !a.filename.toLowerCase().endsWith('.ics'));
+      const parts = listAttachmentParts(msg.bodyStructure).filter((a) => a.encodedSize <= maxSizeBytes && !a.mimeType.includes('calendar') && !a.filename.toLowerCase().endsWith('.ics'));
       if (parts.length === 0) return [];
       return await writeAttachmentParts(client, uidText, parts, destDir);
     } finally {

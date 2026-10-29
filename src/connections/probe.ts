@@ -10,15 +10,12 @@ import nodemailer from 'nodemailer';
 
 import type { AccountConfig } from '../types/index.js';
 import { buildImapAuth, buildSmtpAuth, sentCredentials } from './auth.js';
-import { redactSentCredentials } from './credential-redaction.js';
+import { redactedError } from './credential-redaction.js';
 import { buildImapFlowOptions, buildSmtpTransportOptions } from './manager.js';
 import type { AccessTokenSource } from './types.js';
 
 function probeError(account: AccountConfig, err: unknown): string {
-  return redactSentCredentials(
-    err instanceof Error ? err.message : String(err),
-    sentCredentials(account),
-  );
+  return redactedError(err, sentCredentials(account)).message;
 }
 
 export async function testImap(
