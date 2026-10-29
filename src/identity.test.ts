@@ -253,7 +253,7 @@ describe('published identity', () => {
     expect(readme).not.toMatch(/until npm/i);
   });
 
-  // A bare name lets npx run any copy installed globally or in the working directory, however old.
+  // A bare name lets npx run any copy installed globally or in the current project, however old.
   it('should tag every npx run of the package with @latest in the docs, smithery.yaml and issue templates', async () => {
     const listed = async (dir: string, ext: string) =>
       (await readdir(join(root, dir)))
@@ -266,7 +266,10 @@ describe('published identity', () => {
       ...(await listed('.github/ISSUE_TEMPLATE', '.yml')),
     ];
     const name = pkg.name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
-    const untagged = new RegExp(`npx(?: -y)? ${name}(?!@)|["']${name}["']`, 'g');
+    const untagged = new RegExp(
+      `npx(?:\\s+-\\S+)*\\s+${name}(?!@latest\\b)|["']${name}(?:@(?!latest["'])[^"'\\s]*)?["']`,
+      'g',
+    );
 
     const hits = await Promise.all(
       files.map(async (file) =>
