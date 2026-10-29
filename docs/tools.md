@@ -93,6 +93,13 @@ Both accept ISO 8601 `since` and `before`.
 (`since` / `before` win if both are set). `query` may be omitted for a
 filter-only search.
 
+## `list_emails` / `search_emails` previews
+
+Each preview is read from the start of the message's text part
+(`text/plain`, else `text/html`) and decoded from its transfer encoding
+and charset. Text that starts several kilobytes into the part, such as an
+HTML newsletter behind a long `<style>` block, gets no preview.
+
 ## `bulk_action`
 
 Every id must be a single UID (a positive integer up to 4294967295), the

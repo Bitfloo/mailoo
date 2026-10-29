@@ -1,7 +1,7 @@
 # Performance Improvements Roadmap
 
 > **Status**: Active  
-> **Last Updated**: 2026-10-18
+> **Last Updated**: 2026-10-29
 
 Performance for Mailoo operates across **three distinct layers**, each with different bottlenecks and optimization strategies. This roadmap tracks shipped optimizations and remaining improvements against the current implementation, ordered by impact.
 
@@ -230,7 +230,7 @@ class ImapConnectionPool {
 
 #### P4.5 — Selective BODYSTRUCTURE Fetch
 
-**Current**: Fetches BODYSTRUCTURE on list operations alongside ENVELOPE to compute `hasAttachments` and extract text previews. **Target**: Make BODYSTRUCTURE fetching optional when attachment metadata is not needed.
+**Current**: Fetches BODYSTRUCTURE on list operations alongside ENVELOPE to compute `hasAttachments` and to choose the part each preview is fetched from. **Target**: Make BODYSTRUCTURE fetching optional when attachment metadata is not needed.
 
 ---
 
