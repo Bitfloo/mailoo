@@ -71,6 +71,10 @@ function buildServerEntry(transport: Transport): ServerEntry {
   }
 }
 
+export function manualClientConfig(): string {
+  return JSON.stringify({ mcpServers: { [MCP_SERVER_KEY]: buildServerEntry('npx') } }, null, 2);
+}
+
 // ---------------------------------------------------------------------------
 // Subcommands
 // ---------------------------------------------------------------------------
@@ -99,10 +103,7 @@ async function runInstall(): Promise<void> {
   if (available.length === 0) {
     log.warn('No supported MCP clients detected on this system.');
     log.info('Supported clients: Claude Desktop, Cursor, Windsurf');
-    note(
-      JSON.stringify({ mcpServers: { [MCP_SERVER_KEY]: buildServerEntry('npx') } }, null, 2),
-      'Manual configuration — add this to your MCP client config',
-    );
+    note(manualClientConfig(), 'Manual configuration — add this to your MCP client config');
     outro('Done.');
     return;
   }
