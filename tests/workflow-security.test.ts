@@ -39,8 +39,12 @@ describe('code scanning workflows', () => {
     expect(onBlock(codeqlYml)).toContain('workflow_dispatch:');
   });
 
-  it('should run Scorecard only on its schedule and when branch protection changes', () => {
-    expect(triggers(scorecardYml)).toEqual(['  schedule:', '  branch_protection_rule:']);
+  it('should let a maintainer refresh Scorecard alongside its automatic triggers', () => {
+    expect(triggers(scorecardYml)).toEqual([
+      '  schedule:',
+      '  branch_protection_rule:',
+      '  workflow_dispatch:',
+    ]);
   });
 });
 

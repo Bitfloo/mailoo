@@ -143,7 +143,7 @@ const STEPS: Record<string, Record<string, string[]>> = {
   'scorecard.yml': {
     analysis: [
       'actions/checkout {"persist-credentials":false}',
-      'ossf/scorecard-action {"publish_results":true,"results_file":"results.sarif","results_format":"sarif"}',
+      'ossf/scorecard-action {"publish_results":"${{ github.event_name != \'workflow_dispatch\' }}","results_file":"results.sarif","results_format":"sarif"}',
       'actions/upload-artifact {"name":"sarif-results","path":"results.sarif","retention-days":5}',
       'github/codeql-action/upload-sarif {"sarif_file":"results.sarif"}',
     ],

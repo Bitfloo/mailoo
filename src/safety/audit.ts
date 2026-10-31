@@ -7,6 +7,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { types } from 'node:util';
 
 import { xdg } from '../config/xdg.js';
 import type { AuditEntry } from '../types/index.js';
@@ -50,12 +51,15 @@ export const PARAMS_MAX_DEPTH = 16;
  * scheme the URL standard does not know, such as `redis:`.
  */
 function urlForEntry(url: URL): string {
+  // Copy through the intrinsic getter so subclasses cannot supply executable accessors.
+  const href = Object.getOwnPropertyDescriptor(URL.prototype, 'href')?.get;
+  const safe = new URL(href?.call(url));
   // mailto:, data: and javascript: have no host. Joining `//` would keep the address in the path.
-  if (url.host === '' && !url.href.startsWith(`${url.protocol}//`)) {
-    return `${url.protocol}[REDACTED]`;
+  if (safe.host === '' && !safe.href.startsWith(`${safe.protocol}//`)) {
+    return `${safe.protocol}[REDACTED]`;
   }
-  const kept = `${url.protocol}//${url.host}${url.pathname}`;
-  return url.username || url.password || url.search || url.hash ? `${kept}?[REDACTED]` : kept;
+  const kept = `${safe.protocol}//${safe.host}${safe.pathname}`;
+  return safe.username || safe.password || safe.search || safe.hash ? `${kept}?[REDACTED]` : kept;
 }
 
 function isPlainObject(value: object): boolean {
@@ -71,12 +75,16 @@ function isPlainObject(value: object): boolean {
  * cycle; an object two params share is written under each.
  */
 function redactValue(value: unknown, depth: number, ancestors: WeakSet<object>): unknown {
+  if (typeof value === 'function') return '[Function]';
   if (typeof value !== 'object' || value === null) return value;
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? 'Invalid Date' : value.toISOString();
+  if (types.isProxy(value)) return '[Proxy]';
+  if (types.isDate(value)) {
+    return Number.isNaN(Date.prototype.getTime.call(value))
+      ? 'Invalid Date'
+      : Date.prototype.toISOString.call(value);
   }
-  if (value instanceof URL) return urlForEntry(value);
-  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return '[Binary]';
+  if (Object.getPrototypeOf(value) === URL.prototype) return urlForEntry(value as URL);
+  if (ArrayBuffer.isView(value) || types.isAnyArrayBuffer(value)) return '[Binary]';
   if (!Array.isArray(value) && !isPlainObject(value)) return '[Object]';
   if (ancestors.has(value)) return '[Circular]';
   if (depth > PARAMS_MAX_DEPTH) return '[Truncated]';
@@ -90,11 +98,15 @@ function redactValue(value: unknown, depth: number, ancestors: WeakSet<object>):
   return cleaned;
 }
 
-/** Index, not `.map`: a caller can replace Array.prototype.map or the array's own map. */
+/** Own descriptors avoid array accessors and values inherited from its prototype. */
 function redactItems(items: unknown[], depth: number, ancestors: WeakSet<object>): unknown[] {
   const cleaned: unknown[] = [];
   for (let index = 0; index < items.length; index += 1) {
-    cleaned[index] = redactValue(items[index], depth + 1, ancestors);
+    const descriptor = Object.getOwnPropertyDescriptor(items, String(index));
+    cleaned[index] =
+      descriptor && !('value' in descriptor)
+        ? '[Accessor]'
+        : redactValue(descriptor?.value, depth + 1, ancestors);
   }
   return cleaned;
 }
@@ -135,6 +147,7 @@ function redactEntries(
 }
 
 function redactParams(params: Record<string, unknown>): Record<string, unknown> {
+  if (types.isProxy(params)) return { value: '[Proxy]' };
   return redactEntries(params, 0, new WeakSet([params]));
 }
 
@@ -216,10 +229,9 @@ async function log(
       ...(error ? { error } : {}),
     };
     await appendLine(`${JSON.stringify(entry)}\n`);
-  } catch (err) {
+  } catch {
     // The entry itself stays out of stderr: it holds recipients and subjects.
-    const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[mailoo] audit log write failed: ${message}\n`);
+    process.stderr.write('[mailoo] audit log write failed: entry could not be written\n');
   }
 }
 

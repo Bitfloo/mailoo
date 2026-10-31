@@ -272,7 +272,14 @@ describe('mailoo account and setup', () => {
       fullName: undefined,
       username: 'user@example.com',
       password: 'app-password',
-      imap: { host: 'imap.example.com', port: 993, tls: true, starttls: false, verifySsl: true },
+      imap: {
+        host: 'imap.example.com',
+        port: 993,
+        tls: true,
+        starttls: false,
+        verifySsl: true,
+        disableImap4rev2: false,
+      },
       smtp: {
         host: 'smtp.example.com',
         port: 465,
@@ -333,7 +340,14 @@ describe('mailoo account and setup', () => {
         fullName: 'Ada Example',
         username: 'ada.login',
         password: 'other-app-password',
-        imap: { host: 'mail.example.com', port: 143, tls: false, starttls: true, verifySsl: true },
+        imap: {
+          host: 'mail.example.com',
+          port: 143,
+          tls: false,
+          starttls: true,
+          verifySsl: true,
+          disableImap4rev2: false,
+        },
         smtp: {
           host: 'relay.example.com',
           port: 587,

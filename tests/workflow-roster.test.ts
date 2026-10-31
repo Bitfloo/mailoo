@@ -47,7 +47,12 @@ const ON: Record<string, string[]> = {
     '        type: boolean',
     '        default: false',
   ],
-  'scorecard.yml': ['  schedule:', '    - cron: "20 7 * * 2"', '  branch_protection_rule:'],
+  'scorecard.yml': [
+    '  schedule:',
+    '    - cron: "20 7 * * 2"',
+    '  branch_protection_rule:',
+    '  workflow_dispatch:',
+  ],
 };
 
 // biome-ignore-start lint/suspicious/noTemplateCurlyInString: values are expressions from the workflows, not JS templates

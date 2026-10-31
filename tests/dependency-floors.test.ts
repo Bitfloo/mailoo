@@ -1,11 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ESLint } from 'eslint';
+import { parse } from 'yaml';
 
 import { repoRoot } from './agents/agent-file.js';
 
 /**
- * Floors are the lowest releases that keep `pnpm audit --prod` free of high
- * and critical findings for these packages, plus the test-runner floor.
+ * Floors include required security fixes in server and archive dependencies,
+ * plus the test-runner floor.
  * Every resolved copy in the lockfile counts: one old copy is enough to fail.
  */
 const FLOORS: Record<string, string> = {
@@ -17,10 +19,11 @@ const FLOORS: Record<string, string> = {
   '@hono/node-server': '1.19.10',
   'express-rate-limit': '8.2.2',
   'path-to-regexp': '8.4.0',
-  'fast-uri': '3.1.6',
-  'ip-address': '10.3.1',
-  qs: '6.16.0',
-  'body-parser': '2.3.0',
+  'fast-uri': '3.1.9',
+  'ip-address': '10.7.4',
+  qs: '6.16.1',
+  'body-parser': '2.4.0',
+  glob: '14.0.2',
   // GHSA-5xrq-8626-4rwp: before 4.1.0 the Vitest UI server could read and execute files.
   vitest: '4.1.0',
 };
@@ -54,7 +57,14 @@ function resolvedVersions(lockfile: string, name: string): string[] {
   return [...versions];
 }
 
-describe('production dependency floors', () => {
+function optimizationLevels(value: unknown): unknown[] {
+  if (typeof value !== 'object' || value === null) return [];
+  return Object.entries(value).flatMap(([key, child]) =>
+    key === 'optimizationLevel' ? [child] : optimizationLevels(child),
+  );
+}
+
+describe('dependency security floors', () => {
   const lockfile = readFileSync(join(repoRoot, 'pnpm-lock.yaml'), 'utf8');
 
   it.each(Object.entries(FLOORS))('resolves %s at or above %s', (name, floor) => {
@@ -62,5 +72,47 @@ describe('production dependency floors', () => {
     expect(versions.length).toBeGreaterThan(0);
     const below = versions.filter((version) => compareSemver(version, floor) < 0);
     expect(below).toEqual([]);
+  });
+
+  it('should keep unpatched minimatch copies within the reviewed compatibility exceptions', () => {
+    // Versions 3/5 lack the affected preprocessing; version 10 is limited to the lint callers below.
+    // Their callable CommonJS and makeRe APIs are absent in minimatch 11.
+    const retained = new Set(['3.1.5', '5.1.9', '10.2.6']);
+    const versions = resolvedVersions(lockfile, 'minimatch');
+    expect(versions.length).toBeGreaterThan(0);
+    expect(
+      versions.filter((version) => !retained.has(version) && compareSemver(version, '11.0.1') < 0),
+    ).toEqual([]);
+  });
+
+  it('should restrict minimatch 10 to the reviewed lint consumers', () => {
+    const { snapshots } = parse(lockfile) as {
+      snapshots: Record<
+        string,
+        { dependencies?: Record<string, string>; optionalDependencies?: Record<string, string> }
+      >;
+    };
+    const consumers = Object.entries(snapshots)
+      .filter(
+        ([, entry]) =>
+          (entry.dependencies?.minimatch ?? entry.optionalDependencies?.minimatch) === '10.2.6',
+      )
+      .map(([key]) => key.split('(')[0])
+      .sort();
+    expect(consumers).toEqual([
+      '@typescript-eslint/typescript-estree@8.71.2',
+      'eslint-plugin-import-x@4.17.1',
+    ]);
+  });
+
+  it('should keep the lint configuration below minimatch optimization level 2', async () => {
+    // import-x exposes patternOptions; the vulnerable preprocessing must not be enabled here.
+    const config = await new ESLint({ cwd: repoRoot }).calculateConfigForFile(
+      join(repoRoot, 'src/main.ts'),
+    );
+    expect(config).toBeDefined();
+    expect(
+      optimizationLevels(config.rules).filter((level) => typeof level !== 'number' || level >= 2),
+    ).toEqual([]);
   });
 });
