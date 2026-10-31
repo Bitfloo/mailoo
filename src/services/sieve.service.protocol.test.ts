@@ -323,6 +323,34 @@ it('should accept a response of exactly the byte budget', async () => {
   await expect(sieve.listScripts(account)).resolves.toEqual([{ name: 'last', active: false }]);
 });
 
+function multibyteListResponse(extraBytes: number): { payload: Buffer; names: string[] } {
+  const suffix = '\r\nOK\r\n';
+  const tail = '"last"';
+  const name = (index: number): string => `${String(index).padStart(5, '0')}${'ą'.repeat(120)}`;
+  const lineBytes = Buffer.byteLength(`"${name(0)}"\r\n`);
+  const count = Math.floor((RESPONSE_BYTE_LIMIT - tail.length - suffix.length) / lineBytes);
+  const names = Array.from({ length: count }, (_, index) => name(index));
+  const lines = names.map((item) => `"${item}"\r\n`).join('');
+  const padding =
+    RESPONSE_BYTE_LIMIT - Buffer.byteLength(lines) - tail.length - suffix.length + extraBytes;
+  return {
+    payload: Buffer.from(`${lines}${tail}${' '.repeat(padding)}${suffix}`),
+    names: [...names, 'last'],
+  };
+}
+
+it('should reject a multibyte response exceeding the byte budget despite fewer code units', async () => {
+  wire.state.response = [multibyteListResponse(1).payload];
+  expect(await failureOf(sieve.listScripts(account))).toMatch(/response.*1114112/i);
+});
+
+it('should accept a multibyte response exactly at the byte budget', async () => {
+  const { payload, names } = multibyteListResponse(0);
+  wire.state.response = [payload];
+  const scripts = await sieve.listScripts(account);
+  expect(scripts).toEqual(names.map((name) => ({ name, active: false })));
+});
+
 it('should end a response after 30 seconds despite continuing data', async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   wire.state.response = [Buffer.from('partial')];
