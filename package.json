@@ -1,6 +1,6 @@
 {
   "name": "@bitfloo/mailoo",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "mcpName": "io.github.Bitfloo/mailoo",
   "description": "Email MCP server for AI agents: IMAP/SMTP, Gmail, Outlook, calendar, ManageSieve, AI triage, OAuth2.",
   "type": "module",

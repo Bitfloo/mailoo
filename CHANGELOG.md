@@ -11,6 +11,34 @@ Mailoo is a fork of [email-mcp](https://github.com/codefuturist/email-mcp);
 its history before the fork is at the end of this file.
 
 - - -
+## [v0.3.4](https://github.com/bitfloo/mailoo/compare/v0.3.3..v0.3.4) - 2026-10-31
+#### ✨ Features
+- add opt-in install count (#79) - ([3ddb6d2](https://github.com/bitfloo/mailoo/commit/3ddb6d2de0aeb45d12d9ba2506f7558892fd90b9)) - Mike
+- count one install when two servers start at once - ([0dd0019](https://github.com/bitfloo/mailoo/commit/0dd0019ddfa61f3898481919bdebf35c9c6a249c)) - Mike, Claude Opus 5.5
+- count an opted-in server start without sending mail data - ([7b879d8](https://github.com/bitfloo/mailoo/commit/7b879d8e6867fea9eb0ef6079fe94db400f0e4c7)) - Mike, Cursor, Claude Opus 5.5
+#### 🐛 Bug Fixes
+- (**audit**) avoid traversing proxy prototypes during type checks - ([1d9aeae](https://github.com/bitfloo/mailoo/commit/1d9aeaeb52101cf2a342f961e5de752c9a960281)) - Mike, Codex
+- (**audit**) avoid executing code while redacting params - ([3577cd9](https://github.com/bitfloo/mailoo/commit/3577cd982de7370dae08cd3848c88e287fc513c4)) - Mike, Codex
+- (**build**) align package manager pins and CLI lockfiles - ([fb5bcee](https://github.com/bitfloo/mailoo/commit/fb5bcee58bb64ff02fc96ff7fcbe714aaa553932)) - Mike, Codex
+- (**build**) declare the release tooling package manager - ([c0fe374](https://github.com/bitfloo/mailoo/commit/c0fe374de7ad7bf04053b15daf90c2f088553a4b)) - Mike, Codex
+- (**cli**) probe the account settings saved by the wizard - ([fdfc71c](https://github.com/bitfloo/mailoo/commit/fdfc71c08a25fad6a8d2cf1a31397bd411ec47c5)) - Mike, Codex
+- (**deps**) update vulnerable server and archive dependencies - ([260b4ea](https://github.com/bitfloo/mailoo/commit/260b4ea368d6e60b3a1eecf6f8b3a52e67c54907)) - Mike, Codex
+- (**sieve**) bound response bytes and total protocol waits - ([f32da41](https://github.com/bitfloo/mailoo/commit/f32da41b88c32e8f73fb8bb8b03cd952e1b9edeb)) - Mike, Codex
+- (**sieve**) bound connection waits and preserve protocol bytes - ([b93e95f](https://github.com/bitfloo/mailoo/commit/b93e95f022793068bb0006b65e509fd42b905ea1)) - Mike, Codex
+- write only the documented install count marker digit - ([1ea746d](https://github.com/bitfloo/mailoo/commit/1ea746d0563d93da211ae96fee26fd045830b58f)) - Mike, Codex
+- refuse an install count URL with a query or fragment - ([b7c3b15](https://github.com/bitfloo/mailoo/commit/b7c3b15531cdea1a9b878c458bc52d006c828f00)) - Mike, Claude Opus 5.5
+- claim the install count before sending so a state directory counts once - ([d88c344](https://github.com/bitfloo/mailoo/commit/d88c344e11100b269a62976633bbd0a6c4fcf2f7)) - Mike, Claude Opus 5.5
+#### 📚 Documentation
+- launch the install count example at latest - ([26f4bc7](https://github.com/bitfloo/mailoo/commit/26f4bc777b070723753887c1475a378548a48ca1)) - Mike, Codex
+- say the install count switch ignores letter case and spaces - ([65abb3b](https://github.com/bitfloo/mailoo/commit/65abb3b4ec13de842d50793738b7df70a0885a27)) - Mike, Claude Opus 5.5
+- say a blank CI or VITEST does not skip the install count - ([ae24433](https://github.com/bitfloo/mailoo/commit/ae244336bb50bb80072463a9191d4a988a2d5836)) - Mike, Claude Opus 5.5
+- say an empty CI or VITEST does not skip the install count - ([dbbcfbf](https://github.com/bitfloo/mailoo/commit/dbbcfbf7646c75be906f5ad41645e0bd85cd73f5)) - Mike, Claude Opus 5.5
+- name the collector Bitfloo runs as an install count example - ([9ab80ec](https://github.com/bitfloo/mailoo/commit/9ab80ece00e59a5e754d944a02bd894cf43ae830)) - Mike, Claude Opus 5.5
+#### ♻️ Refactoring
+- drop the unreachable catch around noteInstall - ([8948d10](https://github.com/bitfloo/mailoo/commit/8948d10180252961f8237abf92573185e650f799)) - Mike, Claude Opus 5.5
+
+- - -
+
 ## [v0.3.3](https://github.com/bitfloo/mailoo/compare/v0.3.2..v0.3.3) - 2026-10-29
 #### 📦 Dependencies
 - The Docker images install `@modelcontextprotocol/sdk` 1.32.2 from the
