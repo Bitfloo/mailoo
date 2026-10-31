@@ -53,6 +53,20 @@ import assertMailboxRemovable from './protected-mailboxes.js';
 // Helpers (must be defined before ImapService)
 // ---------------------------------------------------------------------------
 
+async function createMissingMailbox(
+  client: ImapFlow,
+  mailboxPath: string,
+  mailboxes: readonly { path: string }[],
+): Promise<void> {
+  if (mailboxes.some((mailbox) => mailbox.path === mailboxPath)) return;
+  try {
+    await client.mailboxCreate(mailboxPath);
+  } catch (error) {
+    // Another writer may have created it after LIST. A permission failure still has to surface.
+    if (!(await client.list()).some((mailbox) => mailbox.path === mailboxPath)) throw error;
+  }
+}
+
 function parseAddress(addr: { name?: string; address?: string } | undefined): EmailAddress {
   return {
     name: addr?.name ?? undefined,
@@ -1577,14 +1591,7 @@ export default class ImapService {
     const mailboxes = await client.list();
     const drafts = mailboxes.find((mb) => mb.specialUse === '\\Drafts');
     const draftsPath = drafts?.path ?? 'Drafts';
-    if (!mailboxes.some((mailbox) => mailbox.path === draftsPath)) {
-      try {
-        await client.mailboxCreate(draftsPath);
-      } catch (error) {
-        // Another writer may have created it after LIST. A permission failure still has to surface.
-        if (!(await client.list()).some((mailbox) => mailbox.path === draftsPath)) throw error;
-      }
-    }
+    await createMissingMailbox(client, draftsPath, mailboxes);
 
     const rawMessage = await compileRfc822({
       from: account.fullName ? `"${account.fullName}" <${account.email}>` : account.email,
@@ -1616,6 +1623,7 @@ export default class ImapService {
     if (!sentPath) {
       const mailboxes = await client.list();
       sentPath = mailboxes.find((mb) => mb.specialUse === '\\Sent')?.path ?? 'Sent';
+      await createMissingMailbox(client, sentPath, mailboxes);
     }
     await client.append(sentPath, raw, ['\\Seen']);
   }

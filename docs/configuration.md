@@ -35,6 +35,11 @@ RFC 822 copy to the account’s `accounts.sent_mailbox` when set, otherwise
 to the `\Sent` mailbox (or a folder named `Sent` if the special-use flag is
 missing).
 
+When no `sent_mailbox` is configured and the selected folder is missing,
+Mailoo creates the fallback `Sent` folder before APPEND. An explicitly
+configured `sent_mailbox` is used as given; a failure still follows the
+best-effort behaviour below.
+
 Set `sent_mailbox` when the server advertises no SPECIAL-USE: the client then
 guesses by folder name, and on a mailbox that collected sent-shaped folders
 from several clients the guess can land on an empty one. Measured on OVH MX

@@ -69,8 +69,8 @@ Up to 57 tools across `full`, `core`, and `minimal` profiles, up to 7 prompts, a
 
 ## Table of Contents
 
-- [Highlights](#highlights)
 - [Quick start](#quick-start)
+- [Highlights](#highlights)
 - [Security & Sandboxing Architecture](#security--sandboxing-architecture)
 - [LLM Ergonomics & Toolset Profiles](#llm-ergonomics--toolset-profiles)
 - [Docs](#docs)

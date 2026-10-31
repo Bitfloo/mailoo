@@ -102,6 +102,13 @@ describe('packed release over stdio MCP', () => {
     expect(text(await call(client, 'get_email', { account: 'bob', id: receivedId }))).toContain(
       'Ready for review.',
     );
+    const sentId = await find(client, subject, 'test', 'Sent');
+    expect(text(await call(client, 'list_emails', { mailbox: 'Sent', subject }))).toContain(
+      '[Sent] 1 emails',
+    );
+    expect(text(await call(client, 'get_email', { id: sentId, mailbox: 'Sent' }))).toContain(
+      'Ready for review.',
+    );
     expect(text(await call(client, 'list_emails', { mailbox: 'Drafts', subject }))).toContain(
       'No emails found',
     );
