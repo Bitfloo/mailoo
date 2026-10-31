@@ -1,7 +1,8 @@
 /**
  * Configuration loader.
  *
- * Precedence: environment variables → TOML config file → defaults.
+ * A complete environment account takes precedence over TOML.
+ * Read-only, toolset and default-account settings also override TOML per process.
  */
 
 import type { Stats } from 'node:fs';
