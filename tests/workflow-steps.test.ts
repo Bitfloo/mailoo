@@ -103,6 +103,13 @@ const STEPS: Record<string, Record<string, string[]>> = {
     ],
   },
   'release.yml': {
+    verify: [
+      'actions/checkout',
+      'pnpm/action-setup',
+      `actions/setup-node {"cache":"pnpm","node-version":"${node}"}`,
+      'run: pnpm install --frozen-lockfile',
+      'run: pnpm ci:release',
+    ],
     // A flag such as --dry-run, or npm ci run outside .github/npm-cli, would publish nothing.
     npm: [
       'actions/checkout',

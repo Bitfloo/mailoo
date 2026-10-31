@@ -1,7 +1,8 @@
 /**
  * Configuration loader.
  *
- * Precedence: environment variables → TOML config file → defaults.
+ * A complete environment account takes precedence over TOML.
+ * Read-only, toolset and default-account settings also override TOML per process.
  */
 
 import type { Stats } from 'node:fs';
@@ -365,7 +366,7 @@ function normalizeConfig(raw: RawAppConfig): AppConfig {
   return {
     settings: {
       rateLimit: raw.settings.rate_limit,
-      readOnly: raw.settings.read_only,
+      readOnly: flagEnv(process.env.MCP_EMAIL_READ_ONLY) ?? raw.settings.read_only,
       toolset,
       defaultAccount,
       saveToSent: raw.settings.save_to_sent,

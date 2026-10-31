@@ -19,10 +19,13 @@ Install [Node.js](https://nodejs.org/) **24 or newer** and [prepare your email a
 
 ```bash
 npx -y @bitfloo/mailoo@latest account add
+npx -y @bitfloo/mailoo@latest config edit
 npx -y @bitfloo/mailoo@latest install
 ```
 
-Choose your client in the installer, restart it, and ask: **“Summarize up to five unread emails. Include each sender, subject and any requested next step. Ask which account to use if needed.”**
+In `config edit`, press Enter to keep the rate limit (10 for a new config), then choose **Yes** for `Read-only mode? (disables all write operations)`. This saves read-only mode in TOML. Choose your client in the installer, restart it, and ask: **“Summarize up to five unread emails. Include each sender, subject and any requested next step. Ask which account to use if needed.”**
+
+The wizard prints a read-only/core manual client entry; the installer does not apply those environment overrides. This guided path uses the read-only setting you saved in TOML. With untouched default settings, the installer's entry runs writable/full.
 
 [Follow the guided setup and check your first result →](docs/getting-started.md#quickstart-for-claude-desktop-or-cursor)
 
@@ -35,7 +38,8 @@ With Node.js **24 or newer** and [account credentials ready](docs/authentication
   "mcpServers": {
     "mailoo": {
       "command": "npx",
-      "args": ["-y", "@bitfloo/mailoo@latest", "stdio"]
+      "args": ["-y", "@bitfloo/mailoo@latest", "stdio"],
+      "env": { "MCP_EMAIL_READ_ONLY": "true", "MCP_EMAIL_TOOLSET": "core" }
     }
   }
 }
@@ -45,9 +49,15 @@ Initialize the connection, list tools, then call `list_accounts`, `list_emails`,
 
 [Follow the MCP request sequence and inspect its results →](docs/getting-started.md#quickstart-for-agent-builders)
 
-Both quickstarts begin with reading mail. The walkthrough also covers [feature requirements and fallbacks](docs/getting-started.md#feature-requirements-and-fallbacks), including AI triage, local calendars, ManageSieve, and experimental OAuth.
+Both quickstarts configure read-only access for the first read. The walkthrough also covers [feature requirements and fallbacks](docs/getting-started.md#feature-requirements-and-fallbacks), including AI triage, local calendars, ManageSieve, and experimental OAuth.
+
+To enable writes later, run `config edit`, keep the rate limit, and choose **No** for read-only mode; for the builder entry, set `MCP_EMAIL_READ_ONLY` to `"false"`. Restart the server after either change. Request sending or changes explicitly when you intend them. You can request a `dryRun: true` preview separately; Mailoo does not require a preview before sending.
+
+Mailoo connects to the mail servers you configure. Your MCP client and its model provider receive the mail content you request. Optional TypeSafe classification and webhooks send data to their configured services when enabled. Usage reporting is off by default. See [Capabilities & data flows](#capabilities--data-flows) for destinations and fields.
 
 ## Highlights
+
+Up to 57 tools across `full`, `core`, and `minimal` profiles, up to 7 prompts, and 6 resources. Includes calendar and reminders, scheduling, ManageSieve filters, and optional AI triage. See [API](#api) for tools and [`docs/tools.md`](docs/tools.md) for behaviour and limits.
 
 | Feature | In this tree |
 |---------|:------------:|
@@ -1152,14 +1162,16 @@ pnpm install
 pnpm typecheck          # type check
 pnpm check              # lint and format
 pnpm ci:local           # lint, typecheck, unit; GreenMail if Docker is up
+pnpm ci:release         # same checks; a working Docker runtime and GreenMail are required
 pnpm test               # unit tests (Vitest; no mail server)
 pnpm test:integration   # GreenMail IMAP/SMTP (needs Docker)
+pnpm test:e2e           # packed release, production dependencies, stdio MCP, GreenMail
 pnpm test:all           # unit plus GreenMail
 pnpm build              # build
 pnpm start              # run
 ```
 
-`pnpm test:integration` and `pnpm test:all` need Docker. `pnpm ci:local` skips GreenMail when Docker is down. What GitHub runs on a pull request is listed in [CONTRIBUTING.md](CONTRIBUTING.md#commands). `mailoo test` / `npx -y @bitfloo/mailoo@latest test` is a live-account connection probe, not Vitest.
+`pnpm test:integration`, `pnpm test:e2e`, `pnpm test:all`, and `pnpm ci:release` need Docker. The packed release journey is also included in the integration suite. `pnpm ci:local` skips GreenMail when Docker is down; `pnpm ci:release` fails instead. Publishing to npm, the MCP Registry, and npm aliases requires the release verification job to pass; Docker publishing also requires the MCP Registry job to succeed. What GitHub runs on a pull request is listed in [CONTRIBUTING.md](CONTRIBUTING.md#commands). `mailoo test` / `npx -y @bitfloo/mailoo@latest test` is a live-account connection probe, not Vitest.
 
 ## Attribution & License
 

@@ -71,8 +71,12 @@ function buildServerEntry(transport: Transport): ServerEntry {
   }
 }
 
-export function manualClientConfig(): string {
-  return JSON.stringify({ mcpServers: { [MCP_SERVER_KEY]: buildServerEntry('npx') } }, null, 2);
+export function manualClientConfig(safeStart = false): string {
+  const entry = {
+    ...buildServerEntry('npx'),
+    ...(safeStart ? { env: { MCP_EMAIL_READ_ONLY: 'true', MCP_EMAIL_TOOLSET: 'core' } } : {}),
+  };
+  return JSON.stringify({ mcpServers: { [MCP_SERVER_KEY]: entry } }, null, 2);
 }
 
 // ---------------------------------------------------------------------------

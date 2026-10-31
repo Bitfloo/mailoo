@@ -202,6 +202,10 @@ at most **50 MB**. The service reads the bytes itself.
 Sent APPENDs go through nodemailer MailComposer so **non-ASCII subjects
 are RFC 2047 encoded**.
 
+`save_draft` uses the server's `\\Drafts` folder when advertised. Otherwise
+it uses `Drafts`, creating that folder if it is missing. A refused creation
+is reported unless a fresh listing confirms another writer created it.
+
 `send_draft` removes the draft after the mail is sent. If that removal
 fails, the result still reports the mail as sent and says the draft is
 still in Drafts; delete it there instead of sending it again.
