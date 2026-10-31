@@ -11,6 +11,21 @@ Mailoo is a fork of [email-mcp](https://github.com/codefuturist/email-mcp);
 its history before the fork is at the end of this file.
 
 - - -
+## [v0.3.5](https://github.com/bitfloo/mailoo/compare/v0.3.4..v0.3.5) - 2026-10-31
+#### 🐛 Bug Fixes
+- (**ci**) run pre-push checks for tag-only pushes (#103) - ([928759b](https://github.com/bitfloo/mailoo/commit/928759b737ec37d784aaacd4cc079485e62ea1a4)), ([1dab6d2](https://github.com/bitfloo/mailoo/commit/1dab6d2cfab15a9bd2f26c947572373fa93350dd)) - Mike, Codex
+- make first-use mailbox flows reliable (#105) - ([ad72d0a](https://github.com/bitfloo/mailoo/commit/ad72d0a41ea38c50c89af64faaad2bb88927b5e0)), ([64af065](https://github.com/bitfloo/mailoo/commit/64af06599367dc4f9ec8820ca5957fede1b4a8db)) - Mike, Codex
+- retain sent copies on fresh mail accounts - ([08b46cd](https://github.com/bitfloo/mailoo/commit/08b46cd4576cf2db46f6f7ec48bf9ef068fa03c1)), ([06bda10](https://github.com/bitfloo/mailoo/commit/06bda10457639db629a6519c032311d673791219)) - Mike, Codex
+- verify packaged mail workflows before release - ([bc5b712](https://github.com/bitfloo/mailoo/commit/bc5b712058953298517556ceaf107c27596a2606)), ([10f6958](https://github.com/bitfloo/mailoo/commit/10f6958be4baae8b7244234049bfee11694062a3)) - Mike, Codex
+#### 📚 Documentation
+- recommend read-only first connections - ([fee30eb](https://github.com/bitfloo/mailoo/commit/fee30eb308b3a0e3cd427c909f0f75baa402e571)) - Mike, Codex
+- align guided setup with read-only first use - ([01e249b](https://github.com/bitfloo/mailoo/commit/01e249bd52679f52c8e1c0cb40e59a7ba723daa2)) - Mike, Codex
+- guide first-run email connections (#104) - ([3b9fdc5](https://github.com/bitfloo/mailoo/commit/3b9fdc577caca09934e94ba368e0e632ab2d3c7d)), ([ae9cd0a](https://github.com/bitfloo/mailoo/commit/ae9cd0a2730e5dbb2176aa0c80d3ba5d9feb9753)) - Mike, Codex
+- retain toolset catalog text in architecture diagram - ([418ffab](https://github.com/bitfloo/mailoo/commit/418ffab04c9997d24be2998266d5a54b2ec5fba5)) - Mike, Codex
+- clarify saving after failed connection checks - ([1bab909](https://github.com/bitfloo/mailoo/commit/1bab9099d66dee6ee721212cd120b7e01cc62274)) - Mike, Codex
+
+- - -
+
 ## [v0.3.4](https://github.com/bitfloo/mailoo/compare/v0.3.3..v0.3.4) - 2026-10-31
 #### ✨ Features
 - add opt-in install count (#79) - ([3ddb6d2](https://github.com/bitfloo/mailoo/commit/3ddb6d2de0aeb45d12d9ba2506f7558892fd90b9)) - Mike
