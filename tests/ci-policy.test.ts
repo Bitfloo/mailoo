@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -100,9 +101,10 @@ const pnpmCli = JSON.parse(
   readFileSync(join(repoRoot, 'docker/pnpm-cli/package.json'), 'utf8'),
 ) as {
   dependencies: { pnpm: string };
+  packageManager?: string;
 };
-const pnpmShrink = JSON.parse(
-  readFileSync(join(repoRoot, 'docker/pnpm-cli/npm-shrinkwrap.json'), 'utf8'),
+const pnpmLock = JSON.parse(
+  readFileSync(join(repoRoot, 'docker/pnpm-cli/package-lock.json'), 'utf8'),
 ) as { packages: Record<string, { version?: string; integrity?: string }> };
 
 describe('release supply chain', () => {
@@ -123,16 +125,39 @@ describe('release supply chain', () => {
     expect(atOrAbove).toBe(true);
   });
 
-  it('should keep the release npm project independent of the parent pnpm package manager', () => {
-    expect(npmCli.packageManager).toBe(`npm@${npmCli.dependencies.npm}`);
+  it.each([
+    { name: 'release npm', manifest: npmCli },
+    { name: 'image pnpm', manifest: pnpmCli },
+  ])(
+    'should keep the $name project independent of the parent pnpm package manager',
+    ({ manifest }) => {
+      expect(manifest.packageManager).toEqual(expect.stringMatching(/^npm@\d+\.\d+\.\d+$/));
+    },
+  );
+
+  it('should track CLI package locks while ignoring unrelated npm lockfiles', () => {
+    const ignored = spawnSync('git', ['check-ignore', '--no-index', '--stdin'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      input: [
+        'package-lock.json',
+        'docs/package-lock.json',
+        '.github/npm-cli/package-lock.json',
+        'docker/pnpm-cli/package-lock.json',
+      ].join('\n'),
+    });
+    expect({ status: ignored.status, paths: ignored.stdout.trim().split('\n') }).toEqual({
+      status: 0,
+      paths: ['package-lock.json', 'docs/package-lock.json'],
+    });
   });
 
-  it('should lock the pinned npm CLI version with an sha512 hash in its shrinkwrap', () => {
-    const shrink = JSON.parse(
-      readFileSync(join(repoRoot, '.github/npm-cli/npm-shrinkwrap.json'), 'utf8'),
+  it('should lock the pinned npm CLI version with an sha512 hash in its package lock', () => {
+    const lock = JSON.parse(
+      readFileSync(join(repoRoot, '.github/npm-cli/package-lock.json'), 'utf8'),
     ) as { packages: Record<string, { version?: string; integrity?: string }> };
-    expect(shrink.packages['node_modules/npm']?.version).toBe(npmCli.dependencies.npm);
-    expect(shrink.packages['node_modules/npm']?.integrity).toMatch(/^sha512-/);
+    expect(lock.packages['node_modules/npm']?.version).toBe(npmCli.dependencies.npm);
+    expect(lock.packages['node_modules/npm']?.integrity).toMatch(/^sha512-/);
   });
 
   it('should install the image pnpm CLI with npm ci and not a global install', () => {
@@ -145,8 +170,8 @@ describe('release supply chain', () => {
     expect(`pnpm@${pnpmCli.dependencies.pnpm}`).toBe(pkg.packageManager);
   });
 
-  it('should lock the image pnpm CLI version with an sha512 hash in its shrinkwrap', () => {
-    expect(pnpmShrink.packages['node_modules/pnpm']).toMatchObject({
+  it('should lock the image pnpm CLI version with an sha512 hash in its package lock', () => {
+    expect(pnpmLock.packages['node_modules/pnpm']).toMatchObject({
       version: pnpmCli.dependencies.pnpm,
       integrity: expect.stringMatching(/^sha512-/),
     });
@@ -154,8 +179,8 @@ describe('release supply chain', () => {
 
   it('should prepare the packageManager pnpm by its tarball hash in the alpine image and the Cursor install', () => {
     // Corepack checks the download against a +sha512.<hex> suffix. The hash is the
-    // shrinkwrap integrity the Debian image installs, so all three move together.
-    const integrity = pnpmShrink.packages['node_modules/pnpm']?.integrity ?? '';
+    // lockfile integrity the Debian image installs, so all three move together.
+    const integrity = pnpmLock.packages['node_modules/pnpm']?.integrity ?? '';
     const hex = Buffer.from(integrity.replace(/^sha512-/, ''), 'base64').toString('hex');
     const pins = ['Dockerfile.alpine', '.cursor/environment.json'].map((file) => [
       file,
