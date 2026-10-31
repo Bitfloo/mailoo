@@ -6,8 +6,8 @@ import { parse } from 'yaml';
 import { repoRoot } from './agents/agent-file.js';
 
 /**
- * Floors are the lowest releases that keep `pnpm audit --prod` free of high
- * and critical findings for these packages, plus the test-runner floor.
+ * Floors include required security fixes in server and archive dependencies,
+ * plus the test-runner floor.
  * Every resolved copy in the lockfile counts: one old copy is enough to fail.
  */
 const FLOORS: Record<string, string> = {
@@ -107,7 +107,9 @@ describe('dependency security floors', () => {
 
   it('should keep the lint configuration below minimatch optimization level 2', async () => {
     // import-x exposes patternOptions; the vulnerable preprocessing must not be enabled here.
-    const config = await new ESLint().calculateConfigForFile('src/main.ts');
+    const config = await new ESLint({ cwd: repoRoot }).calculateConfigForFile(
+      join(repoRoot, 'src/main.ts'),
+    );
     expect(config).toBeDefined();
     expect(
       optimizationLevels(config.rules).filter((level) => typeof level !== 'number' || level >= 2),
