@@ -4,10 +4,7 @@ import { join } from 'node:path';
 import { parse } from 'yaml';
 
 import { repoRoot } from './agents/agent-file.js';
-import { meta, rebuildYml } from './rebuild-harness.js';
-import { jobSteps, requireTools, workflowDir } from './workflow-yaml.js';
-
-requireTools(['bash', 'jq']);
+import { jobSteps, workflowDir } from './workflow-yaml.js';
 
 interface GoreleaserImage {
   id: string;
@@ -39,13 +36,14 @@ function goreleaserImage(id: string): GoreleaserImage {
   return image;
 }
 
-/** A GoReleaser tag template as a 1.4.2 release renders it. The commit is left a template. */
-function renderFor142(template: string): string {
+/** A GoReleaser tag template as a release of `version` renders it. The commit is left a template. */
+function render(template: string, version: string): string {
+  const [major, minor] = version.split('.');
   const rendered = template
-    .replaceAll('{{ .Version }}', '1.4.2')
-    .replaceAll('{{ .Major }}', '1')
-    .replaceAll('{{ .Minor }}', '4')
-    .replace(/\{\{ if not \.Prerelease \}\}(\w+)\{\{ end \}\}/g, '$1');
+    .replaceAll('{{ .Version }}', version)
+    .replaceAll('{{ .Major }}', major)
+    .replaceAll('{{ .Minor }}', minor)
+    .replace(/\{\{ if not \.Prerelease \}\}(\w+)\{\{ end \}\}/g, version.includes('-') ? '' : '$1');
   if (rendered.replaceAll('{{ .ShortCommit }}', '').includes('{{')) {
     throw new Error(`cannot render ${template}`);
   }
@@ -65,119 +63,12 @@ function copySources(dockerfile: string): string[] {
     );
 }
 
-const rebuildSteps = jobSteps(rebuildYml).rebuild;
-const rebuildBuilds = rebuildSteps
-  .filter((step) => step.uses?.startsWith('docker/build-push-action@'))
-  .map((step) => step.with ?? {});
-
 const repository = 'ghcr.io/bitfloo/mailoo';
 
-function images(...tags: string[]): string {
-  return tags.map((tag) => `${repository}:${tag}`).join(',');
-}
-
-describe('docker rebuild images', () => {
-  it('should hand each Dockerfile its own tag list and push it', () => {
-    const builds = rebuildBuilds.map((input) => [
-      input.file,
-      String(input.tags).match(/^\$\{\{ steps\.meta\.outputs\.(\w+) \}\}$/)?.[1],
-      input.push,
-    ]);
-    expect(builds).toEqual([
-      ['Dockerfile', 'bookworm_tags', true],
-      ['Dockerfile.alpine', 'alpine_tags', true],
-    ]);
-  });
-
-  it.each([
-    [
-      '1.4.2',
-      images(
-        '1.4.2',
-        '1.4.2-bookworm',
-        '1.4',
-        '1.4-bookworm',
-        '1',
-        '1-bookworm',
-        'bookworm',
-        'latest',
-      ),
-      images('1.4.2-alpine', '1.4-alpine', '1-alpine', 'alpine'),
-    ],
-    [
-      '1.5.0-rc.1',
-      images(
-        '1.5.0-rc.1',
-        '1.5.0-rc.1-bookworm',
-        '1.5',
-        '1.5-bookworm',
-        '1',
-        '1-bookworm',
-        'bookworm',
-      ),
-      images('1.5.0-rc.1-alpine', '1.5-alpine', '1-alpine'),
-    ],
-    [
-      '1.5.0-beta.2',
-      images(
-        '1.5.0-beta.2',
-        '1.5.0-beta.2-bookworm',
-        '1.5',
-        '1.5-bookworm',
-        '1',
-        '1-bookworm',
-        'bookworm',
-      ),
-      images('1.5.0-beta.2-alpine', '1.5-alpine', '1-alpine'),
-    ],
-    [
-      '1.10.12',
-      images(
-        '1.10.12',
-        '1.10.12-bookworm',
-        '1.10',
-        '1.10-bookworm',
-        '1',
-        '1-bookworm',
-        'bookworm',
-        'latest',
-      ),
-      images('1.10.12-alpine', '1.10-alpine', '1-alpine', 'alpine'),
-    ],
-    [
-      '10.2.0',
-      images(
-        '10.2.0',
-        '10.2.0-bookworm',
-        '10.2',
-        '10.2-bookworm',
-        '10',
-        '10-bookworm',
-        'bookworm',
-        'latest',
-      ),
-      images('10.2.0-alpine', '10.2-alpine', '10-alpine', 'alpine'),
-    ],
-  ])('should write the release tag names for package version %s', (version, bookworm, alpine) => {
-    expect(meta({ version })).toEqual({
-      status: 0,
-      stderr: '',
-      outputs: { bookworm_tags: bookworm, alpine_tags: alpine },
-    });
-  });
-
-  it.each([{}, { version: '' }])('should refuse to tag a package.json holding %j', (manifest) => {
-    expect(meta(manifest)).toEqual({
-      status: 1,
-      stderr: 'package.json version is empty\n',
-      outputs: {},
-    });
-  });
-
-  it('should push the release and SHA images to the repository the rebuild tags', () => {
-    // The rebuild refreshes the tags in this repository, so a release image pushed elsewhere would
-    // never be refreshed. Each release pushes a sha- tag here too, so an on-demand SHA image pushed
-    // elsewhere would split the sha- tags across two packages.
+describe('release images', () => {
+  it('should push the release and SHA images to the repository the README names', () => {
+    // Each release pushes a sha- tag here too, so an on-demand SHA image pushed elsewhere would
+    // split the sha- tags across two packages.
     const shaYml = readFileSync(join(workflowDir, 'docker-sha.yml'), 'utf8');
     const shaRepositories = Object.values(jobSteps(shaYml))
       .flat()
@@ -209,31 +100,64 @@ describe('docker rebuild images', () => {
   });
 
   it.each([
-    { id: 'mailoo-debian', output: 'bookworm_tags', releaseOnly: ['sha-{{ .ShortCommit }}'] },
-    { id: 'mailoo-alpine', output: 'alpine_tags', releaseOnly: [] },
-  ])('should give the $id release image the tags the rebuild writes for 1.4.2', (row) => {
-    // The rebuild refreshes the tags a release pushed, so a tag only one of them writes is never
-    // refreshed or never published. The sha- tag names one release commit and is not refreshed.
-    const written = meta({ version: '1.4.2' }).outputs[row.output].split(',');
-    const rebuilt = written.map((image) => image.slice(`${repository}:`.length));
-    expect(goreleaserImage(row.id).tags.map(renderFor142).sort()).toEqual(
-      [...rebuilt, ...row.releaseOnly].sort(),
-    );
+    {
+      id: 'mailoo-debian',
+      version: '1.4.2',
+      tags: [
+        '1.4.2',
+        '1.4.2-bookworm',
+        '1.4',
+        '1.4-bookworm',
+        '1',
+        '1-bookworm',
+        'bookworm',
+        'latest',
+        'sha-{{ .ShortCommit }}',
+      ],
+    },
+    {
+      id: 'mailoo-debian',
+      version: '1.5.0-rc.1',
+      tags: [
+        '1.5.0-rc.1',
+        '1.5.0-rc.1-bookworm',
+        '1.5',
+        '1.5-bookworm',
+        '1',
+        '1-bookworm',
+        'bookworm',
+        'sha-{{ .ShortCommit }}',
+      ],
+    },
+    {
+      id: 'mailoo-alpine',
+      version: '1.4.2',
+      tags: ['1.4.2-alpine', '1.4-alpine', '1-alpine', 'alpine'],
+    },
+    {
+      id: 'mailoo-alpine',
+      version: '1.5.0-rc.1',
+      tags: ['1.5.0-rc.1-alpine', '1.5-alpine', '1-alpine'],
+    },
+  ])('should give the $id image its tag set for release $version', ({ id, version, tags }) => {
+    // GoReleaser skips a tag that renders empty, which is how a release candidate leaves latest and
+    // alpine on the last stable release.
+    const rendered = goreleaserImage(id).tags.map((tag) => render(tag, version));
+    expect(rendered.filter(Boolean).sort()).toEqual([...tags].sort());
   });
 
-  it('should build each release image from the Dockerfile the rebuild uses for its tags', () => {
-    const fileFor = Object.fromEntries(
-      rebuildBuilds.map((input) => [String(input.tags).match(/outputs\.(\w+)/)?.[1], input.file]),
-    );
+  it('should build the bookworm image from Dockerfile and the alpine one from Dockerfile.alpine', () => {
+    // A swap would publish one base image under the other's tags.
     expect(goreleaserImages.map((image) => [image.id, image.dockerfile])).toEqual([
-      ['mailoo-debian', fileFor.bookworm_tags],
-      ['mailoo-alpine', fileFor.alpine_tags],
+      ['mailoo-debian', 'Dockerfile'],
+      ['mailoo-alpine', 'Dockerfile.alpine'],
     ]);
   });
 
-  it('should build each release image for the architectures the rebuild builds', () => {
-    expect(goreleaserImages.map((image) => image.platforms.join(','))).toEqual(
-      rebuildBuilds.map((input) => input.platforms),
+  it('should build both release images for linux/amd64 and linux/arm64', () => {
+    // README.md promises both architectures.
+    expect(goreleaserImages.map((image) => image.platforms)).toEqual(
+      Array(2).fill(['linux/amd64', 'linux/arm64']),
     );
   });
 

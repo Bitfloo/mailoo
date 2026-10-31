@@ -21,12 +21,20 @@ import {
   text,
 } from '@clack/prompts';
 
-import { CONFIG_FILE, configExists, loadRawConfig, saveConfig } from '../config/loader.js';
+import {
+  CONFIG_FILE,
+  configExists,
+  loadRawConfig,
+  normalizeAccount,
+  saveConfig,
+} from '../config/loader.js';
 import type { RawAccountConfig, RawAppConfig } from '../config/schema.js';
 import { AppConfigFileSchema, SettingsSchema } from '../config/schema.js';
 import { testImap, testSmtp } from '../connections/probe.js';
+import OAuthService from '../services/oauth.service.js';
 import type { AccountConfig } from '../types/index.js';
 import ensureInteractive from './guard.js';
+import { manualClientConfig } from './install-commands.js';
 import { detectProvider } from './providers.js';
 
 // ---------------------------------------------------------------------------
@@ -315,49 +323,14 @@ function isDefaultAccount(defaultAccount: string | undefined, account: RawAccoun
 }
 
 /**
- * Build a normalized AccountConfig for connection testing.
- */
-function buildTestAccount(
-  identity: { name: string; email: string; fullName: string },
-  creds: { username: string; password: string },
-  server: ServerSettings,
-): AccountConfig {
-  return {
-    name: identity.name,
-    email: identity.email,
-    fullName: identity.fullName || undefined,
-    username: creds.username || identity.email,
-    password: creds.password,
-    imap: {
-      host: server.imapHost,
-      port: server.imapPort,
-      tls: server.imapTls,
-      starttls: !server.imapTls,
-      verifySsl: true,
-    },
-    smtp: {
-      host: server.smtpHost,
-      port: server.smtpPort,
-      tls: server.smtpTls,
-      starttls: server.smtpStarttls,
-      verifySsl: true,
-      pool: {
-        enabled: server.smtpPoolEnabled,
-        maxConnections: server.smtpPoolMaxConnections,
-        maxMessages: server.smtpPoolMaxMessages,
-      },
-    },
-  };
-}
-
-/**
  * Test IMAP and SMTP connections. Returns true if both succeed or user opts to proceed.
  */
 async function testConnections(account: AccountConfig): Promise<boolean> {
   const spinner = p_spinner();
+  const oauth = new OAuthService();
 
   spinner.start('Testing IMAP connection…');
-  const imapResult = await testImap(account);
+  const imapResult = await testImap(account, oauth);
   if (imapResult.success) {
     spinner.stop(
       `IMAP ✓ ${account.imap.host}:${account.imap.port} — ${imapResult.details?.messages} messages, ${imapResult.details?.folders} folders`,
@@ -367,7 +340,7 @@ async function testConnections(account: AccountConfig): Promise<boolean> {
   }
 
   spinner.start('Testing SMTP connection…');
-  const smtpResult = await testSmtp(account);
+  const smtpResult = await testSmtp(account, oauth);
   if (smtpResult.success) {
     spinner.stop(`SMTP ✓ ${account.smtp.host}:${account.smtp.port} — authenticated`);
   } else {
@@ -552,7 +525,7 @@ async function addAccount(): Promise<void> {
   AppConfigFileSchema.parse(config);
 
   // 5. Test connections
-  const testAccount = buildTestAccount(identity, creds, server);
+  const testAccount = normalizeAccount(newAccount);
   const ok = await testConnections(testAccount);
   if (!ok) return;
 
@@ -560,21 +533,7 @@ async function addAccount(): Promise<void> {
   await saveConfig(config);
   log.success(`Account "${identity.name}" added. Config saved to ${CONFIG_FILE}`);
 
-  note(
-    JSON.stringify(
-      {
-        mcpServers: {
-          mailoo: {
-            command: 'mailoo',
-            args: ['stdio'],
-          },
-        },
-      },
-      null,
-      2,
-    ),
-    'Add this to your MCP client config (e.g., Claude Desktop, Cursor)',
-  );
+  note(manualClientConfig(), 'Add this to your MCP client config (e.g., Claude Desktop, Cursor)');
 
   outro('Done!');
 }
@@ -725,7 +684,7 @@ async function editAccount(nameArg?: string): Promise<void> {
   assertNotCancel(shouldTest);
 
   if (shouldTest) {
-    const testAccount = buildTestAccount(identity, creds, server);
+    const testAccount = normalizeAccount(updatedAccount);
     const ok = await testConnections(testAccount);
     if (!ok) return;
   }

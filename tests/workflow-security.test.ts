@@ -39,8 +39,12 @@ describe('code scanning workflows', () => {
     expect(onBlock(codeqlYml)).toContain('workflow_dispatch:');
   });
 
-  it('should run Scorecard only on its schedule and when branch protection changes', () => {
-    expect(triggers(scorecardYml)).toEqual(['  schedule:', '  branch_protection_rule:']);
+  it('should let a maintainer refresh Scorecard alongside its automatic triggers', () => {
+    expect(triggers(scorecardYml)).toEqual([
+      '  schedule:',
+      '  branch_protection_rule:',
+      '  workflow_dispatch:',
+    ]);
   });
 });
 
@@ -62,13 +66,9 @@ describe('scheduled workflows', () => {
     ([, yaml]) => (parse(yaml) as { on?: { schedule?: unknown } }).on?.schedule !== undefined,
   );
 
-  it('should find the three scheduled workflows', () => {
+  it('should find the two scheduled workflows', () => {
     // An empty list would run the two tests below zero times and pass.
-    expect(scheduled.map(([name]) => name)).toEqual([
-      'codeql.yml',
-      'docker-rebuild.yml',
-      'scorecard.yml',
-    ]);
+    expect(scheduled.map(([name]) => name)).toEqual(['codeql.yml', 'scorecard.yml']);
   });
 
   it.each(scheduled)('should run %s on a weekly schedule', (_, yaml) => {
@@ -199,13 +199,13 @@ describe('workflow token is no wider than the job writes', () => {
     expect(roster).toEqual({
       'ci.yml': { '(workflow)': read, check: [], docker: [], integration: [], 'public-log': [] },
       'codeql.yml': { '(workflow)': read, analyze: ['contents: read', 'security-events: write'] },
-      'docker-rebuild.yml': { '(workflow)': read, rebuild: ['contents: read', 'packages: write'] },
       'docker-sha.yml': { '(workflow)': read, 'sha-images': ['contents: read', 'packages: write'] },
       'release.yml': {
         '(workflow)': read,
         npm: ['contents: read', 'id-token: write'],
         mcp: ['contents: read', 'id-token: write'],
         docker: ['contents: write', 'packages: write'],
+        aliases: ['contents: read', 'id-token: write'],
       },
       'scorecard.yml': {
         '(workflow)': ['read-all'],

@@ -94,6 +94,7 @@ function exactVersion(version: string): [number, number, number] | null {
 
 const npmCli = JSON.parse(readFileSync(join(repoRoot, '.github/npm-cli/package.json'), 'utf8')) as {
   dependencies: { npm: string };
+  packageManager?: string;
 };
 const pnpmCli = JSON.parse(
   readFileSync(join(repoRoot, 'docker/pnpm-cli/package.json'), 'utf8'),
@@ -120,6 +121,10 @@ describe('release supply chain', () => {
     const atOrAbove =
       major > 11 || (major === 11 && minor > 5) || (major === 11 && minor === 5 && patch >= 1);
     expect(atOrAbove).toBe(true);
+  });
+
+  it('should keep the release npm project independent of the parent pnpm package manager', () => {
+    expect(npmCli.packageManager).toBe(`npm@${npmCli.dependencies.npm}`);
   });
 
   it('should lock the pinned npm CLI version with an sha512 hash in its shrinkwrap', () => {

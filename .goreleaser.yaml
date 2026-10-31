@@ -39,7 +39,7 @@ dockers_v2:
       - linux/arm64
     labels:
       org.opencontainers.image.title: Mailoo
-      org.opencontainers.image.description: "Email, calendar, reminders & ManageSieve MCP server (IMAP/SMTP, AI triage, scheduling, OAuth2)."
+      org.opencontainers.image.description: "Email MCP server for AI agents: IMAP/SMTP, Gmail, Outlook, calendar, ManageSieve, AI triage, OAuth2."
       org.opencontainers.image.url: "https://github.com/bitfloo/mailoo"
       org.opencontainers.image.source: "https://github.com/bitfloo/mailoo"
       org.opencontainers.image.version: "{{ .Version }}"
@@ -48,7 +48,7 @@ dockers_v2:
       org.opencontainers.image.licenses: LGPL-3.0-or-later
       org.opencontainers.image.vendor: Bitfloo
     annotations:
-      org.opencontainers.image.description: "Email, calendar, reminders & ManageSieve MCP server (IMAP/SMTP, AI triage, scheduling, OAuth2)."
+      org.opencontainers.image.description: "Email MCP server for AI agents: IMAP/SMTP, Gmail, Outlook, calendar, ManageSieve, AI triage, OAuth2."
       org.opencontainers.image.source: "https://github.com/bitfloo/mailoo"
       org.opencontainers.image.licenses: LGPL-3.0-or-later
       org.opencontainers.image.created: "{{ .Date }}"
@@ -78,7 +78,7 @@ dockers_v2:
       - linux/arm64
     labels:
       org.opencontainers.image.title: Mailoo
-      org.opencontainers.image.description: "Email, calendar, reminders & ManageSieve MCP server (IMAP/SMTP, AI triage, scheduling, OAuth2)."
+      org.opencontainers.image.description: "Email MCP server for AI agents: IMAP/SMTP, Gmail, Outlook, calendar, ManageSieve, AI triage, OAuth2."
       org.opencontainers.image.url: "https://github.com/bitfloo/mailoo"
       org.opencontainers.image.source: "https://github.com/bitfloo/mailoo"
       org.opencontainers.image.version: "{{ .Version }}"
@@ -87,7 +87,7 @@ dockers_v2:
       org.opencontainers.image.licenses: LGPL-3.0-or-later
       org.opencontainers.image.vendor: Bitfloo
     annotations:
-      org.opencontainers.image.description: "Email, calendar, reminders & ManageSieve MCP server (IMAP/SMTP, AI triage, scheduling, OAuth2)."
+      org.opencontainers.image.description: "Email MCP server for AI agents: IMAP/SMTP, Gmail, Outlook, calendar, ManageSieve, AI triage, OAuth2."
       org.opencontainers.image.source: "https://github.com/bitfloo/mailoo"
       org.opencontainers.image.licenses: LGPL-3.0-or-later
       org.opencontainers.image.created: "{{ .Date }}"

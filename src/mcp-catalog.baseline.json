@@ -1179,7 +1179,7 @@
     },
     {
       "name": "download_attachment",
-      "description": "Download an email attachment by filename. First use get_email to see available attachments and their filenames. Returns base64-encoded content for files ≤5MB. Pass savePath to write the file to disk instead (up to 50MB) and skip base64.",
+      "description": "Download an email attachment by filename. First use get_email to see available attachments and their filenames. Returns base64-encoded content for files ≤5MB. Pass savePath to write the file to disk instead (up to 50MB) and skip base64. The limits compare the encoded size in the message, which for base64 is larger than the size get_email marks with ~.",
       "inputSchema": {
         "type": "object",
         "properties": {

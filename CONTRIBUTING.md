@@ -82,16 +82,36 @@ Do not put file paths from your own machine or names of internal tools in the
 subject or body. Do not rewrite commits that are already on GitHub.
 
 Releases: `package.json` `version`, tags `v*`, `CHANGELOG.md`
-(cocogitto). First Mailoo release is **0.1.0**. `cog bump --auto` advances only
-the patch, `feat` commits included (`bump_patch` in `cog.toml`). Use `cog bump
---minor` when you intentionally start a new minor line. The pre-bump hooks in
-`cog.toml` move the README Docker image tag to the new minor line and link the
-new `CHANGELOG.md` entry from the previous tag. Use
-`cog bump --auto` when you mean to cut a version — not for every docs PR.
-Run it on `develop`: it commits the version and pushes that commit as the branch
-`chore/v<version>`. Open a pull request from it and merge it with a merge
-commit, so the commit the tag names stays in `develop`'s history. Then push
-the tag with `git push origin v<version>`; the tag starts the publish.
+(cocogitto). First Mailoo release is **0.1.0**. Cut a release, not every docs
+PR, with `cog bump --patch`: the next patch version. Do not use
+`cog bump --auto`: cocogitto 7 moves a 0.x version to the next minor for any
+`feat` commit, so 0.3.1 would become 0.4.0. Use `cog bump --minor` only when
+you intentionally start a new minor line, and `cog bump --major` for a breaking
+MCP API change. The pre-bump hooks in `cog.toml` move the README Docker image
+tag to the new minor line and link the new `CHANGELOG.md` entry from the
+previous tag. Run the bump on `develop`: it commits the version and pushes
+that commit as the branch `chore/v<version>`. Open a pull request from it and
+merge it with a merge commit, so the commit the tag names stays in
+`develop`'s history. Then push the tag with `git push origin v<version>`; the
+tag starts the publish.
+
+npm aliases: the names in `scripts/npm-aliases.txt` are static shims that start
+`@bitfloo/mailoo` (`scripts/build-npm-alias.sh`). The release workflow republishes
+each one at the release version, after the main package, with an exact dependency
+on it (the `aliases` job; nothing waits for it, so a failure there holds back
+neither the MCP Registry nor the images). A range would freeze: npx keeps the
+dependencies it resolved on the first run while the alias's own version stays the
+same. Trusted publishing cannot create a package, so a new name is set up once by a
+maintainer from a terminal, at a released version, with npm 11.15 or newer, 2FA on
+the account and a logged-in session: pick a name that is free (npm also refuses one
+that differs from an existing package only by `.`, `-` or `_`, so compare the name
+with the existing ones with those characters removed on both sides), add it to the
+list, run
+`scripts/publish-npm-aliases.sh` (npm opens a browser to confirm), then
+`npm trust github <name> --file release.yml --repo Bitfloo/mailoo --allow-publish`.
+The `aliases` job warns about a name that is not on npm and fails for one that is
+published but not yet trusted; both leave the rest of the release alone.
+`--dry-run` builds and packs without publishing.
 
 ## Project Structure
 

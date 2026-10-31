@@ -9,7 +9,7 @@
 
 ![Mailoo Architecture](https://raw.githubusercontent.com/Bitfloo/mailoo/develop/docs/assets/mailoo-architecture.svg)
 
-Enables AI assistants and autonomous agents to read, search, send, manage, schedule, and analyze emails, calendars, Reminders, and ManageSieve filter scripts across multiple accounts. Exposes up to 57 tools (with `full`, `core`, and `minimal` toolset profiles), up to 7 prompts, and 6 resources over the MCP 2025/2026 protocol with `outputSchema` / `structuredContent`, OAuth2 support _(experimental)_, email scheduling, calendar extraction, analytics, provider-aware label management, real-time IMAP IDLE watcher with AI-powered triage, customizable presets and static rules, ManageSieve filters, and a guided setup wizard.
+Enables AI assistants and autonomous agents to read, search, send, manage, schedule, and analyze emails, calendars, Reminders, and ManageSieve filter scripts across multiple accounts. Exposes up to 57 tools (with `full`, `core`, and `minimal` toolset profiles), up to 7 prompts, and 6 resources over MCP with `outputSchema` / `structuredContent`, OAuth2 support _(experimental)_, email scheduling, calendar extraction, analytics, provider-aware label management, real-time IMAP IDLE watcher with AI-powered triage, customizable presets and static rules, ManageSieve filters, and a guided setup wizard.
 
 Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, read-only side effects, and reconnect backoff is documented in [`docs/configuration.md`](docs/configuration.md) and [`docs/tools.md`](docs/tools.md).
 
@@ -25,14 +25,14 @@ Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, read-only si
 | Real-time IMAP IDLE watcher | ✅ |
 | AI triage with presets | ✅ |
 | Desktop & webhook alerts | ✅ |
-| Calendar (ICS, CalDAV & Apple Calendar/Reminders) | ✅ |
+| Calendar (ICS, Apple Calendar/Reminders) | ✅ |
 | Email analytics | ✅ |
 | OAuth2 (Gmail / M365) | ✅ _experimental_ |
 | Guided setup wizard | ✅ |
 | ManageSieve (server-side filters) | ✅ |
 | Sender auth headers (SPF/DKIM/DMARC) | ✅ |
 | Toolset profiles (`full` / `core` / `minimal`) & GBNF small-LLM ergonomics | ✅ |
-| MCP 2025/2026 `outputSchema` & `structuredContent` | ✅ |
+| MCP `outputSchema` & `structuredContent` | ✅ |
 
 ## Table of Contents
 
@@ -55,9 +55,9 @@ Policy and how to report a vulnerability: **[SECURITY.md](SECURITY.md)**.
 
 Mailoo is engineered with defense-in-depth sandboxing so AI agents can safely interact with untrusted mail and external servers:
 
-- **Zero Shell Execution (`execFile` only)** — Native OS integrations (macOS `osascript` for EventKit/Reminders/notifications, Linux `notify-send`, Windows `powershell`, and crontab installation) invoke `child_process.execFile` with strict argument arrays (`shell: false`), eliminating command injection vectors.
+- **Zero Shell Execution (`execFile` only)** — Native OS integrations (macOS `osascript` for Calendar/Reminders/notifications, Linux `notify-send`, Windows `powershell`, and crontab installation) invoke `child_process.execFile` with strict argument arrays (`shell: false`), eliminating command injection vectors.
 - **SSRF & DNS-Rebinding Protection (`net.BlockList`)** — Outbound alert webhooks validate URLs against an IPv4/IPv6 `net.BlockList` covering loopback, RFC 1918 private ranges, link-local/cloud metadata (`169.254.169.254`, `100.100.100.200`), CGNAT, NAT64, 6to4, and reserved prefixes both at configuration time and at socket connection time (`createWebhookConnectLookup`), preventing DNS-rebinding attacks (`src/safety/validation.ts`).
-- **Symlink-Free Write Containment (`savePath`)** — Attachment and `.eml` exports via `savePath` are strictly confined to the working directory, walk every path segment with `lstat`, refuse hidden dotfiles and OS persistence directories (`Library/LaunchAgents`, `.ssh`, `.gnupg`), and open targets with `O_CREAT | O_EXCL | O_NOFOLLOW` under a **50 MiB** file size cap (**5 MiB** inline base64 cap).
+- **Symlink-Free Write Containment (`savePath`)** — Attachment and `.eml` exports via `savePath` are strictly confined to the working directory, walk every path segment with `lstat`, refuse hidden dotfiles and OS persistence directories (`Library/LaunchAgents`, `.ssh`, `.gnupg`), and open targets with `O_CREAT | O_EXCL | O_NOFOLLOW` under a **50 MiB** cap (**5 MiB** inline base64 cap). An `.eml` export is capped by its own size; an attachment by its encoded size in the message, which for base64 runs above the file size ([details](docs/tools.md#download_attachment)).
 - **Prompt Injection Fencing (`<<<UNTRUSTED_EXTERNAL_CONTENT>>>`)** — Untrusted email subjects, sender headers, message bodies, previews, and authentication results are wrapped in `<<<UNTRUSTED_EXTERNAL_CONTENT>>>` … `<<<END_UNTRUSTED_EXTERNAL_CONTENT>>>` delimiters (stripping any forged markers inside the payload) so LLMs treat external mail as data, not instructions.
 - **Strict Credential File Permissions (`0600`)** — `config.toml` is written and verified with mode `0600` inside a `0700` config directory (`$XDG_CONFIG_HOME/mailoo/config.toml`). Passwords and message bodies are redacted from the JSONL write audit log (`src/safety/audit.ts`).
 - **TLS & STARTTLS Verification** — `tls` enforces implicit TLS with certificate verification (`verify_ssl = true` by default); `starttls` fails closed if the server does not advertise `STARTTLS`. Turning both off is accepted only for a loopback host. ManageSieve refuses `AUTHENTICATE PLAIN` over unencrypted sockets without `STARTTLS`.
@@ -78,7 +78,7 @@ Mailoo is designed to work across both frontier models (Claude, GPT, Gemini) and
 - **Optional `account` & Smart Account Resolution** — When only a single account is configured or `default_account` (`MCP_EMAIL_DEFAULT_ACCOUNT`) is set, the `account` parameter is completely optional across tools. Account lookup also matches case-insensitively by profile name or email address (e.g., passing `"you@example.com"` resolves the matching account), and returns actionable error messages listing valid accounts (`name (email)` pairs) when ambiguous.
 - **Lossless Parameter Normalization & GBNF Compatibility** — Single-message tools accept `emailId`, `id`, or `email_id` as either string or integer (`42` or `"42"`). Batch tools (`get_emails`, `bulk_action`) accept string or numeric ID arrays (`["42", "43"]` or `[42, 43]`). `list_emails` and `search_emails` accept both `hasAttachment` and `has_attachment`. All Zod schemas avoid regex lookaheads so `llama.cpp` GBNF grammar compilation succeeds without errors.
 - **Context Window Protection** — `get_email` and `get_thread` default to `format="text"` and enforce a default `maxLength` of `20000` characters (appending a clear truncation notice when exceeded) so large HTML newsletters never overflow small context windows.
-- **MCP 2025/2026 `outputSchema` & `structuredContent`** — Tools declare structured `outputSchema` contracts and return machine-readable `structuredContent` alongside human-readable text blocks.
+- **MCP `outputSchema` & `structuredContent`** — Tools declare structured `outputSchema` contracts and return machine-readable `structuredContent` alongside human-readable text blocks.
 - Outgoing attachment paths must be regular files under the working directory or home — [Security considerations](SECURITY.md#security-considerations)
 
 ## Docs
@@ -105,17 +105,17 @@ Key design decisions:
 Requires [Node.js](https://nodejs.org/) ≥ 24.
 
 ```bash
-npx -y @bitfloo/mailoo account add
+npx -y @bitfloo/mailoo@latest account add
 ```
 
 That writes the local config and prints an MCP client snippet. The same package runs the server and the other commands:
 
 ```bash
-npx -y @bitfloo/mailoo
-npx -y @bitfloo/mailoo test
+npx -y @bitfloo/mailoo@latest
+npx -y @bitfloo/mailoo@latest test
 ```
 
-`npx -y @bitfloo/mailoo` with no subcommand starts the MCP server over stdio. Or install the `mailoo` command:
+`npx -y @bitfloo/mailoo@latest` with no subcommand starts the MCP server over stdio. Keep the `@latest` tag: npx then checks the registry on every start, while a bare package name runs any copy installed globally or in the current project, however old. Or install the `mailoo` command:
 
 ```bash
 npm install -g @bitfloo/mailoo
@@ -138,9 +138,9 @@ node dist/main.js account add
 
 ### Docker
 
-The running image needs Docker, not Node on the host. Create the config first with `npx -y @bitfloo/mailoo account add` (or write the TOML by hand), then mount that directory into the container.
+The running image needs Docker, not Node on the host. Create the config first with `npx -y @bitfloo/mailoo@latest account add` (or write the TOML by hand), then mount that directory into the container.
 
-The image is `ghcr.io/bitfloo/mailoo`, built for linux/amd64 and linux/arm64. Tags are bare semver (no `v` prefix). The `0.3` tag follows the newest 0.3.x release. Production setups should pin the full version from the release (it matches the npm version) or the image digest.
+The image is `ghcr.io/bitfloo/mailoo`, built for linux/amd64 and linux/arm64. Version tags are bare semver (no `v` prefix); `latest`, `alpine` and the `-bookworm` / `-alpine` variants are published too. The `0.3` tag follows the newest 0.3.x release. Production setups should pin the full version from the release (it matches the npm version) or the image digest.
 
 ```bash
 docker pull ghcr.io/bitfloo/mailoo:0.3
@@ -153,25 +153,25 @@ docker build -t ghcr.io/bitfloo/mailoo .
 ```
 
 > **Note:** The server uses stdio transport. Config is created on the host
-> (`npx -y @bitfloo/mailoo account add`, or a hand-written TOML) and mounted into the container.
+> (`npx -y @bitfloo/mailoo@latest account add`, or a hand-written TOML) and mounted into the container.
 
 Installing or starting Mailoo does not send a usage report. An install count stays off until `MAILOO_INSTALL_COUNTER` is `1`, `true`, `on`, or `yes` (any letter case, surrounding spaces ignored) and `MAILOO_INSTALL_COUNTER_URL` is set. The POST body is only `product`, `version`, `event` (`install`), and `node_major`. Unset, `0`, `false`, `no`, or `off` keeps it off. Full rules: [Install count](#install-count).
 
 ## Usage
 
-Commands below use `npx -y @bitfloo/mailoo`. A global install accepts the same subcommands as `mailoo`. From a clone, after `pnpm build`, those subcommands are `node dist/main.js` (see [From a clone](#from-a-clone)).
+Commands below use `npx -y @bitfloo/mailoo@latest`. A global install accepts the same subcommands as `mailoo`. From a clone, after `pnpm build`, those subcommands are `node dist/main.js` (see [From a clone](#from-a-clone)).
 
 ### Setup
 
 ```bash
 # Add an email account interactively (recommended)
-npx -y @bitfloo/mailoo account add
+npx -y @bitfloo/mailoo@latest account add
 
 # Or use the deprecated alias (same wizard)
-npx -y @bitfloo/mailoo setup
+npx -y @bitfloo/mailoo@latest setup
 
 # Or create a template config manually
-npx -y @bitfloo/mailoo config init
+npx -y @bitfloo/mailoo@latest config init
 ```
 
 The setup wizard auto-detects server settings, tests connections, saves config, and outputs the MCP client config snippet.
@@ -179,18 +179,18 @@ The setup wizard auto-detects server settings, tests connections, saves config, 
 ### Test Connections
 
 ```bash
-npx -y @bitfloo/mailoo test            # all accounts
-npx -y @bitfloo/mailoo test personal   # specific account
+npx -y @bitfloo/mailoo@latest test            # all accounts
+npx -y @bitfloo/mailoo@latest test personal   # specific account
 ```
 
-`npx -y @bitfloo/mailoo test` / `mailoo test` is a **live-account connection probe**, not Vitest. Unit and integration tests are `pnpm test` / `pnpm test:integration` (see [Contributing](#contributing)). OAuth2 accounts log in with an access token refreshed from the configured refresh token.
+`npx -y @bitfloo/mailoo@latest test` / `mailoo test` is a **live-account connection probe**, not Vitest. Unit and integration tests are `pnpm test` / `pnpm test:integration` (see [Contributing](#contributing)). OAuth2 accounts log in with an access token refreshed from the configured refresh token.
 
 ### Configure Your MCP Client
 
-Run the guided installer, or paste a snippet below. There is no VS Code / MCP gallery listing.
+Run the guided installer for Claude Desktop, Cursor or Windsurf, or paste a snippet below for any client. Mailoo is published to the official MCP Registry as `io.github.Bitfloo/mailoo`.
 
 ```bash
-npx -y @bitfloo/mailoo install
+npx -y @bitfloo/mailoo@latest install
 ```
 
 The installer can register an `npx`, `pnpm dlx`, or global `mailoo` launch. A `mailoo` binary already on `PATH` can use `"command": "mailoo"` with `"args": ["stdio"]`.
@@ -205,10 +205,22 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
   "mcpServers": {
     "mailoo": {
       "command": "npx",
-      "args": ["-y", "@bitfloo/mailoo", "stdio"]
+      "args": ["-y", "@bitfloo/mailoo@latest", "stdio"]
     }
   }
 }
+```
+</details>
+
+<details>
+<summary><strong>Claude Code</strong></summary>
+
+Register the server with the `claude` CLI. The default scope is the current project only. Put `--scope user` before the server name to make it available in every project, or `--scope project` to write a shareable `.mcp.json`; anything after the `--` is passed to the server, not to `claude`:
+
+```bash
+claude mcp add mailoo -- npx -y @bitfloo/mailoo@latest stdio
+# or, available in every project:
+claude mcp add --scope user mailoo -- npx -y @bitfloo/mailoo@latest stdio
 ```
 </details>
 
@@ -225,7 +237,7 @@ Mailoo is not in the VS Code Extensions gallery. Point Copilot at the `npx` laun
     "mailoo": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@bitfloo/mailoo", "stdio"]
+      "args": ["-y", "@bitfloo/mailoo@latest", "stdio"]
     }
   }
 }
@@ -242,7 +254,7 @@ Open the Command Palette → **Preferences: Open User Settings (JSON)** and add:
       "mailoo": {
         "type": "stdio",
         "command": "npx",
-        "args": ["-y", "@bitfloo/mailoo", "stdio"]
+        "args": ["-y", "@bitfloo/mailoo@latest", "stdio"]
       }
     }
   }
@@ -260,7 +272,7 @@ Edit `~/.cursor/mcp.json`:
   "mcpServers": {
     "mailoo": {
       "command": "npx",
-      "args": ["-y", "@bitfloo/mailoo", "stdio"]
+      "args": ["-y", "@bitfloo/mailoo@latest", "stdio"]
     }
   }
 }
@@ -277,7 +289,7 @@ Edit `~/.codeium/windsurf/mcp_config.json`:
   "mcpServers": {
     "mailoo": {
       "command": "npx",
-      "args": ["-y", "@bitfloo/mailoo", "stdio"]
+      "args": ["-y", "@bitfloo/mailoo@latest", "stdio"]
     }
   }
 }
@@ -295,7 +307,7 @@ Edit `~/.config/zed/settings.json`:
     "mailoo": {
       "command": {
         "path": "npx",
-        "args": ["-y", "@bitfloo/mailoo", "stdio"]
+        "args": ["-y", "@bitfloo/mailoo@latest", "stdio"]
       }
     }
   }
@@ -313,7 +325,7 @@ Add to `~/.vibe/config.toml`:
 name = "mailoo"
 transport = "stdio"
 command = "npx"
-args = ["-y", "@bitfloo/mailoo", "stdio"]
+args = ["-y", "@bitfloo/mailoo@latest", "stdio"]
 ```
 
 To pass credentials directly instead of using a config file, use the `env` field:
@@ -323,7 +335,7 @@ To pass credentials directly instead of using a config file, use the `env` field
 name = "mailoo"
 transport = "stdio"
 command = "npx"
-args = ["-y", "@bitfloo/mailoo", "stdio"]
+args = ["-y", "@bitfloo/mailoo@latest", "stdio"]
 env = { MCP_EMAIL_ADDRESS = "you@example.com", MCP_EMAIL_PASSWORD = "your-app-password", MCP_EMAIL_IMAP_HOST = "imap.example.com", MCP_EMAIL_SMTP_HOST = "smtp.example.com" }
 ```
 
@@ -368,7 +380,7 @@ For MCP client configuration (e.g. Claude Desktop):
   "mcpServers": {
     "mailoo": {
       "command": "npx",
-      "args": ["-y", "@bitfloo/mailoo", "stdio"],
+      "args": ["-y", "@bitfloo/mailoo@latest", "stdio"],
       "env": {
         "MCP_EMAIL_ADDRESS": "you@example.com",
         "MCP_EMAIL_PASSWORD": "your-app-password",
@@ -384,7 +396,7 @@ For MCP client configuration (e.g. Claude Desktop):
 ### CLI Commands
 
 ```
-npx -y @bitfloo/mailoo [command]
+npx -y @bitfloo/mailoo@latest [command]
 
 Commands:
   stdio                     Run as MCP server over stdio (default)
@@ -418,8 +430,8 @@ Commands:
 `http` listens on **127.0.0.1** and **::1** (port **8080** unless you pass another port). A non-loopback address or a non-loopback name in `MCP_EMAIL_HTTP_ALLOWED_HOSTS` requires `MCP_EMAIL_HTTP_TOKEN`. Details, including `0.0.0.0` / `::` and the 8 MiB body limit: [docs/configuration.md](docs/configuration.md#http-transport).
 
 ```bash
-npx -y @bitfloo/mailoo http
-MCP_EMAIL_HTTP_TOKEN='replace-with-a-long-random-secret' npx -y @bitfloo/mailoo http 8080 192.0.2.10
+npx -y @bitfloo/mailoo@latest http
+MCP_EMAIL_HTTP_TOKEN='replace-with-a-long-random-secret' npx -y @bitfloo/mailoo@latest http 8080 192.0.2.10
 ```
 
 Clients send `Authorization: Bearer <token>` when a token is configured.
@@ -540,8 +552,8 @@ Sent copies, IMAP4rev2, Sieve host/port, and `read_only` env vars:
 The scheduler enables future email delivery with a layered architecture:
 
 1. **MCP auto-check** — Processes the queue on server startup, before the watcher connects, and every 60 seconds while the MCP server is running. With several `stdio` servers, only the one that runs the watcher and hooks checks. A check still running when the next one is due is skipped, and failed sends are logged to the connected MCP client at `warning`
-2. **CLI** — `npx -y @bitfloo/mailoo scheduler check` for manual or cron-based processing. It sends with the same account settings as the server, including OAuth2 and `save_to_sent`, and closes its IMAP/SMTP connections before it exits
-3. **OS-level daemon** — `npx -y @bitfloo/mailoo scheduler install` sets up launchd (macOS) or crontab (Linux) to run every minute, independently of the MCP server
+2. **CLI** — `npx -y @bitfloo/mailoo@latest scheduler check` for manual or cron-based processing. It sends with the same account settings as the server, including OAuth2 and `save_to_sent`, and closes its IMAP/SMTP connections before it exits
+3. **OS-level daemon** — `npx -y @bitfloo/mailoo@latest scheduler install` sets up launchd (macOS) or crontab (Linux) to run every minute, independently of the MCP server
 
 > **Important — the daemon must be installed for reliable delivery.**
 > Without it, scheduled emails only fire while an AI client is actively connected.
@@ -553,19 +565,19 @@ The scheduler enables future email delivery with a layered architecture:
 
 ```bash
 # Install (macOS launchd / Linux crontab — runs every minute)
-npx -y @bitfloo/mailoo scheduler install
+npx -y @bitfloo/mailoo@latest scheduler install
 
 # Verify it's running
-npx -y @bitfloo/mailoo scheduler status
+npx -y @bitfloo/mailoo@latest scheduler status
 
 # View pending / sent / failed scheduled emails
-npx -y @bitfloo/mailoo scheduler list
+npx -y @bitfloo/mailoo@latest scheduler list
 
 # Trigger a manual check immediately
-npx -y @bitfloo/mailoo scheduler check
+npx -y @bitfloo/mailoo@latest scheduler check
 
 # Remove the daemon
-npx -y @bitfloo/mailoo scheduler uninstall
+npx -y @bitfloo/mailoo@latest scheduler uninstall
 ```
 
 Scheduled emails are JSON files in `~/.local/state/mailoo/scheduled/`. Before sending, a check claims the entry with a lock file next to it and keeps that claim fresh while SMTP runs, so the in-process timer, `mailoo scheduler check` and other server processes do not send it twice. If the process dies after the server accepted a message but before it was recorded as sent, the entry can be sent again after the claim goes stale (at least once, not exactly once). Every attempt for one entry carries the same Message-ID, `<schedule id@account domain>`, so a receiving server or client can drop the second copy. Once SMTP has accepted a message, a failure to update the queue file is reported, and the entry is not sent again as long as either the sent record or the move into `sent/` succeeded. If both failed, the next check sends it again unless it has used all its attempts, then it is marked `failed`. Each entry tracks its attempts (at most 3) and the last error; `list_scheduled` returns both, and `scheduler list` shows the error of a failed entry. An entry the rate limit holds back stays pending for the next check and does not use an attempt.
@@ -870,7 +882,7 @@ Templates under `$XDG_CONFIG_HOME/mailoo/templates/` are read, not written by th
 
 ### Environment
 
-Single-account setup reads `MCP_EMAIL_*` (`src/config/loader.ts`). HTTP listens reads `MCP_EMAIL_HTTP_HOST`, `MCP_EMAIL_HTTP_TOKEN`, and `MCP_EMAIL_HTTP_ALLOWED_HOSTS` (`src/safety/http-transport.ts`). The same names are the Smithery config keys and the `packages[].environmentVariables` list in `server.json`.
+Single-account setup reads `MCP_EMAIL_*` (`src/config/loader.ts`). The HTTP listener reads `MCP_EMAIL_HTTP_HOST`, `MCP_EMAIL_HTTP_TOKEN`, and `MCP_EMAIL_HTTP_ALLOWED_HOSTS` (`src/safety/http-transport.ts`). The same names are the Smithery config keys and the `packages[].environmentVariables` list in `server.json`.
 
 | Name | Role |
 |---|---|
@@ -1100,7 +1112,7 @@ pnpm build              # build
 pnpm start              # run
 ```
 
-`pnpm test:integration` and `pnpm test:all` need Docker. `pnpm ci:local` skips GreenMail when Docker is down. What GitHub runs on a pull request is listed in [CONTRIBUTING.md](CONTRIBUTING.md#commands). `mailoo test` / `npx -y @bitfloo/mailoo test` is a live-account connection probe, not Vitest.
+`pnpm test:integration` and `pnpm test:all` need Docker. `pnpm ci:local` skips GreenMail when Docker is down. What GitHub runs on a pull request is listed in [CONTRIBUTING.md](CONTRIBUTING.md#commands). `mailoo test` / `npx -y @bitfloo/mailoo@latest test` is a live-account connection probe, not Vitest.
 
 ## Attribution & License
 

@@ -28,7 +28,6 @@ export function workflowTexts(): (readonly [string, string])[] {
 export const releaseYml = readFileSync(join(workflowDir, 'release.yml'), 'utf8');
 
 interface WorkflowStep {
-  id?: string;
   name?: string;
   uses?: string;
   run?: string;
@@ -128,7 +127,7 @@ export function readKeyLines(yaml: string, key: string): string[] {
   return keyLines(yaml, key);
 }
 
-/** The steps of one workflow job that a harness module runs against fakes, by name or id. */
+/** The steps of one workflow job that a harness module runs against fakes, by name. */
 export interface Harness {
   workflow: string;
   job: string;
@@ -148,12 +147,12 @@ export function harnessedStep(harness: Harness, label: string): string {
   }
   const yaml = readFileSync(join(workflowDir, harness.workflow), 'utf8');
   const job = jobSections(yaml).find((section) => section.startsWith(`  ${harness.job}:\n`));
-  const step = jobSteps(yaml)[harness.job]?.find((s) => s.name === label || s.id === label);
+  const step = jobSteps(yaml)[harness.job]?.find((s) => s.name === label);
   if (!job || !step) {
     throw new Error(`${where} has no step ${label}`);
   }
   resolved.set(harness, (resolved.get(harness) ?? new Set()).add(label));
-  return releaseStep(job, label, step.name === label ? 'name' : 'id');
+  return releaseStep(job, label);
 }
 
 /** Each label harnessedStep has returned for `harness` in this test file, sorted. */
@@ -170,10 +169,10 @@ export function releaseJob(marker: string): string {
   return job;
 }
 
-/** Isolate one step, found by its name or id, so a hash elsewhere cannot satisfy the install check. */
-export function releaseStep(yaml: string, name: string, key: 'name' | 'id' = 'name'): string {
+/** Isolate one step, found by its name, so a hash elsewhere cannot satisfy the install check. */
+export function releaseStep(yaml: string, name: string): string {
   const steps = releaseSteps(yaml);
-  const marker = `- ${key}: ${name}\n`;
+  const marker = `- name: ${name}\n`;
   const start = steps.indexOf(marker);
   if (start < 0) {
     throw new Error(`missing step ${name}`);

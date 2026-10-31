@@ -2,7 +2,7 @@
  * MCP Server factory.
  *
  * Creates and configures the McpServer instance with capabilities and
- * MCP 2025/2026 structured output (`outputSchema` + `structuredContent`) defaults.
+ * MCP structured output (`outputSchema` + `structuredContent`) defaults.
  */
 
 import { createRequire } from 'node:module';

@@ -5,7 +5,7 @@ WORKDIR /app
 
 # With the +sha512 suffix (the integrity in docker/pnpm-cli/npm-shrinkwrap.json)
 # corepack checks the download against the repo, not registry metadata.
-RUN corepack enable && corepack prepare pnpm@12.13.0+sha512.1e55719bf26e809dce5c5084fdebaa64efb3da9038ae5d68a9f8a68311f1a45841c8c3b76a37298c3b66f6bcc80409a9b7f33c78a7168a3e90fb65a5d8235ae4 --activate
+RUN corepack enable && corepack prepare pnpm@12.15.0+sha512.b3951d6d6ff4a9f13dc7cf56cd28d2b8eb37dbcc9c68e52e1e1191873ea9f82a017287ab50baadc5ccc494f036c67c0e47eb13608c2fa36f47711b61ea128e61 --activate
 
 # Install dependencies (layer cached unless lock changes)
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -23,7 +23,7 @@ RUN pnpm prune --prod
 FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS production
 
 LABEL org.opencontainers.image.title="Mailoo" \
-      org.opencontainers.image.description="Email, calendar, reminders & ManageSieve MCP server (IMAP/SMTP, AI triage, scheduling, OAuth2)." \
+      org.opencontainers.image.description="Email MCP server for AI agents: IMAP/SMTP, Gmail, Outlook, calendar, ManageSieve, AI triage, OAuth2." \
       org.opencontainers.image.url="https://github.com/bitfloo/mailoo" \
       org.opencontainers.image.source="https://github.com/bitfloo/mailoo" \
       org.opencontainers.image.licenses="LGPL-3.0-or-later" \

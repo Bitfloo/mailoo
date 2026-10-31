@@ -27,6 +27,12 @@ on a writable server because this path writes disk, and **true** when
 (one path segment). An existing file is left unchanged.
 A symlink is rejected.
 
+Both caps compare the part size the server reports, not the file size.
+Base64 carries 57 bytes in each 78-octet line, so that size runs about 37%
+over the file, and the 5 MB cap holds a base64 file of about 3.65 MB. A
+refusal of a base64 part names both sizes: the `~` estimate `get_email`
+shows and the encoded one.
+
 An attachment is chosen by `filename`. When two or more attachments in the
 message carry that name, the call fails and the error lists their MIME
 parts instead of returning the first one. The same refusal applies to
@@ -36,7 +42,7 @@ parts instead of returning the first one. The same refusal applies to
 `add_to_calendar` with `save_attachments`, and the mail-arrival hook that
 adds events to the calendar, save the non-calendar attachments of the
 message under `$XDG_DATA_HOME/mailoo/calendar-attachments/`, up to 25 MB
-each, as the server reports the part size (base64 adds about a third).
+each, as the server reports the part size (see the base64 note above).
 A part that cannot be downloaded or written is skipped. Each file keeps only
 the last path segment of the attachment name, without leading dots, and
 attachments that share a name are saved as `name.ext`, `name-2.ext`, and so on.
@@ -86,6 +92,13 @@ Both accept ISO 8601 `since` and `before`.
 `search_emails` also accepts `start_date` / `end_date` as aliases
 (`since` / `before` win if both are set). `query` may be omitted for a
 filter-only search.
+
+## `list_emails` / `search_emails` previews
+
+Each preview is read from the start of the message's text part
+(`text/plain`, else `text/html`) and decoded from its transfer encoding
+and charset. Text that starts several kilobytes into the part, such as an
+HTML newsletter behind a long `<style>` block, gets no preview.
 
 ## `bulk_action`
 
@@ -140,6 +153,18 @@ unsubscribe or tracking URLs, and it does not change IMAP flags.
 
 Requires a reachable ManageSieve endpoint ([configuration.md](configuration.md#managesieve)).
 PLAIN auth needs TLS (implicit or STARTTLS).
+
+Script uploads and each downloaded literal are limited to **1,048,576 bytes (1 MiB)**.
+A complete server response is limited to **1,114,112 bytes (1 MiB + 64 KiB)** across
+all lines and literals, including bytes already buffered. The extra 64 KiB allows
+protocol framing, capability and status lines around a maximum-size script; the
+same total limit bounds script lists and greetings. Invalid or oversized literal
+lengths are refused before waiting for their payload.
+
+Each server response and the TLS handshake has an absolute **30-second** deadline,
+even while the peer keeps sending data. The initial TCP connect has an **8-second**
+deadline. Exceeding a size or time limit closes the connection and reports an error;
+`sieve_status` instead reports unavailability with a warning.
 
 | Tool | Mode | RFC 5804 |
 |------|------|----------|

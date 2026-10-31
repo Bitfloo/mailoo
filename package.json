@@ -1,8 +1,8 @@
 {
   "name": "@bitfloo/mailoo",
-  "version": "0.3.0",
+  "version": "0.3.3",
   "mcpName": "io.github.Bitfloo/mailoo",
-  "description": "Email, calendar, reminders & ManageSieve MCP server (IMAP/SMTP, AI triage, scheduling, OAuth2).",
+  "description": "Email MCP server for AI agents: IMAP/SMTP, Gmail, Outlook, calendar, ManageSieve, AI triage, OAuth2.",
   "type": "module",
   "bin": {
     "mailoo": "dist/main.js"
@@ -38,7 +38,6 @@
     "commit": "cog commit",
     "changelog": "cog changelog",
     "version:check": "cog check",
-    "version:bump": "cog bump --auto",
     "version:bump:minor": "cog bump --minor",
     "version:bump:patch": "cog bump --patch",
     "version:log": "cog log",
@@ -58,24 +57,32 @@
   "keywords": [
     "email",
     "mcp",
-    "imap",
-    "smtp",
-    "model-context-protocol",
     "mcp-server",
+    "model-context-protocol",
+    "mcp-email",
+    "email-mcp",
+    "imap",
+    "imap-mcp",
+    "smtp",
+    "mail",
+    "gmail",
+    "outlook",
+    "microsoft-365",
     "claude",
+    "claude-code",
+    "claude-desktop",
+    "cursor",
     "anthropic",
-    "ai-tools",
+    "ai",
+    "ai-agents",
     "llm",
-    "nodejs",
+    "email-automation",
     "calendar",
     "reminders",
     "managesieve",
     "sieve",
     "triage",
-    "scheduling",
-    "oauth2",
-    "ai-agents",
-    "email-automation"
+    "oauth2"
   ],
   "author": {
     "name": "Bitfloo",
@@ -95,7 +102,7 @@
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@typesafe-ai/sdk": "^0.7.0",
     "imapflow": "^2.5.8",
-    "node-ical": "^0.25.2",
+    "node-ical": "^0.27.3",
     "nodemailer": "^10.1.2",
     "smol-toml": "^1.9.1",
     "zod": "^4.6.7"
@@ -119,5 +126,5 @@
   "engines": {
     "node": ">=24.0.0"
   },
-  "packageManager": "pnpm@12.13.0"
+  "packageManager": "pnpm@12.15.0"
 }

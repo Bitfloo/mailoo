@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 
+import { note } from '@clack/prompts';
 import { parse as parseTOML } from 'smol-toml';
 import { ZodError } from 'zod';
 
@@ -116,6 +117,21 @@ describe('mailoo account and setup', () => {
       rateLimit: saved.settings.rate_limit,
       names: saved.accounts.map((a) => a.name),
     }).toEqual({ rateLimit: 3, names: ['personal', 'work'] });
+  });
+
+  // The global `mailoo` command never updates, and an npx user does not have it on PATH.
+  it('should print the npx @latest client entry after mailoo account add saves the account', async () => {
+    const run = await sandbox.entryPoint('account add');
+
+    await run();
+
+    const printed = vi
+      .mocked(note)
+      .mock.calls.map(([message]) => String(message))
+      .find((message) => message.includes('mcpServers'));
+    expect(JSON.parse(printed ?? '{}')).toEqual({
+      mcpServers: { mailoo: { command: 'npx', args: ['-y', '@bitfloo/mailoo@latest', 'stdio'] } },
+    });
   });
 
   it('should write a new config with the schema settings when no config file exists', async () => {
@@ -256,7 +272,14 @@ describe('mailoo account and setup', () => {
       fullName: undefined,
       username: 'user@example.com',
       password: 'app-password',
-      imap: { host: 'imap.example.com', port: 993, tls: true, starttls: false, verifySsl: true },
+      imap: {
+        host: 'imap.example.com',
+        port: 993,
+        tls: true,
+        starttls: false,
+        verifySsl: true,
+        disableImap4rev2: false,
+      },
       smtp: {
         host: 'smtp.example.com',
         port: 465,
@@ -317,7 +340,14 @@ describe('mailoo account and setup', () => {
         fullName: 'Ada Example',
         username: 'ada.login',
         password: 'other-app-password',
-        imap: { host: 'mail.example.com', port: 143, tls: false, starttls: true, verifySsl: true },
+        imap: {
+          host: 'mail.example.com',
+          port: 143,
+          tls: false,
+          starttls: true,
+          verifySsl: true,
+          disableImap4rev2: false,
+        },
         smtp: {
           host: 'relay.example.com',
           port: 587,

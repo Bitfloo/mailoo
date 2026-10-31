@@ -262,7 +262,7 @@ function normalizeOAuth2(raw: NonNullable<RawAccountConfig['oauth2']>): OAuth2Co
   };
 }
 
-function normalizeAccount(raw: RawAccountConfig): AccountConfig {
+export function normalizeAccount(raw: RawAccountConfig): AccountConfig {
   return {
     name: raw.name,
     email: raw.email,

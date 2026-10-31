@@ -140,10 +140,10 @@ describe('release notes', () => {
     );
   });
 
-  it('should end the release body with the install commands for that version', () => {
+  it('should end the release body with npx at @latest and the image for that version', () => {
     const notes = releaseNotes({ ref: 'refs/tags/v0.2.0' });
     expect(notes.trimEnd().split('\n').slice(-3)).toEqual([
-      '**Install:** `npx -y @bitfloo/mailoo@0.2.0` · `docker pull ghcr.io/bitfloo/mailoo:0.2.0` (or `0.2.0-alpine`)',
+      '**Install:** `npx -y @bitfloo/mailoo@latest` · `docker pull ghcr.io/bitfloo/mailoo:0.2.0` (or `0.2.0-alpine`)',
       '',
       'Full history: [CHANGELOG.md](https://github.com/bitfloo/mailoo/blob/v0.2.0/CHANGELOG.md)',
     ]);

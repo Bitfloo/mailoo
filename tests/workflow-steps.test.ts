@@ -3,11 +3,10 @@ import { join } from 'node:path';
 
 import { repoRoot } from './agents/agent-file.js';
 import { mcpHarness } from './mcp-harness.js';
-import { metaHarness } from './rebuild-harness.js';
 import { notesHarness } from './release-notes-harness.js';
 import { jobSteps, resolvedSteps, workflowTexts } from './workflow-yaml.js';
 
-const HARNESSES = [mcpHarness, notesHarness, metaHarness];
+const HARNESSES = [mcpHarness, notesHarness];
 const testsDir = join(repoRoot, 'tests');
 
 const { engines } = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
@@ -38,7 +37,7 @@ function steps(workflow: string, yaml: string): Record<string, string[]> {
           const shown = inputs.length > 0 ? ` ${JSON.stringify(Object.fromEntries(inputs))}` : '';
           return `${step.uses.split('@')[0]}${shown}`;
         }
-        const label = step.name ?? step.id;
+        const label = step.name;
         if (harnessed(workflow, job, label)) {
           return `run: ${label} (run by a harness)`;
         }
@@ -95,18 +94,6 @@ const STEPS: Record<string, Record<string, string[]>> = {
       'github/codeql-action/analyze',
     ],
   },
-  // QEMU lets the rebuild build the arm64 release image; meta writes the tag lists both builds push.
-  'docker-rebuild.yml': {
-    rebuild: [
-      'actions/checkout',
-      'docker/setup-qemu-action',
-      'docker/setup-buildx-action',
-      'docker/login-action {"password":"${{ secrets.GITHUB_TOKEN }}","registry":"ghcr.io","username":"${{ github.actor }}"}',
-      'run: meta (run by a harness)',
-      'docker/build-push-action {"context":".","file":"Dockerfile","platforms":"linux/amd64,linux/arm64","push":true,"tags":"${{ steps.meta.outputs.bookworm_tags }}"}',
-      'docker/build-push-action {"context":".","file":"Dockerfile.alpine","platforms":"linux/amd64,linux/arm64","push":true,"tags":"${{ steps.meta.outputs.alpine_tags }}"}',
-    ],
-  },
   'docker-sha.yml': {
     'sha-images': [
       'actions/checkout',
@@ -144,11 +131,19 @@ const STEPS: Record<string, Record<string, string[]>> = {
       'run: Write release notes (run by a harness)',
       'goreleaser/goreleaser-action {"args":"release --clean --release-notes=${{ runner.temp }}/release-notes.md","version":"~> v2"}',
     ],
+    // Nothing waits for it, so the aliases cannot hold back the MCP Registry or the images. The
+    // script runs on the same hash-pinned npm as the npm job.
+    aliases: [
+      'actions/checkout',
+      `actions/setup-node {"node-version":"${node}","registry-url":"https://registry.npmjs.org"}`,
+      'run: npm ci --ignore-scripts (in .github/npm-cli)',
+      'run: PATH="$PWD/.github/npm-cli/node_modules/.bin:$PATH" bash scripts/publish-npm-aliases.sh',
+    ],
   },
   'scorecard.yml': {
     analysis: [
       'actions/checkout {"persist-credentials":false}',
-      'ossf/scorecard-action {"publish_results":true,"results_file":"results.sarif","results_format":"sarif"}',
+      'ossf/scorecard-action {"publish_results":"${{ github.event_name != \'workflow_dispatch\' }}","results_file":"results.sarif","results_format":"sarif"}',
       'actions/upload-artifact {"name":"sarif-results","path":"results.sarif","retention-days":5}',
       'github/codeql-action/upload-sarif {"sarif_file":"results.sarif"}',
     ],
@@ -201,7 +196,7 @@ describe('workflow steps', () => {
     const withRun = Object.values(jobSteps(yaml))
       .flat()
       .filter((step) => step.run !== undefined && step.with !== undefined)
-      .map((step) => step.name ?? step.id ?? step.run);
+      .map((step) => step.name ?? step.run);
     expect(withRun).toEqual([]);
   });
 
@@ -232,7 +227,6 @@ describe('step harnesses', () => {
       'mcp-harness.install',
       'mcp-harness.publish',
       'mcp-harness.stamp',
-      'rebuild-harness.meta',
       'release-notes-harness.releaseNotes',
     ]);
   });

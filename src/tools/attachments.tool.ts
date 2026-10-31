@@ -232,7 +232,7 @@ export default function registerAttachmentTools(
       description: `Download an email attachment by filename. First use get_email to see available attachments and their filenames. ${savePathLimitSentence(
         'files',
         'the file',
-      )}`,
+      )} The limits compare the encoded size in the message, which for base64 is larger than the size get_email marks with ~.`,
       inputSchema: {
         account: accountParam,
         ...emailIdInputFields('Email ID (UID) from list_emails or get_email'),

@@ -151,13 +151,17 @@ describe('release bump', () => {
     ]);
   });
 
-  it('should bump only the patch for a feature commit', async () => {
-    // Mailoo is on 0.x, where a feature ships as a patch; a minor bump would also move the README image tag.
-    const cog = await readFile(join(root, 'cog.toml'), 'utf8');
-    const bumps = [...cog.matchAll(/^(\w+) = \{([^}]*)\}$/gm)].flatMap(([, type, keys]) =>
-      [...keys.matchAll(/\b(bump_\w+) = true\b/g)].map(([, key]) => `${type} ${key}`),
-    );
-    expect(bumps).toEqual(['feat bump_patch']);
+  it('should offer only the patch and minor cog bump scripts', async () => {
+    // cog 7 --auto moves a 0.x version to the next minor for any feat commit (0.3.1 -> 0.4.0 in a
+    // dry run), so a release cut with it skips the patch line.
+    const { scripts } = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    expect(
+      Object.values(scripts)
+        .filter((script) => /\bcog\s+bump\b/.test(script))
+        .sort(),
+    ).toEqual(['cog bump --minor', 'cog bump --patch']);
   });
 
   describe('when the README image tag is stamped for a release', () => {

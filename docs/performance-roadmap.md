@@ -1,7 +1,7 @@
 # Performance Improvements Roadmap
 
 > **Status**: Active  
-> **Last Updated**: 2026-10-18
+> **Last Updated**: 2026-10-29
 
 Performance for Mailoo operates across **three distinct layers**, each with different bottlenecks and optimization strategies. This roadmap tracks shipped optimizations and remaining improvements against the current implementation, ordered by impact.
 
@@ -23,8 +23,8 @@ Performance for Mailoo operates across **three distinct layers**, each with diff
 | BODYSTRUCTURE for attachment detection | ✅ Done | `imap.service.ts` — uses `{ bodyStructure: true }` |
 | Selective MIME part fetching | ✅ Done | `imap.service.ts` — `getEmail()`, `getEmails()`, `getThread()`, and `peekText()` walk `bodyStructure` (`findTextMimeParts`) and download leaf `text/plain` / `text/html` parts instead of full `source: true` (with a 64 KiB `source` fallback only when no text MIME parts exist) |
 | Bounded UID date-sorting window | ✅ Done | `imap.service.ts` — `orderUidsByDate()` in `listEmails()` and `searchEmails()` fetches `ENVELOPE` only for the newest UID window (`Math.max(page * pageSize * 3, 250)`) for mailboxes with >250 matching messages |
-| Source preview truncation & MIME stripping | ✅ Done | `imap.service.ts` — `maxLength: 4096` (`LIST_PREVIEW_SOURCE_MAX_BYTES`) with MIME boundary stripping and a 200-character preview cap |
-| Body truncation & quote/signature stripping | ✅ Done | `email-body.ts`, `emails.tool.ts`, `thread.tool.ts` — default `format="text"` strips signatures and quoted replies (`strip_signature`, `strip_quoted`) and enforces a default 20,000-character cap (`applyBodyFormatWithDefaultCap`) plus `settings.body_max_chars` |
+| Bounded preview part fetch | ✅ Done | `imap.service.ts` — after the page FETCH, `listEmails()` and `searchEmails()` fetch the first `PREVIEW_PART_MAX_BYTES` of each message's text part, one partial FETCH per text section on the page, decode its transfer encoding and charset (`decodePartPrefix`), and cap the preview at `PREVIEW_MAX_CHARS` |
+| Body truncation & quote/signature stripping | ✅ Done | `email-body.ts`, `emails.tool.ts`, `thread.tool.ts` — default `format="text"` converts HTML to plain text; `format="stripped"` also cuts the signature and drops `>` quote lines (`stripReplyChain`); a default 20,000-character cap applies when `maxLength` is omitted (`applyBodyFormatWithDefaultCap`) |
 | Real-time IMAP IDLE watcher | ✅ Done | `watcher.service.ts` (`WatcherService`) — dedicated IDLE connections per monitored folder with exponential backoff reconnect (`1s` → `60s`) |
 | Nodemailer SMTP connection pooling | ✅ Done | `manager.ts` — `pool: true` enabled by default (`max_connections = 1`, `max_messages = 100`) |
 | Batch message & flag operations | ✅ Done | `imap.service.ts` — `getEmails()` (up to 20 UIDs) and `bulkSetFlags()` / `bulkMove()` / `bulkDelete()` using UID ranges (`ids.join(',')`) |
@@ -127,7 +127,7 @@ These improvements reduce AI context window consumption — the true bottleneck.
 **Impact**: High | **Effort**: Medium
 
 **Current behavior**: Implemented in `src/services/imap.service.ts` (`messageToEmail` and `peekText`):
-1. `getEmail()`, `getEmails()`, and `getThread()` fetch `{ uid: true, envelope: true, flags: true, bodyStructure: true, headers: ['references', 'content-type'] }` instead of `source: true`.
+1. `getEmail()`, `getEmails()`, and `getThread()` fetch `{ uid: true, envelope: true, flags: true, bodyStructure: true, headers: ['references', 'in-reply-to', 'content-type'] }` instead of `source: true`.
 2. `findTextMimeParts(bodyStructure)` walks the MIME tree (skipping attachments and `message/rfc822` subtrees) to locate the leaf `text/plain` and `text/html` part numbers.
 3. `downloadMimePart()` streams only those text parts via `client.download(uid, part, { uid: true })`.
 4. Only when neither `text/plain` nor `text/html` is found in `bodyStructure` does `messageToEmail()` fall back to a bounded 64 KiB `source` fetch (`FALLBACK_SOURCE_MAX_BYTES = 65_536`).
@@ -138,9 +138,9 @@ These improvements reduce AI context window consumption — the true bottleneck.
 
 **Impact**: Medium | **Effort**: Medium
 
-**Current behavior**: Implemented in `src/utils/email-body.ts` (`stripSignature`, `stripQuotedText`, `applyBodyFormat`):
-- `get_email`, `get_emails`, and `get_thread` default to `format = "text"`, `strip_quoted = true`, and `strip_signature = true`.
-- Standard signature delimiters (`-- \n`) and quoted reply blocks (`On ... wrote:`, `-----Original Message-----`, `>` quote lines) are stripped before returning the body to the LLM.
+**Current behavior**: Implemented in `src/utils/email-body.ts` (`stripReplyChain`, `applyBodyFormat`):
+- `get_email`, `get_emails`, and `get_thread` default to `format = "text"`, which converts HTML to plain text and keeps quoted replies and signatures.
+- `format = "stripped"` cuts the body at the first signature delimiter (`--` or a line of three or more underscores) and drops `>` quote lines before returning it to the LLM.
 
 #### P2.3 — Body Truncation with Overflow Indicator ✅ Implemented
 
@@ -148,7 +148,6 @@ These improvements reduce AI context window consumption — the true bottleneck.
 
 **Current behavior**: Implemented in `src/utils/email-body.ts` (`applyBodyFormatWithDefaultCap`, `DEFAULT_BODY_MAX_LENGTH = 20_000`):
 - `get_email` and `get_thread` enforce a default 20,000-character limit when `maxLength` is omitted, appending `\n\n[Truncated at 20000 characters — pass a larger maxLength for the complete body]` when truncated. The cap applies to every `format`, `full` included.
-- Operators can also configure a hard ceiling via `settings.body_max_chars`.
 
 #### P2.4 — Structured Thread Summaries (Partially Implemented)
 
@@ -230,7 +229,7 @@ class ImapConnectionPool {
 
 #### P4.5 — Selective BODYSTRUCTURE Fetch
 
-**Current**: Fetches BODYSTRUCTURE on list operations alongside ENVELOPE to compute `hasAttachments` and extract text previews. **Target**: Make BODYSTRUCTURE fetching optional when attachment metadata is not needed.
+**Current**: Fetches BODYSTRUCTURE on list operations alongside ENVELOPE to compute `hasAttachments` and to choose the part each preview is fetched from. **Target**: Make BODYSTRUCTURE fetching optional when attachment metadata is not needed.
 
 ---
 

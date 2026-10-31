@@ -275,6 +275,70 @@ describe('mailoo account edit', () => {
     },
   };
 
+  it('should probe the preserved TLS and protocol settings when only identity changes', async () => {
+    await fs.writeFile(sandbox.configFile, CONFIG_WITH_UNPROMPTED, { mode: 0o600 });
+    wizard.overrides.set('Test connections with updated settings?', true);
+
+    await (await sandbox.entryPoint('account edit', 'personal'))();
+
+    expect(probes.testImap.mock.lastCall?.[0].imap).toEqual({
+      host: '127.0.0.1',
+      port: 1143,
+      tls: false,
+      starttls: false,
+      verifySsl: false,
+      disableImap4rev2: true,
+      sieveHost: '127.0.0.1',
+      sievePort: 4190,
+    });
+    expect(probes.testSmtp.mock.lastCall?.[0].smtp).toEqual({
+      host: '127.0.0.1',
+      port: 1025,
+      tls: false,
+      starttls: false,
+      verifySsl: false,
+      pool: { enabled: true, maxConnections: 1, maxMessages: 100 },
+    });
+  });
+
+  it('should authenticate both edit probes through OAuth when the account has no password', async () => {
+    await fs.writeFile(
+      sandbox.configFile,
+      CONFIG_WITH_UNPROMPTED.replace('password = "secret"\n', ''),
+      { mode: 0o600 },
+    );
+    wizard.overrides.set('Test connections with updated settings?', true);
+    const run = await sandbox.entryPoint('account edit', 'personal');
+    const OAuthService = (await import('../services/oauth.service.js')).default;
+    vi.spyOn(OAuthService.prototype, 'getAccessToken').mockResolvedValue('fake-edit-access-token');
+    const { buildImapAuth, buildSmtpAuth } = await import('../connections/auth.js');
+    const authenticated: unknown[] = [];
+    probes.testImap.mockImplementation(async (account, tokens) => {
+      authenticated.push(await buildImapAuth(account, tokens));
+      return { success: true };
+    });
+    probes.testSmtp.mockImplementation(async (account, tokens) => {
+      const auth = buildSmtpAuth(account, tokens);
+      if ('type' in auth) {
+        const token = await new Promise<string | undefined>((resolve, reject) => {
+          auth.provisionCallback(account.username, false, (error, value) => {
+            if (error) reject(error);
+            else resolve(value);
+          });
+        });
+        authenticated.push({ user: auth.user, accessToken: token });
+      } else authenticated.push(auth);
+      return { success: true };
+    });
+
+    await run();
+
+    expect(authenticated).toEqual([
+      { user: 'user@example.com', accessToken: 'fake-edit-access-token' },
+      { user: 'user@example.com', accessToken: 'fake-edit-access-token' },
+    ]);
+  });
+
   it('should keep oauth2, the sent mailbox and connection flags when only the identity is edited', async () => {
     await fs.writeFile(sandbox.configFile, CONFIG_WITH_UNPROMPTED, { mode: 0o600 });
 

@@ -153,7 +153,7 @@ export const dryRunParam = z
   .describe('Validate parameters and preview the effect without executing the action');
 
 /**
- * Standard MCP 2025/2026 `outputSchema` shape for Mailoo tools.
+ * Standard MCP `outputSchema` shape for Mailoo tools.
  */
 export const standardToolOutputSchema = {
   ok: z.boolean().describe('Whether the tool operation succeeded'),
