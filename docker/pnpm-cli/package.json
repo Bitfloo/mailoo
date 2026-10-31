@@ -1,6 +1,7 @@
 {
   "name": "mailoo-pnpm-cli",
   "private": true,
+  "packageManager": "npm@11.21.1",
   "dependencies": {
     "pnpm": "12.16.1"
   }

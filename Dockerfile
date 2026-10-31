@@ -1,9 +1,9 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
 FROM node:24-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS builder
 
-# npm ci checks the shrinkwrap integrity. A version on npm install -g is not a hash.
+# npm ci checks the lockfile integrity. A version on npm install -g is not a hash.
 WORKDIR /opt/pnpm-cli
-COPY docker/pnpm-cli/package.json docker/pnpm-cli/npm-shrinkwrap.json ./
+COPY docker/pnpm-cli/package.json docker/pnpm-cli/package-lock.json ./
 RUN npm ci --ignore-scripts \
  && ln -s /opt/pnpm-cli/node_modules/.bin/pnpm /usr/local/bin/pnpm
 
