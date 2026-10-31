@@ -13,18 +13,33 @@ const wire = await vi.hoisted(async () => {
     greetingEof: false,
     literalEof: false,
     handshakeFailure: '',
+    onHandshake: () => {},
   };
   class FakeSocket extends EventEmitter {
     destroyed = false;
     readableEnded = false;
+    idleMs = 0;
+    idleTimer: ReturnType<typeof setTimeout> | undefined;
 
-    setTimeout(): this {
+    setTimeout(ms: number): this {
+      this.idleMs = ms;
+      this.refreshIdle();
       return this;
+    }
+
+    refreshIdle(): void {
+      clearTimeout(this.idleTimer);
+      if (this.idleMs > 0 && !this.destroyed) {
+        this.idleTimer = setTimeout(() => this.emit('timeout'), this.idleMs);
+      }
     }
 
     deliver(chunks: Buffer[], eof = false): void {
       chunks.forEach((chunk) => {
-        setImmediate(() => this.emit('data', chunk));
+        setImmediate(() => {
+          this.refreshIdle();
+          this.emit('data', chunk);
+        });
       });
       if (eof) {
         setImmediate(() => {
@@ -36,6 +51,7 @@ const wire = await vi.hoisted(async () => {
     }
 
     write(chunk: string): boolean {
+      this.refreshIdle();
       state.commands.push(chunk);
       if (chunk.startsWith('STARTTLS')) this.deliver([Buffer.from('OK "upgrade"\r\n')]);
       else if (chunk.startsWith('AUTHENTICATE')) {
@@ -47,6 +63,7 @@ const wire = await vi.hoisted(async () => {
     destroy(): this {
       if (!this.destroyed) {
         this.destroyed = true;
+        clearTimeout(this.idleTimer);
         setImmediate(() => this.emit('close'));
       }
       return this;
@@ -54,6 +71,16 @@ const wire = await vi.hoisted(async () => {
   }
   class FakeTlsSocket extends FakeSocket {
     encrypted = true;
+
+    constructor(readonly raw: FakeSocket) {
+      super();
+      raw.setTimeout(0);
+    }
+
+    override destroy(): this {
+      this.raw.destroy();
+      return super.destroy();
+    }
   }
   return { state, FakeSocket, FakeTlsSocket };
 });
@@ -81,12 +108,13 @@ vi.mock('node:net', () => ({
 
 vi.mock('node:tls', () => ({
   TLSSocket: wire.FakeTlsSocket,
-  connect: (_options: unknown, connected: () => void) => {
-    const socket = new wire.FakeTlsSocket();
+  connect: (options: { socket: InstanceType<typeof wire.FakeSocket> }, connected: () => void) => {
+    const socket = new wire.FakeTlsSocket(options.socket);
     wire.state.sockets.push(socket);
+    wire.state.onHandshake();
     setImmediate(() => {
       if (wire.state.handshakeFailure) {
-        socket.emit(wire.state.handshakeFailure);
+        if (wire.state.handshakeFailure !== 'timeout') socket.emit(wire.state.handshakeFailure);
       } else {
         connected();
         socket.deliver([Buffer.from('"SASL" "PLAIN"\r\nOK "ready"\r\n')]);
@@ -134,32 +162,39 @@ beforeEach(() => {
     greetingEof: false,
     literalEof: false,
     handshakeFailure: '',
+    onHandshake: () => {},
   });
 });
 
 afterEach(async () => {
-  wire.state.sockets.forEach((socket) => {
-    socket.destroy();
-  });
-  await new Promise<void>((resolve) => {
-    setImmediate(resolve);
-  });
-  wire.state.sockets.forEach((socket) => {
-    expect(
-      Object.fromEntries(
-        ['data', 'error', 'end', 'close', 'timeout'].map((event) => [
-          event,
-          socket.listenerCount(event),
-        ]),
-      ),
-    ).toEqual({
-      data: 0,
-      error: 0,
-      end: 0,
-      close: 0,
-      timeout: 0,
+  try {
+    expect(wire.state.sockets.at(-1)?.destroyed).toBe(true);
+    wire.state.sockets.forEach((socket) => {
+      expect(
+        Object.fromEntries(
+          ['data', 'error', 'end', 'close', 'timeout'].map((event) => [
+            event,
+            socket.listenerCount(event),
+          ]),
+        ),
+      ).toEqual({
+        data: 0,
+        error: 0,
+        end: 0,
+        close: 0,
+        timeout: 0,
+      });
     });
-  });
+  } finally {
+    wire.state.sockets.forEach((socket) => {
+      socket.destroy();
+    });
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    if (vi.isFakeTimers()) expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+  }
 });
 
 it('should reject when the server ends halfway through a greeting', async () => {
@@ -180,11 +215,24 @@ it('should return an intact script when UTF-8 characters are split across packet
   await expect(settled(sieve.getScript(account, 'personal'))).resolves.toBe(content);
 });
 
-it.each(['timeout', 'close'])('should reject a TLS handshake on %s', async (event) => {
-  wire.state.handshakeFailure = event;
-  await expect(settled(sieve.listScripts(account))).rejects.toThrow(
-    event === 'timeout' ? /TLS.*timeout/i : /TLS.*closed/i,
+it('should reject a TLS handshake when the peer closes', async () => {
+  wire.state.handshakeFailure = 'close';
+  await expect(settled(sieve.listScripts(account))).rejects.toThrow(/TLS.*closed/i);
+});
+
+it('should time out an unanswered TLS handshake through the configured socket timeout', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  wire.state.handshakeFailure = 'timeout';
+  const started = new Promise<void>((resolve) => {
+    wire.state.onHandshake = resolve;
+  });
+  const outcome = sieve.listScripts(account).then(
+    () => 'resolved',
+    (err: unknown) => (err instanceof Error ? err.message : 'unknown'),
   );
+  await started;
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(await Promise.race([outcome, Promise.resolve('pending')])).toMatch(/TLS.*timeout/i);
 });
 
 it.each(['password', 'plain'] as const)(
@@ -218,6 +266,8 @@ it.each([
 it('should report a bounded sanitized warning when authentication fails', async () => {
   wire.state.authRefusal = `NO "${account.password} ${'x'.repeat(1000)}"\r\n`;
   const result = await sieve.status(account);
-  expect(result.warning).not.toContain(account.password);
-  expect(result.warning?.length).toBeLessThan(500);
+  expect({
+    leaked: result.warning?.includes(account.password ?? ''),
+    bounded: (result.warning?.length ?? 0) < 500,
+  }).toEqual({ leaked: false, bounded: true });
 });

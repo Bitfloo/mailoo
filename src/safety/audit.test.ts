@@ -798,6 +798,9 @@ describe('Audit Logger', () => {
 
   it('should use intrinsic Date methods without running overrides', async () => {
     const date = new Date('2026-11-02T09:00:00.000Z');
+    date.getTime = () => {
+      throw new Error('fake-private-time-value');
+    };
     date.toISOString = () => {
       throw new Error('fake-private-date-value');
     };
@@ -822,6 +825,11 @@ describe('Audit Logger', () => {
     Object.defineProperty(url, 'host', {
       get() {
         throw new Error('fake-private-url-value');
+      },
+    });
+    Object.defineProperty(url, 'href', {
+      get() {
+        throw new Error('fake-private-href-value');
       },
     });
     expect(await loggedParams({ url })).toEqual({
