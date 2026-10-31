@@ -155,6 +155,8 @@ docker build -t ghcr.io/bitfloo/mailoo .
 > **Note:** The server uses stdio transport. Config is created on the host
 > (`npx -y @bitfloo/mailoo@latest account add`, or a hand-written TOML) and mounted into the container.
 
+Installing or starting Mailoo does not send a usage report. An install count stays off until `MAILOO_INSTALL_COUNTER` is `1`, `true`, `on`, or `yes` (any letter case, surrounding spaces ignored) and `MAILOO_INSTALL_COUNTER_URL` is set. The POST body is only `product`, `version`, `event` (`install`), and `node_major`. Unset, `0`, `false`, `no`, or `off` keeps it off. Full rules: [Install count](#install-count).
+
 ## Usage
 
 Commands below use `npx -y @bitfloo/mailoo@latest`. A global install accepts the same subcommands as `mailoo`. From a clone, after `pnpm build`, those subcommands are `node dist/main.js` (see [From a clone](#from-a-clone)).
@@ -808,8 +810,41 @@ Outbound calls, child processes, files, and environment variables below are what
 | Custom `token_url` / `auth_url` | Same split when `oauth2.provider` is `custom`. Config validation requires `https`; plain `http` is accepted only for `localhost`, `127.0.0.0/8`, or `::1` (`src/config/schema.ts`) | `src/services/oauth.service.ts` |
 | Configured webhook URL (`http` or `https` POST) | Alerts, after a DNS lookup of that host | `src/services/notifier.service.ts`, `src/safety/validation.ts` |
 | `https://api.typesafe.ai` (or `TYPESAFE_BASE_URL`) | System One classification, only when that integration is on. Fields sent: [System One](#system-one-opt-in-typed-filing) | `src/services/mail-arrival/index.ts` |
+| `MAILOO_INSTALL_COUNTER_URL` when `MAILOO_INSTALL_COUNTER` is on | One POST after the stdio or HTTP server starts. No request when either variable is unset. Fields: [Install count](#install-count) | `src/services/install-count.ts` |
 
-`mailoo http` listens. It does not add an outbound destination. Provider presets in `src/cli/providers.ts` fill the IMAP and SMTP hosts the wizard saves.
+`mailoo http` listens. The install count below is the only outbound call that mode adds, and it runs only when that count is on and a URL is set. Provider presets in `src/cli/providers.ts` fill the IMAP and SMTP hosts the wizard saves.
+
+### Install count
+
+The count is off. Nothing is sent at `npm install`, at `account add`, or when the server starts, until both of the following are set:
+
+- `MAILOO_INSTALL_COUNTER` is `1`, `true`, `on`, or `yes` (any letter case, surrounding spaces ignored)
+- `MAILOO_INSTALL_COUNTER_URL` is the collector URL
+
+`0`, `false`, `no`, `off`, or an unset `MAILOO_INSTALL_COUNTER` keeps the count off. An opted-in server with a blank URL does not call out. There is no built-in collector address.
+
+Bitfloo runs a collector at `https://mailoo.bitfloo.com/install`. It keeps one count per UTC day, Mailoo version, and Node.js major, stores no IP address, and shows the total on [mailoo.bitfloo.com](https://mailoo.bitfloo.com). To be counted there:
+
+```sh
+MAILOO_INSTALL_COUNTER=1 MAILOO_INSTALL_COUNTER_URL=https://mailoo.bitfloo.com/install npx -y @bitfloo/mailoo@latest
+```
+
+One `POST` runs after the `stdio` or `http` server has started. A later start does not send again. `account add`, `test`, the scheduler, and the other commands do not send. The count is skipped when `CI` is non-blank and not `0`, `false`, `no`, or `off` in any letter case, and when the process is a test run (`VITEST` non-blank, or `NODE_ENV=test`).
+
+The body is a JSON object with exactly these fields:
+
+| Field | Value |
+|---|---|
+| `product` | `mailoo` |
+| `version` | the running package version |
+| `event` | `install` |
+| `node_major` | the Node.js major version, one integer |
+
+Request headers are `content-type: application/json` and `user-agent: mailoo`. The request does not follow redirects. `http` is refused except for `localhost`, `127.0.0.0/8`, or `::1`. Any other URL must be `https`. A URL with a username, a password, a query, or a fragment is refused.
+
+The body never includes an email address, account name, password, token, mail-server hostname, message id, folder name, or anything taken from a message. It also never includes a machine id, an operating-system username, a home directory, a working directory, or an IP address.
+
+Before the request, the server creates `$XDG_STATE_HOME/mailoo/install-count` (mode `0600`) containing the digit `1` and nothing else, and sends only if it created that file. The file stays whatever the collector answers, so a state directory sends at most one request: two servers that start at once send one between them, and a refused, failed, or timed-out request is not retried. A state directory that cannot be written sends nothing. Delete the file to allow this state directory to count again.
 
 ### Processes
 
@@ -835,6 +870,7 @@ Paths follow the XDG defaults in `src/config/xdg.ts` unless `XDG_CONFIG_HOME`, `
 | `$XDG_STATE_HOME/mailoo/scheduled/` and `scheduled/sent/` | Scheduled-send JSON records (mode `0600`), replaced through a temp file and rename | `src/services/scheduler.service.ts` |
 | `$XDG_DATA_HOME/mailoo/calendar-attachments/` | Attachment files saved for a calendar event | `src/services/imap.service.ts` |
 | `$XDG_STATE_HOME/mailoo/mailbox-writers.lock` | Which `stdio` server runs hooks, the watcher and the scheduler. The holder refreshes it and deletes it on shutdown; timings in [configuration](docs/configuration.md#one-mailbox-writer-per-machine) | `src/safety/writer-lease.ts` |
+| `$XDG_STATE_HOME/mailoo/install-count` (mode `0600`) | The digit `1`, written before the install count request and kept whatever the answer. No identity. Absent until an opted-in server first tries to count | `src/services/install-count.ts` |
 | `$XDG_STATE_HOME/mailoo/calendar-processed.json` (mode `0600`) and `.lock` | Which messages already had an automatic event added, found, or declined in the dialog, with each email's subject, replaced through a temp file and rename. A failed or timed-out add is not recorded, so the email stays eligible. A damaged file stops automatic calendar processing, and makes `analyze_email_for_scheduling` report an error, instead of starting over | `src/utils/calendar-state.ts` |
 | `savePath` under the working directory | `download_attachment` or `export_email` when that argument is set | `src/tools/attachments.tool.ts`, `src/tools/export.tool.ts` |
 | OS temp directory, `mailoo-event-*.ics` | Linux calendar file passed to `xdg-open` | `src/services/local-calendar.service.ts` |
@@ -864,6 +900,8 @@ Single-account setup reads `MCP_EMAIL_*` (`src/config/loader.ts`). The HTTP list
 | `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL` | System One credential and optional API root. The SDK reads `TYPESAFE_BASE_URL` |
 | `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `APPDATA` | Override the directories above. `APPDATA` is the Windows Claude config directory used by `mailoo install` |
 | `MCP_EMAIL_HTTP_HOST`, `MCP_EMAIL_HTTP_TOKEN`, `MCP_EMAIL_HTTP_ALLOWED_HOSTS` | HTTP listen policy |
+| `MAILOO_INSTALL_COUNTER` | Install count switch. Unset is off. `1`, `true`, `on`, or `yes` opts in (any letter case, surrounding spaces ignored). `0`, `false`, `no`, or `off` forces it off. See [Install count](#install-count) |
+| `MAILOO_INSTALL_COUNTER_URL` | Collector URL for that count. Unset means no request, even when the switch is on |
 
 ## API
 

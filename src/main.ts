@@ -30,6 +30,7 @@ import { WRITER_LEASE_FILE } from './safety/writer-lease.js';
 import createServer, { PKG_VERSION, registeredToolNames } from './server.js';
 import CalendarService from './services/calendar.service.js';
 import HooksService from './services/hooks.service.js';
+import { noteInstall } from './services/install-count.js';
 import LocalCalendarService from './services/local-calendar.service.js';
 import { MailArrival } from './services/mail-arrival/index.js';
 import { createMailConnections, createMailServices } from './services/mail-services.js';
@@ -219,6 +220,8 @@ async function runServer(): Promise<void> {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
   process.on('SIGHUP', shutdown);
+  // Last, so a start that fails anywhere above sends nothing.
+  await noteInstall(PKG_VERSION);
 }
 
 async function runHttpServer(policy: ReturnType<typeof readHttpLaunchOptions>): Promise<void> {
@@ -257,6 +260,8 @@ async function runHttpServer(policy: ReturnType<typeof readHttpLaunchOptions>): 
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  // Last, so a start that fails anywhere above (a taken port) sends nothing.
+  await noteInstall(PKG_VERSION);
 }
 
 async function main(): Promise<void> {
