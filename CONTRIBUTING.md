@@ -68,9 +68,9 @@ actionlint --version
 | `pnpm test:e2e` | Build and pack Mailoo, install locked production dependencies, and exercise CLI and stdio MCP against GreenMail |
 | `pnpm test:all` | Unit plus GreenMail |
 | `pnpm ci:local` | Lint, typecheck, unit; GreenMail when Docker is up (`pnpm ci:local -- --image` also builds) |
+| `pnpm ci:release` | Lint, typecheck, unit and GreenMail, including the packed release journey; fails if Docker is unavailable |
 | `actionlint` | Check GitHub Actions workflows (required for workflow changes) |
 | `pnpm hooks:install` | Install or refresh the repository's Git hooks |
-| `pnpm ci:release` | Lint, typecheck, unit and GreenMail, including the packed release journey; fails if Docker is unavailable |
 
 `pnpm test:integration` needs Docker. `pnpm ci:local` skips that lane when Docker
 is down (lefthook pre-push uses the same script). On a **pull request** to

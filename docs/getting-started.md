@@ -24,13 +24,21 @@ The config is stored at `$XDG_CONFIG_HOME/mailoo/config.toml`, normally `~/.conf
 
 ### 2. Register Mailoo with your client
 
+First enable read-only access for the guided first run:
+
+```bash
+npx -y @bitfloo/mailoo@latest config edit
+```
+
+At `Rate limit (max emails per minute per account)`, press Enter to keep the current value (10 for a new config). At `Read-only mode? (disables all write operations)`, choose **Yes**. This saves `settings.read_only = true` in your local TOML configuration. Then register the server:
+
 ```bash
 npx -y @bitfloo/mailoo@latest install
 ```
 
 Select Claude Desktop or Cursor, choose **npx**, and finish the installer. It writes the server entry to the selected client's configuration.
 
-The installer does **not** apply the wizard's read-only/core overrides. It registers a launch entry without them, so default settings run writable/full. If you want enforced read-only/core, use the wizard's manual JSON instead, or [add both environment overrides](#optional-tool-profiles-and-http) to the registered entry before starting the server.
+The installer does **not** apply the read-only/core environment overrides printed by the account wizard. This guided path stays read-only because you saved that setting in TOML. Without that setting or an environment override, the default launch is writable/full. To use read-only/core instead, copy the wizard's manual JSON or [add both environment overrides](#optional-tool-profiles-and-http) before starting the server.
 
 Fully quit and reopen the client. You do not need to keep a second Mailoo terminal process running; the client starts it.
 
@@ -50,7 +58,7 @@ Start a new conversation in the client's tool-enabled chat/agent mode and ask:
 
 The client may ask permission to call Mailoo. Check the proposed calls: this request needs account discovery, listing unread messages, and reading their bodies. A successful result is a short list containing actual senders and subjects with next steps grounded in those messages, or an explicit report that there are no matching unread messages. With multiple accounts, select one if asked.
 
-`get_email` leaves messages unread by default (`markRead` defaults to `false`). This request does not require sending, creating drafts, moving mail, or setting up automation. A reply proposed in chat does not need a write tool. Tool availability and approval behaviour still depend on your client configuration. To enforce a server-wide read-only session, see the optional [read-only setting](configuration.md#settingsread_only); the quickstarts do not change that setting.
+`get_email` leaves messages unread by default (`markRead` defaults to `false`). This request does not require sending, creating drafts, moving mail, or setting up automation. A reply proposed in chat does not need a write tool. Tool availability and approval behaviour still depend on your client configuration. The guided setup above enables the [read-only setting](configuration.md#settingsread_only). To enable writing later, run `config edit` again, keep the rate limit, choose **No** for read-only mode, and restart the MCP server. Request sending explicitly when you intend it; a `dryRun: true` preview is a separate optional call.
 
 ## Quickstart for agent builders
 
@@ -69,13 +77,14 @@ For OAuth, create the local TOML account using the [authentication guide](authen
   "mcpServers": {
     "mailoo": {
       "command": "npx",
-      "args": ["-y", "@bitfloo/mailoo@latest", "stdio"]
+      "args": ["-y", "@bitfloo/mailoo@latest", "stdio"],
+      "env": { "MCP_EMAIL_READ_ONLY": "true", "MCP_EMAIL_TOOLSET": "core" }
     }
   }
 }
 ```
 
-`mcpServers` is a common host configuration shape; your SDK may take `command` and `args` directly. The client must keep stdin open, parse newline-delimited JSON-RPC on stdout, and handle diagnostics on stderr. Running the command alone and waiting for a prompt does not test MCP; it waits for protocol messages. Disconnecting stdin shuts the server down.
+`mcpServers` is a common host configuration shape; your SDK may take `command`, `args`, and `env` directly. This entry enforces read-only access with the `core` toolset, including accounts loaded from TOML. To enable writing later, set `MCP_EMAIL_READ_ONLY` to `"false"` and restart the server; select `MCP_EMAIL_TOOLSET=full` for the wider optional integrations. Make write calls only for actions explicitly requested by the user; `dryRun: true` is an optional preview, not a runtime requirement. The client must keep stdin open, parse newline-delimited JSON-RPC on stdout, and handle diagnostics on stderr. Running the command alone and waiting for a prompt does not test MCP; it waits for protocol messages. Disconnecting stdin shuts the server down.
 
 ### 2. Initialize, discover, and read
 
@@ -115,7 +124,7 @@ Inspect both the protocol result and tool result: `isError: true` or `structured
 
 ### Optional tool profiles and HTTP
 
-The default `full` profile exposes the complete tool catalog. To reduce the surface for an agent, add `"env": {"MCP_EMAIL_TOOLSET":"core"}` or `minimal` to the launch entry. Both smaller profiles include the account/list/read sequence above. A profile limits which tools are registered; it does not make a writable server read-only. See [tool profiles](../README.md#llm-ergonomics--toolset-profiles) and [read-only mode](configuration.md#settingsread_only).
+Mailoo's default `full` profile exposes the complete tool catalog; the builder quickstart above selects `core` for a smaller first connection. Both `core` and `minimal` include the account/list/read sequence. A profile limits which tools are registered; it does not make a writable server read-only. See [tool profiles](../README.md#llm-ergonomics--toolset-profiles) and [read-only mode](configuration.md#settingsread_only).
 
 To enforce read-only/core, add an `env` field with the following value inside `mcpServers.mailoo` in the client configuration, then restart the server. These settings override TOML for that process; no email credentials need to be copied into the client entry:
 
