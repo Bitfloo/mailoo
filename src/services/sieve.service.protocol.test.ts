@@ -1,0 +1,205 @@
+/* eslint-disable max-classes-per-file -- Distinct raw/TLS sockets exercise the authentication TLS gate. */
+
+import type { AccountConfig } from '../types/index.js';
+
+// The socket boundary is controlled so TCP fragmentation and EOF ordering are deterministic.
+const wire = await vi.hoisted(async () => {
+  const { EventEmitter } = await import('node:events');
+  const state = {
+    sockets: [] as FakeSocket[],
+    commands: [] as string[],
+    response: [] as Buffer[],
+    authRefusal: '',
+    greetingEof: false,
+    literalEof: false,
+    handshakeHang: false,
+  };
+  class FakeSocket extends EventEmitter {
+    destroyed = false;
+    readableEnded = false;
+
+    setTimeout(): this {
+      return this;
+    }
+
+    deliver(chunks: Buffer[], eof = false): void {
+      chunks.forEach((chunk) => {
+        setImmediate(() => this.emit('data', chunk));
+      });
+      if (eof) {
+        setImmediate(() => {
+          this.readableEnded = true;
+          this.emit('end');
+          this.destroy();
+        });
+      }
+    }
+
+    write(chunk: string): boolean {
+      state.commands.push(chunk);
+      if (chunk.startsWith('STARTTLS')) this.deliver([Buffer.from('OK "upgrade"\r\n')]);
+      else if (chunk.startsWith('AUTHENTICATE')) {
+        this.deliver([Buffer.from(state.authRefusal || 'OK "authenticated"\r\n')]);
+      } else this.deliver(state.response, state.literalEof);
+      return true;
+    }
+
+    destroy(): this {
+      if (!this.destroyed) {
+        this.destroyed = true;
+        setImmediate(() => this.emit('close'));
+      }
+      return this;
+    }
+  }
+  class FakeTlsSocket extends FakeSocket {
+    encrypted = true;
+  }
+  return { state, FakeSocket, FakeTlsSocket };
+});
+
+vi.mock('node:net', () => ({
+  connect: () => {
+    const socket = new wire.FakeSocket();
+    wire.state.sockets.push(socket);
+    setImmediate(() => {
+      socket.emit('connect');
+      socket.deliver(
+        [
+          Buffer.from(
+            wire.state.greetingEof
+              ? '"IMPLEMENTATION" "unfinished'
+              : '"STARTTLS"\r\nOK "ready"\r\n',
+          ),
+        ],
+        wire.state.greetingEof,
+      );
+    });
+    return socket;
+  },
+}));
+
+vi.mock('node:tls', () => ({
+  TLSSocket: wire.FakeTlsSocket,
+  connect: (_options: unknown, connected: () => void) => {
+    const socket = new wire.FakeTlsSocket();
+    wire.state.sockets.push(socket);
+    setImmediate(() => {
+      if (wire.state.handshakeHang) {
+        socket.emit('timeout');
+      } else {
+        connected();
+        socket.deliver([Buffer.from('"SASL" "PLAIN"\r\nOK "ready"\r\n')]);
+      }
+    });
+    return socket;
+  },
+}));
+
+const { default: sieve, encodePlainAuth } = await import('./sieve.service.js');
+const account: AccountConfig = {
+  name: 'test',
+  email: 'user@example.test',
+  username: 'user@example.test',
+  password: 'fake-sieve-private-password',
+  imap: { host: '127.0.0.1', port: 993, tls: true, starttls: false, verifySsl: true },
+  smtp: { host: 'smtp.example.test', port: 465, tls: true, starttls: false, verifySsl: true },
+};
+
+// A protocol operation must settle after EOF; the deadline only catches an orphaned promise.
+const SETTLE_DEADLINE_MS = 250;
+async function settled<T>(operation: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('operation remained pending')),
+          SETTLE_DEADLINE_MS,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+beforeEach(() => {
+  Object.assign(wire.state, {
+    sockets: [],
+    commands: [],
+    response: [],
+    authRefusal: '',
+    greetingEof: false,
+    literalEof: false,
+    handshakeHang: false,
+  });
+});
+
+afterEach(async () => {
+  wire.state.sockets.forEach((socket) => {
+    socket.destroy();
+  });
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
+});
+
+it('should reject when the server ends halfway through a greeting', async () => {
+  wire.state.greetingEof = true;
+  await expect(settled(sieve.listScripts(account))).rejects.toThrow(/closed|ended/i);
+});
+
+it('should reject when the server ends halfway through a literal', async () => {
+  wire.state.response = [Buffer.from('{50}\r\nshort')];
+  wire.state.literalEof = true;
+  await expect(settled(sieve.getScript(account, 'personal'))).rejects.toThrow(/closed|ended/i);
+});
+
+it('should return an intact script when UTF-8 characters are split across packets', async () => {
+  const content = 'require ["fileinto"];\nfileinto "Zażółć";\n';
+  const response = Buffer.from(`{${Buffer.byteLength(content)}}\r\n${content}\r\nOK "done"\r\n`);
+  wire.state.response = Array.from(response, (byte) => Buffer.from([byte]));
+  await expect(settled(sieve.getScript(account, 'personal'))).resolves.toBe(content);
+});
+
+it('should reject a TLS handshake that times out', async () => {
+  wire.state.handshakeHang = true;
+  await expect(settled(sieve.listScripts(account))).rejects.toThrow(/TLS.*timeout/i);
+});
+
+it.each(['password', 'plain'] as const)(
+  'should redact an echoed %s in an authentication refusal',
+  async (shape) => {
+    const echoed =
+      shape === 'password'
+        ? account.password
+        : encodePlainAuth(account.username, account.password ?? '');
+    wire.state.authRefusal = `NO "refused ${echoed}"\r\n`;
+    await expect(sieve.listScripts(account)).rejects.toThrow(
+      'AUTHENTICATE failed: NO "refused [redacted]"',
+    );
+  },
+);
+
+it.each([
+  ['LISTSCRIPTS', async () => sieve.listScripts(account)],
+  ['GETSCRIPT', async () => sieve.getScript(account, 'personal')],
+  ['PUTSCRIPT', async () => sieve.putScript(account, 'personal', 'keep;')],
+  ['DELETESCRIPT', async () => sieve.deleteScript(account, 'personal')],
+  ['SETACTIVE', async () => sieve.activateScript(account, 'personal')],
+] as const)(
+  'should redact an echoed password from a %s error after authentication',
+  async (command, run) => {
+    wire.state.response = [Buffer.from(`NO "refused ${account.password}"\r\n`)];
+    await expect(run()).rejects.toThrow(`${command} failed: NO "refused [redacted]"`);
+  },
+);
+
+it('should report a bounded sanitized warning when authentication fails', async () => {
+  wire.state.authRefusal = `NO "${account.password} ${'x'.repeat(1000)}"\r\n`;
+  const result = await sieve.status(account);
+  expect(result.warning).not.toContain(account.password);
+  expect(result.warning?.length).toBeLessThan(500);
+});

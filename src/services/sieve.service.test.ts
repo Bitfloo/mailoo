@@ -65,6 +65,12 @@ describe('ManageSieve parsers', () => {
     const token = encodePlainAuth('user@example.com', 'secret');
     expect(Buffer.from(token, 'base64').toString('utf8')).toBe('\0user@example.com\0secret');
   });
+
+  it('should decode both quoted escapes in script names', () => {
+    expect(parseListScripts(['"folder\\\\rules\\"draft" ACTIVE'])).toEqual([
+      { name: 'folder\\rules"draft', active: true },
+    ]);
+  });
 });
 
 async function closeServer(server: net.Server): Promise<void> {
@@ -171,6 +177,20 @@ describe('ManageSieve script limits', () => {
 });
 
 describe('ManageSieve TLS', () => {
+  it('should reject when a real peer closes before its greeting is complete', async () => {
+    const server = net.createServer((socket) => {
+      socket.end('"unfinished');
+    });
+    const port = await listen(server);
+    try {
+      await expect(sieveService.listScripts(sieveAccount(port))).rejects.toThrow(
+        /connection closed/i,
+      );
+    } finally {
+      await closeServer(server);
+    }
+  });
+
   it('does not AUTHENTICATE with a password on a no-STARTTLS greeting', async () => {
     const received: string[] = [];
     const server = net.createServer((socket) => {
