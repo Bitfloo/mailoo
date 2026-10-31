@@ -69,29 +69,32 @@
   <line x1="234" y1="246" x2="274" y2="246" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrowBlue)" />
   <line x1="234" y1="341" x2="274" y2="341" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrowBlue)" />
 
-  <!-- Column 2: Mailoo Core & Security Sandbox -->
+  <!-- Column 2: Mailoo Core & Safety Controls -->
   <rect x="280" y="78" width="364" height="320" rx="12" fill="url(#coreGrad)" stroke="#4f46e5" stroke-width="1.5" />
-  <text x="298" y="104" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="700" fill="#818cf8" letter-spacing="0.5">MAILOO CORE &amp; SANDBOX BOUNDARY</text>
+  <text x="298" y="104" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="700" fill="#818cf8" letter-spacing="0.5">MAILOO CORE &amp; SAFETY CONTROLS</text>
 
   <!-- Box 2.1: Ergonomics & Schema Router -->
   <rect x="296" y="118" width="332" height="84" rx="8" fill="#0f172a" stroke="#334155" stroke-width="1" />
   <text x="310" y="138" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#f8fafc">LLM Ergonomics &amp; Structured Output</text>
-  <text x="310" y="156" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" fill="#94a3b8">&#8226; Toolsets: full (57/31) | core (19/10) | minimal (14/8)</text>
-  <text x="310" y="173" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" fill="#94a3b8">&#8226; Auto default_account + Valid account names in error hints</text>
+  <text x="310" y="156" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" fill="#94a3b8">&#8226; full 57/31 | core 19/10 | minimal 14/8</text>
+  <text x="310" y="173" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" fill="#94a3b8">&#8226; default_account + account-name hints</text>
   <text x="310" y="190" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11" fill="#94a3b8">&#8226; outputSchema + structuredContent + 20k guard</text>
 
-  <!-- Box 2.2: Security & Sandboxing Architecture -->
-  <rect x="296" y="214" width="332" height="168" rx="8" fill="#0f172a" stroke="#059669" stroke-width="1.2" />
+  <!-- Box 2.2: Enforced operation controls -->
+  <rect x="296" y="214" width="332" height="128" rx="8" fill="#0f172a" stroke="#059669" stroke-width="1.2" />
   <rect x="526" y="222" width="90" height="20" rx="10" fill="#064e3b" />
   <text x="571" y="236" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10" font-weight="600" fill="#34d399">ENFORCED</text>
-  <text x="310" y="236" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#34d399">Security &amp; Sandboxing Controls</text>
-  <text x="310" y="257" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11" fill="#cbd5e1">&#8226; Prompt Injection Fencing (UNTRUSTED markers)</text>
-  <text x="310" y="275" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11" fill="#cbd5e1">&#8226; SSRF &amp; DNS-Rebinding Guard (net.BlockList)</text>
-  <text x="310" y="293" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11" fill="#cbd5e1">&#8226; Symlink-free savePath (O_NOFOLLOW, 50MB cap)</text>
-  <text x="310" y="311" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11" fill="#cbd5e1">&#8226; Zero Shell Execution (execFile argv arrays)</text>
-  <text x="310" y="329" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11" fill="#cbd5e1">&#8226; Read-Only Mode &amp; dryRun Preview Gate</text>
-  <text x="310" y="347" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" fill="#cbd5e1">&#8226; TLS 1.2+ / STARTTLS ENFORCED &amp; 0600 Config Permissions</text>
-  <text x="310" y="365" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11" fill="#cbd5e1">&#8226; Rate Limiter &amp; JSONL Write Audit Trail</text>
+  <text x="310" y="236" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#34d399">Operation Controls</text>
+  <text x="310" y="255" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" fill="#cbd5e1">&#8226; SSRF &amp; DNS-rebinding checks (net.BlockList)</text>
+  <text x="310" y="273" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" fill="#cbd5e1">&#8226; savePath: no symlinks, O_NOFOLLOW, 50 MiB cap</text>
+  <text x="310" y="291" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" fill="#cbd5e1">&#8226; execFile argv arrays + TLS / STARTTLS</text>
+  <text x="310" y="309" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" fill="#cbd5e1">&#8226; read_only, dryRun + per-account send limits</text>
+  <text x="310" y="327" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" fill="#cbd5e1">&#8226; 0600 config + redacted JSONL write audit</text>
+
+  <!-- Content labels do not enforce model behaviour. -->
+  <rect x="296" y="348" width="332" height="34" rx="8" fill="#0f172a" stroke="#d97706" stroke-width="1" />
+  <text x="310" y="361" font-family="system-ui, -apple-system, sans-serif" font-size="10.5" fill="#fbbf24">UNTRUSTED markers; forged markers stripped</text>
+  <text x="310" y="375" font-family="system-ui, -apple-system, sans-serif" font-size="10" fill="#94a3b8">Content labels; model compliance is not enforced</text>
 
   <!-- Arrows Column 2 -> Column 3 -->
   <line x1="644" y1="138" x2="684" y2="138" stroke="#34d399" stroke-width="2" marker-end="url(#arrowEmerald)" />

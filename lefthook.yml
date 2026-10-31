@@ -33,6 +33,12 @@ commit-msg:
   commands:
     conventional-commit:
       run: |
+        if ! command -v cog >/dev/null 2>&1; then
+          echo "Missing required tool: Cocogitto (cog)."
+          echo "Install it before committing: https://docs.cocogitto.io/#installation"
+          echo "See CONTRIBUTING.md for platform instructions."
+          exit 1
+        fi
         cog verify --file {1} 2>/dev/null || {
           echo ""
           echo "❌ Invalid commit message format"
