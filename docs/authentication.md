@@ -19,7 +19,7 @@ Obtain the IMAP host, SMTP host, ports, TLS mode, login username, and password t
 npx -y @bitfloo/mailoo@latest account add
 ```
 
-Give the account a local name, confirm or enter its servers, and enter the provider-approved password. The wizard probes both connections and saves only after both succeed. It does not send an email. For implicit TLS use `tls = true`; for a STARTTLS port use `tls = false` and `starttls = true`. Keep certificate verification enabled. Mailoo refuses unencrypted remote IMAP/SMTP connections; plain connections are accepted only on loopback for local services or test fixtures.
+Give the account a local name, confirm or enter its servers, and enter the provider-approved password. The wizard probes both connections. If either fails, it offers `Save config anyway?` with a default of no; explicitly accepting saves the account despite the failure. A saved config does not prove connectivity. Before continuing with your first read, fix any failures and confirm that both IMAP and SMTP checks pass. The probe does not send an email. For implicit TLS use `tls = true`; for a STARTTLS port use `tls = false` and `starttls = true`. Keep certificate verification enabled. Mailoo refuses unencrypted remote IMAP/SMTP connections; plain connections are accepted only on loopback for local services or test fixtures.
 
 ### Gmail app passwords
 

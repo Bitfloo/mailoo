@@ -18,7 +18,7 @@ Run in a terminal:
 npx -y @bitfloo/mailoo@latest account add
 ```
 
-Choose a short account name such as `personal`, enter your address, confirm the detected server settings or enter your provider's settings, and enter your login credentials. The wizard checks IMAP and SMTP before saving. Success means both checks pass and you see `Account "personal" added. Config saved to ...` followed by an MCP configuration snippet. A failed connection check means the account has not been saved; use the [authentication troubleshooting guide](authentication.md#troubleshooting).
+Choose a short account name such as `personal`, enter your address, confirm the detected server settings or enter your provider's settings, and enter your login credentials. The wizard checks IMAP and SMTP before saving. If either check fails, it offers `Save config anyway?` with a default of no; you can explicitly choose to save despite the failure. The message `Account "personal" added. Config saved to ...` and the following MCP snippet confirm that the account was saved, not that it connects. Continue only after both IMAP and SMTP checks pass. If either fails, stop and use the [authentication troubleshooting guide](authentication.md#troubleshooting) before continuing.
 
 The config is stored at `$XDG_CONFIG_HOME/mailoo/config.toml`, normally `~/.config/mailoo/config.toml`. The account wizard accepts a password or app password; it does not open a Google or Microsoft consent screen. An OAuth account follows the manual [authentication guide](authentication.md#experimental-oauth) instead.
 
