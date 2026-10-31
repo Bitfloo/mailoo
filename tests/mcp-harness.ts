@@ -51,6 +51,7 @@ export interface Publisher {
   succeedsOn?: number;
   /** Virtual seconds before the published version becomes available. */
   availableAfter?: number;
+  loginFailure?: { onCall: number; status: number };
 }
 
 /**
@@ -67,6 +68,8 @@ export function publish(
   stderr: string;
   calls: number;
   args: string[];
+  loginCalls: number;
+  loginArgs: string[];
   pauses: string[];
   elapsedSeconds: number;
   temps: { made: number; left: number };
@@ -76,11 +79,29 @@ export function publish(
     writeFileSync(join(temp, 'message'), `Error: ${publisher.reply}\n`);
     writeFileSync(join(temp, 'calls'), '0');
     writeFileSync(join(temp, 'args'), '');
+    writeFileSync(join(temp, 'login-calls'), '0');
+    writeFileSync(join(temp, 'login-args'), '');
     writeFileSync(join(temp, 'pauses'), '');
     writeFileSync(join(temp, 'clock'), '0');
+    // The old standalone login issued a token before the loop. Registry JWTs last five minutes.
+    writeFileSync(join(temp, 'issued-at'), '0');
     script(join(temp, 'mcp-publisher'), [
+      'if [ "$1" = login ]; then',
+      '  n=$(($(<login-calls) + 1)); echo "$n" > login-calls',
+      `  printf '[%s]' "$@" >> login-args; echo >> login-args`,
+      `  if [ "$n" -eq ${publisher.loginFailure?.onCall ?? 0} ]; then`,
+      '    echo "Error: fixture registry login rejected" >&2',
+      `    exit ${publisher.loginFailure?.status ?? 1}`,
+      '  fi',
+      '  cat clock > issued-at',
+      '  exit 0',
+      'fi',
       'n=$(($(<calls) + 1)); echo "$n" > calls',
       `printf '[%s]' "$@" >> args; echo >> args`,
+      'if [ "$(($(<clock) - $(<issued-at)))" -ge 300 ]; then',
+      '  echo "Error: unauthorized: registry token expired" >&2',
+      '  exit 13',
+      'fi',
       `if [ "$n" -eq ${publisher.succeedsOn ?? 0} ]; then exit 0; fi`,
       ...(publisher.availableAfter === undefined
         ? []
@@ -121,6 +142,8 @@ export function publish(
       stderr,
       calls: Number(read('calls')),
       args: read('args').split('\n').filter(Boolean),
+      loginCalls: Number(read('login-calls')),
+      loginArgs: read('login-args').split('\n').filter(Boolean),
       pauses: read('pauses').split('\n').filter(Boolean),
       elapsedSeconds: Number(read('clock')),
       temps: { made: temps.length, left: temps.filter((file) => existsSync(file)).length },

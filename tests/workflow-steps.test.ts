@@ -125,7 +125,6 @@ const STEPS: Record<string, Record<string, string[]>> = {
       'actions/checkout',
       'run: Install mcp-publisher (run by a harness)',
       'run: Set version in server.json (run by a harness)',
-      'run: ./mcp-publisher login github-oidc',
       'run: Publish to MCP Registry (run by a harness)',
     ],
     // Another checkout or run step before the notes could hand them another CHANGELOG.md or none,

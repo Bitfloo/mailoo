@@ -1,5 +1,12 @@
-import { install, installStep, npmNotShownYet, type Publisher, publish } from './mcp-harness.js';
-import { requireTools, runBlock } from './workflow-yaml.js';
+import {
+  install,
+  installStep,
+  mcpHarness,
+  npmNotShownYet,
+  type Publisher,
+  publish,
+} from './mcp-harness.js';
+import { harnessedStep, requireTools, runBlock } from './workflow-yaml.js';
 
 requireTools(['bash', 'cat', 'cp', 'grep', 'mktemp', 'rm', 'sha256sum', 'tar']);
 
@@ -10,12 +17,50 @@ function retries(publisher: Publisher) {
 
 describe('MCP Registry publish', () => {
   it('should exit 0 after one call when mcp-publisher succeeds', () => {
-    expect(retries({ reply: 'unauthorized', status: 1, succeedsOn: 1 })).toEqual({
+    const result = publish({ reply: 'unauthorized', status: 1, succeedsOn: 1 });
+    expect({
+      status: result.status,
+      calls: result.calls,
+      loginCalls: result.loginCalls,
+      pauses: result.pauses,
+      elapsedSeconds: result.elapsedSeconds,
+    }).toEqual({
       status: 0,
       calls: 1,
+      loginCalls: 1,
       pauses: [],
       elapsedSeconds: 0,
     });
+  });
+
+  it('should stop with the first login failure even without implicit shell errexit', () => {
+    const command = runBlock(harnessedStep(mcpHarness, 'Publish to MCP Registry'));
+    const result = publish(
+      { reply: npmNotShownYet, status: 7, succeedsOn: 1, loginFailure: { onCall: 1, status: 17 } },
+      `set +e\n${command}`,
+    );
+    expect({
+      status: result.status,
+      calls: result.calls,
+      loginCalls: result.loginCalls,
+      pauses: result.pauses,
+      elapsedSeconds: result.elapsedSeconds,
+    }).toEqual({ status: 17, calls: 0, loginCalls: 1, pauses: [], elapsedSeconds: 0 });
+  });
+
+  it('should return a renewal failure instead of retrying the previous npm 404', () => {
+    const result = publish({
+      reply: npmNotShownYet,
+      status: 7,
+      loginFailure: { onCall: 2, status: 23 },
+    });
+    expect({
+      status: result.status,
+      calls: result.calls,
+      loginCalls: result.loginCalls,
+      pauses: result.pauses,
+      elapsedSeconds: result.elapsedSeconds,
+    }).toEqual({ status: 23, calls: 1, loginCalls: 2, pauses: ['20'], elapsedSeconds: 20 });
   });
 
   it.each([
@@ -46,6 +91,16 @@ describe('MCP Registry publish', () => {
     const result = publish({ reply: npmNotShownYet, status: 7, availableAfter: 5 * 60 });
     expect(result.status).toBe(0);
     expect(result.elapsedSeconds).toBeGreaterThanOrEqual(5 * 60);
+  });
+
+  it('should renew the five-minute registry token before every publish during a longer npm scan', () => {
+    const result = publish({ reply: npmNotShownYet, status: 7, availableAfter: 10 * 60 });
+    expect(result.status).toBe(0);
+    expect(result.elapsedSeconds).toBeGreaterThanOrEqual(10 * 60);
+    expect(result.loginCalls).toBe(result.calls);
+    expect(result.loginArgs).toEqual(
+      Array.from({ length: result.calls }, () => '[login][github-oidc]'),
+    );
   });
 
   it('should fail within a fifteen-to-thirty-minute window when npm never shows the version', () => {
