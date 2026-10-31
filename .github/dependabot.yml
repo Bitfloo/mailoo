@@ -36,7 +36,7 @@ updates:
       - dependency-name: "@types/node"
         versions: [">=26.0.0"]
 
-  # The release npm CLI and the image pnpm CLI, each pinned by its shrinkwrap.
+  # The release npm CLI and the image pnpm CLI, each pinned by its package lock.
   # Kept out of the groups above: a pnpm bump also has to move packageManager
   # and the corepack hash pins, so it fails CI on its own until it does.
   - package-ecosystem: npm
