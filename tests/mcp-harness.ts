@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import {
   copyFileSync,
   existsSync,
@@ -23,6 +24,9 @@ export const installStep = harnessedStep(mcpHarness, 'Install mcp-publisher');
 const stampStep = harnessedStep(mcpHarness, 'Set version in server.json');
 const publishStep = harnessedStep(mcpHarness, 'Publish to MCP Registry');
 
+// Every wait is virtual; a broken shell loop must still terminate the fixture.
+const PUBLISH_STEP_TIMEOUT_MS = 10_000;
+
 /**
  * The registry's reply when npm 404s a version it has just published, worded as npmVersion404Error
  * in https://github.com/modelcontextprotocol/registry/blob/v1.8.1/internal/validators/registries/npm.go
@@ -45,6 +49,9 @@ export interface Publisher {
   stream?: 'stdout' | 'stderr';
   /** The call that succeeds; none when left out. */
   succeedsOn?: number;
+  /** Virtual seconds before the published version becomes available. */
+  availableAfter?: number;
+  loginFailure?: { onCall: number; status: number };
 }
 
 /**
@@ -52,13 +59,19 @@ export interface Publisher {
  * the calls, each call's arguments as `[arg]...`, each pause, and how many temp files the step
  * made through mktemp and left behind.
  */
-export function publish(publisher: Publisher): {
+export function publish(
+  publisher: Publisher,
+  command = runBlock(publishStep),
+): {
   status: number | null;
   stdout: string;
   stderr: string;
   calls: number;
   args: string[];
+  loginCalls: number;
+  loginArgs: string[];
   pauses: string[];
+  elapsedSeconds: number;
   temps: { made: number; left: number };
 } {
   const temp = mkdtempSync(join(tmpdir(), 'mailoo-mcp-publish-'));
@@ -66,17 +79,39 @@ export function publish(publisher: Publisher): {
     writeFileSync(join(temp, 'message'), `Error: ${publisher.reply}\n`);
     writeFileSync(join(temp, 'calls'), '0');
     writeFileSync(join(temp, 'args'), '');
+    writeFileSync(join(temp, 'login-calls'), '0');
+    writeFileSync(join(temp, 'login-args'), '');
     writeFileSync(join(temp, 'pauses'), '');
+    writeFileSync(join(temp, 'clock'), '0');
+    // The old standalone login issued a token before the loop. Registry JWTs last five minutes.
+    writeFileSync(join(temp, 'issued-at'), '0');
     script(join(temp, 'mcp-publisher'), [
-      'n=$(($(cat calls) + 1)); echo "$n" > calls',
+      'if [ "$1" = login ]; then',
+      '  n=$(($(<login-calls) + 1)); echo "$n" > login-calls',
+      `  printf '[%s]' "$@" >> login-args; echo >> login-args`,
+      `  if [ "$n" -eq ${publisher.loginFailure?.onCall ?? 0} ]; then`,
+      '    echo "Error: fixture registry login rejected" >&2',
+      `    exit ${publisher.loginFailure?.status ?? 1}`,
+      '  fi',
+      '  cat clock > issued-at',
+      '  exit 0',
+      'fi',
+      'n=$(($(<calls) + 1)); echo "$n" > calls',
       `printf '[%s]' "$@" >> args; echo >> args`,
+      'if [ "$(($(<clock) - $(<issued-at)))" -ge 300 ]; then',
+      '  echo "Error: unauthorized: registry token expired" >&2',
+      '  exit 13',
+      'fi',
       `if [ "$n" -eq ${publisher.succeedsOn ?? 0} ]; then exit 0; fi`,
+      ...(publisher.availableAfter === undefined
+        ? []
+        : [`if [ "$(<clock)" -ge ${publisher.availableAfter} ]; then exit 0; fi`]),
       `cat message >&${publisher.stream === 'stderr' ? 2 : 1}`,
       `exit ${publisher.status}`,
     ]);
     mkdirSync(join(temp, 'bin'));
-    // The step pauses between attempts; the shim records each pause instead of waiting it out.
-    script(join(temp, 'bin/sleep'), ['echo "$1" >> pauses']);
+    // npm scans take minutes. Advance a fixture clock so the real loop pays that time without sleeping.
+    script(join(temp, 'bin/sleep'), ['echo "$1" >> pauses', 'echo "$(($(<clock) + $1))" > clock']);
     // The real mktemp, found past this bin directory, with each file it makes recorded.
     writeFileSync(join(temp, 'temps'), '');
     script(join(temp, 'bin/mktemp'), [
@@ -85,10 +120,20 @@ export function publish(publisher: Publisher): {
       'echo "$file" >> temps',
       'echo "$file"',
     ]);
-    const { status, stdout, stderr } = runStep(runBlock(publishStep), temp, {
-      PATH: `${join(temp, 'bin')}:${process.env.PATH}`,
-      TMPDIR: temp,
+    const { status, stdout, stderr, error } = spawnSync('/bin/bash', ['-e', '-c', command], {
+      cwd: temp,
+      env: {
+        PATH: `${join(temp, 'bin')}:/usr/bin:/bin`,
+        HOME: temp,
+        TMPDIR: temp,
+        LANG: 'C',
+        LC_ALL: 'C',
+        TZ: 'UTC',
+      },
+      encoding: 'utf8',
+      timeout: PUBLISH_STEP_TIMEOUT_MS,
     });
+    if (error) throw error;
     const read = (name: string) => readFileSync(join(temp, name), 'utf8');
     const temps = read('temps').split('\n').filter(Boolean);
     return {
@@ -97,7 +142,10 @@ export function publish(publisher: Publisher): {
       stderr,
       calls: Number(read('calls')),
       args: read('args').split('\n').filter(Boolean),
+      loginCalls: Number(read('login-calls')),
+      loginArgs: read('login-args').split('\n').filter(Boolean),
       pauses: read('pauses').split('\n').filter(Boolean),
+      elapsedSeconds: Number(read('clock')),
       temps: { made: temps.length, left: temps.filter((file) => existsSync(file)).length },
     };
   } finally {

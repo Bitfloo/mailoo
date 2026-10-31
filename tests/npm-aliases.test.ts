@@ -484,10 +484,15 @@ function publishedPackages(run: PublishRun): string[] {
 }
 
 /** Every alias name mapped to the main package's repository, as npm reports a package of ours. */
-async function ownRepos(): Promise<Record<string, string>> {
+async function ownRepos(names?: string[]): Promise<Record<string, string>> {
   const main = await rootPackage();
-  return Object.fromEntries((await aliasNames()).map((name) => [name, main.repository.url]));
+  return Object.fromEntries(
+    (names ?? (await aliasNames())).map((name) => [name, main.repository.url]),
+  );
 }
+
+// Continuation must exercise another publish even when the live roster contains only one alias.
+const MULTI_ALIAS_NAMES = ['fixture-first', 'fixture-next'];
 
 describe('publish-npm-aliases.sh', () => {
   it('should publish every alias at the main version, confirmed in the browser, from a terminal', async () => {
@@ -542,11 +547,13 @@ describe('publish-npm-aliases.sh', () => {
     // The stub's publish reads standard input to the end, as npm does at the prompt. A loop that
     // read the alias list from there would hand npm the list and leave the names after the first
     // unpublished.
-    const names = await aliasNames();
+    const main = await rootPackage();
 
-    const run = await runPublish();
+    const run = await runPublish({ list: MULTI_ALIAS_NAMES });
 
-    expect(run.published).toHaveLength(names.length);
+    expect(publishedPackages(run)).toEqual(
+      MULTI_ALIAS_NAMES.map((name) => `${name}@${main.version}`),
+    );
   });
 
   it.each([
@@ -604,45 +611,48 @@ describe('publish-npm-aliases.sh', () => {
 
   it('should go on to the next name after one it cannot look up', async () => {
     const main = await rootPackage();
-    const [broken, ...rest] = await aliasNames();
+    const [broken, next] = MULTI_ALIAS_NAMES;
 
     const run = await runPublish({
+      list: MULTI_ALIAS_NAMES,
       inActions: true,
-      repos: await ownRepos(),
+      repos: await ownRepos(MULTI_ALIAS_NAMES),
       viewError: { [broken]: 'E500' },
     });
 
     expect(run.code).not.toBe(0);
-    expect(publishedPackages(run)).toEqual(rest.map((name) => `${name}@${main.version}`));
+    expect(publishedPackages(run)).toEqual([`${next}@${main.version}`]);
   });
 
   it('should go on to the next name after one that is already published', async () => {
     const main = await rootPackage();
-    const [first, ...rest] = await aliasNames();
+    const [first, next] = MULTI_ALIAS_NAMES;
 
     const run = await runPublish({
+      list: MULTI_ALIAS_NAMES,
       published: [`${first}@${main.version}`],
-      repos: await ownRepos(),
+      repos: await ownRepos(MULTI_ALIAS_NAMES),
     });
 
     expect(run.code).toBe(0);
-    expect(publishedPackages(run)).toEqual(rest.map((name) => `${name}@${main.version}`));
+    expect(publishedPackages(run)).toEqual([`${next}@${main.version}`]);
   });
 
   it('should go on to the next name after one that is not on npm yet, in the workflow', async () => {
     // A release adds a new alias next to ones that exist: the absent name must not end the run.
     const main = await rootPackage();
-    const [absent, ...rest] = await aliasNames();
+    const [absent, next] = MULTI_ALIAS_NAMES;
 
     const run = await runPublish({
+      list: MULTI_ALIAS_NAMES,
       inActions: true,
       npmJob: 'success',
-      repos: Object.fromEntries(rest.map((name) => [name, main.repository.url])),
+      repos: { [next]: main.repository.url },
     });
 
     expect(run.code).toBe(0);
     expect(run.stdout).toContain(`::warning::${absent} is not on npm yet`);
-    expect(publishedPackages(run)).toEqual(rest.map((name) => `${name}@${main.version}`));
+    expect(publishedPackages(run)).toEqual([`${next}@${main.version}`]);
   });
 
   it('should skip blank lines and comments in the list', async () => {
@@ -667,17 +677,19 @@ describe('publish-npm-aliases.sh', () => {
 
   it('should refuse a name that belongs to another repository and still publish the rest', async () => {
     const main = await rootPackage();
-    const [taken, ...rest] = await aliasNames();
+    const [taken, next] = MULTI_ALIAS_NAMES;
 
     const run = await runPublish({
-      repos: { ...(await ownRepos()), [taken]: 'git+https://github.com/someone-else/other.git' },
+      list: MULTI_ALIAS_NAMES,
+      repos: {
+        ...(await ownRepos(MULTI_ALIAS_NAMES)),
+        [taken]: 'git+https://github.com/someone-else/other.git',
+      },
     });
 
     expect(run.code).not.toBe(0);
     expect(run.stderr).toContain(`TAKEN ${taken}`);
-    expect(run.published.map((line) => line.split(' ')[1])).toEqual(
-      rest.map((name) => `${name}@${main.version}`),
-    );
+    expect(publishedPackages(run)).toEqual([`${next}@${main.version}`]);
   });
 
   it('should refuse a package that has no repository field, which is never one of ours', async () => {
@@ -692,12 +704,17 @@ describe('publish-npm-aliases.sh', () => {
   });
 
   it('should fail the run when a publish fails and still try the other names', async () => {
-    const names = await aliasNames();
+    const main = await rootPackage();
 
-    const run = await runPublish({ failPublish: [names[0]] });
+    const run = await runPublish({
+      list: MULTI_ALIAS_NAMES,
+      failPublish: [MULTI_ALIAS_NAMES[0]],
+    });
 
     expect(run.code).not.toBe(0);
-    expect(run.published).toHaveLength(names.length);
+    expect(publishedPackages(run)).toEqual(
+      MULTI_ALIAS_NAMES.map((name) => `${name}@${main.version}`),
+    );
     expect(run.leftovers).toEqual([]);
   });
 

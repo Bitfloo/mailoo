@@ -1,27 +1,78 @@
-import { install, installStep, npmNotShownYet, type Publisher, publish } from './mcp-harness.js';
-import { requireTools, runBlock } from './workflow-yaml.js';
+import {
+  install,
+  installStep,
+  mcpHarness,
+  npmNotShownYet,
+  type Publisher,
+  publish,
+} from './mcp-harness.js';
+import { harnessedStep, requireTools, runBlock } from './workflow-yaml.js';
 
 requireTools(['bash', 'cat', 'cp', 'grep', 'mktemp', 'rm', 'sha256sum', 'tar']);
 
 function retries(publisher: Publisher) {
-  const { status, calls, pauses } = publish(publisher);
-  return { status, calls, pauses };
+  const { status, calls, pauses, elapsedSeconds } = publish(publisher);
+  return { status, calls, pauses, elapsedSeconds };
 }
 
 describe('MCP Registry publish', () => {
   it('should exit 0 after one call when mcp-publisher succeeds', () => {
-    expect(retries({ reply: 'unauthorized', status: 1, succeedsOn: 1 })).toEqual({
+    const result = publish({ reply: 'unauthorized', status: 1, succeedsOn: 1 });
+    expect({
+      status: result.status,
+      calls: result.calls,
+      loginCalls: result.loginCalls,
+      pauses: result.pauses,
+      elapsedSeconds: result.elapsedSeconds,
+    }).toEqual({
       status: 0,
       calls: 1,
+      loginCalls: 1,
       pauses: [],
+      elapsedSeconds: 0,
     });
   });
 
-  it("should exit with the publisher's status after one call when the error is not npm's", () => {
-    expect(retries({ reply: 'unauthorized', status: 3 })).toEqual({
-      status: 3,
+  it('should stop with the first login failure even without implicit shell errexit', () => {
+    const command = runBlock(harnessedStep(mcpHarness, 'Publish to MCP Registry'));
+    const result = publish(
+      { reply: npmNotShownYet, status: 7, succeedsOn: 1, loginFailure: { onCall: 1, status: 17 } },
+      `set +e\n${command}`,
+    );
+    expect({
+      status: result.status,
+      calls: result.calls,
+      loginCalls: result.loginCalls,
+      pauses: result.pauses,
+      elapsedSeconds: result.elapsedSeconds,
+    }).toEqual({ status: 17, calls: 0, loginCalls: 1, pauses: [], elapsedSeconds: 0 });
+  });
+
+  it('should return a renewal failure instead of retrying the previous npm 404', () => {
+    const result = publish({
+      reply: npmNotShownYet,
+      status: 7,
+      loginFailure: { onCall: 2, status: 23 },
+    });
+    expect({
+      status: result.status,
+      calls: result.calls,
+      loginCalls: result.loginCalls,
+      pauses: result.pauses,
+      elapsedSeconds: result.elapsedSeconds,
+    }).toEqual({ status: 23, calls: 1, loginCalls: 2, pauses: ['20'], elapsedSeconds: 20 });
+  });
+
+  it.each([
+    { reply: 'unauthorized', status: 3 },
+    { reply: 'server.json schema validation failed', status: 5 },
+    { reply: 'upstream request timed out', status: 9 },
+  ])('should exit with status $status immediately when the publisher reports $reply', (failure) => {
+    expect(retries(failure)).toEqual({
+      status: failure.status,
       calls: 1,
       pauses: [],
+      elapsedSeconds: 0,
     });
   });
 
@@ -32,15 +83,31 @@ describe('MCP Registry publish', () => {
       status: 1,
       calls: 1,
       pauses: [],
+      elapsedSeconds: 0,
     });
   });
 
-  it('should call mcp-publisher six times, 20 seconds apart, and fail when npm never shows the version', () => {
-    expect(retries({ reply: npmNotShownYet, status: 7 })).toEqual({
-      status: 7,
-      calls: 6,
-      pauses: ['20', '20', '20', '20', '20'],
-    });
+  it('should publish when npm becomes available after five minutes of scanning', () => {
+    const result = publish({ reply: npmNotShownYet, status: 7, availableAfter: 5 * 60 });
+    expect(result.status).toBe(0);
+    expect(result.elapsedSeconds).toBeGreaterThanOrEqual(5 * 60);
+  });
+
+  it('should renew the five-minute registry token before every publish during a longer npm scan', () => {
+    const result = publish({ reply: npmNotShownYet, status: 7, availableAfter: 10 * 60 });
+    expect(result.status).toBe(0);
+    expect(result.elapsedSeconds).toBeGreaterThanOrEqual(10 * 60);
+    expect(result.loginCalls).toBe(result.calls);
+    expect(result.loginArgs).toEqual(
+      Array.from({ length: result.calls }, () => '[login][github-oidc]'),
+    );
+  });
+
+  it('should fail within a fifteen-to-thirty-minute window when npm never shows the version', () => {
+    const result = publish({ reply: npmNotShownYet, status: 7 });
+    expect(result.status).toBe(7);
+    expect(result.elapsedSeconds).toBeGreaterThanOrEqual(15 * 60);
+    expect(result.elapsedSeconds).toBeLessThanOrEqual(30 * 60);
   });
 
   it('should retry when the npm message arrives on stderr', () => {
@@ -48,6 +115,7 @@ describe('MCP Registry publish', () => {
       status: 0,
       calls: 3,
       pauses: ['20', '20'],
+      elapsedSeconds: 40,
     });
   });
 
@@ -61,14 +129,18 @@ describe('MCP Registry publish', () => {
   });
 
   it('should say on stderr that it retries, and in how long, after a propagation 404', () => {
-    expect(publish({ reply: npmNotShownYet, status: 7, succeedsOn: 2 }).stderr).toBe(
-      'npm has not propagated this version yet (attempt 1/6); retrying in 20s\n',
+    const result = publish({ reply: npmNotShownYet, status: 7, succeedsOn: 2 });
+    const announcement = result.stderr.match(
+      /^npm has not propagated this version yet \(attempt 1\/\d+\); retrying in (\d+)s\n$/,
     );
+    expect(announcement?.[1]).toBe(result.pauses[0]);
+    expect(result.elapsedSeconds).toBeGreaterThan(0);
   });
 
-  it('should say on stderr that it gave up after the last of six propagation 404s', () => {
-    const lines = publish({ reply: npmNotShownYet, status: 7 }).stderr.split('\n');
-    expect(lines.slice(-2)).toEqual(['npm has not shown this version after 6 attempts', '']);
+  it('should report exhaustion after the final propagation 404', () => {
+    const result = publish({ reply: npmNotShownYet, status: 7 });
+    const finalLine = result.stderr.trim().split('\n').at(-1);
+    expect(finalLine).toBe(`npm has not shown this version after ${result.calls} attempts`);
   });
 
   it('should keep the registry reply in one temp file and remove it when the step ends', () => {

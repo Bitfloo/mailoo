@@ -80,18 +80,22 @@ jobs:
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: bash scripts/bump-server-json-version.sh "${INPUT_VERSION:-${GITHUB_REF#refs/tags/v}}"
-      - name: Authenticate to MCP Registry
-        run: ./mcp-publisher login github-oidc
       # npm can 404 a version that was just published. The registry turns that into
       # a 400 and says to wait and retry. Only that message is retried, so an auth
       # error or a bad manifest still fails this job. Docker needs the success.
+      # npm publish-time scanning can delay availability for 15 minutes or more:
+      # https://github.blog/changelog/2026-07-28-npm-publish-time-malware-scanning-and-dual-use-metadata/
+      # Allow 30 minutes of retry delays; npm does not guarantee an availability time.
       - name: Publish to MCP Registry
         run: |
           log=$(mktemp)
           trap 'rm -f "$log"' EXIT
-          attempts=6
+          attempts=91
           pause=20
           for ((attempt = 1; attempt <= attempts; attempt++)); do
+            # Registry JWTs expire after five minutes, before a long npm scan ends.
+            # https://github.com/modelcontextprotocol/registry/blob/v1.8.1/internal/auth/jwt.go
+            ./mcp-publisher login github-oidc || exit $?
             status=0
             ./mcp-publisher publish >"$log" 2>&1 || status=$?
             cat "$log"
