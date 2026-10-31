@@ -120,7 +120,7 @@ describe('mailoo account and setup', () => {
   });
 
   // The global `mailoo` command never updates, and an npx user does not have it on PATH.
-  it('should print the npx @latest client entry after mailoo account add saves the account', async () => {
+  it('should print a read-only core npx client entry after mailoo account add saves the account', async () => {
     const run = await sandbox.entryPoint('account add');
 
     await run();
@@ -130,7 +130,13 @@ describe('mailoo account and setup', () => {
       .mock.calls.map(([message]) => String(message))
       .find((message) => message.includes('mcpServers'));
     expect(JSON.parse(printed ?? '{}')).toEqual({
-      mcpServers: { mailoo: { command: 'npx', args: ['-y', '@bitfloo/mailoo@latest', 'stdio'] } },
+      mcpServers: {
+        mailoo: {
+          command: 'npx',
+          args: ['-y', '@bitfloo/mailoo@latest', 'stdio'],
+          env: { MCP_EMAIL_READ_ONLY: 'true', MCP_EMAIL_TOOLSET: 'core' },
+        },
+      },
     });
   });
 

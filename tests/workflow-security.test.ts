@@ -202,6 +202,7 @@ describe('workflow token is no wider than the job writes', () => {
       'docker-sha.yml': { '(workflow)': read, 'sha-images': ['contents: read', 'packages: write'] },
       'release.yml': {
         '(workflow)': read,
+        verify: [],
         npm: ['contents: read', 'id-token: write'],
         mcp: ['contents: read', 'id-token: write'],
         docker: ['contents: write', 'packages: write'],

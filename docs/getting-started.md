@@ -20,7 +20,7 @@ npx -y @bitfloo/mailoo@latest account add
 
 Choose a short account name such as `personal`, enter your address, confirm the detected server settings or enter your provider's settings, and enter your login credentials. The wizard checks IMAP and SMTP before saving. If either check fails, it offers `Save config anyway?` with a default of no; you can explicitly choose to save despite the failure. The message `Account "personal" added. Config saved to ...` and the following MCP snippet confirm that the account was saved, not that it connects. Continue only after both IMAP and SMTP checks pass. If either fails, stop and use the [authentication troubleshooting guide](authentication.md#troubleshooting) before continuing.
 
-The config is stored at `$XDG_CONFIG_HOME/mailoo/config.toml`, normally `~/.config/mailoo/config.toml`. The account wizard accepts a password or app password; it does not open a Google or Microsoft consent screen. An OAuth account follows the manual [authentication guide](authentication.md#experimental-oauth) instead.
+The config is stored at `$XDG_CONFIG_HOME/mailoo/config.toml`, normally `~/.config/mailoo/config.toml`. The wizard prints a manual MCP client entry with `MCP_EMAIL_READ_ONLY=true` and `MCP_EMAIL_TOOLSET=core`; printing it does not register it with a client. The account wizard accepts a password or app password; it does not open a Google or Microsoft consent screen. An OAuth account follows the manual [authentication guide](authentication.md#experimental-oauth) instead.
 
 ### 2. Register Mailoo with your client
 
@@ -28,7 +28,11 @@ The config is stored at `$XDG_CONFIG_HOME/mailoo/config.toml`, normally `~/.conf
 npx -y @bitfloo/mailoo@latest install
 ```
 
-Select Claude Desktop or Cursor, choose **npx**, and finish the installer. It writes the server entry to the selected client's configuration. Fully quit and reopen that client. You do not need to keep a second Mailoo terminal process running; the client starts it.
+Select Claude Desktop or Cursor, choose **npx**, and finish the installer. It writes the server entry to the selected client's configuration.
+
+The installer does **not** apply the wizard's read-only/core overrides. It registers a launch entry without them, so default settings run writable/full. If you want enforced read-only/core, use the wizard's manual JSON instead, or [add both environment overrides](#optional-tool-profiles-and-http) to the registered entry before starting the server.
+
+Fully quit and reopen the client. You do not need to keep a second Mailoo terminal process running; the client starts it.
 
 If the installer finds no client, open the client once and try again, or use the matching [manual client configuration](../README.md#configure-your-mcp-client). A registration check is also available:
 
@@ -112,6 +116,15 @@ Inspect both the protocol result and tool result: `isError: true` or `structured
 ### Optional tool profiles and HTTP
 
 The default `full` profile exposes the complete tool catalog. To reduce the surface for an agent, add `"env": {"MCP_EMAIL_TOOLSET":"core"}` or `minimal` to the launch entry. Both smaller profiles include the account/list/read sequence above. A profile limits which tools are registered; it does not make a writable server read-only. See [tool profiles](../README.md#llm-ergonomics--toolset-profiles) and [read-only mode](configuration.md#settingsread_only).
+
+To enforce read-only/core, add an `env` field with the following value inside `mcpServers.mailoo` in the client configuration, then restart the server. These settings override TOML for that process; no email credentials need to be copied into the client entry:
+
+```json
+{
+  "MCP_EMAIL_READ_ONLY": "true",
+  "MCP_EMAIL_TOOLSET": "core"
+}
+```
 
 For a managed process or remote deployment, Mailoo also supports [Streamable HTTP](configuration.md#http-transport) at `/mcp`, with host checks and bearer-token requirements. Use that transport's MCP initialization/session handling; the stdio launch JSON above does not configure HTTP.
 

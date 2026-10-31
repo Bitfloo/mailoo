@@ -35,6 +35,11 @@ RFC 822 copy to the account’s `accounts.sent_mailbox` when set, otherwise
 to the `\Sent` mailbox (or a folder named `Sent` if the special-use flag is
 missing).
 
+When no `sent_mailbox` is configured and the selected folder is missing,
+Mailoo creates the fallback `Sent` folder before APPEND. An explicitly
+configured `sent_mailbox` is used as given; a failure still follows the
+best-effort behaviour below.
+
 Set `sent_mailbox` when the server advertises no SPECIAL-USE: the client then
 guesses by folder name, and on a mailbox that collected sent-shaped folders
 from several clients the guess can land on an empty one. Measured on OVH MX
@@ -88,7 +93,14 @@ Every other tool is omitted. That includes `add_to_calendar`,
 `create_reminder`, `test_notification`, `configure_alerts`, and the send,
 draft, label-change, mailbox, schedule-write, and sieve-write tools.
 
-Env: `MCP_EMAIL_READ_ONLY=true`.
+Env: `MCP_EMAIL_READ_ONLY=true`. This also overrides accounts loaded from
+TOML; `false` explicitly enables writes for that process. Unset or other
+values keep `settings.read_only`. The `account add` wizard prints a client
+entry with this override and the `core` toolset for the first connection.
+The `install` command registers a launch entry without those overrides;
+with default settings it runs writable/full. To enforce read-only/core,
+copy the printed entry or add the overrides to the registered entry and
+restart the server. See the [first-connection guide](getting-started.md#optional-tool-profiles-and-http).
 
 ## `settings.hooks.alerts.allow_private_webhooks`
 

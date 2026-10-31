@@ -29,6 +29,34 @@ describe('ImapService', () => {
     service = new ImapService(connections);
   });
 
+  describe('saveDraft folder creation', () => {
+    const draft = { to: ['reader@example.test'], subject: 'Review', body: 'Please review.' };
+
+    it('should save when another writer creates Drafts between LIST and CREATE', async () => {
+      let exists = false;
+      client.list.mockImplementation(async () => (exists ? [{ path: 'Drafts' }] : []));
+      client.mailboxCreate.mockImplementation(async () => {
+        exists = true;
+        throw new Error('Mailbox already exists');
+      });
+      client.append.mockImplementation(async () => {
+        if (!exists) throw new Error('Mailbox does not exist');
+        return { uid: 41 };
+      });
+      await expect(service.saveDraft('test', draft)).resolves.toEqual({
+        id: 41,
+        mailbox: 'Drafts',
+      });
+    });
+
+    it('should report the server error when creating Drafts is refused and it remains absent', async () => {
+      client.list.mockResolvedValue([]);
+      client.mailboxCreate.mockRejectedValue(new Error('CREATE permission denied'));
+      client.append.mockRejectedValue(new Error('Mailbox does not exist'));
+      await expect(service.saveDraft('test', draft)).rejects.toThrow('CREATE permission denied');
+    });
+  });
+
   describe('saveEmailAttachments', () => {
     let root: string;
 

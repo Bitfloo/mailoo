@@ -22,6 +22,8 @@ npx -y @bitfloo/mailoo@latest account add
 npx -y @bitfloo/mailoo@latest install
 ```
 
+The account wizard prints a read-only/core manual client entry. The installer registers a launch entry without those overrides; with default settings it runs writable/full. To enforce read-only/core, use the wizard's JSON or [add the environment overrides](docs/getting-started.md#optional-tool-profiles-and-http) before starting the server.
+
 Choose your client in the installer, restart it, and ask: **“Summarize up to five unread emails. Include each sender, subject and any requested next step. Ask which account to use if needed.”**
 
 [Follow the guided setup and check your first result →](docs/getting-started.md#quickstart-for-claude-desktop-or-cursor)
@@ -48,6 +50,8 @@ Initialize the connection, list tools, then call `list_accounts`, `list_emails`,
 Both quickstarts begin with reading mail. The walkthrough also covers [feature requirements and fallbacks](docs/getting-started.md#feature-requirements-and-fallbacks), including AI triage, local calendars, ManageSieve, and experimental OAuth.
 
 ## Highlights
+
+Up to 57 tools across `full`, `core`, and `minimal` profiles, up to 7 prompts, and 6 resources. Includes calendar and reminders, scheduling, ManageSieve filters, and optional AI triage. See [API](#api) for tools and [`docs/tools.md`](docs/tools.md) for behaviour and limits.
 
 | Feature | In this tree |
 |---------|:------------:|
@@ -1152,14 +1156,16 @@ pnpm install
 pnpm typecheck          # type check
 pnpm check              # lint and format
 pnpm ci:local           # lint, typecheck, unit; GreenMail if Docker is up
+pnpm ci:release         # same checks; a working Docker runtime and GreenMail are required
 pnpm test               # unit tests (Vitest; no mail server)
 pnpm test:integration   # GreenMail IMAP/SMTP (needs Docker)
+pnpm test:e2e           # packed release, production dependencies, stdio MCP, GreenMail
 pnpm test:all           # unit plus GreenMail
 pnpm build              # build
 pnpm start              # run
 ```
 
-`pnpm test:integration` and `pnpm test:all` need Docker. `pnpm ci:local` skips GreenMail when Docker is down. What GitHub runs on a pull request is listed in [CONTRIBUTING.md](CONTRIBUTING.md#commands). `mailoo test` / `npx -y @bitfloo/mailoo@latest test` is a live-account connection probe, not Vitest.
+`pnpm test:integration`, `pnpm test:e2e`, `pnpm test:all`, and `pnpm ci:release` need Docker. The packed release journey is also included in the integration suite. `pnpm ci:local` skips GreenMail when Docker is down; `pnpm ci:release` fails instead. Publishing to npm, the MCP Registry, and npm aliases requires the release verification job to pass; Docker publishing also requires the MCP Registry job to succeed. What GitHub runs on a pull request is listed in [CONTRIBUTING.md](CONTRIBUTING.md#commands). `mailoo test` / `npx -y @bitfloo/mailoo@latest test` is a live-account connection probe, not Vitest.
 
 ## Attribution & License
 

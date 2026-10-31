@@ -5,24 +5,41 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 
-pnpm check
-pnpm typecheck
-pnpm test
+require_integration=0
+build_image=0
+# pnpm passes a literal -- through.
+for arg in "$@"; do
+  case "$arg" in
+    --require-integration) require_integration=1 ;;
+    --image) build_image=1 ;;
+    --) ;;
+    *) echo "ci-local: unknown option: $arg" >&2; exit 1 ;;
+  esac
+done
 
 docker_ok=0
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   docker_ok=1
 fi
+if [[ "$require_integration" -eq 1 && "$docker_ok" -eq 0 ]]; then
+  echo "ci-local: required integration tests need a working Docker runtime" >&2
+  exit 1
+fi
+
+pnpm check
+pnpm typecheck
+pnpm test
 
 if [[ "$docker_ok" -eq 1 ]]; then
   integ_log=$(mktemp)
+  trap 'rm -f "$integ_log"' EXIT
   set +e
   pnpm test:integration >"$integ_log" 2>&1
   integ_status=$?
   set -e
   cat "$integ_log"
   if [[ "$integ_status" -ne 0 ]]; then
-    if grep -q 'Could not find a working container runtime strategy' "$integ_log"; then
+    if [[ "$require_integration" -eq 0 ]] && grep -q 'Could not find a working container runtime strategy' "$integ_log"; then
       echo "ci-local: skip integration (no usable container runtime)" >&2
     else
       rm -f "$integ_log"
@@ -30,17 +47,10 @@ if [[ "$docker_ok" -eq 1 ]]; then
     fi
   fi
   rm -f "$integ_log"
+  trap - EXIT
 else
   echo "ci-local: skip integration (Docker not running)" >&2
 fi
-
-build_image=0
-# pnpm passes a literal -- through, so --image may not be $1
-for arg in "$@"; do
-  if [[ "$arg" == "--image" ]]; then
-    build_image=1
-  fi
-done
 
 if [[ "$build_image" -eq 1 ]]; then
   if [[ "$docker_ok" -eq 1 ]]; then
