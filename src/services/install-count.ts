@@ -159,7 +159,7 @@ function markerFile(stateDir: string): string {
  */
 async function claimMarker(file: string): Promise<'claimed' | 'taken' | 'failed'> {
   try {
-    await fs.writeFile(file, `${MARKER_DIGIT}\n`, {
+    await fs.writeFile(file, String(MARKER_DIGIT), {
       encoding: 'utf8',
       mode: PRIVATE_FILE_MODE,
       flag: 'wx',

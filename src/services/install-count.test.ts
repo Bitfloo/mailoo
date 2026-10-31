@@ -354,9 +354,9 @@ describe('install count', () => {
     expect(JSON.parse(fetch.seen[0]?.init.body ?? '')[field]).toBe(value);
   });
 
-  it('should write the marker digit and a newline', async () => {
+  it('should write only the marker digit', async () => {
     const { dir } = await firstSend();
-    expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1\n');
+    expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1');
   });
 
   it('should keep the marker private to the owner', async () => {
@@ -379,7 +379,7 @@ describe('install count', () => {
     const dir = join(root, 'absent', 'deeper', 'state');
     const result = await count(dir, opted(), fetch.fetchImpl);
     expect(result).toEqual({ sent: true, reason: 'sent' });
-    expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1\n');
+    expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1');
   });
 
   it.each([200, 204, 299])(
@@ -388,7 +388,7 @@ describe('install count', () => {
       const fetch = recording(status);
       const dir = await stateDir();
       expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({ sent: true, reason: 'sent' });
-      expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1\n');
+      expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1');
     },
   );
 
@@ -401,7 +401,7 @@ describe('install count', () => {
         sent: false,
         reason: 'refused',
       });
-      expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1\n');
+      expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1');
     },
   );
 
@@ -412,7 +412,7 @@ describe('install count', () => {
     };
     const result = await count(dir, opted(), throwing);
     expect(result).toEqual({ sent: false, reason: 'refused' });
-    expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1\n');
+    expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1');
   });
 
   it.each([204, 503])('should release the response body after a %s answer', async (status) => {
@@ -441,7 +441,7 @@ describe('install count', () => {
       },
     });
     expect(await count(dir, opted(), fetchImpl)).toEqual({ sent: true, reason: 'sent' });
-    expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1\n');
+    expect(await readFile(join(dir, 'install-count'), 'utf8')).toBe('1');
   });
 
   it('should abandon a collector that has not answered after 3000 ms', async () => {
@@ -532,7 +532,7 @@ describe('install count', () => {
         return { status: 204, body: null };
       };
       await count(dir, opted(), peeking);
-      expect(atRequest).toBe('1\n');
+      expect(atRequest).toBe('1');
     });
 
     it.each([
@@ -891,7 +891,7 @@ describe('install count through the process environment and the global fetch', (
       event: 'install',
       node_major: Number(process.versions.node.split('.')[0]),
     });
-    expect(await readFile(bound.marker, 'utf8')).toBe('1\n');
+    expect(await readFile(bound.marker, 'utf8')).toBe('1');
   });
 
   it('should not send from the process environment when the counter is off', async () => {
@@ -928,7 +928,7 @@ describe('install count through the process environment and the global fetch', (
     });
     await expect(bound.noteInstall(VERSION)).resolves.toBeUndefined();
     expect(bound.calls).toHaveLength(1);
-    expect(await readFile(bound.marker, 'utf8')).toBe('1\n');
+    expect(await readFile(bound.marker, 'utf8')).toBe('1');
   });
 
   it('should not post again after the global fetch answered 503', async () => {
