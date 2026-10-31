@@ -53,10 +53,11 @@ const JOBS: Record<string, string[]> = {
   ],
   'release.yml': [
     'release',
-    'npm: {"name":"Publish to npm","runs-on":"ubuntu-latest"}',
-    'mcp: {"name":"Publish to MCP Registry","runs-on":"ubuntu-latest","needs":["npm"]}',
+    'verify: {"name":"Verify release package and mail workflows","runs-on":"ubuntu-latest"}',
+    'npm: {"name":"Publish to npm","runs-on":"ubuntu-latest","needs":["verify"]}',
+    'mcp: {"name":"Publish to MCP Registry","runs-on":"ubuntu-latest","needs":["verify","npm"]}',
     'docker: {"name":"Publish Docker images","runs-on":"ubuntu-latest","needs":["npm","mcp"]}',
-    'aliases: {"name":"Publish npm aliases","runs-on":"ubuntu-latest","needs":["npm"]}',
+    'aliases: {"name":"Publish npm aliases","runs-on":"ubuntu-latest","needs":["verify","npm"]}',
   ],
   'scorecard.yml': [
     'scorecard',

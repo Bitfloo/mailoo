@@ -45,8 +45,10 @@ LGPL-3.0-or-later (see [LICENSE](LICENSE) and [COPYING](COPYING)).
 | `pnpm check` | Run both Biome and ESLint |
 | `pnpm test` | Unit tests (in-process; no mail server) |
 | `pnpm test:integration` | Protocol tests against **GreenMail** (test IMAP/SMTP server in Docker) |
+| `pnpm test:e2e` | Build and pack Mailoo, install locked production dependencies, and exercise CLI and stdio MCP against GreenMail |
 | `pnpm test:all` | Unit plus GreenMail |
 | `pnpm ci:local` | Lint, typecheck, unit; GreenMail when Docker is up (`pnpm ci:local -- --image` also builds) |
+| `pnpm ci:release` | Lint, typecheck, unit and GreenMail, including the packed release journey; fails if Docker is unavailable |
 
 `pnpm test:integration` needs Docker. `pnpm ci:local` skips that lane when Docker
 is down (lefthook pre-push uses the same script). On a **pull request** to
@@ -55,6 +57,13 @@ is down (lefthook pre-push uses the same script). On a **pull request** to
 `Public commit and pull request text`, plus CodeQL. Pushing a topic branch
 starts none of them; CodeQL also runs on pushes to `develop` and weekly.
 `node dist/main.js test` / `mailoo test` is a live-account connection probe, not Vitest.
+
+The release workflow runs `pnpm ci:release` before publishing. npm, the MCP
+Registry and aliases require that verification to succeed, including manual
+runs with `skip-npm`. The packed journey runs with a temporary home and XDG
+directories, no source files or dev dependencies, and no personal mail accounts.
+It covers reading without changing flags, draft preview and delivery, reply
+threading, attachment containment, read-only enforcement and process shutdown.
 
 ### Code Style
 

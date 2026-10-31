@@ -7,6 +7,21 @@ describe('Config Loader', () => {
   const sandbox = useConfigSandbox();
 
   describe('loadConfig from TOML file', () => {
+    it.each([
+      { env: 'true', stored: false, expected: true },
+      { env: 'false', stored: true, expected: false },
+      { env: undefined, stored: true, expected: true },
+      { env: 'invalid', stored: true, expected: true },
+    ])(
+      'should resolve read_only to $expected with env $env and TOML $stored',
+      async ({ env, stored, expected }) => {
+        vi.stubEnv('MCP_EMAIL_READ_ONLY', env);
+        const configPath = path.join(sandbox.dir, 'config.toml');
+        await writeOwnerOnly(configPath, `${MINIMAL_TOML}\n[settings]\nread_only = ${stored}\n`);
+        expect((await loadConfig(configPath)).settings.readOnly).toBe(expected);
+      },
+    );
+
     it('should default username to the email when the account sets none', async () => {
       const configPath = path.join(sandbox.dir, 'config.toml');
       await writeOwnerOnly(configPath, MINIMAL_TOML);

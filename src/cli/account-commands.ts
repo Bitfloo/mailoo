@@ -533,7 +533,11 @@ async function addAccount(): Promise<void> {
   await saveConfig(config);
   log.success(`Account "${identity.name}" added. Config saved to ${CONFIG_FILE}`);
 
-  note(manualClientConfig(), 'Add this to your MCP client config (e.g., Claude Desktop, Cursor)');
+  note(manualClientConfig(true), 'Start read-only — add this to your MCP client config');
+  log.info('First request: "List my accounts, then show unread emails."');
+  log.info(
+    'To enable sending and changes later, set MCP_EMAIL_READ_ONLY to false in that client config and restart the server.',
+  );
 
   outro('Done!');
 }

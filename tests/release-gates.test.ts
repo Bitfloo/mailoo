@@ -76,30 +76,39 @@ describe('release job gate evaluator', () => {
 });
 
 describe('release job gates', () => {
+  it.each(['failure', 'cancelled', 'skipped'])(
+    'should stop MCP and alias publishing when release verification is %s even if npm is skipped',
+    (verify) => {
+      const needs = { verify, npm: 'skipped' };
+      expect(runsJob(jobGate(stampJob()), needs)).toBe(false);
+      expect(runsJob(jobGate(releaseJob('publish-npm-aliases.sh')), needs)).toBe(false);
+    },
+  );
+
   // On a push the inputs context is empty, so inputs.skip-npm reads as false.
   it.each([
     { run: 'a tag push', event: 'push', skip: false },
     { run: 'a manual run without skip-npm', event: 'workflow_dispatch', skip: false },
   ])('should publish to npm on $run', ({ event, skip }) => {
     const context = { 'github.event_name': event, 'inputs.skip-npm': skip };
-    expect(runsJob(jobGate(npmJob()), {}, context)).toBe(true);
+    expect(runsJob(jobGate(npmJob()), { verify: 'success' }, context)).toBe(true);
   });
 
   it('should not publish to npm on a manual run with skip-npm', () => {
     const context = { 'github.event_name': 'workflow_dispatch', 'inputs.skip-npm': true };
-    expect(runsJob(jobGate(npmJob()), {}, context)).toBe(false);
+    expect(runsJob(jobGate(npmJob()), { verify: 'success' }, context)).toBe(false);
   });
 
   // A tag push publishes to npm first, and skip-npm skips that job on a manual run. Both must
   // reach the registry; a failed or cancelled npm publish must stop it.
   it.each(['success', 'skipped'])('should publish to the MCP Registry when npm is %s', (npm) => {
-    expect(runsJob(jobGate(stampJob()), { npm })).toBe(true);
+    expect(runsJob(jobGate(stampJob()), { verify: 'success', npm })).toBe(true);
   });
 
   it.each(['failure', 'cancelled'])(
     'should not publish to the MCP Registry when npm is %s',
     (npm) => {
-      expect(runsJob(jobGate(stampJob()), { npm })).toBe(false);
+      expect(runsJob(jobGate(stampJob()), { verify: 'success', npm })).toBe(false);
     },
   );
 
@@ -124,7 +133,7 @@ describe('release job gates', () => {
 
   it('should make the job that stamps server.json need npm when its if: reads the npm result', () => {
     // Without needs, needs.npm.result is empty, so the if: never passes and nothing is published.
-    expect(stampJob()).toContain('needs: [npm]');
+    expect(stampJob()).toContain('needs: [verify, npm]');
   });
 
   it('should make the Docker job need npm and MCP when its if: reads both results', () => {

@@ -5,15 +5,48 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/bitfloo/mailoo/ci.yml?event=pull_request&style=flat-square&label=CI)](https://github.com/bitfloo/mailoo/actions/workflows/ci.yml)
 [![M8ven](https://m8ven.ai/badge/mcp/bitfloo/mailoo?variant=verified)](https://m8ven.ai/mcp/bitfloo/mailoo)
 
-**Mailoo** (`@bitfloo/mailoo`) is a Model Context Protocol (MCP) server for email (IMAP/SMTP), calendar, reminders, and ManageSieve automation developed and maintained by **Bitfloo**.
+**Mailoo** (`@bitfloo/mailoo`) connects your AI assistant to your email over IMAP/SMTP. Search across accounts, read threads, prepare drafts, and send replies from an MCP client such as Claude Desktop, Claude Code, or Cursor. Developed and maintained by **Bitfloo**.
+
+## Quick start
+
+Requires [Node.js](https://nodejs.org/) ≥ 24 and an account with IMAP access. Some providers require an app password; OAuth2 support is experimental. For a container setup, see [Docker](#docker).
+
+1. Add an account. The wizard detects provider settings, checks IMAP/SMTP, and saves your configuration locally:
+
+   ```bash
+   npx -y @bitfloo/mailoo@latest account add
+   ```
+
+2. Add this entry to your MCP client's server configuration, then restart the server in that client:
+
+   ```json
+   {
+     "mcpServers": {
+       "mailoo": {
+         "command": "npx",
+         "args": ["-y", "@bitfloo/mailoo@latest", "stdio"],
+         "env": {
+           "MCP_EMAIL_READ_ONLY": "true",
+           "MCP_EMAIL_TOOLSET": "core"
+         }
+       }
+     }
+   }
+   ```
+
+3. Ask your assistant: **"List my email accounts, then show unread messages in my inbox."** Follow with **"Read that thread and summarize what needs my attention."** This configuration permits reading without sending mail, changing flags, saving files, or running background automation.
+
+When ready to write, set `MCP_EMAIL_READ_ONLY` to `"false"` in the client configuration and restart the server. You can then ask it to save a draft or preview a send with `dryRun: true` before sending. Preview is a separate operation; Mailoo does not require it before every send. Set `MCP_EMAIL_TOOLSET` to `"full"` to enable the wider toolset below.
+
+Mailoo connects to the mail servers you configure. Your MCP client and its model provider receive the mail content you request. Optional TypeSafe classification and webhooks send data to their configured services when enabled. Usage reporting is off by default. See [Capabilities & data flows](#capabilities--data-flows) for destinations and fields.
+
+If a connection fails, run `npx -y @bitfloo/mailoo@latest test` to check IMAP and SMTP, then use `account edit` to correct settings. See [configuration](docs/configuration.md) for provider and connection details.
 
 ![Mailoo Architecture](https://raw.githubusercontent.com/Bitfloo/mailoo/develop/docs/assets/mailoo-architecture.svg)
 
-Enables AI assistants and autonomous agents to read, search, send, manage, schedule, and analyze emails, calendars, Reminders, and ManageSieve filter scripts across multiple accounts. Exposes up to 57 tools (with `full`, `core`, and `minimal` toolset profiles), up to 7 prompts, and 6 resources over MCP with `outputSchema` / `structuredContent`, OAuth2 support _(experimental)_, email scheduling, calendar extraction, analytics, provider-aware label management, real-time IMAP IDLE watcher with AI-powered triage, customizable presets and static rules, ManageSieve filters, and a guided setup wizard.
-
-Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, read-only side effects, and reconnect backoff is documented in [`docs/configuration.md`](docs/configuration.md) and [`docs/tools.md`](docs/tools.md).
-
 ## Highlights
+
+Up to 57 tools across `full`, `core`, and `minimal` profiles, up to 7 prompts, and 6 resources. Includes calendar and reminders, scheduling, ManageSieve filters, and optional AI triage. See [API](#api) for tools and [`docs/tools.md`](docs/tools.md) for behaviour and limits.
 
 | Feature | In this tree |
 |---------|:------------:|
@@ -37,6 +70,7 @@ Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, read-only si
 ## Table of Contents
 
 - [Highlights](#highlights)
+- [Quick start](#quick-start)
 - [Security & Sandboxing Architecture](#security--sandboxing-architecture)
 - [LLM Ergonomics & Toolset Profiles](#llm-ergonomics--toolset-profiles)
 - [Docs](#docs)
@@ -1105,14 +1139,16 @@ pnpm install
 pnpm typecheck          # type check
 pnpm check              # lint and format
 pnpm ci:local           # lint, typecheck, unit; GreenMail if Docker is up
+pnpm ci:release         # same checks; a working Docker runtime and GreenMail are required
 pnpm test               # unit tests (Vitest; no mail server)
 pnpm test:integration   # GreenMail IMAP/SMTP (needs Docker)
+pnpm test:e2e           # packed release, production dependencies, stdio MCP, GreenMail
 pnpm test:all           # unit plus GreenMail
 pnpm build              # build
 pnpm start              # run
 ```
 
-`pnpm test:integration` and `pnpm test:all` need Docker. `pnpm ci:local` skips GreenMail when Docker is down. What GitHub runs on a pull request is listed in [CONTRIBUTING.md](CONTRIBUTING.md#commands). `mailoo test` / `npx -y @bitfloo/mailoo@latest test` is a live-account connection probe, not Vitest.
+`pnpm test:integration`, `pnpm test:e2e`, `pnpm test:all`, and `pnpm ci:release` need Docker. The packed release journey is also included in the integration suite. `pnpm ci:local` skips GreenMail when Docker is down; `pnpm ci:release` fails instead. Publishing to npm, the MCP Registry, and npm aliases requires the release verification job to pass; Docker publishing also requires the MCP Registry job to succeed. What GitHub runs on a pull request is listed in [CONTRIBUTING.md](CONTRIBUTING.md#commands). `mailoo test` / `npx -y @bitfloo/mailoo@latest test` is a live-account connection probe, not Vitest.
 
 ## Attribution & License
 

@@ -88,7 +88,10 @@ Every other tool is omitted. That includes `add_to_calendar`,
 `create_reminder`, `test_notification`, `configure_alerts`, and the send,
 draft, label-change, mailbox, schedule-write, and sieve-write tools.
 
-Env: `MCP_EMAIL_READ_ONLY=true`.
+Env: `MCP_EMAIL_READ_ONLY=true`. This also overrides accounts loaded from
+TOML; `false` explicitly enables writes for that process. Unset or other
+values keep `settings.read_only`. The `account add` wizard prints a client
+entry with this override and the `core` toolset for the first connection.
 
 ## `settings.hooks.alerts.allow_private_webhooks`
 
