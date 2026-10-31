@@ -1,6 +1,16 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { delimiter, dirname, join } from 'node:path';
 
 import { parse } from 'yaml';
 
@@ -20,7 +30,7 @@ import {
   workflowTexts,
 } from './workflow-yaml.js';
 
-requireTools(['bash', 'dash', 'dirname', 'jq', 'mv']);
+requireTools(['bash', 'dash', 'dirname', 'git', 'jq', 'mv']);
 
 const ciYml = readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8');
 const dockerSha = readFileSync(join(repoRoot, '.github/workflows/docker-sha.yml'), 'utf8');
@@ -29,6 +39,90 @@ const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as 
   scripts: Record<string, string>;
   packageManager: string;
 };
+
+function pushTagWithCiResult(ciStatus: number): {
+  changedFiles: string;
+  pushStatus: number | null;
+  gateOutput: string;
+  published: boolean;
+} {
+  const scratch = mkdtempSync(join(tmpdir(), 'mailoo-tag-push-'));
+  try {
+    const work = join(scratch, 'work');
+    const remote = join(scratch, 'remote.git');
+    const home = join(scratch, 'home');
+    const gateOutput = join(scratch, 'gate-output');
+    mkdirSync(work);
+    mkdirSync(home);
+    const env = {
+      PATH: [dirname(process.execPath), process.env.PATH].join(delimiter),
+      HOME: home,
+      XDG_CONFIG_HOME: join(home, 'config'),
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z',
+      GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
+      TEST_CI_STATUS: String(ciStatus),
+      TEST_CI_OUTPUT: gateOutput,
+    };
+    const git = (args: string[]) => {
+      const result = spawnSync('git', args, { cwd: work, env, encoding: 'utf8' });
+      if (result.status !== 0) throw new Error(result.stderr || result.error?.message);
+      return result.stdout;
+    };
+    git(['init', '--initial-branch=develop']);
+    git(['init', '--bare', '--initial-branch=develop', remote]);
+    writeFileSync(join(work, 'lefthook.yml'), lefthook);
+    // A command-job regression must fail at the gate oracle, not during fixture setup.
+    if (existsSync(join(repoRoot, '.lefthook'))) {
+      cpSync(join(repoRoot, '.lefthook'), join(work, '.lefthook'), { recursive: true });
+    }
+    mkdirSync(join(work, 'scripts'));
+    writeFileSync(
+      join(work, 'scripts/ci-local.sh'),
+      'printf "CI gate ran\\n" >> "$TEST_CI_OUTPUT"\nexit "$TEST_CI_STATUS"\n',
+    );
+    git(['add', '--', 'lefthook.yml', 'scripts/ci-local.sh']);
+    git([
+      '-c',
+      'user.name=Fixture',
+      '-c',
+      'user.email=fixture@example.test',
+      'commit',
+      '-m',
+      'fixture',
+    ]);
+    git(['remote', 'add', 'origin', remote]);
+    git(['push', '--set-upstream', 'origin', 'develop']);
+    const changedFiles = git(['diff', '--name-only', 'HEAD', 'origin/develop']);
+    const lefthookBin = createRequire(import.meta.url).resolve('lefthook/bin/index.js');
+    const installed = spawnSync(process.execPath, [lefthookBin, 'install'], {
+      cwd: work,
+      env,
+      encoding: 'utf8',
+    });
+    if (installed.status !== 0) throw new Error(installed.stderr || installed.error?.message);
+    git(['tag', 'probe']);
+    const pushed = spawnSync('git', ['push', 'origin', 'refs/tags/probe'], {
+      cwd: work,
+      env,
+      encoding: 'utf8',
+    });
+    if (pushed.error) throw pushed.error;
+    const published = spawnSync(
+      'git',
+      ['--git-dir', remote, 'show-ref', '--verify', '--quiet', 'refs/tags/probe'],
+      { cwd: work, env },
+    );
+    return {
+      changedFiles,
+      pushStatus: pushed.status,
+      gateOutput: existsSync(gateOutput) ? readFileSync(gateOutput, 'utf8') : '',
+      published: published.status === 0,
+    };
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
 
 describe('CI spend policy', () => {
   it('should keep GitHub ci.yml off push so the laptop script owns unit and lint', () => {
@@ -46,6 +140,19 @@ describe('CI spend policy', () => {
   it('should wire ci-local into the package scripts and pre-push', () => {
     expect(pkg.scripts['ci:local']).toBe('bash scripts/ci-local.sh');
     expect(lefthook).toContain('scripts/ci-local.sh');
+  });
+
+  it.each([
+    { ciStatus: 0, published: true, outcome: 'publish' },
+    { ciStatus: 23, published: false, outcome: 'refuse' },
+  ])('should $outcome a tag-only push according to the CI result', ({ ciStatus, published }) => {
+    const result = pushTagWithCiResult(ciStatus);
+    expect(result).toEqual({
+      changedFiles: '',
+      pushStatus: published ? 0 : 1,
+      gateOutput: 'CI gate ran\n',
+      published,
+    });
   });
 
   it('should name the dispatch include-unit flag in ci.yml and CLAUDE.md', () => {

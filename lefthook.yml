@@ -47,6 +47,7 @@ commit-msg:
         bash scripts/check-public-git-log.sh --file {1}
 
 pre-push:
-  commands:
-    ci-local:
-      run: bash scripts/ci-local.sh
+  # Command jobs skip pushes without file diffs, including a release tag.
+  scripts:
+    ci-local.sh:
+      runner: bash
