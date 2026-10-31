@@ -763,4 +763,85 @@ describe('Audit Logger', () => {
 
     expect(await loggedParams({ items })).toEqual({ stderr: [], params: [{ items: ['kept'] }] });
   });
+
+  it('should mask an array accessor without invoking its getter', async () => {
+    let reads = 0;
+    const items: unknown[] = [];
+    Object.defineProperty(items, '0', {
+      enumerable: true,
+      get() {
+        reads += 1;
+        throw new Error('fake-private-array-value');
+      },
+    });
+
+    expect({ ...(await loggedParams({ items })), reads }).toEqual({
+      stderr: [],
+      params: [{ items: ['[Accessor]'] }],
+      reads: 0,
+    });
+  });
+
+  it.each(['root', 'nested'] as const)(
+    'should mask a %s Proxy without invoking any trap',
+    async (where) => {
+      const { value, reads } = watched();
+      const params = where === 'root' ? (value as Record<string, unknown>) : { value };
+
+      expect({ ...(await loggedParams(params)), reads: reads() }).toEqual({
+        stderr: [],
+        params: [{ value: '[Proxy]' }],
+        reads: 0,
+      });
+    },
+  );
+
+  it('should use intrinsic Date methods without running overrides', async () => {
+    const date = new Date('2026-11-02T09:00:00.000Z');
+    date.toISOString = () => {
+      throw new Error('fake-private-date-value');
+    };
+    expect(await loggedParams({ date })).toEqual({
+      stderr: [],
+      params: [{ date: '2026-11-02T09:00:00.000Z' }],
+    });
+  });
+
+  it('should read a URL through its intrinsic getter without running overrides', async () => {
+    const url = new URL('https://example.test/kept?secret=fake-private-url-value');
+    Object.defineProperty(url, 'host', {
+      get() {
+        throw new Error('fake-private-url-value');
+      },
+    });
+    expect(await loggedParams({ url })).toEqual({
+      stderr: [],
+      params: [{ url: 'https://example.test/kept?[REDACTED]' }],
+    });
+  });
+
+  it('should not run a toJSON function supplied in params', async () => {
+    let calls = 0;
+    const params = {
+      toJSON() {
+        calls += 1;
+        return 'fake-private-json-value';
+      },
+      subject: 'kept',
+    };
+    expect({ ...(await loggedParams(params)), calls }).toEqual({
+      stderr: [],
+      params: [{ toJSON: '[Function]', subject: 'kept' }],
+      calls: 0,
+    });
+  });
+
+  it('should keep arbitrary serialization errors out of stderr', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    vi.spyOn(fs, 'open').mockRejectedValueOnce(new Error('fake-private-filesystem-value'));
+    await auditLogger.log('test', 'x', {}, 'ok');
+    expect(stderr.mock.calls.map(([line]) => line)).toEqual([
+      '[mailoo] audit log write failed: entry could not be written\n',
+    ]);
+  });
 });
