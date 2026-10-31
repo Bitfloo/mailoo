@@ -47,7 +47,9 @@ Initialize the connection, list tools, then call `list_accounts`, `list_emails`,
 
 [Follow the MCP request sequence and inspect its results →](docs/getting-started.md#quickstart-for-agent-builders)
 
-Both quickstarts enforce read-only access. To enable sending and changes later, use `config edit` to turn off the stored read-only setting or change `MCP_EMAIL_READ_ONLY` to `"false"` in a client entry that sets it, then restart the server. Preview with `dryRun: true` before sending; preview is a separate operation and is not required by Mailoo before every send. Both quickstarts begin with reading mail. The walkthrough also covers [feature requirements and fallbacks](docs/getting-started.md#feature-requirements-and-fallbacks), including AI triage, local calendars, ManageSieve, and experimental OAuth.
+Both quickstarts enforce read-only access. The walkthrough also covers [feature requirements and fallbacks](docs/getting-started.md#feature-requirements-and-fallbacks), including AI triage, local calendars, ManageSieve, and experimental OAuth.
+
+To enable sending and changes later, use `config edit` to turn off the stored read-only setting or change `MCP_EMAIL_READ_ONLY` to `"false"` in a client entry that sets it, then restart the server. Preview with `dryRun: true` before sending; preview is a separate operation and is not required by Mailoo before every send.
 
 Mailoo connects to the mail servers you configure. Your MCP client and its model provider receive the mail content you request. Optional TypeSafe classification and webhooks send data to their configured services when enabled. Usage reporting is off by default. See [Capabilities & data flows](#capabilities--data-flows) for destinations and fields.
 
