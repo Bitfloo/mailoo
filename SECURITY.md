@@ -28,6 +28,10 @@ Mailoo handles email credentials and message content. What the code does:
 - **Rate limiting** — Sends use a token bucket, 10 per minute unless configured otherwise (`src/safety/rate-limiter.ts`).
 - **Input validation** — Tool inputs are checked with Zod schemas before the service call.
 
+## Dependency checks
+
+`pnpm audit --prod` checks the server dependencies; `pnpm audit` includes development tooling too. The full audit currently reports [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249) for retained `minimatch` copies. The legacy parsers used by lint and archive tooling do not implement the affected `optimizationLevel >= 2` preprocessing. Lint also retains minimatch 10 because `eslint-plugin-import-x` needs the `makeRe` API removed in version 11; its reviewed callers use the default optimization level, and this repository does not enable level 2. The archive walker uses patched glob and minimatch releases. `tests/dependency-floors.test.ts` bounds the retained versions and lint consumers and refuses a lint configuration that enables the vulnerable preprocessing. The advisory is not suppressed in pnpm configuration.
+
 ## Best Practices for Users
 
 - Use app-specific passwords instead of your main account password

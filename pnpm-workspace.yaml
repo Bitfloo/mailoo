@@ -18,3 +18,7 @@ allowBuilds:
 # (dependabot-core #14919). CI, both images and pnpm 10's own version switch
 # still run the packageManager version.
 pmOnFail: ignore
+
+# archiver-utils uses glob.sync, which the patched modern glob still exports.
+overrides:
+  "glob@>=9 <=14.0.1": "^14.0.2"
