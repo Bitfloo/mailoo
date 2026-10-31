@@ -5,13 +5,47 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/bitfloo/mailoo/ci.yml?event=pull_request&style=flat-square&label=CI)](https://github.com/bitfloo/mailoo/actions/workflows/ci.yml)
 [![M8ven](https://m8ven.ai/badge/mcp/bitfloo/mailoo?variant=verified)](https://m8ven.ai/mcp/bitfloo/mailoo)
 
-**Mailoo** (`@bitfloo/mailoo`) is a Model Context Protocol (MCP) server for email (IMAP/SMTP), calendar, reminders, and ManageSieve automation developed and maintained by **Bitfloo**.
+Mailoo is an open-source MCP server you run yourself to connect AI assistants and agents to multiple email accounts over IMAP and SMTP.
 
-![Mailoo Architecture](https://raw.githubusercontent.com/Bitfloo/mailoo/develop/docs/assets/mailoo-architecture.svg)
+- **Find what you need** — search and read email, threads, and attachments across accounts.
+- **Act on email** — prepare drafts, reply, and schedule messages through your assistant or agent.
+- **Choose your setup** — guided setup for Claude Desktop or Cursor, or a standard MCP connection for your own agent.
 
-Enables AI assistants and autonomous agents to read, search, send, manage, schedule, and analyze emails, calendars, Reminders, and ManageSieve filter scripts across multiple accounts. Exposes up to 57 tools (with `full`, `core`, and `minimal` toolset profiles), up to 7 prompts, and 6 resources over MCP with `outputSchema` / `structuredContent`, OAuth2 support _(experimental)_, email scheduling, calendar extraction, analytics, provider-aware label management, real-time IMAP IDLE watcher with AI-powered triage, customizable presets and static rules, ManageSieve filters, and a guided setup wizard.
+Maintained by [Bitfloo](https://github.com/Bitfloo), forked from [email-mcp](https://github.com/codefuturist/email-mcp). Licensed under [LGPL-3.0-or-later](LICENSE); see [NOTICE](NOTICE) for attribution.
 
-Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, read-only side effects, and reconnect backoff is documented in [`docs/configuration.md`](docs/configuration.md) and [`docs/tools.md`](docs/tools.md).
+## Quickstart for Claude Desktop or Cursor
+
+Install [Node.js](https://nodejs.org/) **24 or newer** and [prepare your email account](docs/authentication.md) first, including an app password if your provider requires one. Then run these commands in a terminal:
+
+```bash
+npx -y @bitfloo/mailoo@latest account add
+npx -y @bitfloo/mailoo@latest install
+```
+
+Choose your client in the installer, restart it, and ask: **“Summarize up to five unread emails. Include each sender, subject and any requested next step. Ask which account to use if needed.”**
+
+[Follow the guided setup and check your first result →](docs/getting-started.md#quickstart-for-claude-desktop-or-cursor)
+
+## Quickstart for agent builders
+
+With Node.js **24 or newer** and [account credentials ready](docs/authentication.md), create a local account using `npx -y @bitfloo/mailoo@latest account add`. Connect your MCP client over stdio:
+
+```json
+{
+  "mcpServers": {
+    "mailoo": {
+      "command": "npx",
+      "args": ["-y", "@bitfloo/mailoo@latest", "stdio"]
+    }
+  }
+}
+```
+
+Initialize the connection, list tools, then call `list_accounts`, `list_emails`, and `get_email` with the returned account name and message ID.
+
+[Follow the MCP request sequence and inspect its results →](docs/getting-started.md#quickstart-for-agent-builders)
+
+Both quickstarts begin with reading mail. The walkthrough also covers [feature requirements and fallbacks](docs/getting-started.md#feature-requirements-and-fallbacks), including AI triage, local calendars, ManageSieve, and experimental OAuth.
 
 ## Highlights
 
@@ -37,6 +71,8 @@ Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, read-only si
 ## Table of Contents
 
 - [Highlights](#highlights)
+- [Quickstart for Claude Desktop or Cursor](#quickstart-for-claude-desktop-or-cursor)
+- [Quickstart for agent builders](#quickstart-for-agent-builders)
 - [Security & Sandboxing Architecture](#security--sandboxing-architecture)
 - [LLM Ergonomics & Toolset Profiles](#llm-ergonomics--toolset-profiles)
 - [Docs](#docs)
@@ -53,12 +89,15 @@ Behaviour for Sent copies, IMAP4rev2, Sieve, attachment `savePath`, read-only si
 
 Policy and how to report a vulnerability: **[SECURITY.md](SECURITY.md)**.
 
-Mailoo is engineered with defense-in-depth sandboxing so AI agents can safely interact with untrusted mail and external servers:
+Mailoo applies controls to specific network, filesystem, and tool operations. It also labels untrusted mail for the model. Those labels do not guarantee how an LLM will respond to instructions inside an email.
 
-- **Zero Shell Execution (`execFile` only)** — Native OS integrations (macOS `osascript` for Calendar/Reminders/notifications, Linux `notify-send`, Windows `powershell`, and crontab installation) invoke `child_process.execFile` with strict argument arrays (`shell: false`), eliminating command injection vectors.
+![Mailoo Architecture](docs/assets/mailoo-architecture.svg)
+
+**Enforced operation controls:**
+
+- **Zero Shell Execution (`execFile` only)** — Native OS integrations (macOS `osascript` for Calendar/Reminders/notifications, Linux `notify-send`, Windows `powershell`, and crontab installation) invoke `child_process.execFile` with argument arrays (`shell: false`), avoiding shell parsing of arguments.
 - **SSRF & DNS-Rebinding Protection (`net.BlockList`)** — Outbound alert webhooks validate URLs against an IPv4/IPv6 `net.BlockList` covering loopback, RFC 1918 private ranges, link-local/cloud metadata (`169.254.169.254`, `100.100.100.200`), CGNAT, NAT64, 6to4, and reserved prefixes both at configuration time and at socket connection time (`createWebhookConnectLookup`), preventing DNS-rebinding attacks (`src/safety/validation.ts`).
 - **Symlink-Free Write Containment (`savePath`)** — Attachment and `.eml` exports via `savePath` are strictly confined to the working directory, walk every path segment with `lstat`, refuse hidden dotfiles and OS persistence directories (`Library/LaunchAgents`, `.ssh`, `.gnupg`), and open targets with `O_CREAT | O_EXCL | O_NOFOLLOW` under a **50 MiB** cap (**5 MiB** inline base64 cap). An `.eml` export is capped by its own size; an attachment by its encoded size in the message, which for base64 runs above the file size ([details](docs/tools.md#download_attachment)).
-- **Prompt Injection Fencing (`<<<UNTRUSTED_EXTERNAL_CONTENT>>>`)** — Untrusted email subjects, sender headers, message bodies, previews, and authentication results are wrapped in `<<<UNTRUSTED_EXTERNAL_CONTENT>>>` … `<<<END_UNTRUSTED_EXTERNAL_CONTENT>>>` delimiters (stripping any forged markers inside the payload) so LLMs treat external mail as data, not instructions.
 - **Strict Credential File Permissions (`0600`)** — `config.toml` is written and verified with mode `0600` inside a `0700` config directory (`$XDG_CONFIG_HOME/mailoo/config.toml`). Passwords and message bodies are redacted from the JSONL write audit log (`src/safety/audit.ts`).
 - **TLS & STARTTLS Verification** — `tls` enforces implicit TLS with certificate verification (`verify_ssl = true` by default); `starttls` fails closed if the server does not advertise `STARTTLS`. Turning both off is accepted only for a loopback host. ManageSieve refuses `AUTHENTICATE PLAIN` over unencrypted sockets without `STARTTLS`.
 - **Operational Guardrails (`MCP_EMAIL_READ_ONLY`, `MCP_EMAIL_TOOLSET`, `dryRun`)** —
@@ -66,6 +105,8 @@ Mailoo is engineered with defense-in-depth sandboxing so AI agents can safely in
   - `MCP_EMAIL_TOOLSET=full|core|minimal` scopes the registered tool surface to match the agent's capability tier and context budget.
   - `dryRun: true` on high-risk tools (`send_email`, `reply_email`, `forward_email`, `send_draft`, `delete_email`, `bulk_action`, `delete_mailbox`, `sieve_put_script`, `sieve_delete_script`) validates all parameters and account resolution and returns a `[DRY RUN]` preview without modifying server state.
 - **Per-Account Rate Limiting** — `rate_limit` (default 10 sends/minute) enforces an independent token bucket per account (`src/safety/rate-limiter.ts`). Buckets live in memory, so each server process and each `mailoo scheduler check` run counts on its own.
+
+**Untrusted-content labels:** Email subjects, sender headers, bodies, previews, and authentication results are wrapped in `<<<UNTRUSTED_EXTERNAL_CONTENT>>>` … `<<<END_UNTRUSTED_EXTERNAL_CONTENT>>>` delimiters. Mailoo strips forged copies of these markers from the payload before wrapping it. This fencing identifies external content as data for the receiving model; it is not a sandbox for model behaviour or a guarantee against prompt injection.
 
 ## LLM Ergonomics & Toolset Profiles
 
@@ -85,6 +126,8 @@ Mailoo is designed to work across both frontier models (Claude, GPT, Gemini) and
 
 | Topic | Where |
 |-------|--------|
+| First account, Claude Desktop / Cursor, and an agent's first MCP calls | [docs/getting-started.md](docs/getting-started.md) |
+| IMAP credentials, Gmail / iCloud app passwords, and experimental Google / Microsoft OAuth | [docs/authentication.md](docs/authentication.md) |
 | Sent APPEND, IMAP4rev2, Sieve, `read_only`, reconnect backoff, stdio EOF, shutdown, one mailbox writer per machine | [docs/configuration.md](docs/configuration.md) |
 | `savePath`, search dates, `get_email_security`, sieve tools, send/draft attachments, RFC 2047, protected folders, busy-mailbox timeout, `bulk_action` ids, calendar attachment saves | [docs/tools.md](docs/tools.md) |
 | Performance notes | [docs/performance-roadmap.md](docs/performance-roadmap.md) |
@@ -103,6 +146,8 @@ Key design decisions:
 ## Install
 
 Requires [Node.js](https://nodejs.org/) ≥ 24.
+
+Before opening the wizard, [prepare your provider credentials](docs/authentication.md). For a complete first run, choose the [Claude Desktop / Cursor](#quickstart-for-claude-desktop-or-cursor) or [agent builder](#quickstart-for-agent-builders) quickstart.
 
 ```bash
 npx -y @bitfloo/mailoo@latest account add
@@ -356,6 +401,8 @@ docker run --rm -i \
 
 For MCP client configuration (e.g. Claude Desktop):
 
+Replace `/absolute/path/to/mailoo-config` below with the **full absolute path** to the host directory containing `config.toml`. MCP clients spawn Docker directly: they do not expand `~` or shell variables in JSON arguments. The shell example above relies on shell expansion. On Windows with Docker Desktop, use a shared Windows host path such as `C:/absolute/path/to/mailoo-config` in this argument; do not copy the Unix path or shell line continuations.
+
 ```json
 {
   "mcpServers": {
@@ -363,7 +410,7 @@ For MCP client configuration (e.g. Claude Desktop):
       "command": "docker",
       "args": [
         "run", "--rm", "-i",
-        "-v", "~/.config/mailoo:/home/node/.config/mailoo:ro",
+        "-v", "/absolute/path/to/mailoo-config:/home/node/.config/mailoo:ro",
         "ghcr.io/bitfloo/mailoo:0.3"
       ]
     }
@@ -479,7 +526,7 @@ An IMAP or SMTP block with `tls = false` and `starttls = false`, in the file or 
 
 #### OAuth2 _(experimental)_
 
-> **Note:** OAuth2 support is experimental. Token refresh and provider-specific flows may require additional testing in your environment.
+> **Note:** OAuth2 support is experimental and requires your own provider application and initial refresh token. The account wizard does not perform browser authorization. Follow the [authentication guide](docs/authentication.md#experimental-oauth) for app registration, consent, token exchange, and connection checks.
 
 Token refresh and code exchange give up after 15 seconds, so a provider that stops answering fails the connect with `OAuth2 token refresh timed out after 15s` instead of hanging it. Callers that need a fresh token at the same time share one refresh request. The IDLE watcher logs in with the same access tokens.
 

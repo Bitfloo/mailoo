@@ -14,7 +14,7 @@ LGPL-3.0-or-later (see [LICENSE](LICENSE) and [COPYING](COPYING)).
    git clone https://github.com/<your-username>/mailoo.git
    cd mailoo
    ```
-3. Install dependencies:
+3. Install the [prerequisites](#prerequisites), then dependencies:
    ```bash
    pnpm install
    pnpm build
@@ -30,6 +30,26 @@ LGPL-3.0-or-later (see [LICENSE](LICENSE) and [COPYING](COPYING)).
 
 - **Node.js** >= 24.0.0
 - **pnpm** 12 (see `packageManager` in `package.json`)
+- **[Cocogitto](https://docs.cocogitto.io/)** (`cog`) for every commit: the commit-msg hook verifies Conventional Commits.
+- **[actionlint](https://github.com/rhysd/actionlint/blob/main/docs/install.md)** when changing `.github/workflows/`: the pre-commit hook checks staged workflows.
+
+On macOS with Homebrew:
+
+```bash
+brew install cocogitto
+brew install actionlint
+```
+
+Other platforms can use `cargo install cocogitto` and `go install github.com/rhysd/actionlint/cmd/actionlint@latest`, or the binaries and package managers listed in their official installation guides above. Ensure the installed commands are on the `PATH` used by Git, including when committing from an editor:
+
+```bash
+node --version
+pnpm --version
+cog --version
+actionlint --version
+```
+
+`pnpm install` installs Lefthook hooks through the `prepare` script. To install them again, run `pnpm hooks:install`. A missing `cog` is a tooling prerequisite error; a rejected message is a format error. Install the missing tool and retry the commit.
 
 ### Commands
 
@@ -47,6 +67,8 @@ LGPL-3.0-or-later (see [LICENSE](LICENSE) and [COPYING](COPYING)).
 | `pnpm test:integration` | Protocol tests against **GreenMail** (test IMAP/SMTP server in Docker) |
 | `pnpm test:all` | Unit plus GreenMail |
 | `pnpm ci:local` | Lint, typecheck, unit; GreenMail when Docker is up (`pnpm ci:local -- --image` also builds) |
+| `actionlint` | Check GitHub Actions workflows (required for workflow changes) |
+| `pnpm hooks:install` | Install or refresh the repository's Git hooks |
 
 `pnpm test:integration` needs Docker. `pnpm ci:local` skips that lane when Docker
 is down (lefthook pre-push uses the same script). On a **pull request** to
