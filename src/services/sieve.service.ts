@@ -33,6 +33,12 @@ interface SieveConn {
   lastLiteral?: string;
 }
 
+interface ResponseBudget {
+  bytes: number;
+  error?: Error;
+  rejectWait?: (err: Error) => void;
+}
+
 export function parseListScripts(lines: string[]): SieveScriptInfo[] {
   return lines
     .map((line) => {
@@ -60,8 +66,15 @@ function quoteSieve(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
-/** PUTSCRIPT literal cap. Larger scripts are refused before a socket is opened. */
+/** Script literal cap for uploads and server responses; oversized uploads never open a socket. */
 export const MAX_SIEVE_SCRIPT_BYTES = 1024 * 1024;
+
+/** One maximum-size script plus 64 KiB for framing, capabilities and status lines. */
+export const MAX_SIEVE_RESPONSE_BYTES = MAX_SIEVE_SCRIPT_BYTES + 64 * 1024;
+
+/** Absolute deadlines prevent a busy peer from holding an operation open indefinitely. */
+export const SIEVE_RESPONSE_TIMEOUT_MS = 30_000;
+export const SIEVE_TLS_HANDSHAKE_TIMEOUT_MS = 30_000;
 
 /**
  * RFC 5804 §1.6: servers must accept names up to 128 characters and may accept
@@ -95,29 +108,31 @@ function assertSieveScriptContent(content: string): void {
 
 function bindSocketWait(
   conn: SieveConn,
+  budget: ResponseBudget,
   tryConsume: () => boolean,
   reject: (err: Error) => void,
 ): void {
-  /* eslint-disable @typescript-eslint/no-use-before-define -- finish and the three listeners close over each other */
+  /* eslint-disable @typescript-eslint/no-use-before-define -- finish and the listeners close over each other */
   function finish(): void {
     conn.socket.off('data', onData);
     conn.socket.off('error', onError);
-    conn.socket.off('timeout', onTimeout);
     conn.socket.off('end', onEnd);
     conn.socket.off('close', onEnd);
+    budget.rejectWait = undefined;
   }
   function onData(chunk: Buffer): void {
+    budget.bytes += chunk.length;
+    if (budget.bytes > MAX_SIEVE_RESPONSE_BYTES) {
+      onError(new Error(`ManageSieve response exceeds ${MAX_SIEVE_RESPONSE_BYTES} bytes`));
+      conn.socket.destroy();
+      return;
+    }
     conn.buf = Buffer.concat([conn.buf, chunk]);
     if (tryConsume()) finish();
   }
   function onError(err: Error): void {
     finish();
     reject(err);
-  }
-  function onTimeout(): void {
-    finish();
-    conn.socket.destroy();
-    reject(new Error('ManageSieve idle timeout'));
   }
   function onEnd(): void {
     finish();
@@ -126,13 +141,14 @@ function bindSocketWait(
   /* eslint-enable @typescript-eslint/no-use-before-define */
   conn.socket.on('data', onData);
   conn.socket.once('error', onError);
-  conn.socket.once('timeout', onTimeout);
   conn.socket.once('end', onEnd);
   conn.socket.once('close', onEnd);
+  budget.rejectWait = onError;
   if (conn.socket.destroyed || conn.socket.readableEnded) onEnd();
 }
 
-async function readLine(conn: SieveConn): Promise<string> {
+async function readLine(conn: SieveConn, budget: ResponseBudget): Promise<string> {
+  if (budget.error) throw budget.error;
   return new Promise((resolve, reject) => {
     const tryConsume = (): boolean => {
       const idx = conn.buf.indexOf(10);
@@ -143,11 +159,12 @@ async function readLine(conn: SieveConn): Promise<string> {
       return true;
     };
     if (tryConsume()) return;
-    bindSocketWait(conn, tryConsume, reject);
+    bindSocketWait(conn, budget, tryConsume, reject);
   });
 }
 
-async function readBytes(conn: SieveConn, n: number): Promise<string> {
+async function readBytes(conn: SieveConn, n: number, budget: ResponseBudget): Promise<string> {
+  if (budget.error) throw budget.error;
   return new Promise((resolve, reject) => {
     const tryConsume = (): boolean => {
       if (conn.buf.length < n) return false;
@@ -157,7 +174,7 @@ async function readBytes(conn: SieveConn, n: number): Promise<string> {
       return true;
     };
     if (tryConsume()) return;
-    bindSocketWait(conn, tryConsume, reject);
+    bindSocketWait(conn, budget, tryConsume, reject);
   });
 }
 
@@ -165,26 +182,47 @@ async function readResponse(
   conn: SieveConn,
 ): Promise<{ code: string; lines: string[]; message: string }> {
   const lines: string[] = [];
-  const readNext = async (): Promise<{ code: string; lines: string[]; message: string }> => {
-    const line = await readLine(conn);
-    if (/^(OK|NO|BYE)(?:\s|$)/i.test(line)) {
-      return { code: line.slice(0, 2).toUpperCase(), lines, message: line };
-    }
-    if (line.startsWith('{')) {
-      const lit = /^\{(\d+)\+?\}\s*$/.exec(line);
-      if (lit) {
-        const payload = await readBytes(conn, Number(lit[1]));
-        lines.push(payload);
-        await readLine(conn); // trailing CRLF after literal
+  const budget: ResponseBudget = { bytes: conn.buf.length };
+  if (budget.bytes > MAX_SIEVE_RESPONSE_BYTES) {
+    throw new Error(`ManageSieve response exceeds ${MAX_SIEVE_RESPONSE_BYTES} bytes`);
+  }
+  const timer = setTimeout(() => {
+    const error = new Error('ManageSieve response timeout');
+    budget.error = error;
+    budget.rejectWait?.(error);
+    conn.socket.destroy();
+  }, SIEVE_RESPONSE_TIMEOUT_MS);
+  try {
+    while (true) {
+      // eslint-disable-next-line no-await-in-loop -- protocol lines and literals must be consumed in order
+      const line = await readLine(conn, budget);
+      if (/^(OK|NO|BYE)(?:\s|$)/i.test(line)) {
+        return { code: line.slice(0, 2).toUpperCase(), lines, message: line };
+      }
+      if (line.startsWith('{')) {
+        const lit = /^\{(\d+)\+?\}\s*$/.exec(line);
+        if (lit) {
+          const length = Number(lit[1]);
+          if (!Number.isSafeInteger(length) || length > MAX_SIEVE_SCRIPT_BYTES) {
+            throw new Error(
+              `ManageSieve literal exceeds ${MAX_SIEVE_SCRIPT_BYTES} bytes or has an invalid length`,
+            );
+          }
+          // eslint-disable-next-line no-await-in-loop -- the literal follows its length declaration
+          const payload = await readBytes(conn, length, budget);
+          lines.push(payload);
+          // eslint-disable-next-line no-await-in-loop -- consume the literal's trailing CRLF
+          await readLine(conn, budget);
+        } else {
+          lines.push(line);
+        }
       } else {
         lines.push(line);
       }
-      return readNext();
     }
-    lines.push(line);
-    return readNext();
-  };
-  return readNext();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function extractLiteral(lines: string[]): string | undefined {
@@ -244,8 +282,8 @@ async function upgradeTls(socket: Socket, host: string): Promise<TLSSocket> {
   return new Promise((resolve, reject) => {
     /* eslint-disable @typescript-eslint/no-use-before-define -- handshake listeners share cleanup */
     const cleanup = (): void => {
+      clearTimeout(timer);
       tlsSock.off('error', onError);
-      tlsSock.off('timeout', onTimeout);
       tlsSock.off('end', onEnd);
       tlsSock.off('close', onEnd);
     };
@@ -272,9 +310,8 @@ async function upgradeTls(socket: Socket, host: string): Promise<TLSSocket> {
       onError(new Error('ManageSieve TLS connection closed during handshake'));
     }
     /* eslint-enable @typescript-eslint/no-use-before-define */
-    tlsSock.setTimeout(30_000);
+    const timer = setTimeout(onTimeout, SIEVE_TLS_HANDSHAKE_TIMEOUT_MS);
     tlsSock.once('error', onError);
-    tlsSock.once('timeout', onTimeout);
     tlsSock.once('end', onEnd);
     tlsSock.once('close', onEnd);
   });
@@ -284,7 +321,6 @@ async function openConn(account: AccountConfig): Promise<SieveConn> {
   const host = account.imap.sieveHost ?? account.imap.host;
   const port = account.imap.sievePort ?? 4190;
   const raw = await connectTcp(host, port, 8_000);
-  raw.setTimeout(30_000);
   let conn: SieveConn = { socket: raw, buf: Buffer.alloc(0), lastCaps: {} };
   try {
     const greeting = await readResponse(conn);
@@ -293,7 +329,6 @@ async function openConn(account: AccountConfig): Promise<SieveConn> {
       const startTls = await sendCommand(conn, 'STARTTLS');
       assertOk(startTls, 'STARTTLS');
       const tlsSock = await upgradeTls(raw, host);
-      tlsSock.setTimeout(30_000);
       conn = { socket: tlsSock, buf: Buffer.alloc(0), lastCaps: {} };
       const postTls = await readResponse(conn);
       conn.lastCaps = parseCapabilityMap(postTls.lines);

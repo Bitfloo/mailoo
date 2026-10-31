@@ -154,6 +154,18 @@ unsubscribe or tracking URLs, and it does not change IMAP flags.
 Requires a reachable ManageSieve endpoint ([configuration.md](configuration.md#managesieve)).
 PLAIN auth needs TLS (implicit or STARTTLS).
 
+Script uploads and each downloaded literal are limited to **1,048,576 bytes (1 MiB)**.
+A complete server response is limited to **1,114,112 bytes (1 MiB + 64 KiB)** across
+all lines and literals, including bytes already buffered. The extra 64 KiB allows
+protocol framing, capability and status lines around a maximum-size script; the
+same total limit bounds script lists and greetings. Invalid or oversized literal
+lengths are refused before waiting for their payload.
+
+Each server response and the TLS handshake has an absolute **30-second** deadline,
+even while the peer keeps sending data. The initial TCP connect has an **8-second**
+deadline. Exceeding a size or time limit closes the connection and reports an error;
+`sieve_status` instead reports unavailability with a warning.
+
 | Tool | Mode | RFC 5804 |
 |------|------|----------|
 | `sieve_status` | read | capability / availability |

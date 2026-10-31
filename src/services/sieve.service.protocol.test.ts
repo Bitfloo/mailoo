@@ -14,30 +14,14 @@ const wire = await vi.hoisted(async () => {
     literalEof: false,
     handshakeFailure: '',
     onHandshake: () => {},
+    tlsGreeting: undefined as Buffer[] | undefined,
   };
   class FakeSocket extends EventEmitter {
     destroyed = false;
     readableEnded = false;
-    idleMs = 0;
-    idleTimer: ReturnType<typeof setTimeout> | undefined;
-
-    setTimeout(ms: number): this {
-      this.idleMs = ms;
-      this.refreshIdle();
-      return this;
-    }
-
-    refreshIdle(): void {
-      clearTimeout(this.idleTimer);
-      if (this.idleMs > 0 && !this.destroyed) {
-        this.idleTimer = setTimeout(() => this.emit('timeout'), this.idleMs);
-      }
-    }
-
     deliver(chunks: Buffer[], eof = false): void {
       chunks.forEach((chunk) => {
         setImmediate(() => {
-          this.refreshIdle();
           this.emit('data', chunk);
         });
       });
@@ -51,7 +35,6 @@ const wire = await vi.hoisted(async () => {
     }
 
     write(chunk: string): boolean {
-      this.refreshIdle();
       state.commands.push(chunk);
       if (chunk.startsWith('STARTTLS')) this.deliver([Buffer.from('OK "upgrade"\r\n')]);
       else if (chunk.startsWith('AUTHENTICATE')) {
@@ -63,7 +46,6 @@ const wire = await vi.hoisted(async () => {
     destroy(): this {
       if (!this.destroyed) {
         this.destroyed = true;
-        clearTimeout(this.idleTimer);
         setImmediate(() => this.emit('close'));
       }
       return this;
@@ -74,7 +56,6 @@ const wire = await vi.hoisted(async () => {
 
     constructor(readonly raw: FakeSocket) {
       super();
-      raw.setTimeout(0);
     }
 
     override destroy(): this {
@@ -117,7 +98,7 @@ vi.mock('node:tls', () => ({
         if (wire.state.handshakeFailure !== 'timeout') socket.emit(wire.state.handshakeFailure);
       } else {
         connected();
-        socket.deliver([Buffer.from('"SASL" "PLAIN"\r\nOK "ready"\r\n')]);
+        socket.deliver(wire.state.tlsGreeting ?? [Buffer.from('"SASL" "PLAIN"\r\nOK "ready"\r\n')]);
       }
     });
     return socket;
@@ -163,6 +144,7 @@ beforeEach(() => {
     literalEof: false,
     handshakeFailure: '',
     onHandshake: () => {},
+    tlsGreeting: undefined,
   });
 });
 
@@ -220,7 +202,7 @@ it('should reject a TLS handshake when the peer closes', async () => {
   await expect(settled(sieve.listScripts(account))).rejects.toThrow(/TLS.*closed/i);
 });
 
-it('should time out an unanswered TLS handshake through the configured socket timeout', async () => {
+it('should time out an unanswered TLS handshake through its production deadline', async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   wire.state.handshakeFailure = 'timeout';
   const started = new Promise<void>((resolve) => {
@@ -270,4 +252,127 @@ it('should report a bounded sanitized warning when authentication fails', async 
     leaked: result.warning?.includes(account.password ?? ''),
     bounded: (result.warning?.length ?? 0) < 500,
   }).toEqual({ leaked: false, bounded: true });
+});
+
+const SCRIPT_BYTE_LIMIT = 1_048_576;
+const RESPONSE_BYTE_LIMIT = 1_114_112;
+
+async function failureOf(operation: Promise<unknown>): Promise<string> {
+  return settled(operation).then(
+    () => 'resolved',
+    (err: unknown) => (err instanceof Error ? err.message : 'unknown'),
+  );
+}
+
+it.each(['unterminated header', 'single complete line'] as const)(
+  'should reject an oversized %s before retaining its bytes',
+  async (shape) => {
+    wire.state.response = [
+      Buffer.from(
+        `${'x'.repeat(RESPONSE_BYTE_LIMIT + 1)}${shape === 'single complete line' ? '\r\nOK\r\n' : ''}`,
+      ),
+    ];
+    expect(await failureOf(sieve.listScripts(account))).toMatch(/response.*1114112/i);
+  },
+);
+
+it('should count consumed lines against one response budget', async () => {
+  const lines = Buffer.from(`"${'x'.repeat(126)}"\r\n`.repeat(100));
+  wire.state.response = [...Array.from({ length: 86 }, () => lines), Buffer.from('OK\r\n')];
+  expect(await failureOf(sieve.listScripts(account))).toMatch(/response.*1114112/i);
+});
+
+it('should count every literal in the same response budget', async () => {
+  const literal = Buffer.from(`{600000}\r\n${'x'.repeat(600_000)}\r\n`);
+  wire.state.response = [literal, literal, Buffer.from('OK\r\n')];
+  expect(await failureOf(sieve.getScript(account, 'personal'))).toMatch(/response.*1114112/i);
+});
+
+it('should include bytes already buffered at the start of a response', async () => {
+  const greeting = Buffer.from('"SASL" "PLAIN"\r\nOK "ready"\r\n');
+  wire.state.tlsGreeting = [
+    Buffer.concat([greeting, Buffer.alloc(RESPONSE_BYTE_LIMIT - greeting.length, 120)]),
+  ];
+  wire.state.authRefusal = `${'x'.repeat(greeting.length + 1)}\r\n`;
+  expect(await failureOf(sieve.listScripts(account))).toMatch(/response.*1114112/i);
+});
+
+it.each([
+  { name: 'oversized', length: '1048577' },
+  { name: 'unsafe integer', length: '9007199254740993' },
+  { name: 'nonfinite', length: '9'.repeat(400) },
+])('should refuse a $name literal length before waiting for its payload', async ({ length }) => {
+  wire.state.response = [Buffer.from(`{${length}}\r\n`)];
+  expect(await failureOf(sieve.getScript(account, 'personal'))).toMatch(/literal.*1048576/i);
+});
+
+it('should accept a literal of exactly one MiB', async () => {
+  const content = 'x'.repeat(SCRIPT_BYTE_LIMIT);
+  wire.state.response = [Buffer.from(`{${SCRIPT_BYTE_LIMIT}}\r\n${content}\r\nOK\r\n`)];
+  await expect(sieve.getScript(account, 'personal')).resolves.toBe(content);
+});
+
+it('should accept a response of exactly the byte budget', async () => {
+  const prefix = '"last"';
+  const suffix = '\r\nOK\r\n';
+  wire.state.response = [
+    Buffer.from(
+      `${prefix}${' '.repeat(RESPONSE_BYTE_LIMIT - prefix.length - suffix.length)}${suffix}`,
+    ),
+  ];
+  await expect(sieve.listScripts(account)).resolves.toEqual([{ name: 'last', active: false }]);
+});
+
+it('should end a response after 30 seconds despite continuing data', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  wire.state.response = [Buffer.from('partial')];
+  const outcome = sieve.listScripts(account).then(
+    () => 'resolved',
+    (err: unknown) => (err instanceof Error ? err.message : 'unknown'),
+  );
+  while (!wire.state.commands.includes('LISTSCRIPTS\r\n')) {
+    // Real immediates drive the socket; only the production deadlines use the fake clock.
+    // eslint-disable-next-line no-await-in-loop -- wait for the protocol command before advancing its clock
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+  const socket = wire.state.sockets.at(-1);
+  for (let step = 0; step < 3; step += 1) {
+    // eslint-disable-next-line no-await-in-loop -- deliver traffic between successive clock advances
+    await vi.advanceTimersByTimeAsync(9_999);
+    socket?.emit('data', Buffer.from('x'));
+  }
+  expect(await Promise.race([outcome, Promise.resolve('pending')])).toBe('pending');
+  await vi.advanceTimersByTimeAsync(3);
+  expect(await Promise.race([outcome, Promise.resolve('pending')])).toMatch(/response.*timeout/i);
+});
+
+it('should end a TLS handshake after 30 seconds despite continuing traffic', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  wire.state.handshakeFailure = 'timeout';
+  const started = new Promise<void>((resolve) => {
+    wire.state.onHandshake = resolve;
+  });
+  const outcome = sieve.listScripts(account).then(
+    () => 'resolved',
+    (err: unknown) => (err instanceof Error ? err.message : 'unknown'),
+  );
+  await started;
+  const socket = wire.state.sockets.at(-1);
+  for (let step = 0; step < 3; step += 1) {
+    // eslint-disable-next-line no-await-in-loop -- deliver traffic between successive clock advances
+    await vi.advanceTimersByTimeAsync(9_999);
+    socket?.emit('data', Buffer.from('x'));
+  }
+  expect(await Promise.race([outcome, Promise.resolve('pending')])).toBe('pending');
+  await vi.advanceTimersByTimeAsync(3);
+  expect(await Promise.race([outcome, Promise.resolve('pending')])).toMatch(/TLS.*timeout/i);
+});
+
+it('should clear the response and handshake deadlines after success', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  wire.state.response = [Buffer.from('OK\r\n')];
+  await expect(sieve.listScripts(account)).resolves.toEqual([]);
+  expect(vi.getTimerCount()).toBe(0);
 });
