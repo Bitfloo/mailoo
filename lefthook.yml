@@ -20,7 +20,7 @@ pre-commit:
     eslint:
       # A lefthook * also matches /; src/**/* would skip the files directly in src/.
       glob: 'src/*.{ts,tsx,js,jsx}'
-      run: npx eslint --fix {staged_files}
+      run: npx eslint --fix --no-warn-ignored {staged_files}
       stage_fixed: true
     typecheck:
       # tsconfig.test.json adds tests/ and src/__integration__, which plain tsc skips.
