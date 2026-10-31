@@ -83,8 +83,8 @@ function redactValue(value: unknown, depth: number, ancestors: WeakSet<object>):
       ? 'Invalid Date'
       : Date.prototype.toISOString.call(value);
   }
-  if (value instanceof URL) return urlForEntry(value);
-  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return '[Binary]';
+  if (Object.getPrototypeOf(value) === URL.prototype) return urlForEntry(value as URL);
+  if (ArrayBuffer.isView(value) || types.isAnyArrayBuffer(value)) return '[Binary]';
   if (!Array.isArray(value) && !isPlainObject(value)) return '[Object]';
   if (ancestors.has(value)) return '[Circular]';
   if (depth > PARAMS_MAX_DEPTH) return '[Truncated]';

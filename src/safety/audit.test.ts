@@ -807,6 +807,16 @@ describe('Audit Logger', () => {
     });
   });
 
+  it('should not inspect a Proxy used as a value prototype', async () => {
+    const { value, reads } = watched();
+    const item: object = Object.create(value);
+    expect({ ...(await loggedParams({ item })), reads: reads() }).toEqual({
+      stderr: [],
+      params: [{ item: '[Object]' }],
+      reads: 0,
+    });
+  });
+
   it('should read a URL through its intrinsic getter without running overrides', async () => {
     const url = new URL('https://example.test/kept?secret=fake-private-url-value');
     Object.defineProperty(url, 'host', {
