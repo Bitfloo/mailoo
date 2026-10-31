@@ -12,7 +12,7 @@ const wire = await vi.hoisted(async () => {
     authRefusal: '',
     greetingEof: false,
     literalEof: false,
-    handshakeHang: false,
+    handshakeFailure: '',
   };
   class FakeSocket extends EventEmitter {
     destroyed = false;
@@ -85,8 +85,8 @@ vi.mock('node:tls', () => ({
     const socket = new wire.FakeTlsSocket();
     wire.state.sockets.push(socket);
     setImmediate(() => {
-      if (wire.state.handshakeHang) {
-        socket.emit('timeout');
+      if (wire.state.handshakeFailure) {
+        socket.emit(wire.state.handshakeFailure);
       } else {
         connected();
         socket.deliver([Buffer.from('"SASL" "PLAIN"\r\nOK "ready"\r\n')]);
@@ -133,7 +133,7 @@ beforeEach(() => {
     authRefusal: '',
     greetingEof: false,
     literalEof: false,
-    handshakeHang: false,
+    handshakeFailure: '',
   });
 });
 
@@ -143,6 +143,22 @@ afterEach(async () => {
   });
   await new Promise<void>((resolve) => {
     setImmediate(resolve);
+  });
+  wire.state.sockets.forEach((socket) => {
+    expect(
+      Object.fromEntries(
+        ['data', 'error', 'end', 'close', 'timeout'].map((event) => [
+          event,
+          socket.listenerCount(event),
+        ]),
+      ),
+    ).toEqual({
+      data: 0,
+      error: 0,
+      end: 0,
+      close: 0,
+      timeout: 0,
+    });
   });
 });
 
@@ -164,9 +180,11 @@ it('should return an intact script when UTF-8 characters are split across packet
   await expect(settled(sieve.getScript(account, 'personal'))).resolves.toBe(content);
 });
 
-it('should reject a TLS handshake that times out', async () => {
-  wire.state.handshakeHang = true;
-  await expect(settled(sieve.listScripts(account))).rejects.toThrow(/TLS.*timeout/i);
+it.each(['timeout', 'close'])('should reject a TLS handshake on %s', async (event) => {
+  wire.state.handshakeFailure = event;
+  await expect(settled(sieve.listScripts(account))).rejects.toThrow(
+    event === 'timeout' ? /TLS.*timeout/i : /TLS.*closed/i,
+  );
 });
 
 it.each(['password', 'plain'] as const)(
