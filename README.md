@@ -19,10 +19,11 @@ Install [Node.js](https://nodejs.org/) **24 or newer** and [prepare your email a
 
 ```bash
 npx -y @bitfloo/mailoo@latest account add
+npx -y @bitfloo/mailoo@latest config edit
 npx -y @bitfloo/mailoo@latest install
 ```
 
-Choose your client in the installer, restart it, and ask: **“Summarize up to five unread emails. Include each sender, subject and any requested next step. Ask which account to use if needed.”**
+In `config edit`, keep the send rate limit and choose **Yes** for read-only mode. Choose your client in the installer, restart it, and ask: **“Summarize up to five unread emails. Include each sender, subject and any requested next step. Ask which account to use if needed.”**
 
 [Follow the guided setup and check your first result →](docs/getting-started.md#quickstart-for-claude-desktop-or-cursor)
 
@@ -35,7 +36,8 @@ With Node.js **24 or newer** and [account credentials ready](docs/authentication
   "mcpServers": {
     "mailoo": {
       "command": "npx",
-      "args": ["-y", "@bitfloo/mailoo@latest", "stdio"]
+      "args": ["-y", "@bitfloo/mailoo@latest", "stdio"],
+      "env": { "MCP_EMAIL_READ_ONLY": "true", "MCP_EMAIL_TOOLSET": "core" }
     }
   }
 }
@@ -45,7 +47,9 @@ Initialize the connection, list tools, then call `list_accounts`, `list_emails`,
 
 [Follow the MCP request sequence and inspect its results →](docs/getting-started.md#quickstart-for-agent-builders)
 
-Both quickstarts begin with reading mail. The walkthrough also covers [feature requirements and fallbacks](docs/getting-started.md#feature-requirements-and-fallbacks), including AI triage, local calendars, ManageSieve, and experimental OAuth.
+Both quickstarts enforce read-only access. To enable sending and changes later, use `config edit` to turn off the stored read-only setting or change `MCP_EMAIL_READ_ONLY` to `"false"` in a client entry that sets it, then restart the server. Preview with `dryRun: true` before sending; preview is a separate operation and is not required by Mailoo before every send. Both quickstarts begin with reading mail. The walkthrough also covers [feature requirements and fallbacks](docs/getting-started.md#feature-requirements-and-fallbacks), including AI triage, local calendars, ManageSieve, and experimental OAuth.
+
+Mailoo connects to the mail servers you configure. Your MCP client and its model provider receive the mail content you request. Optional TypeSafe classification and webhooks send data to their configured services when enabled. Usage reporting is off by default. See [Capabilities & data flows](#capabilities--data-flows) for destinations and fields.
 
 ## Highlights
 
@@ -1152,14 +1156,16 @@ pnpm install
 pnpm typecheck          # type check
 pnpm check              # lint and format
 pnpm ci:local           # lint, typecheck, unit; GreenMail if Docker is up
+pnpm ci:release         # same checks; a working Docker runtime and GreenMail are required
 pnpm test               # unit tests (Vitest; no mail server)
 pnpm test:integration   # GreenMail IMAP/SMTP (needs Docker)
+pnpm test:e2e           # packed release, production dependencies, stdio MCP, GreenMail
 pnpm test:all           # unit plus GreenMail
 pnpm build              # build
 pnpm start              # run
 ```
 
-`pnpm test:integration` and `pnpm test:all` need Docker. `pnpm ci:local` skips GreenMail when Docker is down. What GitHub runs on a pull request is listed in [CONTRIBUTING.md](CONTRIBUTING.md#commands). `mailoo test` / `npx -y @bitfloo/mailoo@latest test` is a live-account connection probe, not Vitest.
+`pnpm test:integration`, `pnpm test:e2e`, `pnpm test:all`, and `pnpm ci:release` need Docker. The packed release journey is also included in the integration suite. `pnpm ci:local` skips GreenMail when Docker is down; `pnpm ci:release` fails instead. Publishing to npm, the MCP Registry, and npm aliases requires the release verification job to pass; Docker publishing also requires the MCP Registry job to succeed. What GitHub runs on a pull request is listed in [CONTRIBUTING.md](CONTRIBUTING.md#commands). `mailoo test` / `npx -y @bitfloo/mailoo@latest test` is a live-account connection probe, not Vitest.
 
 ## Attribution & License
 

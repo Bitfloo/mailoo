@@ -31,6 +31,7 @@ See `README.md` for the feature list, `docs/` for deeper guides, and
 | Type-check | `pnpm typecheck` |
 | Unit tests | Vitest (`pnpm test`) — include list in `vitest.config.ts` |
 | Integration tests | Vitest with `vitest.config.integration.ts` (`pnpm test:integration`) — GreenMail IMAP/SMTP in Docker |
+| Release verification | `pnpm ci:release` requires Docker; includes `pnpm test:e2e` packed CLI/stdio MCP journey through the integration suite |
 | Test agents | Project `test-auditor` / `test-smith` in `.claude/agents/` (Claude Code, `model: sonnet`) and `.cursor/agents/` (Cursor, `model: cursor-grok-4.6-xhigh` minimum). Same body; rubric: `.claude/rules/testing-doctrine.md`. After new or changed tests, run `test-auditor` in a **fresh** session on the same files (not the author). Do not dispatch same-named plugin agents (`<plugin>:test-auditor`, `<plugin>:test-smith`) in this repo. |
 | Public OSS face | Project `oss-repo-readiness`, `oss-public-face`, `oss-pr-steward` (PR/log), `oss-push-gate` (pre-push log + slop). Cursor, `model: cursor-grok-4.6-xhigh`. Rubric: `.claude/rules/public-git.md`. Read-only. Merge and release stay in this repo (`CONTRIBUTING.md`, `cog`, goreleaser). |
 | Pre-commit hooks | lefthook |

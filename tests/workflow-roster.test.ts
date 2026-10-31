@@ -71,9 +71,9 @@ const IFS: Record<string, string[]> = {
   'docker-sha.yml': [],
   'release.yml': [
     "    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.skip-npm }}",
-    "    if: always() && (needs.npm.result == 'success' || needs.npm.result == 'skipped')",
+    "    if: always() && needs.verify.result == 'success' && (needs.npm.result == 'success' || needs.npm.result == 'skipped')",
     "    if: always() && (needs.npm.result == 'success' || needs.npm.result == 'skipped') && needs.mcp.result == 'success'",
-    "    if: always() && (needs.npm.result == 'success' || needs.npm.result == 'skipped')",
+    "    if: always() && needs.verify.result == 'success' && (needs.npm.result == 'success' || needs.npm.result == 'skipped')",
   ],
   'scorecard.yml': [],
 };

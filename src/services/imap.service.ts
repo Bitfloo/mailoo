@@ -1577,6 +1577,14 @@ export default class ImapService {
     const mailboxes = await client.list();
     const drafts = mailboxes.find((mb) => mb.specialUse === '\\Drafts');
     const draftsPath = drafts?.path ?? 'Drafts';
+    if (!mailboxes.some((mailbox) => mailbox.path === draftsPath)) {
+      try {
+        await client.mailboxCreate(draftsPath);
+      } catch (error) {
+        // Another writer may have created it after LIST. A permission failure still has to surface.
+        if (!(await client.list()).some((mailbox) => mailbox.path === draftsPath)) throw error;
+      }
+    }
 
     const rawMessage = await compileRfc822({
       from: account.fullName ? `"${account.fullName}" <${account.email}>` : account.email,
