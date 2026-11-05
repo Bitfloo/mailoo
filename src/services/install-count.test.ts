@@ -1,6 +1,6 @@
 /** The runner's CI and VITEST variables are not the operator's env. */
 
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import fs, { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -606,6 +606,66 @@ describe('install count', () => {
         await expect(stat(join(dir, 'install-count'))).rejects.toMatchObject({ code: 'ENOENT' });
       },
     );
+
+    it('should send nothing when the file system refuses the claim', async () => {
+      // EROFS is what a read-only container file system returns, whoever the user is.
+      const refuse = vi
+        .spyOn(fs, 'writeFile')
+        .mockRejectedValueOnce(
+          Object.assign(new Error('read-only file system'), { code: 'EROFS' }),
+        );
+      onTestFinished(() => {
+        refuse.mockRestore();
+      });
+      const fetch = recording(204);
+      const dir = await stateDir();
+      expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({
+        sent: false,
+        reason: 'refused',
+      });
+      expect(fetch.seen).toHaveLength(0);
+    });
+
+    it('should send nothing when a file stands where the state directory should be', async () => {
+      const fetch = recording(204);
+      const dir = await stateDir();
+      await mkdir(join(dir, '..'), { recursive: true });
+      await writeFile(join(dir, '..', 'blocker'), '');
+      const result = await count(join(dir, '..', 'blocker', 'state'), opted(), fetch.fetchImpl);
+      expect(result).toEqual({ sent: false, reason: 'refused' });
+      expect(fetch.seen).toHaveLength(0);
+    });
+
+    it('should send nothing and leave the file when a file stands at the state directory path', async () => {
+      const fetch = recording(204);
+      const dir = await stateDir();
+      await mkdir(join(dir, '..'), { recursive: true });
+      await writeFile(dir, 'kept');
+      expect((await count(dir, opted(), fetch.fetchImpl)).sent).toBe(false);
+      expect(fetch.seen).toHaveLength(0);
+      expect(await readFile(dir, 'utf8')).toBe('kept');
+    });
+  });
+
+  it('should send again after the marker file is deleted', async () => {
+    const fetch = recording(204);
+    const dir = await stateDir();
+    expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({ sent: true, reason: 'sent' });
+    await rm(join(dir, 'install-count'));
+    expect(await count(dir, opted(), fetch.fetchImpl)).toEqual({ sent: true, reason: 'sent' });
+    expect(fetch.seen).toHaveLength(2);
+  });
+
+  it('should leave no timer keeping the process alive after a fast answer', async () => {
+    const timersKeepingAlive = (): number =>
+      process.getActiveResourcesInfo().filter((kind) => kind === 'Timeout').length;
+    const dir = await stateDir();
+    const before = timersKeepingAlive();
+    expect(await count(dir, opted(), recording(204).fetchImpl)).toEqual({
+      sent: true,
+      reason: 'sent',
+    });
+    expect(timersKeepingAlive()).toBeLessThanOrEqual(before);
   });
 
   it('should not send again once the marker exists', async () => {
@@ -892,6 +952,17 @@ describe('install count through the process environment and the global fetch', (
       node_major: Number(process.versions.node.split('.')[0]),
     });
     expect(await readFile(bound.marker, 'utf8')).toBe('1');
+  });
+
+  it('should report the major of the running Node.js, not a fixed number', async () => {
+    const real = Object.getOwnPropertyDescriptor(process.versions, 'node');
+    Object.defineProperty(process.versions, 'node', { ...real, value: '31.4.0' });
+    onTestFinished(() => {
+      if (real) Object.defineProperty(process.versions, 'node', real);
+    });
+    const bound = await processBound(async () => new Response(null, { status: 204 }));
+    await bound.noteInstall(VERSION);
+    expect(JSON.parse(String(bound.calls[0]?.init.body))).toMatchObject({ node_major: 31 });
   });
 
   it('should not send from the process environment when the counter is off', async () => {

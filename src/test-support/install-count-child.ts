@@ -85,11 +85,12 @@ export interface Started {
   exited: Promise<number | null>;
 }
 
-/** `configToml` undefined leaves the config file absent. */
+/** `configToml` undefined leaves the config file absent. `preload` modules are loaded with `--import`. */
 export async function startMailoo(
   args: string[],
   collectorUrl: string,
   configToml?: string,
+  preload: string[] = [],
 ): Promise<Started> {
   const root = await mkdtemp(path.join(os.tmpdir(), 'mailoo-install-main-'));
   // Registered before anything can throw; hooks run last-in first, so the child is stopped before this.
@@ -105,20 +106,24 @@ export async function startMailoo(
     await chmod(configPath, 0o600);
   }
   const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
-  const child = spawn(process.execPath, ['--import', 'tsx', 'src/main.ts', ...args], {
-    cwd: repoRoot,
-    env: {
-      PATH: process.env.PATH,
-      HOME: root,
-      XDG_CONFIG_HOME: configHome,
-      XDG_STATE_HOME: stateHome,
-      XDG_DATA_HOME: path.join(root, 'data'),
-      MAILOO_INSTALL_COUNTER: '1',
-      MAILOO_INSTALL_COUNTER_URL: collectorUrl,
+  const child = spawn(
+    process.execPath,
+    ['--import', 'tsx', ...preload.flatMap((url) => ['--import', url]), 'src/main.ts', ...args],
+    {
+      cwd: repoRoot,
+      env: {
+        PATH: process.env.PATH,
+        HOME: root,
+        XDG_CONFIG_HOME: configHome,
+        XDG_STATE_HOME: stateHome,
+        XDG_DATA_HOME: path.join(root, 'data'),
+        MAILOO_INSTALL_COUNTER: '1',
+        MAILOO_INSTALL_COUNTER_URL: collectorUrl,
+      },
+      // stdio stays open: EOF on stdin is the server's shutdown signal.
+      stdio: ['pipe', 'pipe', 'pipe'],
     },
-    // stdio stays open: EOF on stdin is the server's shutdown signal.
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
+  );
   let combined = '';
   const append = (chunk: Buffer): void => {
     combined += chunk.toString('utf8');
