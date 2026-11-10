@@ -25,7 +25,9 @@ const stampStep = harnessedStep(mcpHarness, 'Set version in server.json');
 const publishStep = harnessedStep(mcpHarness, 'Publish to MCP Registry');
 
 // Every wait is virtual; a broken shell loop must still terminate the fixture.
-const PUBLISH_STEP_TIMEOUT_MS = 10_000;
+// A hang guard, not a speed bound: the longest case takes ~3 s alone, but past 10 s
+// under the full parallel suite on a loaded machine, so 10 s failed healthy runs.
+const PUBLISH_STEP_TIMEOUT_MS = 60_000;
 
 /**
  * The registry's reply when npm 404s a version it has just published, worded as npmVersion404Error
