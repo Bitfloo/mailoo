@@ -23,6 +23,7 @@ interface Update {
     }
   >;
   ignore?: Record<string, unknown>[];
+  cooldown?: { 'default-days'?: number };
 }
 
 describe('dependabot groups', () => {
@@ -203,9 +204,9 @@ describe('dependabot groups', () => {
   it('should set only the pinned keys on each dependabot update and group', () => {
     // Any other key changes what Dependabot opens: target-branch would aim at a branch this
     // repository does not have, versioning-strategy lockfile-only would stop manifest bumps,
-    // allow would narrow the updates, cooldown would delay them, rebase-strategy disabled would
-    // leave them stale, insecure-external-code-execution would run package code, and applies-to
-    // on a group would move it to security updates.
+    // allow would narrow the updates, rebase-strategy disabled would leave them stale,
+    // insecure-external-code-execution would run package code, and applies-to on a group
+    // would move it to security updates. cooldown is required and pinned in the next test.
     expect(
       updates.map((update) => ({
         keys: Object.keys(update).sort(),
@@ -219,6 +220,7 @@ describe('dependabot groups', () => {
     ).toEqual([
       {
         keys: [
+          'cooldown',
           'directory',
           'groups',
           'ignore',
@@ -232,17 +234,49 @@ describe('dependabot groups', () => {
         },
       },
       {
-        keys: ['directories', 'open-pull-requests-limit', 'package-ecosystem', 'schedule'],
+        keys: [
+          'cooldown',
+          'directories',
+          'open-pull-requests-limit',
+          'package-ecosystem',
+          'schedule',
+        ],
         groups: {},
       },
       {
-        keys: ['directory', 'groups', 'open-pull-requests-limit', 'package-ecosystem', 'schedule'],
+        keys: [
+          'cooldown',
+          'directory',
+          'groups',
+          'open-pull-requests-limit',
+          'package-ecosystem',
+          'schedule',
+        ],
         groups: { 'github-actions': ['patterns', 'update-types'] },
       },
       {
-        keys: ['directory', 'ignore', 'open-pull-requests-limit', 'package-ecosystem', 'schedule'],
+        keys: [
+          'cooldown',
+          'directory',
+          'ignore',
+          'open-pull-requests-limit',
+          'package-ecosystem',
+          'schedule',
+        ],
         groups: {},
       },
+    ]);
+  });
+
+  it('should wait three days after a release before proposing a version update', () => {
+    // A missing or shorter wait would propose a release the day it is published.
+    // Security updates are not delayed. Only default-days is set, so every update
+    // uses the same wait, including majors.
+    expect(updates.map((update) => update.cooldown)).toEqual([
+      { 'default-days': 3 },
+      { 'default-days': 3 },
+      { 'default-days': 3 },
+      { 'default-days': 3 },
     ]);
   });
 
