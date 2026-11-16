@@ -1,5 +1,5 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS builder
+FROM node:24-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS builder
 
 # npm ci checks the lockfile integrity. A version on npm install -g is not a hash.
 WORKDIR /opt/pnpm-cli
@@ -22,7 +22,7 @@ RUN pnpm build
 RUN pnpm prune --prod
 
 # ── Production stage ──────────────────────────────────────────────────────────
-FROM node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS production
+FROM node:24-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS production
 
 LABEL org.opencontainers.image.title="Mailoo" \
       org.opencontainers.image.description="Email MCP server for AI agents: IMAP/SMTP, Gmail, Outlook, calendar, ManageSieve, AI triage, OAuth2." \
