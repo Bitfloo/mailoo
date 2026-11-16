@@ -10,6 +10,10 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 10
+    # Wait 3 days after a release before proposing it (supply-chain safety). See
+    # https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#cooldown-
+    cooldown:
+      default-days: 3
     groups:
       dev-dependencies:
         dependency-type: development
@@ -45,6 +49,8 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 2
+    cooldown:
+      default-days: 3
 
   - package-ecosystem: github-actions
     directory: /
@@ -52,6 +58,8 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 3
     groups:
       github-actions:
         patterns: ["*"]
@@ -64,6 +72,8 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 2
+    cooldown:
+      default-days: 3
     ignore:
       # A new node major is a runtime change, not a routine update.
       - dependency-name: "node"
