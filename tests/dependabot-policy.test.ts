@@ -269,7 +269,7 @@ describe('dependabot groups', () => {
   });
 
   it('should wait three days after a release before proposing a version update', () => {
-    // A missing or shorter wait would propose a release the day it is published.
+    // Records the documented 3-day default so it cannot be dropped or shortened unnoticed.
     // Security updates are not delayed. Only default-days is set, so every update
     // uses the same wait, including majors.
     expect(updates.map((update) => update.cooldown)).toEqual([

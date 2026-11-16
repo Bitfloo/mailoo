@@ -11,7 +11,7 @@ updates:
       day: monday
     open-pull-requests-limit: 10
     # Wait 3 days after a release before proposing it (supply-chain safety). See
-    # https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference#cooldown-
+    # https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#cooldown-
     cooldown:
       default-days: 3
     groups:
