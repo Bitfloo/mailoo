@@ -466,7 +466,7 @@ describe('Email Read Operations', () => {
 
   describe('extractContacts', () => {
     it('should extract contacts from mailbox', async () => {
-      const contacts = await services.imapService.extractContacts(TEST_ACCOUNT_NAME);
+      const { contacts } = await services.imapService.extractContacts(TEST_ACCOUNT_NAME);
 
       expect(contacts).toBeInstanceOf(Array);
       // GreenMail may not expose envelope data for extractContacts — allow empty

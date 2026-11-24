@@ -118,10 +118,14 @@ export default function registerEmailsTools(
           `📬 [${params.mailbox}] ${result.total} emails ` +
           `(page ${result.page}/${Math.ceil(result.total / result.pageSize)})` +
           `${result.hasMore ? ' — more pages available' : ''}\n`;
+        // A capped SEARCH answer makes `total` a floor rather than a count.
+        const partial = result.truncated
+          ? '\n⚠️ The server capped this SEARCH answer; the list is partial.\n'
+          : '';
         const emails = delimitUntrusted(result.items.map(formatEmailMeta).join('\n\n'));
 
         return {
-          content: [{ type: 'text' as const, text: `${header}\n${emails}` }],
+          content: [{ type: 'text' as const, text: `${header}${partial}\n${emails}` }],
         };
       } catch (err) {
         return {
@@ -488,10 +492,14 @@ export default function registerEmailsTools(
         const header =
           `🔍 [${params.mailbox}] ${result.total} result(s) for ${queryLabel} ` +
           `(page ${result.page}/${Math.ceil(result.total / result.pageSize)})\n`;
+        // A capped SEARCH answer makes `total` a floor rather than a count.
+        const partial = result.truncated
+          ? '\n⚠️ The server capped this SEARCH answer; the list is partial.\n'
+          : '';
         const emails = delimitUntrusted(result.items.map(formatEmailMeta).join('\n\n'));
 
         return {
-          content: [{ type: 'text' as const, text: `${header}\n${emails}` }],
+          content: [{ type: 'text' as const, text: `${header}${partial}\n${emails}` }],
         };
       } catch (err) {
         return {

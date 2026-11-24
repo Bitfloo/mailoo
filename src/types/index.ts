@@ -281,6 +281,11 @@ export interface PaginatedResult<T> {
   page: number;
   pageSize: number;
   hasMore: boolean;
+  /**
+   * True when the server capped the SEARCH answer (imapflow keeps 2^24 UIDs at most), so `total`
+   * and the page count describe a partial match set rather than the whole mailbox.
+   */
+  truncated?: boolean;
 }
 
 // ---------------------------------------------------------------------------

@@ -27,6 +27,13 @@ function fetchedMessage(headerLines: string[], body: string, fields: object = {}
   };
 }
 
+function cappedSearchAnswer(): Error {
+  return Object.assign(new Error('The SEARCH answer could not be read in full'), {
+    code: 'InvalidSearchResponse',
+    details: { problems: ['result truncated'] },
+  });
+}
+
 describe('ImapService', () => {
   let client: ReturnType<typeof createMockImapClient>;
   let connections: ReturnType<typeof createMockConnectionManager>;
@@ -229,6 +236,32 @@ describe('ImapService', () => {
       const { items } = await service.listEmails('test');
 
       expect(items.map((item) => item.messageId)).toEqual(['<m3@example.com>']);
+    });
+
+    it('should flag a page as truncated when the server capped the SEARCH answer', async () => {
+      client.search.mockImplementation(
+        async (_criteria: Record<string, unknown>, options?: { strict?: boolean }) => {
+          if (options?.strict) throw cappedSearchAnswer();
+          return [10];
+        },
+      );
+      fetchServesRows(client, [fetchedMessage(['Subject: Re: quarterly report'], 'Hello')]);
+
+      const result = await service.listEmails('test');
+
+      expect({ truncated: result.truncated, items: result.items.length }).toEqual({
+        truncated: true,
+        items: 1,
+      });
+    });
+
+    it('should not flag a page when the SEARCH answer was complete', async () => {
+      client.search.mockResolvedValue([10]);
+      fetchServesRows(client, [fetchedMessage(['Subject: Re: quarterly report'], 'Hello')]);
+
+      const result = await service.listEmails('test');
+
+      expect(result.truncated).toBe(false);
     });
   });
 

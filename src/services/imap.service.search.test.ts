@@ -36,6 +36,13 @@ const listers: [string, Lister][] = [
   ['searchEmails', async (svc, options) => svc.searchEmails('test', 'Message', options)],
 ];
 
+function cappedSearchAnswer(): Error {
+  return Object.assign(new Error('The SEARCH answer could not be read in full'), {
+    code: 'InvalidSearchResponse',
+    details: { problems: ['result truncated'] },
+  });
+}
+
 describe('ImapService', () => {
   let client: ReturnType<typeof createMockImapClient>;
   let connections: ReturnType<typeof createMockConnectionManager>;
@@ -124,7 +131,7 @@ describe('ImapService', () => {
           since: new Date('2026-01-01'),
           before: new Date('2026-02-01'),
         },
-        { uid: true },
+        { uid: true, strict: true },
       );
     });
   });
@@ -141,8 +148,51 @@ describe('ImapService', () => {
           since: new Date('2026-01-01'),
           before: new Date('2026-02-01'),
         }),
-        { uid: true },
+        { uid: true, strict: true },
       );
+    });
+
+    it('should flag the page as truncated when the server capped the SEARCH answer', async () => {
+      client.search.mockImplementation(
+        async (_criteria: Record<string, unknown>, options?: { strict?: boolean }) => {
+          if (options?.strict) throw cappedSearchAnswer();
+          return [10];
+        },
+      );
+      fetchServesRows(client, [
+        {
+          uid: 10,
+          envelope: {
+            date: new Date('2026-03-02T09:00:00Z'),
+            subject: 'invoice',
+            from: [{ address: 'a@example.com' }],
+            to: [{ address: 'b@example.com' }],
+          },
+          flags: new Set<string>(),
+          bodyStructure: { type: 'text/plain' },
+        },
+      ]);
+
+      const result = await service.searchEmails('test', 'invoice');
+
+      expect({ truncated: result.truncated, items: result.items.length }).toEqual({
+        truncated: true,
+        items: 1,
+      });
+    });
+
+    it('should fail the search when the answer could not be read at all', async () => {
+      client.search.mockRejectedValue(
+        Object.assign(new Error('The SEARCH answer could not be read in full'), {
+          code: 'InvalidSearchResponse',
+          details: { problems: ['entries discarded'] },
+        }),
+      );
+
+      await expect(service.searchEmails('test', 'invoice')).rejects.toThrow(
+        'The SEARCH answer could not be read in full',
+      );
+      expect(client.search).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -164,7 +214,7 @@ describe('ImapService', () => {
     ])('should send the exact criteria for the options %j', async (options, criteria) => {
       await service.listEmails('test', options);
 
-      expect(client.search).toHaveBeenCalledWith(criteria, { uid: true });
+      expect(client.search).toHaveBeenCalledWith(criteria, { uid: true, strict: true });
     });
   });
 
@@ -187,14 +237,14 @@ describe('ImapService', () => {
       async (options, criteria) => {
         await service.searchEmails('test', 'invoice', options);
 
-        expect(client.search).toHaveBeenCalledWith(criteria, { uid: true });
+        expect(client.search).toHaveBeenCalledWith(criteria, { uid: true, strict: true });
       },
     );
 
     it('should search with no criteria when the query is empty', async () => {
       await service.searchEmails('test', '');
 
-      expect(client.search).toHaveBeenCalledWith({}, { uid: true });
+      expect(client.search).toHaveBeenCalledWith({}, { uid: true, strict: true });
     });
   });
 
@@ -215,6 +265,7 @@ describe('ImapService', () => {
         page: 2,
         pageSize: 1,
         hasMore: true,
+        truncated: false,
       });
     });
 
@@ -227,6 +278,7 @@ describe('ImapService', () => {
         page: 3,
         pageSize: 1,
         hasMore: false,
+        truncated: false,
       });
     });
 
@@ -235,7 +287,14 @@ describe('ImapService', () => {
       async (_name, list) => {
         const result = await list(service, { page: 4, pageSize: 1 });
 
-        expect(result).toEqual({ items: [], total: 3, page: 4, pageSize: 1, hasMore: false });
+        expect(result).toEqual({
+          items: [],
+          total: 3,
+          page: 4,
+          pageSize: 1,
+          hasMore: false,
+          truncated: false,
+        });
       },
     );
 
@@ -246,7 +305,14 @@ describe('ImapService', () => {
 
         const result = await list(service, {});
 
-        expect(result).toEqual({ items: [], total: 0, page: 1, pageSize: 20, hasMore: false });
+        expect(result).toEqual({
+          items: [],
+          total: 0,
+          page: 1,
+          pageSize: 20,
+          hasMore: false,
+          truncated: false,
+        });
       },
     );
   });

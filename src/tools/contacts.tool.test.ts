@@ -25,23 +25,23 @@ const CONTACTS: Contact[] = [
   },
 ];
 
-async function extract(contacts: Contact[]): Promise<string> {
+async function extract(extracted: { contacts: Contact[]; truncated: boolean }): Promise<string> {
   let handler: Handler | undefined;
   const server = {
     registerTool: (...args: unknown[]) => {
       handler = args[2] as Handler;
     },
   };
-  const imap = { extractContacts: vi.fn().mockResolvedValue(contacts) };
+  const imap = { extractContacts: vi.fn().mockResolvedValue(extracted) };
   registerContactsTools(server as never, imap as unknown as ImapService);
   if (!handler) throw new Error('extract_contacts handler was not registered');
-  const result = await handler({ account: 'work', limit: 100 });
-  return result.content[0].text;
+  const response = await handler({ account: 'work', limit: 100 });
+  return response.content[0].text;
 }
 
 describe('extract_contacts tool', () => {
   it('should put the header outside and the contact list inside one untrusted block', async () => {
-    const text = await extract(CONTACTS.slice(0, 1));
+    const text = await extract({ contacts: CONTACTS.slice(0, 1), truncated: false });
 
     expect(text).toBe(
       `Found 1 unique contacts from 100 recent emails:\n\n${UNTRUSTED_BEGIN}\n` +
@@ -50,8 +50,14 @@ describe('extract_contacts tool', () => {
   });
 
   it('should not let a display name close the untrusted block early', async () => {
-    const text = await extract(CONTACTS);
+    const text = await extract({ contacts: CONTACTS, truncated: false });
 
     expect(text.indexOf(UNTRUSTED_END)).toBe(text.length - UNTRUSTED_END.length);
+  });
+
+  it('should say the scan is partial when the server capped the SEARCH answer', async () => {
+    const text = await extract({ contacts: CONTACTS.slice(0, 1), truncated: true });
+
+    expect(text).toContain('The server capped this SEARCH answer; the scan is partial.');
   });
 });

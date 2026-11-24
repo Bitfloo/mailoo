@@ -100,6 +100,16 @@ Each preview is read from the start of the message's text part
 and charset. Text that starts several kilobytes into the part, such as an
 HTML newsletter behind a long `<style>` block, gets no preview.
 
+## `list_emails` / `search_emails` partial answers
+
+imapflow keeps at most 2^24 (16,777,216) UIDs from one SEARCH answer. When a
+mailbox past that ceiling matches more messages, the tool keeps the UIDs the
+server returned and the output says the list is partial; `total` and the page
+count then describe that partial set. `extract_contacts` reports the same about
+its scan — the cap keeps the oldest UIDs, so the newest messages can be the ones
+missing. A SEARCH answer imapflow cannot read at all still fails the call
+instead of returning a list Mailoo would present as complete.
+
 ## `bulk_action`
 
 Every id must be a single UID (a positive integer up to 4294967295), the
