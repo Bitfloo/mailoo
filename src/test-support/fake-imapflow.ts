@@ -364,3 +364,18 @@ export async function advance(ms: number): Promise<void> {
   await vi.advanceTimersByTimeAsync(ms);
   await settle();
 }
+
+/**
+ * The `InvalidSearchResponse` imapflow raises for a SEARCH answer it could not read in full.
+ * Shaped like imapflow's `createImapError`: `code` and `details.problems` are what callers match
+ * on, and `command` travels with every rejection.
+ */
+export function unreadableSearchAnswer(
+  problems: string[] = ['result truncated'],
+): Error & { code: string; command: string; details: { problems: string[] } } {
+  return Object.assign(new Error('The SEARCH answer could not be read in full'), {
+    code: 'InvalidSearchResponse',
+    command: 'UID SEARCH',
+    details: { problems },
+  });
+}

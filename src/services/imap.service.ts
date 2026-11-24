@@ -68,30 +68,29 @@ async function createMissingMailbox(
 }
 
 /**
- * Whether an `InvalidSearchResponse` reports only the length cap, not an answer imapflow could
- * not parse at all: a capped answer still holds usable UIDs, the other problems do not.
+ * The `details.problems` of a SEARCH answer imapflow could not read in full, or null when the
+ * error is something else (a lost connection, an unexpected failure). A NO or BAD rejection is
+ * not an error here: imapflow resolves it as no match.
  */
-function isTruncatedSearchError(error: unknown): boolean {
+function searchAnswerProblems(error: unknown): string[] | null {
   const { code, details } = (error ?? {}) as {
     code?: string;
     details?: { problems?: unknown };
   };
-  return (
-    code === 'InvalidSearchResponse' &&
-    Array.isArray(details?.problems) &&
-    details.problems.includes('result truncated')
-  );
+  if (code !== 'InvalidSearchResponse' || !Array.isArray(details?.problems)) return null;
+  return details.problems.filter((problem): problem is string => typeof problem === 'string');
 }
 
 /**
- * Runs a UID SEARCH and says whether the answer was cut short.
+ * Runs a UID SEARCH and says whether the match set was cut short.
  *
- * Why: imapflow caps a plain SEARCH answer at EXPANDED_RANGE_LIMIT numbers (2^24) and, without
- * `strict`, resolves with the shortened array after only logging a warning. A mailbox past that
+ * Why: imapflow keeps at most EXPANDED_RANGE_LIMIT (2^24) UIDs from one SEARCH answer and, without
+ * `strict`, resolves with the shortened list after only logging a warning. A mailbox past that
  * ceiling would otherwise read as complete, so a caller cannot tell a partial match set from a
- * full one. The strict call turns a cut answer into `InvalidSearchResponse`; the plain retry then
- * supplies the partial list together with the flag, and every other problem in that error keeps
- * failing loudly instead of returning numbers the caller would trust.
+ * full one. The strict call names the problem; the lenient retry then supplies what the answer
+ * held. Only a set the library admits it shortened or trimmed is flagged: an empty answer, an
+ * unrelated junk line or a malformed ESEARCH item keeps the pre-existing best-effort result, so
+ * normal mailboxes see no new failures.
  */
 async function searchUids(
   client: ImapFlow,
@@ -101,9 +100,13 @@ async function searchUids(
     const result = await client.search(criteria, { uid: true, strict: true });
     return { uids: Array.isArray(result) ? result : [], truncated: false };
   } catch (error) {
-    if (!isTruncatedSearchError(error)) throw error;
+    const problems = searchAnswerProblems(error);
+    if (!problems) throw error;
     const partial = await client.search(criteria, { uid: true });
-    return { uids: Array.isArray(partial) ? partial : [], truncated: true };
+    return {
+      uids: Array.isArray(partial) ? partial : [],
+      truncated: problems.includes('result truncated') || problems.includes('entries discarded'),
+    };
   }
 }
 
@@ -2165,9 +2168,7 @@ export default class ImapService {
     const lock = await lockMailbox(client, safeMailbox);
     try {
       // Date-range search
-      const uids: number[] = await client
-        .search({ since }, { uid: true })
-        .then((r: unknown) => (Array.isArray(r) ? r : []) as number[]);
+      const { uids, truncated } = await searchUids(client, { since });
 
       if (uids.length === 0) {
         return {
@@ -2183,6 +2184,7 @@ export default class ImapService {
           dailyVolume: [],
           hasAttachmentsCount: 0,
           avgPerDay: 0,
+          ...(truncated ? { truncated: true } : {}),
         };
       }
 
@@ -2264,6 +2266,7 @@ export default class ImapService {
         dailyVolume,
         hasAttachmentsCount: withAttachments,
         avgPerDay: Math.round((uids.length / days) * 10) / 10,
+        ...(truncated ? { truncated: true } : {}),
       };
     } finally {
       lock.release();

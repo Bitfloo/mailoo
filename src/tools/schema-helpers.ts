@@ -192,3 +192,19 @@ export function structuredToolResult(
     },
   };
 }
+
+/**
+ * Warning for a result built from a SEARCH answer imapflow could not keep in full.
+ *
+ * Why: the flag also fires when the library drops entries it cannot read, not only at the 2^24
+ * UID cap, so the text names the library rather than a threshold. When the cap is the cause, the
+ * UIDs kept are the lowest ones, which leaves the newest messages out.
+ */
+export const PARTIAL_LIST_NOTICE =
+  '⚠️ imapflow could not keep the whole SEARCH answer; the list is partial and may miss the newest messages.';
+
+export const PARTIAL_SCAN_NOTICE =
+  '⚠️ imapflow could not keep the whole SEARCH answer; the scan is partial and may miss the newest messages.';
+
+export const PARTIAL_STATS_NOTICE =
+  '⚠️ imapflow could not keep the whole SEARCH answer; these counts cover a partial set.';

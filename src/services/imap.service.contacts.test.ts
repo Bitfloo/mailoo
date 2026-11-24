@@ -1,3 +1,4 @@
+import { unreadableSearchAnswer } from '../test-support/fake-imapflow.js';
 import {
   createMockConnectionManager,
   createMockImapClient,
@@ -34,13 +35,6 @@ const threeMessages = [
     },
   },
 ];
-
-function cappedSearchAnswer(): Error {
-  return Object.assign(new Error('The SEARCH answer could not be read in full'), {
-    code: 'InvalidSearchResponse',
-    details: { problems: ['result truncated'] },
-  });
-}
 
 describe('ImapService', () => {
   let client: ReturnType<typeof createMockImapClient>;
@@ -156,10 +150,23 @@ describe('ImapService', () => {
       });
     });
 
-    it('should flag the scan as truncated when the server capped the SEARCH answer', async () => {
+    it('should keep the flag when the cut answer leaves no messages to scan', async () => {
       client.search.mockImplementation(
         async (_criteria: Record<string, unknown>, options?: { strict?: boolean }) => {
-          if (options?.strict) throw cappedSearchAnswer();
+          if (options?.strict) throw unreadableSearchAnswer();
+          return [];
+        },
+      );
+
+      const result = await service.extractContacts('test');
+
+      expect(result).toEqual({ contacts: [], truncated: true });
+    });
+
+    it('should flag the scan as truncated when the answer was cut short', async () => {
+      client.search.mockImplementation(
+        async (_criteria: Record<string, unknown>, options?: { strict?: boolean }) => {
+          if (options?.strict) throw unreadableSearchAnswer();
           return [1];
         },
       );

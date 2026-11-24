@@ -16,6 +16,7 @@ import {
   emailIdInputFields,
   idArraySchema,
   normalizeStringIds,
+  PARTIAL_LIST_NOTICE,
   resolveEmailId,
   resolveHasAttachment,
 } from './schema-helpers.js';
@@ -110,7 +111,13 @@ export default function registerEmailsTools(
 
         if (result.items.length === 0) {
           return {
-            content: [{ type: 'text' as const, text: 'No emails found matching the criteria.' }],
+            content: [
+              {
+                type: 'text' as const,
+                // A capped answer can leave the requested page empty even though messages matched.
+                text: `No emails found matching the criteria.${result.truncated ? `\n\n${PARTIAL_LIST_NOTICE}` : ''}`,
+              },
+            ],
           };
         }
 
@@ -119,9 +126,7 @@ export default function registerEmailsTools(
           `(page ${result.page}/${Math.ceil(result.total / result.pageSize)})` +
           `${result.hasMore ? ' — more pages available' : ''}\n`;
         // A capped SEARCH answer makes `total` a floor rather than a count.
-        const partial = result.truncated
-          ? '\n⚠️ The server capped this SEARCH answer; the list is partial.\n'
-          : '';
+        const partial = result.truncated ? `\n${PARTIAL_LIST_NOTICE}\n` : '';
         const emails = delimitUntrusted(result.items.map(formatEmailMeta).join('\n\n'));
 
         return {
@@ -480,9 +485,8 @@ export default function registerEmailsTools(
             content: [
               {
                 type: 'text' as const,
-                text: params.query
-                  ? `No emails found matching "${params.query}".`
-                  : 'No emails found matching the specified filters.',
+                // A capped answer can leave the requested page empty even though messages matched.
+                text: `${params.query ? `No emails found matching "${params.query}".` : 'No emails found matching the specified filters.'}${result.truncated ? `\n\n${PARTIAL_LIST_NOTICE}` : ''}`,
               },
             ],
           };
@@ -493,9 +497,7 @@ export default function registerEmailsTools(
           `🔍 [${params.mailbox}] ${result.total} result(s) for ${queryLabel} ` +
           `(page ${result.page}/${Math.ceil(result.total / result.pageSize)})\n`;
         // A capped SEARCH answer makes `total` a floor rather than a count.
-        const partial = result.truncated
-          ? '\n⚠️ The server capped this SEARCH answer; the list is partial.\n'
-          : '';
+        const partial = result.truncated ? `\n${PARTIAL_LIST_NOTICE}\n` : '';
         const emails = delimitUntrusted(result.items.map(formatEmailMeta).join('\n\n'));
 
         return {

@@ -282,10 +282,11 @@ export interface PaginatedResult<T> {
   pageSize: number;
   hasMore: boolean;
   /**
-   * True when the server capped the SEARCH answer (imapflow keeps 2^24 UIDs at most), so `total`
-   * and the page count describe a partial match set rather than the whole mailbox.
+   * True when imapflow could keep only part of the SEARCH answer (it holds at most 2^24 UIDs),
+   * so `total` and the page count describe a partial match set rather than the whole mailbox.
+   * The kept UIDs are the lowest ones, which leaves the newest messages out.
    */
-  truncated?: boolean;
+  truncated: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -390,6 +391,8 @@ export interface EmailStats {
   dailyVolume: DailyVolume[];
   hasAttachmentsCount: number;
   avgPerDay: number;
+  /** True when imapflow could keep only part of the SEARCH answer, so every count is partial. */
+  truncated?: boolean;
 }
 
 export interface QuotaInfo {
