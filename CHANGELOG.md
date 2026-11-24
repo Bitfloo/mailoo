@@ -11,6 +11,13 @@ Mailoo is a fork of [email-mcp](https://github.com/codefuturist/email-mcp);
 its history before the fork is at the end of this file.
 
 - - -
+## [v0.3.6](https://github.com/bitfloo/mailoo/compare/v0.3.5..v0.3.6) - 2026-11-24
+#### 🐛 Bug Fixes
+- keep the partial SEARCH warning wherever it matters (#138) - ([ceb6112](https://github.com/bitfloo/mailoo/commit/ceb611207b5aafabc7d93ad791c91f0b8b6da3f4)) - Mike
+- report a SEARCH answer the server cut short (#137) - ([5b9d39c](https://github.com/bitfloo/mailoo/commit/5b9d39cf4ec5decf6bbac509f114e4dff0c8e308)) - Mike
+
+- - -
+
 ## [v0.3.5](https://github.com/bitfloo/mailoo/compare/v0.3.4..v0.3.5) - 2026-10-31
 #### 🐛 Bug Fixes
 - (**ci**) run pre-push checks for tag-only pushes (#103) - ([928759b](https://github.com/bitfloo/mailoo/commit/928759b737ec37d784aaacd4cc079485e62ea1a4)), ([1dab6d2](https://github.com/bitfloo/mailoo/commit/1dab6d2cfab15a9bd2f26c947572373fa93350dd)) - Mike, Codex
