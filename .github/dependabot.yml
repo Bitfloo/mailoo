@@ -51,6 +51,11 @@ updates:
     open-pull-requests-limit: 2
     cooldown:
       default-days: 3
+    ignore:
+      # A pnpm bump has to move packageManager and the corepack hash pins in the
+      # same commit (tests/ci-policy.test.ts), which Dependabot cannot do, so it
+      # is bumped by hand. The npm CLI here still gets its updates.
+      - dependency-name: "pnpm"
 
   - package-ecosystem: github-actions
     directory: /

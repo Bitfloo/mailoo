@@ -90,10 +90,16 @@ describe('dependabot groups', () => {
     return `${Number([...majors][0]) + 1}.0.0`;
   }
 
-  /** Every ignore entry of every update, read whole and sorted by name. */
+  /** An ignore entry that names a dependency and nothing else, so it drops every update to it. */
+  function isWholeIgnore(entry: Record<string, unknown>): boolean {
+    return typeof entry['dependency-name'] === 'string' && Object.keys(entry).length === 1;
+  }
+
+  /** Every ignore entry of every update but the whole ignores, read whole and sorted by name. */
   function holds(): string[][] {
     return updates
       .flatMap((update) => update.ignore ?? [])
+      .filter((entry) => !isWholeIgnore(entry))
       .map((entry) => {
         const { 'dependency-name': name, versions, ...rest } = entry;
         const floor =
@@ -161,6 +167,22 @@ describe('dependabot groups', () => {
         node: nextImageMajor(),
       }).sort(byName),
     );
+  });
+
+  it('should ignore only pnpm, and only in the tooling CLI update', () => {
+    // Dependabot bumps docker/pnpm-cli alone, but packageManager and the corepack hash pins have
+    // to move in the same commit (tests/ci-policy.test.ts), so its pnpm pull request always fails.
+    // Any other whole ignore would stop that dependency's updates for good, and a wider entry in
+    // the tooling update would also hold back the npm CLI it shares with pnpm.
+    expect(
+      updates.flatMap((update) =>
+        (update.ignore ?? [])
+          .filter(isWholeIgnore)
+          .map((entry) => [update.directories ?? [update.directory], entry['dependency-name']]),
+      ),
+    ).toEqual([[['/.github/npm-cli', '/docker/pnpm-cli'], 'pnpm']]);
+    const tooling = updates.find((update) => update.directories?.includes('/docker/pnpm-cli'));
+    expect(tooling?.ignore).toEqual([{ 'dependency-name': 'pnpm' }]);
   });
 
   it.each(['~9.0.0', '9.0.0'])('should refuse %j as a peer range with no ceiling', (range) => {
@@ -237,6 +259,7 @@ describe('dependabot groups', () => {
         keys: [
           'cooldown',
           'directories',
+          'ignore',
           'open-pull-requests-limit',
           'package-ecosystem',
           'schedule',
