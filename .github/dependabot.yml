@@ -44,7 +44,7 @@ updates:
   # Kept out of the groups above: a pnpm bump also has to move packageManager
   # and the corepack hash pins, so it fails CI on its own until it does.
   - package-ecosystem: npm
-    directories: ["/.github/npm-cli", "/docker/pnpm-cli"]
+    directories: ["/tools/npm-cli", "/docker/pnpm-cli"]
     schedule:
       interval: weekly
       day: monday
@@ -56,6 +56,10 @@ updates:
       # same commit (tests/ci-policy.test.ts), which Dependabot cannot do, so it
       # is bumped by hand. The npm CLI here still gets its updates.
       - dependency-name: "pnpm"
+      # The release npm CLI publishes the package. A new npm major is a release
+      # tooling change, not a routine update.
+      - dependency-name: "npm"
+        versions: [">=12.0.0"]
 
   - package-ecosystem: github-actions
     directory: /

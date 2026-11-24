@@ -110,15 +110,15 @@ const STEPS: Record<string, Record<string, string[]>> = {
       'run: pnpm install --frozen-lockfile',
       'run: pnpm ci:release',
     ],
-    // A flag such as --dry-run, or npm ci run outside .github/npm-cli, would publish nothing.
+    // A flag such as --dry-run, or npm ci run outside tools/npm-cli, would publish nothing.
     npm: [
       'actions/checkout',
       'pnpm/action-setup',
       `actions/setup-node {"cache":"pnpm","node-version":"${node}","registry-url":"https://registry.npmjs.org"}`,
       'run: pnpm install --frozen-lockfile',
       'run: pnpm build',
-      'run: npm ci --ignore-scripts (in .github/npm-cli)',
-      'run: .github/npm-cli/node_modules/.bin/npm publish --access public',
+      'run: npm ci --ignore-scripts (in tools/npm-cli)',
+      'run: tools/npm-cli/node_modules/.bin/npm publish --access public',
     ],
     // Stamped after the publish, the registry would get server.json as committed.
     mcp: [
@@ -142,8 +142,8 @@ const STEPS: Record<string, Record<string, string[]>> = {
     aliases: [
       'actions/checkout',
       `actions/setup-node {"node-version":"${node}","registry-url":"https://registry.npmjs.org"}`,
-      'run: npm ci --ignore-scripts (in .github/npm-cli)',
-      'run: PATH="$PWD/.github/npm-cli/node_modules/.bin:$PATH" bash scripts/publish-npm-aliases.sh',
+      'run: npm ci --ignore-scripts (in tools/npm-cli)',
+      'run: PATH="$PWD/tools/npm-cli/node_modules/.bin:$PATH" bash scripts/publish-npm-aliases.sh',
     ],
   },
   'scorecard.yml': {

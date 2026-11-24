@@ -90,6 +90,18 @@ describe('dependabot groups', () => {
     return `${Number([...majors][0]) + 1}.0.0`;
   }
 
+  /** The major after the one the release npm CLI in tools/npm-cli pins. */
+  function nextNpmCliMajor(): string {
+    const manifest = JSON.parse(
+      readFileSync(join(repoRoot, 'tools/npm-cli/package.json'), 'utf8'),
+    ) as { dependencies: Record<string, string> };
+    const major = manifest.dependencies.npm?.match(/^(\d+)\./)?.[1];
+    if (!major) {
+      throw new Error('tools/npm-cli/package.json has no versioned npm');
+    }
+    return `${Number(major) + 1}.0.0`;
+  }
+
   /** An ignore entry that names a dependency and nothing else, so it drops every update to it. */
   function isWholeIgnore(entry: Record<string, unknown>): boolean {
     return typeof entry['dependency-name'] === 'string' && Object.keys(entry).length === 1;
@@ -153,7 +165,7 @@ describe('dependabot groups', () => {
   it('should hold each blocked major at the first version its holder rules out', () => {
     // A missing hold lets Dependabot open a major that breaks lint or the build. A hold at the
     // manifest's own major blocks that major's patches too. Every update is read: the tooling
-    // CLI update holds nothing, so a hold added there has to be derived here as well.
+    // CLI update holds the npm major, derived from its own manifest.
     // Dependabot applies every entry, so a duplicate with a lower floor or an extra key such as
     // update-types changes what is held. Each entry is read whole and kept, not merged by name.
     const eslintCeiling = peerCeiling(lockPeerRange('eslint-config-airbnb-extended', 'eslint'));
@@ -165,6 +177,7 @@ describe('dependabot groups', () => {
         vite: nextMajor('vite'),
         '@types/node': nextMajor('@types/node'),
         node: nextImageMajor(),
+        npm: nextNpmCliMajor(),
       }).sort(byName),
     );
   });
@@ -180,9 +193,12 @@ describe('dependabot groups', () => {
           .filter(isWholeIgnore)
           .map((entry) => [update.directories ?? [update.directory], entry['dependency-name']]),
       ),
-    ).toEqual([[['/.github/npm-cli', '/docker/pnpm-cli'], 'pnpm']]);
+    ).toEqual([[['/tools/npm-cli', '/docker/pnpm-cli'], 'pnpm']]);
     const tooling = updates.find((update) => update.directories?.includes('/docker/pnpm-cli'));
-    expect(tooling?.ignore).toEqual([{ 'dependency-name': 'pnpm' }]);
+    expect(tooling?.ignore).toEqual([
+      { 'dependency-name': 'pnpm' },
+      { 'dependency-name': 'npm', versions: [`>=${nextNpmCliMajor()}`] },
+    ]);
   });
 
   it.each(['~9.0.0', '9.0.0'])('should refuse %j as a peer range with no ceiling', (range) => {
@@ -208,7 +224,7 @@ describe('dependabot groups', () => {
       ]),
     ).toEqual([
       ['npm', ['/'], weekly, 10],
-      ['npm', ['/.github/npm-cli', '/docker/pnpm-cli'], weekly, 2],
+      ['npm', ['/tools/npm-cli', '/docker/pnpm-cli'], weekly, 2],
       ['github-actions', ['/'], weekly, 5],
       ['docker', ['/'], weekly, 2],
     ]);
