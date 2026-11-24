@@ -103,7 +103,7 @@
     "@clack/prompts": "1.9.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@typesafe-ai/sdk": "^0.7.0",
-    "imapflow": "^2.5.8",
+    "imapflow": "^2.12.2",
     "node-ical": "^0.27.3",
     "nodemailer": "^10.5.0",
     "smol-toml": "^1.9.1",
