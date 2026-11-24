@@ -274,7 +274,7 @@ describe('Advanced Email Operations', () => {
 
   describe('extractContacts', () => {
     it('should extract contacts with frequency data', async () => {
-      const contacts = await services.imapService.extractContacts(TEST_ACCOUNT_NAME, {
+      const { contacts } = await services.imapService.extractContacts(TEST_ACCOUNT_NAME, {
         limit: 50,
       });
 

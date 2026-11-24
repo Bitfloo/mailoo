@@ -35,6 +35,13 @@ const threeMessages = [
   },
 ];
 
+function cappedSearchAnswer(): Error {
+  return Object.assign(new Error('The SEARCH answer could not be read in full'), {
+    code: 'InvalidSearchResponse',
+    details: { problems: ['result truncated'] },
+  });
+}
+
 describe('ImapService', () => {
   let client: ReturnType<typeof createMockImapClient>;
   let connections: ReturnType<typeof createMockConnectionManager>;
@@ -51,7 +58,7 @@ describe('ImapService', () => {
       client.search.mockResolvedValue([3, 1, 2]);
       fetchServesRows(client, threeMessages);
 
-      const contacts = await service.extractContacts('test');
+      const { contacts } = await service.extractContacts('test');
 
       expect(contacts).toEqual([
         {
@@ -79,7 +86,7 @@ describe('ImapService', () => {
       client.search.mockResolvedValue([3, 1, 2]);
       fetchServesRows(client, threeMessages);
 
-      const contacts = await service.extractContacts('test', { limit: 2 });
+      const { contacts } = await service.extractContacts('test', { limit: 2 });
 
       expect(contacts.map((c) => c.email)).toEqual(['alice@example.com', 'me@example.com']);
     });
@@ -94,7 +101,7 @@ describe('ImapService', () => {
         { uid: count, envelope: { from: [{ address: 'newest@example.com' }] } },
       ]);
 
-      const contacts = await service.extractContacts('test', { limit });
+      const { contacts } = await service.extractContacts('test', { limit });
 
       expect(contacts.map((c) => c.email)).toEqual(['newest@example.com']);
     });
@@ -115,7 +122,7 @@ describe('ImapService', () => {
           },
         ]);
 
-        const contacts = await service.extractContacts('test');
+        const { contacts } = await service.extractContacts('test');
 
         expect(contacts.map((c) => c.lastSeen)).toEqual(['2028-01-15T00:00:00.000Z']);
       } finally {
@@ -132,7 +139,7 @@ describe('ImapService', () => {
           { uid: 1, envelope: { from: [{ address: 'dave@example.com' }] } },
         ]);
 
-        const contacts = await service.extractContacts('test');
+        const { contacts } = await service.extractContacts('test');
 
         expect(contacts.map((c) => c.lastSeen)).toEqual(['2028-01-15T00:00:00.000Z']);
       } finally {
@@ -143,7 +150,27 @@ describe('ImapService', () => {
     it('should return no contacts for an empty mailbox', async () => {
       client.search.mockResolvedValue([]);
 
-      await expect(service.extractContacts('test')).resolves.toEqual([]);
+      await expect(service.extractContacts('test')).resolves.toEqual({
+        contacts: [],
+        truncated: false,
+      });
+    });
+
+    it('should flag the scan as truncated when the server capped the SEARCH answer', async () => {
+      client.search.mockImplementation(
+        async (_criteria: Record<string, unknown>, options?: { strict?: boolean }) => {
+          if (options?.strict) throw cappedSearchAnswer();
+          return [1];
+        },
+      );
+      fetchServesRows(client, [{ uid: 1, envelope: { from: [{ address: 'dave@example.com' }] } }]);
+
+      const result = await service.extractContacts('test');
+
+      expect({ truncated: result.truncated, contacts: result.contacts.length }).toEqual({
+        truncated: true,
+        contacts: 1,
+      });
     });
   });
 });

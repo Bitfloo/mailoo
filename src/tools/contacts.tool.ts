@@ -36,17 +36,21 @@ export default function registerContactsTools(server: McpServer, imapService: Im
     },
     async ({ account, mailbox, limit }) => {
       try {
-        const contacts = await imapService.extractContacts(account ?? '', {
+        const { contacts, truncated } = await imapService.extractContacts(account ?? '', {
           mailbox,
           limit,
         });
+        // A capped SEARCH answer keeps the oldest UIDs, so the "recent" scan is partial.
+        const partial = truncated
+          ? '⚠️ The server capped this SEARCH answer; the scan is partial.\n\n'
+          : '';
 
         return {
           content: [
             {
               type: 'text' as const,
               // Display names and addresses come from mail headers anyone can write.
-              text: `Found ${contacts.length} unique contacts from ${limit} recent emails:\n\n${delimitUntrusted(JSON.stringify(contacts, null, 2))}`,
+              text: `Found ${contacts.length} unique contacts from ${limit} recent emails:\n\n${partial}${delimitUntrusted(JSON.stringify(contacts, null, 2))}`,
             },
           ],
         };

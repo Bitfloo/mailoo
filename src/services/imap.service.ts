@@ -67,6 +67,46 @@ async function createMissingMailbox(
   }
 }
 
+/**
+ * Whether an `InvalidSearchResponse` reports only the length cap, not an answer imapflow could
+ * not parse at all: a capped answer still holds usable UIDs, the other problems do not.
+ */
+function isTruncatedSearchError(error: unknown): boolean {
+  const { code, details } = (error ?? {}) as {
+    code?: string;
+    details?: { problems?: unknown };
+  };
+  return (
+    code === 'InvalidSearchResponse' &&
+    Array.isArray(details?.problems) &&
+    details.problems.includes('result truncated')
+  );
+}
+
+/**
+ * Runs a UID SEARCH and says whether the answer was cut short.
+ *
+ * Why: imapflow caps a plain SEARCH answer at EXPANDED_RANGE_LIMIT numbers (2^24) and, without
+ * `strict`, resolves with the shortened array after only logging a warning. A mailbox past that
+ * ceiling would otherwise read as complete, so a caller cannot tell a partial match set from a
+ * full one. The strict call turns a cut answer into `InvalidSearchResponse`; the plain retry then
+ * supplies the partial list together with the flag, and every other problem in that error keeps
+ * failing loudly instead of returning numbers the caller would trust.
+ */
+async function searchUids(
+  client: ImapFlow,
+  criteria: Record<string, unknown>,
+): Promise<{ uids: number[]; truncated: boolean }> {
+  try {
+    const result = await client.search(criteria, { uid: true, strict: true });
+    return { uids: Array.isArray(result) ? result : [], truncated: false };
+  } catch (error) {
+    if (!isTruncatedSearchError(error)) throw error;
+    const partial = await client.search(criteria, { uid: true });
+    return { uids: Array.isArray(partial) ? partial : [], truncated: true };
+  }
+}
+
 function parseAddress(addr: { name?: string; address?: string } | undefined): EmailAddress {
   return {
     name: addr?.name ?? undefined,
@@ -855,8 +895,8 @@ export default class ImapService {
       if (options.answered !== undefined) search.answered = options.answered;
 
       // Search for matching UIDs
-      const searchResult = await client.search(search, { uid: true });
-      let uids: number[] = Array.isArray(searchResult) ? searchResult : [];
+      const { uids: foundUids, truncated } = await searchUids(client, search);
+      let uids = foundUids;
 
       // Post-filter for hasAttachment (IMAP has no native attachment search)
       if (options.hasAttachment !== undefined && uids.length > 0) {
@@ -882,6 +922,7 @@ export default class ImapService {
           page,
           pageSize,
           hasMore: false,
+          truncated,
         };
       }
 
@@ -902,6 +943,7 @@ export default class ImapService {
           page,
           pageSize,
           hasMore: false,
+          truncated,
         };
       }
 
@@ -916,6 +958,7 @@ export default class ImapService {
         page,
         pageSize,
         hasMore: start + pageSize < total,
+        truncated,
       };
     } finally {
       lock.release();
@@ -1110,8 +1153,8 @@ export default class ImapService {
       const searchCriteria =
         andConditions.length === 1 ? baseCriteria : Object.assign({}, ...andConditions);
 
-      const searchResult = await client.search(searchCriteria, { uid: true });
-      let uids: number[] = Array.isArray(searchResult) ? searchResult : [];
+      const { uids: foundUids, truncated } = await searchUids(client, searchCriteria);
+      let uids = foundUids;
 
       // Post-filter for has_attachment if requested (IMAP doesn't have native support)
       if (options.hasAttachment !== undefined && uids.length > 0) {
@@ -1141,6 +1184,7 @@ export default class ImapService {
           page,
           pageSize,
           hasMore: false,
+          truncated,
         };
       }
 
@@ -1160,6 +1204,7 @@ export default class ImapService {
           page,
           pageSize,
           hasMore: false,
+          truncated,
         };
       }
 
@@ -1173,6 +1218,7 @@ export default class ImapService {
         page,
         pageSize,
         hasMore: start + pageSize < total,
+        truncated,
       };
     } finally {
       lock.release();
@@ -2024,7 +2070,7 @@ export default class ImapService {
   async extractContacts(
     accountName: string,
     options: { mailbox?: string; limit?: number } = {},
-  ): Promise<Contact[]> {
+  ): Promise<{ contacts: Contact[]; truncated: boolean }> {
     const mailbox = sanitizeMailboxName(options.mailbox ?? 'INBOX');
     const client = await this.connections.getImapClient(accountName);
     const limit = Math.min(options.limit ?? 100, 500);
@@ -2032,10 +2078,9 @@ export default class ImapService {
     const lock = await lockMailbox(client, mailbox);
     try {
       // Search for all messages, take the latest N
-      const searchResult = await client.search({ all: true }, { uid: true });
-      const uids: number[] = Array.isArray(searchResult) ? searchResult : [];
+      const { uids, truncated } = await searchUids(client, { all: true });
 
-      if (uids.length === 0) return [];
+      if (uids.length === 0) return { contacts: [], truncated };
 
       uids.sort((a, b) => b - a);
       const targetUids = uids.slice(0, limit);
@@ -2093,7 +2138,7 @@ export default class ImapService {
           lastSeen: c.lastSeen.toISOString(),
         }));
 
-      return contacts;
+      return { contacts, truncated };
     } finally {
       lock.release();
     }

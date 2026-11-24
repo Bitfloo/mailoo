@@ -218,6 +218,67 @@ describe('untrusted mail text', () => {
     expect(inside).toContain('Quarterly report');
     expect(inside).toContain('Second subject');
   });
+  it('should say a list_emails page is partial when the server capped the SEARCH answer', async () => {
+    const listEmails = vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: '4',
+          subject: 'Quarterly report',
+          from: { address: 'ada@example.com' },
+          to: [{ address: 'me@example.com' }],
+          date: '2026-01-02T00:00:00.000Z',
+          seen: true,
+          flagged: false,
+          answered: false,
+          labels: [],
+          hasAttachments: false,
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+      hasMore: false,
+      truncated: true,
+    });
+    const run = captureNamedHandler('list_emails', { listEmails }, false);
+
+    const result = await run({ account: 'box', mailbox: 'INBOX' });
+
+    expect(result.content[0]?.text).toContain(
+      'The server capped this SEARCH answer; the list is partial.',
+    );
+  });
+
+  it('should say a search_emails page is partial when the server capped the SEARCH answer', async () => {
+    const searchEmails = vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: '4',
+          subject: 'Quarterly report',
+          from: { address: 'ada@example.com' },
+          to: [{ address: 'me@example.com' }],
+          date: '2026-01-02T00:00:00.000Z',
+          seen: true,
+          flagged: false,
+          answered: false,
+          labels: [],
+          hasAttachments: false,
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+      hasMore: false,
+      truncated: true,
+    });
+    const run = captureNamedHandler('search_emails', { searchEmails }, false);
+
+    const result = await run({ account: 'box', mailbox: 'INBOX', query: 'report' });
+
+    expect(result.content[0]?.text).toContain(
+      'The server capped this SEARCH answer; the list is partial.',
+    );
+  });
 });
 
 function fetchedEmail(subject: string) {
