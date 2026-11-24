@@ -1,5 +1,6 @@
 import type ImapService from '../services/imap.service.js';
 import registerEmailsTools from './emails.tool.js';
+import { PARTIAL_LIST_NOTICE } from './schema-helpers.js';
 
 type Handler = (args: Record<string, unknown>) => Promise<{
   isError?: boolean;
@@ -218,7 +219,7 @@ describe('untrusted mail text', () => {
     expect(inside).toContain('Quarterly report');
     expect(inside).toContain('Second subject');
   });
-  it('should say a list_emails page is partial when the server capped the SEARCH answer', async () => {
+  it('should say a list_emails page is partial when the answer was cut short', async () => {
     const listEmails = vi.fn().mockResolvedValue({
       items: [
         {
@@ -244,12 +245,10 @@ describe('untrusted mail text', () => {
 
     const result = await run({ account: 'box', mailbox: 'INBOX' });
 
-    expect(result.content[0]?.text).toContain(
-      'The server capped this SEARCH answer; the list is partial.',
-    );
+    expect(result.content[0]?.text).toContain(PARTIAL_LIST_NOTICE);
   });
 
-  it('should say a search_emails page is partial when the server capped the SEARCH answer', async () => {
+  it('should say a search_emails page is partial when the answer was cut short', async () => {
     const searchEmails = vi.fn().mockResolvedValue({
       items: [
         {
@@ -275,9 +274,96 @@ describe('untrusted mail text', () => {
 
     const result = await run({ account: 'box', mailbox: 'INBOX', query: 'report' });
 
-    expect(result.content[0]?.text).toContain(
-      'The server capped this SEARCH answer; the list is partial.',
-    );
+    expect(result.content[0]?.text).toContain(PARTIAL_LIST_NOTICE);
+  });
+  it('should warn that an empty list_emails page is partial when the answer was cut short', async () => {
+    const listEmails = vi.fn().mockResolvedValue({
+      items: [],
+      total: 40,
+      page: 3,
+      pageSize: 20,
+      hasMore: false,
+      truncated: true,
+    });
+    const run = captureNamedHandler('list_emails', { listEmails }, false);
+
+    const result = await run({ account: 'box', mailbox: 'INBOX' });
+
+    expect(result.content[0]?.text).toContain(PARTIAL_LIST_NOTICE);
+  });
+
+  it('should warn that an empty search_emails page is partial when the answer was cut short', async () => {
+    const searchEmails = vi.fn().mockResolvedValue({
+      items: [],
+      total: 40,
+      page: 3,
+      pageSize: 20,
+      hasMore: false,
+      truncated: true,
+    });
+    const run = captureNamedHandler('search_emails', { searchEmails }, false);
+
+    const result = await run({ account: 'box', mailbox: 'INBOX', query: 'report' });
+
+    expect(result.content[0]?.text).toContain(PARTIAL_LIST_NOTICE);
+  });
+
+  it('should not warn about a partial list_emails page when the answer was complete', async () => {
+    const listEmails = vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: '4',
+          subject: 'Quarterly report',
+          from: { address: 'ada@example.com' },
+          to: [{ address: 'me@example.com' }],
+          date: '2026-01-02T00:00:00.000Z',
+          seen: true,
+          flagged: false,
+          answered: false,
+          labels: [],
+          hasAttachments: false,
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+      hasMore: false,
+      truncated: false,
+    });
+    const run = captureNamedHandler('list_emails', { listEmails }, false);
+
+    const result = await run({ account: 'box', mailbox: 'INBOX' });
+
+    expect(result.content[0]?.text).not.toContain(PARTIAL_LIST_NOTICE);
+  });
+
+  it('should not warn about a partial search_emails page when the answer was complete', async () => {
+    const searchEmails = vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: '4',
+          subject: 'Quarterly report',
+          from: { address: 'ada@example.com' },
+          to: [{ address: 'me@example.com' }],
+          date: '2026-01-02T00:00:00.000Z',
+          seen: true,
+          flagged: false,
+          answered: false,
+          labels: [],
+          hasAttachments: false,
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+      hasMore: false,
+      truncated: false,
+    });
+    const run = captureNamedHandler('search_emails', { searchEmails }, false);
+
+    const result = await run({ account: 'box', mailbox: 'INBOX', query: 'report' });
+
+    expect(result.content[0]?.text).not.toContain(PARTIAL_LIST_NOTICE);
   });
 });
 

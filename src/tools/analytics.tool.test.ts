@@ -2,6 +2,7 @@ import { UNTRUSTED_BEGIN, UNTRUSTED_END } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
 import type { EmailStats } from '../types/index.js';
 import registerAnalyticsTools from './analytics.tool.js';
+import { PARTIAL_STATS_NOTICE } from './schema-helpers.js';
 
 type Handler = (args: {
   account: string;
@@ -58,6 +59,13 @@ describe('get_email_stats tool', () => {
   it('should not let a sender name close the untrusted block early', async () => {
     const text = await stats(STATS);
 
+    expect(text.indexOf(UNTRUSTED_END)).toBe(text.length - UNTRUSTED_END.length);
+  });
+
+  it('should warn that the counts are partial, outside the untrusted block', async () => {
+    const text = await stats({ ...STATS, truncated: true });
+
+    expect(text.startsWith(`${PARTIAL_STATS_NOTICE}\n\n${UNTRUSTED_BEGIN}`)).toBe(true);
     expect(text.indexOf(UNTRUSTED_END)).toBe(text.length - UNTRUSTED_END.length);
   });
 });

@@ -7,7 +7,7 @@ import { z } from 'zod';
 
 import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
-import { accountParam } from './schema-helpers.js';
+import { accountParam, PARTIAL_SCAN_NOTICE } from './schema-helpers.js';
 
 export default function registerContactsTools(server: McpServer, imapService: ImapService): void {
   server.registerTool(
@@ -41,9 +41,7 @@ export default function registerContactsTools(server: McpServer, imapService: Im
           limit,
         });
         // A capped SEARCH answer keeps the oldest UIDs, so the "recent" scan is partial.
-        const partial = truncated
-          ? '⚠️ The server capped this SEARCH answer; the scan is partial.\n\n'
-          : '';
+        const partial = truncated ? `${PARTIAL_SCAN_NOTICE}\n\n` : '';
 
         return {
           content: [

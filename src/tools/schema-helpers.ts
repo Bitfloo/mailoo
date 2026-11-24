@@ -192,3 +192,18 @@ export function structuredToolResult(
     },
   };
 }
+
+/**
+ * Warning for a result built from a SEARCH answer imapflow could not keep in full.
+ *
+ * Why: the UIDs an answer keeps are the lowest ones, so the newest messages — what a list page
+ * and a contact scan are built from — are the ones missing.
+ */
+export const PARTIAL_LIST_NOTICE =
+  '⚠️ More messages matched than one SEARCH answer can list (16,777,216); the list is partial and the newest messages may be missing.';
+
+export const PARTIAL_SCAN_NOTICE =
+  '⚠️ More messages matched than one SEARCH answer can list (16,777,216); the scan is partial and the newest messages may be missing.';
+
+export const PARTIAL_STATS_NOTICE =
+  '⚠️ More messages matched than one SEARCH answer can list (16,777,216); these counts cover a partial set.';

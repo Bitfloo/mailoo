@@ -1,3 +1,4 @@
+import { unreadableSearchAnswer } from '../test-support/fake-imapflow.js';
 import { attachmentNode, mixedStructure } from '../test-support/imap-bodystructure.js';
 import {
   createMockConnectionManager,
@@ -146,6 +147,30 @@ describe('ImapService', () => {
       expect(stats.topSenders.map((s) => s.email)).toEqual(
         uids.slice(0, 10).map((uid) => `sender${uid}@example.com`),
       );
+    });
+
+    it('should flag the statistics as partial when the SEARCH answer was cut short', async () => {
+      client.search.mockImplementation(
+        async (_criteria: Record<string, unknown>, options?: { strict?: boolean }) => {
+          if (options?.strict) throw unreadableSearchAnswer();
+          return [11];
+        },
+      );
+      fetchServesRows(client, [
+        {
+          uid: 11,
+          envelope: {
+            date: new Date('2026-03-10T08:00:00Z'),
+            from: [{ address: 'bob@example.com' }],
+          },
+          flags: new Set(['\\Seen']),
+          bodyStructure: plainBody,
+        },
+      ]);
+
+      const stats = await service.getEmailStats('test', 'INBOX', 'week');
+
+      expect(stats.truncated).toBe(true);
     });
   });
 });

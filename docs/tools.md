@@ -100,15 +100,26 @@ Each preview is read from the start of the message's text part
 and charset. Text that starts several kilobytes into the part, such as an
 HTML newsletter behind a long `<style>` block, gets no preview.
 
-## `list_emails` / `search_emails` partial answers
+## A SEARCH answer that could not be read in full
 
-imapflow keeps at most 2^24 (16,777,216) UIDs from one SEARCH answer. When a
-mailbox past that ceiling matches more messages, the tool keeps the UIDs the
-server returned and the output says the list is partial; `total` and the page
-count then describe that partial set. `extract_contacts` reports the same about
-its scan — the cap keeps the oldest UIDs, so the newest messages can be the ones
-missing. A SEARCH answer imapflow cannot read at all still fails the call
-instead of returning a list Mailoo would present as complete.
+imapflow holds at most 2^24 (16,777,216) UIDs from one SEARCH answer, and it
+treats an ESEARCH `ALL` answer as cut when it lists more entries than the
+mailbox `EXISTS` count. Mailoo's searches run with imapflow's `strict` option to
+notice; when the answer says it was shortened or that entries were dropped,
+Mailoo keeps the UIDs the answer carried and flags the result: `list_emails` and
+`search_emails` print a warning and their `total` is a floor for a partial match
+set, `extract_contacts` says the scan is partial, and `get_email_stats` adds
+`truncated: true` with the warning above its counts.
+
+The UIDs an answer keeps are the lowest ones, so the newest messages are the
+ones missing: a list page is not the newest mail, and the contact scan can miss
+recent senders. A narrower query or a smaller folder is the way below the
+ceiling.
+
+Any other problem with a SEARCH answer — an empty answer, an unrelated line that
+did not parse, a malformed ESEARCH item — falls back to the best-effort list
+Mailoo has always returned. Only a SEARCH that fails outright (a lost
+connection, a `NO` or `BAD` rejection) fails the call.
 
 ## `bulk_action`
 

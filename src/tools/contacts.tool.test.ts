@@ -2,6 +2,7 @@ import { UNTRUSTED_BEGIN, UNTRUSTED_END } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
 import type { Contact } from '../types/index.js';
 import registerContactsTools from './contacts.tool.js';
+import { PARTIAL_SCAN_NOTICE } from './schema-helpers.js';
 
 type Handler = (args: {
   account: string;
@@ -55,9 +56,15 @@ describe('extract_contacts tool', () => {
     expect(text.indexOf(UNTRUSTED_END)).toBe(text.length - UNTRUSTED_END.length);
   });
 
-  it('should say the scan is partial when the server capped the SEARCH answer', async () => {
+  it('should say the scan is partial when the SEARCH answer was cut short', async () => {
     const text = await extract({ contacts: CONTACTS.slice(0, 1), truncated: true });
 
-    expect(text).toContain('The server capped this SEARCH answer; the scan is partial.');
+    expect(text).toContain(PARTIAL_SCAN_NOTICE);
+  });
+
+  it('should not warn about a partial scan when the answer was complete', async () => {
+    const text = await extract({ contacts: CONTACTS.slice(0, 1), truncated: false });
+
+    expect(text).not.toContain(PARTIAL_SCAN_NOTICE);
   });
 });

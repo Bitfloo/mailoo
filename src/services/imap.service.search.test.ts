@@ -1,3 +1,4 @@
+import { unreadableSearchAnswer } from '../test-support/fake-imapflow.js';
 import { attachmentNode, mixedStructure } from '../test-support/imap-bodystructure.js';
 import {
   createMockConnectionManager,
@@ -35,13 +36,6 @@ const listers: [string, Lister][] = [
   ['listEmails', async (svc, options) => svc.listEmails('test', options)],
   ['searchEmails', async (svc, options) => svc.searchEmails('test', 'Message', options)],
 ];
-
-function cappedSearchAnswer(): Error {
-  return Object.assign(new Error('The SEARCH answer could not be read in full'), {
-    code: 'InvalidSearchResponse',
-    details: { problems: ['result truncated'] },
-  });
-}
 
 describe('ImapService', () => {
   let client: ReturnType<typeof createMockImapClient>;
@@ -152,10 +146,10 @@ describe('ImapService', () => {
       );
     });
 
-    it('should flag the page as truncated when the server capped the SEARCH answer', async () => {
+    it('should flag the page as truncated when the answer was cut short', async () => {
       client.search.mockImplementation(
         async (_criteria: Record<string, unknown>, options?: { strict?: boolean }) => {
-          if (options?.strict) throw cappedSearchAnswer();
+          if (options?.strict) throw unreadableSearchAnswer();
           return [10];
         },
       );
@@ -181,17 +175,91 @@ describe('ImapService', () => {
       });
     });
 
-    it('should fail the search when the answer could not be read at all', async () => {
-      client.search.mockRejectedValue(
-        Object.assign(new Error('The SEARCH answer could not be read in full'), {
-          code: 'InvalidSearchResponse',
-          details: { problems: ['entries discarded'] },
-        }),
+    it('should flag the page as partial when the answer dropped entries', async () => {
+      client.search.mockImplementation(
+        async (_criteria: Record<string, unknown>, options?: { strict?: boolean }) => {
+          if (options?.strict) throw unreadableSearchAnswer(['entries discarded']);
+          return [10];
+        },
+      );
+      fetchServesRows(client, [listedMessage(10, '2026-03-02T10:00:00Z')]);
+
+      const result = await service.searchEmails('test', 'invoice');
+
+      expect({ truncated: result.truncated, items: result.items.length }).toEqual({
+        truncated: true,
+        items: 1,
+      });
+    });
+
+    it('should flag the page when the answer lost entries and had a junk line', async () => {
+      client.search.mockImplementation(
+        async (_criteria: Record<string, unknown>, options?: { strict?: boolean }) => {
+          if (options?.strict) {
+            throw unreadableSearchAnswer(['result truncated', 'unparseable response']);
+          }
+          return [10];
+        },
+      );
+      fetchServesRows(client, [listedMessage(10, '2026-03-02T10:00:00Z')]);
+
+      const result = await service.searchEmails('test', 'invoice');
+
+      expect({ truncated: result.truncated, items: result.items.length }).toEqual({
+        truncated: true,
+        items: 1,
+      });
+    });
+
+    it('should keep the list complete when the only problem was an unrelated line', async () => {
+      client.search.mockImplementation(
+        async (_criteria: Record<string, unknown>, options?: { strict?: boolean }) => {
+          if (options?.strict) throw unreadableSearchAnswer(['unparseable response']);
+          return [10];
+        },
+      );
+      fetchServesRows(client, [listedMessage(10, '2026-03-02T10:00:00Z')]);
+
+      const result = await service.searchEmails('test', 'invoice');
+
+      expect({ truncated: result.truncated, items: result.items.length }).toEqual({
+        truncated: false,
+        items: 1,
+      });
+    });
+
+    it('should read an empty result when no SEARCH line arrived', async () => {
+      client.search.mockImplementation(
+        async (_criteria: Record<string, unknown>, options?: { strict?: boolean }) => {
+          if (options?.strict) throw unreadableSearchAnswer(['no answer']);
+          return [];
+        },
       );
 
-      await expect(service.searchEmails('test', 'invoice')).rejects.toThrow(
-        'The SEARCH answer could not be read in full',
+      const result = await service.searchEmails('test', 'invoice');
+
+      expect({ truncated: result.truncated, items: result.items.length }).toEqual({
+        truncated: false,
+        items: 0,
+      });
+      expect(client.search).toHaveBeenCalledTimes(2);
+    });
+
+    it('should rethrow a connection error instead of returning a list', async () => {
+      client.search.mockRejectedValue(
+        Object.assign(new Error('Connection closed'), { code: 'NoConnection' }),
       );
+
+      await expect(service.searchEmails('test', 'invoice')).rejects.toThrow('Connection closed');
+      expect(client.search).toHaveBeenCalledTimes(1);
+    });
+
+    it('should rethrow a failure that is not an unreadable SEARCH answer', async () => {
+      client.search.mockRejectedValue(
+        Object.assign(new Error('SMTP is down'), { details: { problems: ['result truncated'] } }),
+      );
+
+      await expect(service.searchEmails('test', 'invoice')).rejects.toThrow('SMTP is down');
       expect(client.search).toHaveBeenCalledTimes(1);
     });
   });
@@ -312,6 +380,44 @@ describe('ImapService', () => {
           pageSize: 20,
           hasMore: false,
           truncated: false,
+        });
+      },
+    );
+  });
+
+  describe('a cut answer with nothing to page', () => {
+    it.each(listers)('should keep the flag on an empty result from %s', async (_name, list) => {
+      client.search.mockImplementation(
+        async (_criteria: Record<string, unknown>, options?: { strict?: boolean }) => {
+          if (options?.strict) throw unreadableSearchAnswer();
+          return [];
+        },
+      );
+
+      const result = await list(service, {});
+
+      expect({ truncated: result.truncated, items: result.items.length }).toEqual({
+        truncated: true,
+        items: 0,
+      });
+    });
+
+    it.each(listers)(
+      'should keep the flag on a page past the last one from %s',
+      async (_name, list) => {
+        client.search.mockImplementation(
+          async (_criteria: Record<string, unknown>, options?: { strict?: boolean }) => {
+            if (options?.strict) throw unreadableSearchAnswer();
+            return [10];
+          },
+        );
+        fetchServesRows(client, [listedMessage(10, '2026-03-02T10:00:00Z')]);
+
+        const result = await list(service, { page: 2, pageSize: 1 });
+
+        expect({ truncated: result.truncated, items: result.items.length }).toEqual({
+          truncated: true,
+          items: 0,
         });
       },
     );

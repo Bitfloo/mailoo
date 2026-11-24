@@ -9,7 +9,7 @@ import { z } from 'zod';
 
 import { delimitUntrusted } from '../safety/untrusted-content.js';
 import type ImapService from '../services/imap.service.js';
-import { accountParam } from './schema-helpers.js';
+import { accountParam, PARTIAL_STATS_NOTICE } from './schema-helpers.js';
 
 export default function registerAnalyticsTools(server: McpServer, imapService: ImapService): void {
   server.registerTool(
@@ -42,7 +42,7 @@ export default function registerAnalyticsTools(server: McpServer, imapService: I
             {
               type: 'text' as const,
               // Top-sender names and addresses come from mail headers anyone can write.
-              text: delimitUntrusted(JSON.stringify(stats, null, 2)),
+              text: `${stats.truncated ? `${PARTIAL_STATS_NOTICE}\n\n` : ''}${delimitUntrusted(JSON.stringify(stats, null, 2))}`,
             },
           ],
         };
