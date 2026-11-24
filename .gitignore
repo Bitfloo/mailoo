@@ -346,7 +346,7 @@ config.toml
 .config/email-mcp/
 package-lock.json
 # npm bootstraps need their own locks; the server stays pnpm-only.
-!.github/npm-cli/package-lock.json
+!tools/npm-cli/package-lock.json
 !docker/pnpm-cli/package-lock.json
 .tmp-mailoo-att-*
 .tmp*

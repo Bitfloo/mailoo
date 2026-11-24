@@ -200,7 +200,7 @@ function exactVersion(version: string): [number, number, number] | null {
   return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
-const npmCli = JSON.parse(readFileSync(join(repoRoot, '.github/npm-cli/package.json'), 'utf8')) as {
+const npmCli = JSON.parse(readFileSync(join(repoRoot, 'tools/npm-cli/package.json'), 'utf8')) as {
   dependencies: { npm: string };
   packageManager?: string;
 };
@@ -249,7 +249,7 @@ describe('release supply chain', () => {
       input: [
         'package-lock.json',
         'docs/package-lock.json',
-        '.github/npm-cli/package-lock.json',
+        'tools/npm-cli/package-lock.json',
         'docker/pnpm-cli/package-lock.json',
       ].join('\n'),
     });
@@ -261,7 +261,7 @@ describe('release supply chain', () => {
 
   it('should lock the pinned npm CLI version with an sha512 hash in its package lock', () => {
     const lock = JSON.parse(
-      readFileSync(join(repoRoot, '.github/npm-cli/package-lock.json'), 'utf8'),
+      readFileSync(join(repoRoot, 'tools/npm-cli/package-lock.json'), 'utf8'),
     ) as { packages: Record<string, { version?: string; integrity?: string }> };
     expect(lock.packages['node_modules/npm']?.version).toBe(npmCli.dependencies.npm);
     expect(lock.packages['node_modules/npm']?.integrity).toMatch(/^sha512-/);

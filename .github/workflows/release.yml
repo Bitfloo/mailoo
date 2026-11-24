@@ -57,8 +57,8 @@ jobs:
       # attached automatically. pnpm does not do this OIDC exchange, hence npm.
       # npm ci checks the lockfile integrity. A version tag is not a hash.
       - run: npm ci --ignore-scripts
-        working-directory: .github/npm-cli
-      - run: .github/npm-cli/node_modules/.bin/npm publish --access public
+        working-directory: tools/npm-cli
+      - run: tools/npm-cli/node_modules/.bin/npm publish --access public
 
   mcp:
     name: Publish to MCP Registry
@@ -168,11 +168,11 @@ jobs:
           node-version: "24"
           registry-url: https://registry.npmjs.org
       - run: npm ci --ignore-scripts
-        working-directory: .github/npm-cli
+        working-directory: tools/npm-cli
       # Nothing waits for this job, so an alias that cannot be published (no trusted
       # publisher yet, a name taken) leaves npm, the MCP Registry and Docker alone.
       # The script runs on the same hash-pinned npm as the npm job (>= 11.5.1 is
       # what the OIDC exchange needs), so that one goes first on PATH.
-      - run: PATH="$PWD/.github/npm-cli/node_modules/.bin:$PATH" bash scripts/publish-npm-aliases.sh
+      - run: PATH="$PWD/tools/npm-cli/node_modules/.bin:$PATH" bash scripts/publish-npm-aliases.sh
         env:
           NPM_JOB_RESULT: ${{ needs.npm.result }}
