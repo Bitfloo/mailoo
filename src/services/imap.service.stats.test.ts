@@ -149,6 +149,22 @@ describe('ImapService', () => {
       );
     });
 
+    it('should keep the flag when a cut answer leaves no stats to count', async () => {
+      client.search.mockImplementation(
+        async (_criteria: Record<string, unknown>, options?: { strict?: boolean }) => {
+          if (options?.strict) throw unreadableSearchAnswer();
+          return [];
+        },
+      );
+
+      const stats = await service.getEmailStats('test', 'INBOX', 'week');
+
+      expect({ truncated: stats.truncated, totalReceived: stats.totalReceived }).toEqual({
+        truncated: true,
+        totalReceived: 0,
+      });
+    });
+
     it('should flag the statistics as partial when the SEARCH answer was cut short', async () => {
       client.search.mockImplementation(
         async (_criteria: Record<string, unknown>, options?: { strict?: boolean }) => {

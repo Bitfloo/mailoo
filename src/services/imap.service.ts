@@ -69,7 +69,8 @@ async function createMissingMailbox(
 
 /**
  * The `details.problems` of a SEARCH answer imapflow could not read in full, or null when the
- * error is something else (a lost connection, a NO/BAD rejection).
+ * error is something else (a lost connection, an unexpected failure). A NO or BAD rejection is
+ * not an error here: imapflow resolves it as no match.
  */
 function searchAnswerProblems(error: unknown): string[] | null {
   const { code, details } = (error ?? {}) as {

@@ -196,14 +196,15 @@ export function structuredToolResult(
 /**
  * Warning for a result built from a SEARCH answer imapflow could not keep in full.
  *
- * Why: the UIDs an answer keeps are the lowest ones, so the newest messages — what a list page
- * and a contact scan are built from — are the ones missing.
+ * Why: the flag also fires when the library drops entries it cannot read, not only at the 2^24
+ * UID cap, so the text names the library rather than a threshold. When the cap is the cause, the
+ * UIDs kept are the lowest ones, which leaves the newest messages out.
  */
 export const PARTIAL_LIST_NOTICE =
-  '⚠️ More messages matched than one SEARCH answer can list (16,777,216); the list is partial and the newest messages may be missing.';
+  '⚠️ imapflow could not keep the whole SEARCH answer; the list is partial and may miss the newest messages.';
 
 export const PARTIAL_SCAN_NOTICE =
-  '⚠️ More messages matched than one SEARCH answer can list (16,777,216); the scan is partial and the newest messages may be missing.';
+  '⚠️ imapflow could not keep the whole SEARCH answer; the scan is partial and may miss the newest messages.';
 
 export const PARTIAL_STATS_NOTICE =
-  '⚠️ More messages matched than one SEARCH answer can list (16,777,216); these counts cover a partial set.';
+  '⚠️ imapflow could not keep the whole SEARCH answer; these counts cover a partial set.';

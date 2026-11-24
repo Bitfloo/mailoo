@@ -104,22 +104,26 @@ HTML newsletter behind a long `<style>` block, gets no preview.
 
 imapflow holds at most 2^24 (16,777,216) UIDs from one SEARCH answer, and it
 treats an ESEARCH `ALL` answer as cut when it lists more entries than the
-mailbox `EXISTS` count. Mailoo's searches run with imapflow's `strict` option to
-notice; when the answer says it was shortened or that entries were dropped,
-Mailoo keeps the UIDs the answer carried and flags the result: `list_emails` and
+mailbox `EXISTS` count. The list, search, contact and statistics searches run
+with imapflow's `strict` option to notice; when the answer says it was shortened
+or that entries were dropped (an unreadable number, a `*` in a UID set), Mailoo
+keeps the UIDs the answer carried and flags the result: `list_emails` and
 `search_emails` print a warning and their `total` is a floor for a partial match
 set, `extract_contacts` says the scan is partial, and `get_email_stats` adds
-`truncated: true` with the warning above its counts.
+`truncated: true` with the warning above its counts. The Message-ID header
+lookups (`find_email_folder`, the thread search, label strategies) keep the
+lenient call: one header cannot match more than the cap.
 
-The UIDs an answer keeps are the lowest ones, so the newest messages are the
-ones missing: a list page is not the newest mail, and the contact scan can miss
-recent senders. A narrower query or a smaller folder is the way below the
-ceiling.
+At the 2^24 cap the UIDs an answer keeps are the lowest ones, so the newest
+messages are the ones missing: a list page is not the newest mail, and the
+contact scan can miss recent senders. A narrower query or a smaller folder is the
+way below the ceiling. Dropped entries lose messages at any mailbox size.
 
 Any other problem with a SEARCH answer — an empty answer, an unrelated line that
-did not parse, a malformed ESEARCH item — falls back to the best-effort list
-Mailoo has always returned. Only a SEARCH that fails outright (a lost
-connection, a `NO` or `BAD` rejection) fails the call.
+did not parse, a malformed ESEARCH item, a `NO` or `BAD` rejection — falls back
+to the best-effort list Mailoo has always returned; a rejection reads as no
+match, as imapflow resolves it. Only a lost connection or another unexpected
+failure fails the call.
 
 ## `bulk_action`
 

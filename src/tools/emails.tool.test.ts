@@ -276,6 +276,22 @@ describe('untrusted mail text', () => {
 
     expect(result.content[0]?.text).toContain(PARTIAL_LIST_NOTICE);
   });
+  it('should print nothing extra on an empty list_emails page when the answer was complete', async () => {
+    const listEmails = vi.fn().mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 20,
+      hasMore: false,
+      truncated: false,
+    });
+    const run = captureNamedHandler('list_emails', { listEmails }, false);
+
+    const result = await run({ account: 'box', mailbox: 'INBOX' });
+
+    expect(result.content[0]?.text).toBe('No emails found matching the criteria.');
+  });
+
   it('should warn that an empty list_emails page is partial when the answer was cut short', async () => {
     const listEmails = vi.fn().mockResolvedValue({
       items: [],
